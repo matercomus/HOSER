@@ -4,6 +4,9 @@ import numpy as np
 import pandas as pd
 import argparse
 
+# KaHIP installation path
+KAHIP_PATH = '/home/matt/Dev/KaHIP/build/kaffpa'
+
 
 def main(args):
     current_directory = os.getcwd()
@@ -14,27 +17,36 @@ def main(args):
         rel = pd.read_csv(f'../{dataset}/roadmap.rel')
 
         num_roads = len(geo)
-        undirected_matrix = np.zeros((num_roads, num_roads), dtype=bool)
+        print(f'Number of roads: {num_roads}')
+        
+        # Build adjacency lists more efficiently without huge matrix
+        adj_lists = {i: set() for i in range(num_roads)}
+        
+        print('Building adjacency lists from relations...')
         for _, row in rel.iterrows():
             origin_id = row['origin_id']
             destination_id = row['destination_id']
-            undirected_matrix[origin_id, destination_id] = True
-            undirected_matrix[destination_id, origin_id] = True
+            adj_lists[origin_id].add(destination_id)
+            adj_lists[destination_id].add(origin_id)
 
-        num_edges = np.sum(undirected_matrix)
-        assert num_edges % 2 == 0
-        num_edges //= 2
+        # Count total edges (each undirected edge counted once)
+        total_edges = sum(len(adj_list) for adj_list in adj_lists.values()) // 2
+        print(f'Total edges: {total_edges}')
 
+        print('Writing graph input file...')
         with open(f'../{dataset}/graph_input.tmp', 'w') as file:
-            file.write(f'{num_roads} {num_edges}\n')
+            file.write(f'{num_roads} {total_edges}\n')
             for rid in range(num_roads):
-                adj_rid_list = (np.where(undirected_matrix[rid]==True)[0]).tolist()
+                adj_rid_list = sorted(list(adj_lists[rid]))
+                # KaHIP expects 1-indexed node IDs
                 file.write(' '.join([str(adj_rid + 1) for adj_rid in adj_rid_list]))
                 file.write('\n')
 
         os.chdir(f'../{dataset}')
-        result = subprocess.run(f'../../KaHIP/build/kaffpa ./graph_input.tmp --k 300 --seed 0 --preconfiguration=strong --output_filename=road_network_partition', shell=True, capture_output=True, text=True)
+        result = subprocess.run(f'{KAHIP_PATH} ./graph_input.tmp --k 300 --seed 0 --preconfiguration=strong --output_filename=road_network_partition', shell=True, capture_output=True, text=True)
         print(result.stdout)
+        if result.stderr:
+            print(f"KaHIP stderr: {result.stderr}")
         os.chdir(current_directory)
 
         os.remove(f'../{dataset}/graph_input.tmp')
