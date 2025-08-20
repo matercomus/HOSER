@@ -1,0 +1,19 @@
+[project]
+name = "hoser"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "haversine>=2.9.0",
+    "loguru>=0.7.3",
+    "numpy>=2.3.2",
+    "pandas>=2.3.1",
+    "pyyaml>=6.0.2",
+    "scikit-learn>=1.7.1",
+    "shapely>=2.1.1",
+    "tensorboard>=2.20.0",
+    "torch>=2.8.0",
+    "torch-geometric>=2.6.1",
+    "tqdm>=4.67.1",
+]
