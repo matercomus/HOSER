@@ -6,5 +6,6 @@ __pycache__/
 /gene
 /*.sh
 /data/Beijing/*
+/data/Beijing-BJUT/*
 /data/Porto/*
 /data/San_Francisco/*
