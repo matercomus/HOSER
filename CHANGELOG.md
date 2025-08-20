@@ -31,3 +31,16 @@
 - Memory allocation error in training script when loading large datasets
 - AttributeError: 'int' object has no attribute 'startswith' for Beijing dataset highway values
 - Training script now works with datasets containing 1.24M+ road segments
+
+## [2024-08-20] - Dataset Loading IndexError Fix
+
+### Changed
+- **`dataset.py`**: Fixed multiprocessing data type issues for large datasets
+  - Explicitly cast all road IDs to integers to prevent type conversion issues
+  - Added dtype=np.int64 to candidate road ID arrays
+  - Enhanced type safety in trajectory processing functions
+
+### Fixed
+- IndexError: 'arrays used as indices must be of integer (or boolean) type' in dataset loading
+- Multiprocessing data type conversion issues causing array indexing failures
+- Dataset loading now works reliably with large Beijing dataset (1.24M+ roads)
