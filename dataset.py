@@ -44,16 +44,24 @@ def process_row(args):
 
     metric_dis = np.empty(len(trace_road_id), dtype=object)
     for i, candidate_road_id_list in enumerate(candidate_road_id):
-        metric_dis[i] = haversine_vector(global_road_center_gps[candidate_road_id_list], global_road_center_gps[destination_road_id].reshape(1, -1), 'm', comb=True).reshape(-1).astype(np.float32)
-        metric_dis[i] = np.log1p((metric_dis[i] - np.min(metric_dis[i])) / 100)
+        if len(candidate_road_id_list) == 0:
+            # Handle roads with no reachable destinations
+            metric_dis[i] = np.array([], dtype=np.float32)
+        else:
+            metric_dis[i] = haversine_vector(global_road_center_gps[candidate_road_id_list], global_road_center_gps[destination_road_id].reshape(1, -1), 'm', comb=True).reshape(-1).astype(np.float32)
+            metric_dis[i] = np.log1p((metric_dis[i] - np.min(metric_dis[i])) / 100)
 
     metric_angle = np.empty(len(trace_road_id), dtype=object)
     for i, (road_id, candidate_road_id_list) in enumerate(zip(trace_road_id, candidate_road_id)):
-        angle1 = np.vectorize(lambda candidate: get_angle(*(eval(global_geo.loc[road_id, 'coordinates'])[-1]), *(eval(global_geo.loc[candidate, 'coordinates'])[-1])))(candidate_road_id_list)
-        angle2 = get_angle(*(eval(global_geo.loc[road_id, 'coordinates'])[-1]), *(eval(global_geo.loc[destination_road_id, 'coordinates'])[-1]))
-        angle = np.abs(angle1 - angle2).astype(np.float32)
-        angle = np.where(angle > math.pi, 2 * math.pi - angle, angle) / math.pi
-        metric_angle[i] = angle
+        if len(candidate_road_id_list) == 0:
+            # Handle roads with no reachable destinations
+            metric_angle[i] = np.array([], dtype=np.float32)
+        else:
+            angle1 = np.vectorize(lambda candidate: get_angle(*(eval(global_geo.loc[road_id, 'coordinates'])[-1]), *(eval(global_geo.loc[candidate, 'coordinates'])[-1])))(candidate_road_id_list)
+            angle2 = get_angle(*(eval(global_geo.loc[road_id, 'coordinates'])[-1]), *(eval(global_geo.loc[destination_road_id, 'coordinates'])[-1]))
+            angle = np.abs(angle1 - angle2).astype(np.float32)
+            angle = np.where(angle > math.pi, 2 * math.pi - angle, angle) / math.pi
+            metric_angle[i] = angle
 
     candidate_len = np.array([len(candidate_road_id_list) for candidate_road_id_list in candidate_road_id])
 
