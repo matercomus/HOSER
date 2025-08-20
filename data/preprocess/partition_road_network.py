@@ -2,11 +2,12 @@ import os
 import subprocess
 import numpy as np
 import pandas as pd
+import argparse
 
 
-if __name__ == '__main__':
+def main(args):
     current_directory = os.getcwd()
-    for dataset in ['Beijing', 'Porto', 'San_Francisco']:
+    for dataset in args.datasets:
         print(f'Processing {dataset} dataset')
 
         geo = pd.read_csv(f'../{dataset}/roadmap.geo')
@@ -37,3 +38,9 @@ if __name__ == '__main__':
         os.chdir(current_directory)
 
         os.remove(f'../{dataset}/graph_input.tmp')
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--datasets', type=str, nargs='+', default=['Beijing-BJUT'])
+    args = parser.parse_args()
+    main(args)
