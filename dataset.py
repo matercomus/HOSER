@@ -24,7 +24,8 @@ def process_row(args):
     time_list = row['time_list'].split(',')
     time_list = [datetime.strptime(t, '%Y-%m-%dT%H:%M:%SZ') for t in time_list]
 
-    trace_road_id = np.array(rid_list[:-1])
+    # Ensure all road IDs are integers
+    trace_road_id = np.array([int(rid) for rid in rid_list[:-1]], dtype=np.int64)
     temporal_info = np.array([(t.hour * 60.0 + t.minute + t.second / 60.0) / 1440.0 for t in time_list[:-1]]).astype(np.float32)
 
     if time_list[0].weekday() >= 5:
@@ -35,11 +36,11 @@ def process_row(args):
     trace_time_interval_mat = np.abs(temporal_info[:, None] * 1440.0 - temporal_info * 1440.0)
     trace_time_interval_mat = np.clip(trace_time_interval_mat, 0.0, 5.0) / 5.0
     trace_len = len(trace_road_id)
-    destination_road_id = rid_list[-1]
+    destination_road_id = int(rid_list[-1])
 
     candidate_road_id = np.empty(len(trace_road_id), dtype=object)
     for i, road_id in enumerate(trace_road_id):
-        candidate_road_id[i] = np.array(global_reachable_road_id_dict[road_id])
+        candidate_road_id[i] = np.array(global_reachable_road_id_dict[road_id], dtype=np.int64)
 
     metric_dis = np.empty(len(trace_road_id), dtype=object)
     for i, candidate_road_id_list in enumerate(candidate_road_id):
@@ -56,7 +57,7 @@ def process_row(args):
 
     candidate_len = np.array([len(candidate_road_id_list) for candidate_road_id_list in candidate_road_id])
 
-    road_label = np.array([global_reachable_road_id_dict[rid_list[i]].index(rid_list[i + 1]) for i in range(len(trace_road_id))])
+    road_label = np.array([global_reachable_road_id_dict[int(rid_list[i])].index(int(rid_list[i + 1])) for i in range(len(trace_road_id))])
     timestamp_label = np.array([(time_list[i+1] - time_list[i]).total_seconds() for i in range(len(trace_road_id))]).astype(np.float32)
 
     return (
@@ -97,8 +98,8 @@ class Dataset(torch.utils.data.Dataset):
         for i in range(num_roads):
             reachable_road_id_dict[i] = []
         for _, row in rel.iterrows():
-            origin_id = row['origin_id']
-            destination_id = row['destination_id']
+            origin_id = int(row['origin_id'])
+            destination_id = int(row['destination_id'])
             reachable_road_id_dict[origin_id].append(destination_id)
 
         with multiprocessing.Pool(processes=multiprocessing.cpu_count(), initializer=init_shared_variables, initargs=(reachable_road_id_dict, geo, road_center_gps)) as pool:
