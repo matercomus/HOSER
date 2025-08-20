@@ -143,7 +143,8 @@ if __name__ == '__main__':
     road_attr_type = geo['highway'].values.tolist()
     if args.dataset in ['Beijing', 'San_Francisco']:
         for i in range(len(road_attr_type)):
-            if road_attr_type[i].startswith('[') and road_attr_type[i].endswith(']'):
+            # Only process string values that contain list representations
+            if isinstance(road_attr_type[i], str) and road_attr_type[i].startswith('[') and road_attr_type[i].endswith(']'):
                 info = eval(road_attr_type[i])
                 road_attr_type[i] = info[0] if info[0] != 'unclassified' else info[1]
     le = LabelEncoder()
@@ -181,15 +182,16 @@ if __name__ == '__main__':
         else:
             coord2road_id[end_coord].append(road_id)
 
-    road_adj = np.zeros((num_roads, num_roads), dtype=bool)
+    # Build adjacency lists more efficiently without huge matrix
+    road_adj_lists = {i: set() for i in range(num_roads)}
     for k, v in coord2road_id.items():
         for road_id1 in v:
             for road_id2 in v:
                 if road_id1 != road_id2:
-                    road_adj[road_id1, road_id2] = True
+                    road_adj_lists[road_id1].add(road_id2)
 
     for road_id in range(num_roads):
-        adj_road_id_list = np.where(road_adj[road_id])[0]
+        adj_road_id_list = list(road_adj_lists[road_id])
         for adj_road_id in adj_road_id_list:
             adj_row.append(road_id)
             adj_col.append(adj_road_id)
