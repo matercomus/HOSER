@@ -53,6 +53,6 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--datasets', type=str, nargs='+', default=['Beijing-BJUT'])
+    parser.add_argument('--datasets', type=str, nargs='+', default=['Beijing'])
     args = parser.parse_args()
     main(args)
