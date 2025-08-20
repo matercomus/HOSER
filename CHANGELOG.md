@@ -18,3 +18,16 @@
 - Reduced memory usage from 1.4 TiB to ~few GB for large road networks
 - Partitioning completed in ~87 seconds for 1.24M road network using KaHIP
 - Generated balanced 300-zone partition with cut value of 3694
+
+## [2024-08-20] - Training Script Memory Optimization
+
+### Changed
+- **`train.py`**: Applied same memory optimization for large road networks
+  - Replaced memory-intensive road adjacency matrix (1.4 TiB for 1.24M roads) with efficient adjacency lists using sets
+  - Fixed AttributeError when processing integer highway type values in Beijing dataset
+  - Added type checking for highway attribute processing to handle both string and integer values
+
+### Fixed
+- Memory allocation error in training script when loading large datasets
+- AttributeError: 'int' object has no attribute 'startswith' for Beijing dataset highway values
+- Training script now works with datasets containing 1.24M+ road segments
