@@ -18,6 +18,22 @@ Some roads in the Beijing dataset have **no reachable destinations** in the `roa
 1. Empty array indexing fails: `global_road_center_gps[empty_array]` 
 2. `numpy.abs(lat).max()` fails on zero-size arrays
 
+### Dataset Comparison Analysis
+**Working Porto Dataset (Backup: `/mnt/i/Matt-Backups/HOSER-Backups/Test-1/Porto/`):**
+- **Scale:** 11,025 roads, 25,992 relations, 108,848 trajectories
+- **Connectivity:** 99.99% of roads have outgoing connections (11,024/11,025)
+- **Density:** Well-connected, preprocessed road network
+- **Max Road ID in trajectories:** 10,057 (within bounds)
+
+**Problematic Beijing Dataset (Current):**
+- **Scale:** 1,239,015 roads, 1,359,274 relations, 50,490 trajectories  
+- **Connectivity:** ~82% estimated connectivity (from 50K sample)
+- **Issues:** ~18% of roads are dead-ends/isolated with no outgoing connections
+- **Max Road ID in trajectories:** 1,223,203 (within bounds)
+- **Problem:** Raw OSM data includes service roads, dead-ends, isolated segments
+
+**Key Insight:** The Porto dataset was likely preprocessed to remove disconnected roads, while Beijing contains raw road network data with many isolated/dead-end segments that break the trajectory processing logic.
+
 ### Issues Fixed So Far
 
 #### ✅ 1. Memory Allocation Error (Fixed)
@@ -48,18 +64,19 @@ Some roads in the Beijing dataset have **no reachable destinations** in the `roa
 ### Next Steps
 1. **Complete empty candidate handling** in `dataset.py`:
    - Handle `road_label` calculation when `next_road_id not in reachable_roads`
-   - Consider filtering out invalid trajectories or adding fallback logic
+   - Add robust fallback logic for isolated roads
    - Test with sample trajectories to verify fix
 
-2. **Data Quality Investigation:**
-   - Analyze how many roads have no reachable destinations
-   - Check if this is expected in the Beijing dataset structure
-   - Determine if trajectories should be filtered or graph connectivity improved
+2. **Data Quality Solutions (Based on Analysis):**
+   - ✅ **Confirmed:** ~18% of Beijing roads have no outgoing connections (vs 0.01% in Porto)
+   - **Immediate Fix:** Skip/filter trajectories that use roads with no reachable destinations
+   - **Long-term:** Consider preprocessing Beijing dataset to remove isolated road segments
 
-3. **Alternative Approaches:**
-   - Pre-filter trajectories to remove invalid road sequences
-   - Add default/fallback roads for isolated nodes
-   - Investigate if this is a data preprocessing issue
+3. **Implementation Approaches:**
+   - **Option A:** Filter invalid trajectory segments during dataset loading
+   - **Option B:** Add fallback logic (use closest road or skip problematic steps)
+   - **Option C:** Preprocess the road network to improve connectivity (complex)
+   - **Recommended:** Start with Option A (trajectory filtering) for quick fix
 
 ### Dataset Scale
 - **Roads:** 1,239,014 segments
@@ -68,9 +85,30 @@ Some roads in the Beijing dataset have **no reachable destinations** in the `roa
 - **Memory Optimized:** From 1.4 TiB to ~few GB
 
 ### Progress Summary
-- ✅ Memory optimization complete
-- ✅ Type errors resolved  
-- ✅ Multiprocessing indexing fixed
-- 🔄 Empty candidate arrays - in progress
-- ⏳ Full training pipeline - pending
+- ✅ Memory optimization complete (1.4 TiB → few GB)
+- ✅ Type errors resolved (highway attribute handling)
+- ✅ Multiprocessing indexing fixed (integer casting)
+- 🔄 Empty candidate arrays - root cause identified
+- ⏳ Full training pipeline - pending trajectory filtering fix
+
+### Recommended Solution
+**Quick Fix (Option A):** Modify `dataset.py` to filter out trajectory segments where roads have no reachable destinations:
+
+```python
+# In process_row function, before road_label calculation:
+valid_indices = []
+for i in range(len(trace_road_id)):
+    road_id = int(rid_list[i])
+    next_road_id = int(rid_list[i + 1])
+    if len(global_reachable_road_id_dict[road_id]) > 0 and next_road_id in global_reachable_road_id_dict[road_id]:
+        valid_indices.append(i)
+
+# Only process valid trajectory segments
+if len(valid_indices) > 0:
+    # Continue with current logic using valid_indices
+else:
+    # Skip this trajectory entirely
+```
+
+This preserves the training pipeline while handling the connectivity issues in the Beijing dataset.
 
