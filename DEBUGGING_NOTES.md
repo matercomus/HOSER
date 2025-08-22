@@ -34,6 +34,78 @@ Some roads in the Beijing dataset have **no reachable destinations** in the `roa
 
 **Key Insight:** The Porto dataset was likely preprocessed to remove disconnected roads, while Beijing contains raw road network data with many isolated/dead-end segments that break the trajectory processing logic.
 
+### Detailed Connectivity Analysis
+
+#### Beijing Dataset (Problematic)
+```
+Total Roads:           1,239,014
+Connected Roads:       1,205,985  (97.33%)
+Disconnected Roads:      33,029   (2.67%)
+Relations:             1,359,274
+Trajectory Density:         0.041 trajectories per road
+```
+
+**Sample Dead-End Roads in Beijing:**
+```
+Road ID 224: DEAD END (no outgoing connections)
+Road ID 429: DEAD END (no outgoing connections)  
+Road ID 458: DEAD END (no outgoing connections)
+Road ID 474: DEAD END (no outgoing connections)
+Road ID 536: DEAD END (no outgoing connections)
+... and 33,024 more
+```
+
+**Example Beijing Trajectory (35 roads):**
+```
+"146439,146453,146461,146484,380129,380129,380129,380129,380129,380129,
+22938,22941,554070,930189,536852,30640,537057,537060,537060,537060,
+1012870,210809,136390,136224,80751,80751,80751,210871,178852,708093,
+81191,178881,179177,457692,54090"
+```
+
+#### Porto Dataset (Working)  
+```
+Total Roads:              11,025
+Connected Roads:          11,024  (99.99%)
+Disconnected Roads:            1  (0.01%)
+Relations:                25,992
+Trajectory Density:           9.87 trajectories per road
+```
+
+**Example Porto Trajectory (51 roads):**
+```
+"7689,7799,7688,8741,8744,232,7882,758,8420,8588,814,8212,756,8237,8725,
+7669,8717,924,1036,3328,7875,7667,76,7670,8184,8214,7247,119,726,5089,
+3070,5091,5093,5097,7025,7026,7021,7028,7041,7793,799,798,3245,5378,846,
+2582,897,7949,3091,890,9995,2580"
+```
+
+### The Critical Difference
+
+**Volume vs Density Trade-off:**
+- **Beijing:** Massive road network (112x larger) with sparse trajectory coverage
+- **Porto:** Compact road network with dense trajectory coverage  
+
+**Data Quality:**
+- **Beijing:** Raw OSM data including service roads, parking lots, dead-ends
+- **Porto:** Preprocessed/filtered road network with connectivity validation
+
+**Highway Type Distribution:**
+- **Beijing:** Single integer code (99) for all roads - simplified/encoded
+- **Porto:** Diverse numeric codes (7,1,3,2,4,8,5,6,9) representing different road types
+
+### Error Manifestation
+
+When `dataset.py` processes Beijing trajectories:
+
+1. **Road Selection:** `trace_road_id = [146439, 146453, 146461, ...]`  
+2. **Candidate Lookup:** `global_reachable_road_id_dict[146439]` → `[146441]` ✅
+3. **Dead-End Road:** `global_reachable_road_id_dict[224]` → `[]` ❌  
+4. **Empty Array:** `candidate_road_id_list = np.array([], dtype=np.int64)`
+5. **Haversine Failure:** `global_road_center_gps[empty_array]` → IndexError
+
+**Result:** `ValueError: zero-size array to reduction operation maximum which has no identity`
+
 ### Issues Fixed So Far
 
 #### ✅ 1. Memory Allocation Error (Fixed)
@@ -91,24 +163,57 @@ Some roads in the Beijing dataset have **no reachable destinations** in the `roa
 - 🔄 Empty candidate arrays - root cause identified
 - ⏳ Full training pipeline - pending trajectory filtering fix
 
-### Recommended Solution
-**Quick Fix (Option A):** Modify `dataset.py` to filter out trajectory segments where roads have no reachable destinations:
+### Solution Impact Analysis
 
-```python
-# In process_row function, before road_label calculation:
-valid_indices = []
-for i in range(len(trace_road_id)):
-    road_id = int(rid_list[i])
-    next_road_id = int(rid_list[i + 1])
-    if len(global_reachable_road_id_dict[road_id]) > 0 and next_road_id in global_reachable_road_id_dict[road_id]:
-        valid_indices.append(i)
-
-# Only process valid trajectory segments
-if len(valid_indices) > 0:
-    # Continue with current logic using valid_indices
-else:
-    # Skip this trajectory entirely
+**Beijing Trajectory Data Quality Assessment:**
+```bash
+# Expected trajectory filtering impact:
+Total trajectories:        50,490
+Roads in trajectories:   ~1,223,203 (max observed)
+Dead-end roads:             33,029 (2.67% of network)
+Estimated affected trajectories: ~15-25% (will need validation)
 ```
 
-This preserves the training pipeline while handling the connectivity issues in the Beijing dataset.
+### Recommended Solution: Smart Trajectory Filtering
+
+**Implementation Strategy (Option A):** Modify `dataset.py` to filter problematic trajectory segments:
+
+```python
+def process_row(args):
+    # ... existing code ...
+    
+    # PRE-FILTER: Remove roads with no outgoing connections  
+    valid_road_pairs = []
+    for i in range(len(rid_list) - 1):
+        current_road = int(rid_list[i])
+        next_road = int(rid_list[i + 1])
+        
+        # Check if current road has outgoing connections
+        reachable = global_reachable_road_id_dict[current_road]
+        if len(reachable) > 0 and next_road in reachable:
+            valid_road_pairs.append(i)
+        else:
+            print(f"Filtering out road pair: {current_road} -> {next_road} (disconnected)")
+    
+    # Skip trajectory if too few valid segments remain
+    if len(valid_road_pairs) < 3:  # Minimum viable trajectory length
+        return None  # Skip this trajectory entirely
+    
+    # Continue processing with valid road pairs only
+    filtered_rid_list = [rid_list[i] for i in valid_road_pairs] + [rid_list[valid_road_pairs[-1] + 1]]
+    # ... continue with filtered trajectory ...
+```
+
+**Expected Outcomes:**
+- **Preserve ~75-85%** of Beijing trajectories (based on connectivity ratio)
+- **Eliminate zero-size array errors** completely  
+- **Maintain training data quality** while handling raw OSM connectivity issues
+- **Scalable approach** for other large-scale datasets with similar characteristics
+
+**Alternative Approaches:**
+- **Option B:** Add default fallback roads for isolated segments
+- **Option C:** Preprocess road network to improve connectivity (time-intensive)
+- **Option D:** Use spatial nearest-neighbor for disconnected roads
+
+**Recommended:** Start with **Option A** for immediate resolution, consider **Option C** for production deployment.
 
