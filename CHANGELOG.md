@@ -71,3 +71,22 @@
 - **Dead-end road analysis**: Detailed characterization of Beijing dead-end roads vs connected roads
 - **Road classification table**: Complete taxonomy of road types and connectivity patterns
 - **Concrete examples**: Real road segments (224, 146439) showing dead-end vs connected patterns
+
+## [2025-01-27] - Zone Transition Matrix Generation Fix
+
+### Fixed
+- **`data/preprocess/get_zone_trans_mat.py`**: TypeError when processing single-road trajectories
+  - Fixed `TypeError: 'int' object is not iterable` caused by trajectories reduced to single road IDs
+  - Added handling for single-road trajectories resulting from dead-end filtering preprocessing
+  - Convert single integers to lists for consistent processing: `eval('943754')` → `[943754]`
+  - Skip trajectories with fewer than 2 roads (no zone transitions possible)
+
+### Added
+- **Trajectory filtering statistics**: Log count of skipped single-road trajectories
+- **Robust preprocessing pipeline**: Handle edge cases from dead-end road filtering
+- **Beijing-specific processing**: Limited script to Beijing dataset for current development
+
+### Performance
+- **Successfully processed**: 8,345 trajectories with only 6 single-road trajectories skipped (0.07%)
+- **Zone transition matrix generated**: 704K output file for Beijing dataset
+- **Preprocessing pipeline complete**: Ready for training script execution
