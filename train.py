@@ -267,7 +267,7 @@ if __name__ == '__main__':
         config.optimizer_config.batch_size,
         shuffle=True,
         collate_fn=MyCollateFn(timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std),
-        num_workers=4,
+        num_workers=8,
         pin_memory=True,
     )
     val_dataloader = DataLoader(
@@ -275,7 +275,7 @@ if __name__ == '__main__':
         config.optimizer_config.batch_size,
         shuffle=False,
         collate_fn=MyCollateFn(timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std),
-        num_workers=4,
+        num_workers=8,
         pin_memory=True,
     )
     test_dataloader = DataLoader(
@@ -283,7 +283,7 @@ if __name__ == '__main__':
         config.optimizer_config.batch_size,
         shuffle=False,
         collate_fn=MyCollateFn(timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std),
-        num_workers=4,
+        num_workers=8,
         pin_memory=True,
     )
 
