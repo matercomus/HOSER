@@ -44,3 +44,27 @@
 - IndexError: 'arrays used as indices must be of integer (or boolean) type' in dataset loading
 - Multiprocessing data type conversion issues causing array indexing failures
 - Dataset loading now works reliably with large Beijing dataset (1.24M+ roads)
+
+## [2025-01-27] - Comprehensive Dataset Analysis and Error Documentation
+
+### Added
+- **`DEBUGGING_NOTES.md`**: Comprehensive analysis of Beijing vs Porto dataset differences
+  - Detailed connectivity analysis: Beijing 97.33% vs Porto 99.99% road connectivity
+  - Concrete examples of 33,029 dead-end roads in Beijing causing zero-size array errors
+  - Real trajectory samples showing scale differences (Beijing: 35 roads, Porto: 51 roads)
+  - Error manifestation flow from disconnected roads to haversine calculation failures
+  - Smart trajectory filtering solution with expected 75-85% data preservation
+
+### Analysis
+- **Dataset Characteristics:**
+  - Beijing: 1,239,014 roads, 0.041 trajectories/road (sparse, raw OSM data)
+  - Porto: 11,025 roads, 9.87 trajectories/road (dense, preprocessed data)
+  - Scale factor: Beijing 112x larger network, 240x lower trajectory density
+- **Root Cause:** Raw OSM data includes service roads, parking lots, isolated segments vs preprocessed connectivity
+- **Error Pattern:** Dead-end roads → empty candidate arrays → `ValueError: zero-size array to reduction operation maximum`
+
+### Documentation
+- Enhanced debugging notes with concrete road IDs, trajectory examples, and connectivity statistics
+- Implementation strategy for trajectory filtering with minimum viable segment validation
+- Alternative solution approaches (spatial nearest-neighbor, network preprocessing)
+- Clear roadmap for resolving zero-size array errors while preserving data quality
