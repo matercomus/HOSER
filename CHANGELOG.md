@@ -68,3 +68,6 @@
 - Implementation strategy for trajectory filtering with minimum viable segment validation
 - Alternative solution approaches (spatial nearest-neighbor, network preprocessing)
 - Clear roadmap for resolving zero-size array errors while preserving data quality
+- **Dead-end road analysis**: Detailed characterization of Beijing dead-end roads vs connected roads
+- **Road classification table**: Complete taxonomy of road types and connectivity patterns
+- **Concrete examples**: Real road segments (224, 146439) showing dead-end vs connected patterns

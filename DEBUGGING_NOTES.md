@@ -106,6 +106,70 @@ When `dataset.py` processes Beijing trajectories:
 
 **Result:** `ValueError: zero-size array to reduction operation maximum which has no identity`
 
+### Dead-End Road Characteristics in Beijing Dataset
+
+#### What Dead-End Roads Are NOT:
+❌ **NOT** empty rows with only road IDs  
+❌ **NOT** missing from `roadmap.geo`  
+❌ **NOT** completely isolated road segments  
+
+#### What Dead-End Roads Actually Are:
+✅ **Complete road segments** with full geometry, coordinates, and properties  
+✅ **Reachable destinations** - appear as `destination_id` in `roadmap.rel`  
+✅ **Real OSM features** - service roads, parking areas, driveways, cul-de-sacs  
+❌ **No outgoing connections** - never appear as `origin_id` in `roadmap.rel`  
+
+#### Road Classification in Beijing Dataset:
+
+| **Road Type** | **In roadmap.geo** | **As origin_id** | **As destination_id** | **Problem** |
+|---------------|-------------------|------------------|---------------------|-------------|
+| **Connected** | ✅ | ✅ (has outgoing) | ✅ (has incoming) | None |
+| **Dead-End** | ✅ | ❌ (no outgoing) | ✅ (has incoming) | **Empty candidate arrays** |
+| **Isolated** | ✅ | ❌ (no outgoing) | ❌ (no incoming) | **Completely disconnected** |
+
+#### Concrete Example - Road 224 (Dead-End):
+```bash
+# EXISTS in roadmap.geo with complete geometry:
+224,LineString,"[[116.40970611572266,39.920475006103516],
+               [116.40972137451172,39.920982360839844]]",99,0,0,0,0,0,56.43,0.0
+
+# CAN BE REACHED - appears as destination:  
+285,geo,222,224  # Road 222 connects TO road 224
+
+# CANNOT CONTINUE - missing as origin:
+# No entries like: xxx,geo,224,yyy  ← This causes the empty array!
+```
+
+#### Connected Road Comparison - Road 146439:
+```bash
+# Connectivity Analysis:
+- As origin: 1 connection ✅ (can reach other roads)
+- As destination: 1 incoming ✅ (can be reached)  
+- In geo file: 1 entry ✅ (complete geometry)
+```
+
+#### Error Manifestation in Code:
+```python
+# In dataset.py when processing trajectories:
+reachable_roads = global_reachable_road_id_dict[224]  # Returns []
+candidate_road_id_list = np.array([], dtype=np.int64)  # Empty!
+
+# Later in haversine calculation:
+haversine_vector(global_road_center_gps[empty_array], ...)  # FAILS!
+# ValueError: zero-size array to reduction operation maximum
+```
+
+#### Beijing vs Porto Dead-End Statistics:
+```
+Beijing Dead-Ends: 33,029 roads (2.67% of network)
+- Service roads, parking areas, driveways from raw OSM
+- Real geometric segments that terminate
+
+Porto Dead-Ends: 1 road (0.01% of network)  
+- Preprocessed data with connectivity filtering
+- Dead-ends likely removed during data cleaning
+```
+
 ### Issues Fixed So Far
 
 #### ✅ 1. Memory Allocation Error (Fixed)
