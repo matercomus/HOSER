@@ -5,7 +5,4 @@ __pycache__/
 /tensorboard_log
 /gene
 /*.sh
-/data/Beijing/*
-/data/Beijing-BJUT/*
-/data/Porto/*
-/data/San_Francisco/*
+/data/*
