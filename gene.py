@@ -86,7 +86,9 @@ class Searcher:
                 best_trace = cur_node.trace_road_id, cur_node.trace_datetime
 
             reachable_road_id_list = self.reachable_road_id_dict[cur_road_id]
-            assert len(reachable_road_id_list) > 0
+            if len(reachable_road_id_list) == 0:
+                # Dead-end road reached, skip this path
+                continue
 
             # Predicts the next spatio-temporal point based on the current state
             trace_road_id = np.array(cur_node.trace_road_id)
@@ -346,10 +348,34 @@ if __name__ == '__main__':
     print(f'timestamp_label_array_log1p_mean {timestamp_label_array_log1p_mean:.3f}')
     print(f'timestamp_label_array_log1p_std {timestamp_label_array_log1p_std:.3f}')
 
-    od_indices = np.random.choice(non_zero_indices, size=args.num_gene, p=od_probabilities)
+    # Filter out dead-end destinations (roads with no outgoing connections)
+    valid_destinations = [i for i in range(num_roads) if len(reachable_road_id_dict[i]) > 0]
+    valid_od_indices = []
+    valid_od_probabilities = []
+    
+    for idx in non_zero_indices:
+        origin_idx, dest_idx = np.unravel_index(idx, od_mat.shape)
+        if dest_idx in valid_destinations:
+            valid_od_indices.append(idx)
+            valid_od_probabilities.append(od_probabilities[non_zero_indices == idx][0])
+    
+    if len(valid_od_indices) == 0:
+        raise ValueError("No valid origin-destination pairs found (all destinations are dead-ends)")
+    
+    # Normalize probabilities
+    valid_od_probabilities = np.array(valid_od_probabilities)
+    valid_od_probabilities = valid_od_probabilities / valid_od_probabilities.sum()
+    
+    od_indices = np.random.choice(valid_od_indices, size=args.num_gene, p=valid_od_probabilities)
     od_coords = np.column_stack(np.unravel_index(od_indices, od_mat.shape))
 
-    origin_datetime_list = [datetime.strptime(row.split(',')[0], '%Y-%m-%dT%H:%M:%SZ') for row in random.sample(list(train_traj['time_list']), args.num_gene)]
+    # Sample timestamps with replacement if needed
+    time_list = list(train_traj['time_list'])
+    if len(time_list) >= args.num_gene:
+        origin_datetime_list = [datetime.strptime(row.split(',')[0], '%Y-%m-%dT%H:%M:%SZ') for row in random.sample(time_list, args.num_gene)]
+    else:
+        # Sample with replacement if we need more timestamps than available
+        origin_datetime_list = [datetime.strptime(row.split(',')[0], '%Y-%m-%dT%H:%M:%SZ') for row in random.choices(time_list, k=args.num_gene)]
 
     model = HOSER(
         config.road_network_encoder_config,

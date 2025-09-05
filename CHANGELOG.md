@@ -90,3 +90,33 @@
 - **Successfully processed**: 8,345 trajectories with only 6 single-road trajectories skipped (0.07%)
 - **Zone transition matrix generated**: 704K output file for Beijing dataset
 - **Preprocessing pipeline complete**: Ready for training script execution
+
+## [2025-09-05] - Road ID Sequential Indexing and Dead-End Handling
+
+### Fixed
+- **`data/preprocess/partition_road_network.py`**: Modified to use actual road IDs from data files
+  - Replaced sequential index assumption with actual `geo_id` values from roadmap.geo
+  - Added bidirectional mapping between actual road IDs and sequential indices for KaHIP compatibility
+  - Created `road_id_mapping.csv` output file to preserve ID relationships
+  - Fixed KeyError when road IDs were non-sequential (e.g., 191210, 1598, etc.)
+
+- **`data/preprocess/get_zone_trans_mat.py`**: Updated to work with actual road IDs
+  - Added mapping file loading to convert actual road IDs to sequential indices
+  - Fixed IndexError when accessing partition data with non-sequential road IDs
+  - Added error handling for unmapped road IDs in trajectory data
+
+- **`gene.py`**: Enhanced trajectory generation to handle dead-end roads
+  - Added dead-end destination filtering to prevent selecting roads with no outgoing connections
+  - Implemented dead-end path handling in search algorithm to skip problematic roads during pathfinding
+  - Added timestamp sampling with replacement to allow generating more trajectories than training examples
+  - Fixed AssertionError when encountering dead-end roads during trajectory generation
+
+### Changed
+- **Dataset preprocessing**: All scripts now work with actual road IDs from data files instead of assuming sequential 0-based indexing
+- **Trajectory generation**: Successfully generates 100 trajectories from Beijing dataset with 73 dead-end roads
+- **Error handling**: Robust handling of network connectivity issues in sparse road networks
+
+### Performance
+- **Beijing dataset analysis**: 2,791 roads total, 73 dead-end roads, 1 isolated road
+- **Trajectory generation**: Successfully generated 100 trajectories in ~74 seconds
+- **Memory efficiency**: Maintained efficient processing despite non-sequential road ID mapping
