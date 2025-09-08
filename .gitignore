@@ -7,3 +7,5 @@ __pycache__/
 /*.sh
 /data/*
 HOSER_paper.pdf
+HOSER_paper.txt
+EVAL_NOTES.md
