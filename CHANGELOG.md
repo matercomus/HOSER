@@ -6,6 +6,7 @@
 - **Critical Out-of-Memory (OOM) Error**: Resolved a major memory bottleneck in `dataset.py` where the entire dataset was loaded into RAM, causing crashes during training with many workers. The script now runs with a minimal memory footprint.
 - **`_pickle.UnpicklingError`**: Fixed a loading error caused by a security update in PyTorch >= 2.6 that defaults `torch.load` to `weights_only=True`. Explicitly set `weights_only=False` for trusted, self-generated cache files.
 - **`FutureWarning` Deprecations**: Updated all instances of the deprecated `torch.cuda.amp` API to the modern `torch.amp` API in `train.py`, eliminating console warnings.
+- **`gene.py` Hanging Issue**: Fixed trajectory generation script that was getting stuck during silent preprocessing phase due to memory-intensive adjacency matrix construction.
 
 ### Changed
 - **`dataset.py`**: Re-architected the `Dataset` class to use an on-disk caching strategy.
@@ -13,10 +14,16 @@
   - The dataset now lazy-loads data samples on demand, dramatically reducing RAM usage.
 - **`train.py`**: Adapted the training script to work with the new caching dataset.
   - Removed manual in-memory statistics calculation, instead loading pre-calculated stats from the cache.
+- **`gene.py`**: Applied same memory optimization and added comprehensive logging.
+  - Replaced memory-intensive adjacency matrix with efficient adjacency list construction (same fix as `train.py`).
+  - Added verbose logging with progress bars for all major preprocessing steps.
+  - Updated deprecated `torch.cuda.amp` calls to modern `torch.amp` API.
+  - Added type safety for highway attribute processing to handle both string and integer values.
 
 ### Performance
 - **Memory Usage**: Reduced RAM consumption during training from >30GB (causing OOM) to a negligible amount, allowing the script to run smoothly.
 - **Preprocessing**: A one-time preprocessing step is now required, which caches the entire dataset to disk. Subsequent training runs start much faster without this overhead.
+- **Trajectory Generation**: Script now provides immediate feedback and runs efficiently without hanging during graph construction phase.
 
 ## [2025-09-05] - Road ID Sequential Indexing and Dead-End Handling
 
