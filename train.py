@@ -268,7 +268,7 @@ if __name__ == '__main__':
         shuffle=True,
         collate_fn=MyCollateFn(timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std),
         num_workers=16,
-        pin_memory=True,
+        pin_memory=False,
     )
     val_dataloader = DataLoader(
         val_dataset,
@@ -276,7 +276,7 @@ if __name__ == '__main__':
         shuffle=False,
         collate_fn=MyCollateFn(timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std),
         num_workers=16,
-        pin_memory=True,
+        pin_memory=False,
     )
     test_dataloader = DataLoader(
         test_dataset,
@@ -284,7 +284,7 @@ if __name__ == '__main__':
         shuffle=False,
         collate_fn=MyCollateFn(timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std),
         num_workers=16,
-        pin_memory=True,
+        pin_memory=False,
     )
 
     # Start training
