@@ -5,6 +5,7 @@ import json
 import math
 from datetime import datetime, timedelta
 import random
+from collections import Counter
 import yaml
 from tqdm import tqdm
 import pandas as pd
@@ -334,21 +335,19 @@ if __name__ == '__main__':
     train_traj = pd.read_csv(train_traj_file)
     print(f"✅ Loaded {len(train_traj)} trajectories.")
 
-    print("... Calculating OD matrix...")
-    od_mat = np.zeros((num_roads, num_roads), dtype=np.float32)
+    print("... Calculating OD matrix using memory-efficient method...")
+    od_counts = Counter()
     for _, row in tqdm(train_traj.iterrows(), total=len(train_traj), desc="Calculating OD"):
         rid_list = eval(row['rid_list'])
+        if len(rid_list) < 2:
+            continue
         origin_id = rid_list[0]
         destination_id = rid_list[-1]
-        od_mat[origin_id][destination_id] += 1.0
-
-    non_zero_indices = np.flatnonzero(od_mat)
-    od_flat = od_mat.ravel()[non_zero_indices]
-    od_probabilities = od_flat / np.sum(od_flat)
-    print("✅ OD matrix complete.")
+        od_counts[(origin_id, destination_id)] += 1.0
+    
+    print("✅ OD matrix calculation complete.")
 
     # Generating trajectories
-
     print("🕒 Calculating timestamp statistics...")
     timestamp_label_array = []
     for _, row in train_traj.iterrows():
@@ -363,26 +362,29 @@ if __name__ == '__main__':
 
     print(f'📊 Timestamp Stats: mean {timestamp_label_array_log1p_mean:.3f}, std {timestamp_label_array_log1p_std:.3f}')
 
+    print(" lọc... Filtering valid OD pairs...")
     # Filter out dead-end destinations (roads with no outgoing connections)
-    valid_destinations = [i for i in range(num_roads) if len(reachable_road_id_dict[i]) > 0]
-    valid_od_indices = []
-    valid_od_probabilities = []
+    valid_destinations = {i for i in range(num_roads) if len(reachable_road_id_dict[i]) > 0}
     
-    for idx in non_zero_indices:
-        origin_idx, dest_idx = np.unravel_index(idx, od_mat.shape)
-        if dest_idx in valid_destinations:
-            valid_od_indices.append(idx)
-            valid_od_probabilities.append(od_probabilities[non_zero_indices == idx][0])
+    valid_od_pairs = []
+    valid_od_counts = []
     
-    if len(valid_od_indices) == 0:
+    for (origin_id, dest_id), count in tqdm(od_counts.items(), desc="Filtering OD pairs"):
+        if dest_id in valid_destinations:
+            valid_od_pairs.append((origin_id, dest_id))
+            valid_od_counts.append(count)
+
+    if not valid_od_pairs:
         raise ValueError("No valid origin-destination pairs found (all destinations are dead-ends)")
-    
-    # Normalize probabilities
-    valid_od_probabilities = np.array(valid_od_probabilities)
-    valid_od_probabilities = valid_od_probabilities / valid_od_probabilities.sum()
-    
-    od_indices = np.random.choice(valid_od_indices, size=args.num_gene, p=valid_od_probabilities)
-    od_coords = np.column_stack(np.unravel_index(od_indices, od_mat.shape))
+
+    valid_od_counts = np.array(valid_od_counts, dtype=np.float32)
+    od_probabilities = valid_od_counts / valid_od_counts.sum()
+    print(f"✅ Found {len(valid_od_pairs)} valid OD pairs.")
+
+    print(f"🎲 Sampling {args.num_gene} OD pairs for generation...")
+    num_valid_pairs = len(valid_od_pairs)
+    sampled_indices = np.random.choice(num_valid_pairs, size=args.num_gene, p=od_probabilities)
+    od_coords = [valid_od_pairs[i] for i in sampled_indices]
 
     # Sample timestamps with replacement if needed
     time_list = list(train_traj['time_list'])
