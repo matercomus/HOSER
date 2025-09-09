@@ -443,7 +443,7 @@ if __name__ == '__main__':
     test_next_step_correct_cnt, test_next_step_total_cnt = 0, 0
     test_time_pred_mape_sum, test_time_pred_total_cnt = 0, 0
 
-    for batch_id, (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in enumerate(tqdm(test_dataloader, desc=f'[testing]')):
+    for batch_id, (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in enumerate(tqdm(test_dataloader, desc='[testing]')):
         batch_trace_road_id = batch_trace_road_id.to(device)
         batch_temporal_info = batch_temporal_info.to(device)
         batch_trace_distance_mat = batch_trace_distance_mat.to(device)
@@ -482,4 +482,4 @@ if __name__ == '__main__':
 
     logger.info(f'[testing] test_next_step_acc {test_next_step_correct_cnt/test_next_step_total_cnt:.3f}, test_time_pred_mape {test_time_pred_mape_sum/test_time_pred_total_cnt:.3f}')
 
-    torch.save(model.state_dict(), os.path.join(save_dir, f'best.pth'))
+    torch.save(model.state_dict(), os.path.join(save_dir, 'best.pth'))
