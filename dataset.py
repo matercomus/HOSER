@@ -1,5 +1,7 @@
 import math
 import multiprocessing
+import os
+import json
 from datetime import datetime
 from tqdm import tqdm
 import numpy as np
@@ -17,8 +19,8 @@ def init_shared_variables(reachable_road_id_dict, geo, road_center_gps):
     global_geo = geo
     global_road_center_gps = road_center_gps
 
-def process_row(args):
-    index, row = args
+def process_and_save_row(args):
+    index, row, cache_dir = args
 
     rid_list = eval(row['rid_list'])
     time_list = row['time_list'].split(',')
@@ -68,93 +70,105 @@ def process_row(args):
     road_label = np.array([global_reachable_road_id_dict[int(rid_list[i])].index(int(rid_list[i + 1])) for i in range(len(trace_road_id))])
     timestamp_label = np.array([(time_list[i+1] - time_list[i]).total_seconds() for i in range(len(trace_road_id))]).astype(np.float32)
 
-    return (
-        index,
-        {
-            'trace_road_id': trace_road_id,
-            'temporal_info': temporal_info,
-            'trace_distance_mat': trace_distance_mat,
-            'trace_time_interval_mat': trace_time_interval_mat,
-            'trace_len': trace_len,
-            'destination_road_id': destination_road_id,
-            'candidate_road_id': candidate_road_id,
-            'metric_dis': metric_dis,
-            'metric_angle': metric_angle,
-            'candidate_len': candidate_len,
-            'road_label': road_label,
-            'timestamp_label': timestamp_label,
-        }
-    )
+    data_to_save = {
+        'trace_road_id': trace_road_id,
+        'temporal_info': temporal_info,
+        'trace_distance_mat': trace_distance_mat,
+        'trace_time_interval_mat': trace_time_interval_mat,
+        'trace_len': trace_len,
+        'destination_road_id': destination_road_id,
+        'candidate_road_id': candidate_road_id,
+        'metric_dis': metric_dis,
+        'metric_angle': metric_angle,
+        'candidate_len': candidate_len,
+        'road_label': road_label,
+        'timestamp_label': timestamp_label,
+    }
+    
+    output_path = os.path.join(cache_dir, f'data_{index}.pt')
+    torch.save(data_to_save, output_path)
+
+    return timestamp_label
 
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, geo_file, rel_file, traj_file):
-        geo = pd.read_csv(geo_file)
-        rel = pd.read_csv(rel_file)
-        traj = pd.read_csv(traj_file)
+        cache_dir = os.path.splitext(traj_file)[0] + '_cache'
+        stats_file = os.path.join(cache_dir, 'stats.json')
 
-        road_center_gps = []
-        for _, row in geo.iterrows():
-            coordinates = eval(row['coordinates'])
-            road_line = LineString(coordinates=coordinates)
-            center_coord = road_line.centroid
-            road_center_gps.append((center_coord.y, center_coord.x))
-        road_center_gps = np.array(road_center_gps)
+        if not os.path.exists(cache_dir) or not os.listdir(cache_dir) or not os.path.exists(stats_file):
+            print(f"Cache not found or incomplete for {traj_file}. Preprocessing...")
+            os.makedirs(cache_dir, exist_ok=True)
+            
+            geo = pd.read_csv(geo_file)
+            rel = pd.read_csv(rel_file)
+            traj = pd.read_csv(traj_file)
 
-        reachable_road_id_dict = dict()
-        num_roads = len(geo)
-        for i in range(num_roads):
-            reachable_road_id_dict[i] = []
-        for _, row in rel.iterrows():
-            origin_id = int(row['origin_id'])
-            destination_id = int(row['destination_id'])
-            reachable_road_id_dict[origin_id].append(destination_id)
+            road_center_gps = []
+            for _, row in geo.iterrows():
+                coordinates = eval(row['coordinates'])
+                road_line = LineString(coordinates=coordinates)
+                center_coord = road_line.centroid
+                road_center_gps.append((center_coord.y, center_coord.x))
+            road_center_gps = np.array(road_center_gps)
 
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count(), initializer=init_shared_variables, initargs=(reachable_road_id_dict, geo, road_center_gps)) as pool:
-            results = list(tqdm(pool.imap_unordered(process_row, traj.iterrows()), total=len(traj), desc='load dataset'))
+            reachable_road_id_dict = dict()
+            num_roads = len(geo)
+            for i in range(num_roads):
+                reachable_road_id_dict[i] = []
+            for _, row in rel.iterrows():
+                origin_id = int(row['origin_id'])
+                destination_id = int(row['destination_id'])
+                reachable_road_id_dict[origin_id].append(destination_id)
 
-        self.trace_road_id = [None] * len(traj)
-        self.temporal_info = [None] * len(traj)
-        self.trace_distance_mat = [None] * len(traj)
-        self.trace_time_interval_mat = [None] * len(traj)
-        self.trace_len = [None] * len(traj)
-        self.destination_road_id = [None] * len(traj)
-        self.candidate_road_id = [None] * len(traj)
-        self.metric_dis = [None] * len(traj)
-        self.metric_angle = [None] * len(traj)
-        self.candidate_len = [None] * len(traj)
-        self.road_label = [None] * len(traj)
-        self.timestamp_label = [None] * len(traj)
+            all_timestamp_labels = []
+            with multiprocessing.Pool(processes=multiprocessing.cpu_count(), initializer=init_shared_variables, initargs=(reachable_road_id_dict, geo, road_center_gps)) as pool:
+                tasks = [(index, row, cache_dir) for index, row in traj.iterrows()]
+                for labels in tqdm(pool.imap_unordered(process_and_save_row, tasks), total=len(traj), desc=f'Preprocessing {os.path.basename(traj_file)}'):
+                    all_timestamp_labels.extend(labels)
 
-        for i, data in results:
-            self.trace_road_id[i] = data['trace_road_id']
-            self.temporal_info[i] = data['temporal_info']
-            self.trace_distance_mat[i] = data['trace_distance_mat']
-            self.trace_time_interval_mat[i] = data['trace_time_interval_mat']
-            self.trace_len[i] = data['trace_len']
-            self.destination_road_id[i] = data['destination_road_id']
-            self.candidate_road_id[i] = data['candidate_road_id']
-            self.metric_dis[i] = data['metric_dis']
-            self.metric_angle[i] = data['metric_angle']
-            self.candidate_len[i] = data['candidate_len']
-            self.road_label[i] = data['road_label']
-            self.timestamp_label[i] = data['timestamp_label']
+            timestamp_label_array = np.array(all_timestamp_labels, dtype=np.float32)
+            mean = np.log1p(timestamp_label_array).mean()
+            std = np.log1p(timestamp_label_array).std()
+            with open(stats_file, 'w') as f:
+                json.dump({'mean': mean.item(), 'std': std.item()}, f)
+
+            self.timestamp_label_log1p_mean = mean
+            self.timestamp_label_log1p_std = std
+        else:
+            print(f"Loading preprocessed data from cache {cache_dir}")
+            with open(stats_file, 'r') as f:
+                stats = json.load(f)
+            self.timestamp_label_log1p_mean = stats['mean']
+            self.timestamp_label_log1p_std = stats['std']
+
+        self.file_paths = sorted(
+            [os.path.join(cache_dir, f) for f in os.listdir(cache_dir) if f.endswith('.pt')],
+            key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0])
+        )
 
     def __len__(self):
-        return len(self.trace_road_id)
+        return len(self.file_paths)
     
     def __getitem__(self, i):
+        data = torch.load(self.file_paths[i], weights_only=False)
         return (
-            self.trace_road_id[i],
-            self.temporal_info[i],
-            self.trace_distance_mat[i],
-            self.trace_time_interval_mat[i],
-            self.trace_len[i],
-            self.destination_road_id[i],
-            self.candidate_road_id[i],
-            self.metric_dis[i],
-            self.metric_angle[i],
-            self.candidate_len[i],
-            self.road_label[i],
-            self.timestamp_label[i],
+            data['trace_road_id'],
+            data['temporal_info'],
+            data['trace_distance_mat'],
+            data['trace_time_interval_mat'],
+            data['trace_len'],
+            data['destination_road_id'],
+            data['candidate_road_id'],
+            data['metric_dis'],
+            data['metric_angle'],
+            data['candidate_len'],
+            data['road_label'],
+            data['timestamp_label'],
         )
+
+    def get_stats(self):
+        return {
+            'mean': self.timestamp_label_log1p_mean,
+            'std': self.timestamp_label_log1p_std
+        }

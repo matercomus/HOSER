@@ -252,12 +252,9 @@ if __name__ == '__main__':
     val_dataset = Dataset(geo_file, rel_file, val_traj_file)
     test_dataset = Dataset(geo_file, rel_file, test_traj_file)
 
-    timestamp_label_array = []
-    for item in train_dataset:
-        timestamp_label_array.extend(item[11])
-    timestamp_label_array = np.array(timestamp_label_array)
-    timestamp_label_array_log1p_mean = np.log1p(timestamp_label_array).mean()
-    timestamp_label_array_log1p_std = np.log1p(timestamp_label_array).std()
+    train_stats = train_dataset.get_stats()
+    timestamp_label_array_log1p_mean = train_stats['mean']
+    timestamp_label_array_log1p_std = train_stats['std']
 
     logger.info(f'timestamp_label_array_log1p_mean {timestamp_label_array_log1p_mean:.3f}')
     logger.info(f'timestamp_label_array_log1p_std {timestamp_label_array_log1p_std:.3f}')
@@ -303,7 +300,7 @@ if __name__ == '__main__':
     logger.info(f'config.navigator_config {config.navigator_config}')
     logger.info(f'road2zone {road2zone}')
 
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler()
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.optimizer_config.learning_rate, weight_decay=config.optimizer_config.weight_decay)
 
     metrics_list = []
@@ -323,7 +320,7 @@ if __name__ == '__main__':
     for epoch_id in range(config.optimizer_config.max_epoch):
         model.train()
         for batch_id, (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in enumerate(tqdm(train_dataloader, desc=f'[training] epoch{epoch_id+1}')):
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type='cuda'):
                 model.setup_road_network_features()
 
             batch_trace_road_id = batch_trace_road_id.to(device)
@@ -346,7 +343,7 @@ if __name__ == '__main__':
 
             optimizer.zero_grad()
 
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type='cuda'):
                 logits, time_pred = model(batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle)
 
                 logits_mask = torch.arange(logits.size(1), dtype=torch.int64, device=device).unsqueeze(0) < batch_trace_len.unsqueeze(1)
@@ -383,7 +380,7 @@ if __name__ == '__main__':
 
         model.eval()
         with torch.no_grad():
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type='cuda'):
                 model.setup_road_network_features()
 
         val_next_step_correct_cnt, val_next_step_total_cnt = 0, 0
@@ -404,7 +401,7 @@ if __name__ == '__main__':
             batch_timestamp_label = batch_timestamp_label.to(device)
 
             with torch.no_grad():
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast(device_type='cuda'):
                     logits, time_pred = model(batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle)
 
                     logits_mask = torch.arange(logits.size(1), dtype=torch.int64, device=device).unsqueeze(0) < batch_trace_len.unsqueeze(1)
@@ -440,7 +437,7 @@ if __name__ == '__main__':
 
     model.eval()
     with torch.no_grad():
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast(device_type='cuda'):
             model.setup_road_network_features()
 
     test_next_step_correct_cnt, test_next_step_total_cnt = 0, 0
@@ -461,7 +458,7 @@ if __name__ == '__main__':
         batch_timestamp_label = batch_timestamp_label.to(device)
 
         with torch.no_grad():
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type='cuda'):
                 logits, time_pred = model(batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle)
 
                 logits_mask = torch.arange(logits.size(1), dtype=torch.int64, device=device).unsqueeze(0) < batch_trace_len.unsqueeze(1)
