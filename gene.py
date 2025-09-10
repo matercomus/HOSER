@@ -890,7 +890,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--cuda', type=int, default=0)
     parser.add_argument('--num_gene', type=int, default=5000)
-    parser.add_argument('--processes', type=int, default=1, help='(Deprecated - single process is optimal for GPU inference)')
+    parser.add_argument('--processes', type=int, default=1, help='Number of CPU processes for parallel trajectory generation')
     parser.add_argument('--beam_search', action='store_true', help='Use beam search instead of A* search')
     parser.add_argument('--beam_width', type=int, default=8, help='Beam width for beam search')
     parser.add_argument('--vectorized', action='store_true', help='Use vectorized GPU-parallel search')
@@ -976,7 +976,47 @@ if __name__ == '__main__':
                        data['timestamp_label_array_log1p_std'], device)
     
     # Process trajectories 
-    if args.vectorized:
+    if args.processes > 1:
+        print(f"🚀 Using {args.processes} CPU processes for parallel search")
+        # Use multiprocessing for CPU-bound work
+        from multiprocessing import Pool
+        
+        def process_trajectory(args_tuple):
+            idx, origin_road_id, destination_road_id, origin_datetime, model_state, data, device, beam_search, beam_width, num_reachable_dict = args_tuple
+            
+            # Create model and searcher for this process
+            model = HOSER(num_reachable_dict).to(device)
+            model.load_state_dict(model_state)
+            model.eval()
+            
+            searcher = Searcher(model, data['reachable_road_id_dict'], data['geo'], 
+                              data['road_center_gps'], data['road_end_coords'], 
+                              data['timestamp_label_array_log1p_mean'], 
+                              data['timestamp_label_array_log1p_std'], device)
+            
+            if beam_search:
+                trace_road_id, trace_datetime = searcher.beam_search(origin_road_id, origin_datetime, destination_road_id, beam_width=beam_width)
+            else:
+                trace_road_id, trace_datetime = searcher.search(origin_road_id, origin_datetime, destination_road_id)
+            
+            return idx, trace_road_id, trace_datetime
+        
+        # Prepare arguments for multiprocessing
+        model_state = model.state_dict()
+        mp_args = [(i, od[0], od[1], t, model_state, data, device, args.beam_search, args.beam_width, num_reachable_dict) 
+                   for i, (od, t) in enumerate(zip(od_coords, origin_datetime_list))]
+        
+        with Pool(processes=args.processes) as pool:
+            results = list(tqdm(pool.imap(process_trajectory, mp_args), 
+                              total=len(mp_args), desc='Generating trajectories'))
+        
+        # Sort results by index and store
+        results.sort(key=lambda x: x[0])
+        for idx, trace_road_id, trace_datetime in results:
+            gene_trace_road_id[idx] = trace_road_id
+            gene_trace_datetime[idx] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
+            
+    elif args.vectorized:
         print(f"🚀 Using vectorized parallel search")
         # Process all trajectories in parallel
         results = searcher.vectorized_search(od_coords, origin_datetime_list)
