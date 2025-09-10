@@ -1,11 +1,11 @@
 road_network_encoder_config:
-  road_id_emb_dim: 64
+  road_id_emb_dim: 32
   len_emb_dim: 16
   type_emb_dim: 16
   lon_emb_dim: 16
   lat_emb_dim: 16
-  intersection_emb_dim: 128
-  zone_id_emb_dim: 128
+  intersection_emb_dim: 64
+  zone_id_emb_dim: 64
   # determined at runtime
   road_id_num_embeddings:
   # determined at runtime
@@ -36,7 +36,7 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 256
+  batch_size: 128
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
