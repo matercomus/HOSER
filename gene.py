@@ -174,6 +174,182 @@ class Searcher:
         assert best_trace is not None
         return best_trace[0], best_trace[1]
     
+    def beam_search(self, origin_road_id, origin_datetime, destination_road_id, beam_width=8, max_search_step=5000):
+        """Beam search that processes multiple candidates in parallel for better GPU utilization"""
+        vis_set = set()
+        road_id2best = {}  # Maps road_id to best (log_prob, node) tuple
+        
+        best_trace = None
+        min_dis = float('inf')
+        
+        origin_node = SearchNode(trace_road_id=[origin_road_id], trace_datetime=[origin_datetime], log_prob=0)
+        road_id2best[origin_road_id] = (0, origin_node)
+        
+        beam = [origin_node]  # Current beam
+        
+        search_step = 0
+        while beam and search_step < max_search_step:
+            # Check for destination in current beam
+            for node in beam:
+                cur_road_id = node.trace_road_id[-1]
+                if cur_road_id == destination_road_id:
+                    return node.trace_road_id, node.trace_datetime
+                
+                # Update best trace based on distance
+                dis = haversine(self.road_center_gps[cur_road_id], self.road_center_gps[destination_road_id], unit='m')
+                if dis < min_dis:
+                    min_dis = dis
+                    best_trace = node.trace_road_id, node.trace_datetime
+            
+            # Collect all candidates from current beam
+            all_candidates = []
+            candidate_info = []  # (beam_idx, reachable_roads) pairs
+            
+            for beam_idx, node in enumerate(beam):
+                cur_road_id = node.trace_road_id[-1]
+                if cur_road_id in vis_set:
+                    continue
+                vis_set.add(cur_road_id)
+                
+                reachable_road_id_list = self.reachable_road_id_dict[cur_road_id]
+                if reachable_road_id_list:
+                    all_candidates.append(node)
+                    candidate_info.append((beam_idx, reachable_road_id_list))
+            
+            if not all_candidates:
+                break
+            
+            # Prepare batch data for all candidates
+            batch_data = self._prepare_beam_batch_data(all_candidates, candidate_info, destination_road_id)
+            
+            # Single batched inference for all candidates
+            with torch.no_grad():
+                logits, time_pred = self.model.infer(
+                    batch_data['trace_road_id'],
+                    batch_data['temporal_info'],
+                    batch_data['trace_distance_mat'],
+                    batch_data['trace_time_interval_mat'],
+                    batch_data['trace_len'],
+                    batch_data['destination_road_id'],
+                    batch_data['candidate_road_id'],
+                    batch_data['metric_dis'],
+                    batch_data['metric_angle']
+                )
+            
+            # Process results and collect new candidates
+            new_candidates = []
+            batch_idx = 0
+            
+            for node, (_, reachable_road_id_list) in zip(all_candidates, candidate_info):
+                log_output = F.log_softmax(logits[batch_idx], dim=-1) + node.log_prob
+                cur_time_pred = time_pred[batch_idx] * self.timestamp_std_tensor + self.timestamp_mean_tensor
+                cur_time_pred = torch.expm1(cur_time_pred)
+                cur_time_pred = torch.clamp(cur_time_pred, min=0.0)
+                
+                for j, candidate_road_id_val in enumerate(reachable_road_id_list):
+                    candidate_log_prob = log_output[j].item()
+                    next_datatime = node.trace_datetime[-1] + timedelta(seconds=round(cur_time_pred[j].item()))
+                    
+                    # Only keep if it's the best path to this road
+                    if candidate_road_id_val not in road_id2best or candidate_log_prob > road_id2best[candidate_road_id_val][0]:
+                        new_node = SearchNode(
+                            trace_road_id=node.trace_road_id+[candidate_road_id_val],
+                            trace_datetime=node.trace_datetime+[next_datatime],
+                            log_prob=candidate_log_prob
+                        )
+                        road_id2best[candidate_road_id_val] = (candidate_log_prob, new_node)
+                        new_candidates.append((candidate_log_prob, new_node))
+                
+                batch_idx += 1
+            
+            # Select top beam_width candidates for next iteration
+            new_candidates.sort(key=lambda x: x[0], reverse=True)
+            beam = [node for _, node in new_candidates[:beam_width]]
+            
+            search_step += len(all_candidates)
+        
+        return best_trace[0], best_trace[1] if best_trace else (None, None)
+    
+    def _prepare_beam_batch_data(self, nodes, candidate_info, destination_road_id):
+        """Prepare batch data for beam search"""
+        # Find max lengths for padding
+        max_trace_len = max(len(node.trace_road_id) for node in nodes)
+        max_candidate_len = max(len(reachable) for _, reachable in candidate_info)
+        
+        # Initialize batch lists
+        batch_trace_road_id = []
+        batch_temporal_info = []
+        batch_trace_distance_mat = []
+        batch_trace_time_interval_mat = []
+        batch_trace_len = []
+        batch_destination_road_id = []
+        batch_candidate_road_id = []
+        batch_metric_dis = []
+        batch_metric_angle = []
+        
+        for node, (_, reachable_road_id_list) in zip(nodes, candidate_info):
+            # Prepare trace data
+            trace_road_id = np.array(node.trace_road_id)
+            temporal_info = np.array([(t.hour * 60.0 + t.minute + t.second / 60.0) / 1440.0 for t in node.trace_datetime]).astype(np.float32)
+            
+            if node.trace_datetime[0].weekday() >= 5:
+                temporal_info *= -1.0
+            
+            trace_distance_mat = haversine_vector(self.road_center_gps[trace_road_id], self.road_center_gps[trace_road_id], 'm', comb=True).astype(np.float32)
+            trace_distance_mat = np.clip(trace_distance_mat, 0.0, 1000.0) / 1000.0
+            trace_time_interval_mat = np.abs(temporal_info[:, None] * 1440.0 - temporal_info * 1440.0)
+            trace_time_interval_mat = np.clip(trace_time_interval_mat, 0.0, 5.0) / 5.0
+            
+            # Prepare candidate data
+            candidate_road_id = np.array(reachable_road_id_list)
+            metric_dis = haversine_vector(self.road_center_gps[candidate_road_id], self.road_center_gps[destination_road_id].reshape(1, -1), 'm', comb=True).reshape(-1).astype(np.float32)
+            metric_dis = np.log1p((metric_dis - np.min(metric_dis)) / 100)
+            
+            cur_road_id = node.trace_road_id[-1]
+            cur_road_end_coord = self.road_end_coords[cur_road_id]
+            candidate_end_coords = self.road_end_coords[candidate_road_id]
+            dest_end_coord = self.road_end_coords[destination_road_id]
+            
+            vec1 = candidate_end_coords - cur_road_end_coord
+            angle1 = np.arctan2(vec1[:, 1], vec1[:, 0])
+            vec2 = dest_end_coord - cur_road_end_coord
+            angle2 = np.arctan2(vec2[1], vec2[0])
+            
+            angle = np.abs(angle1 - angle2).astype(np.float32)
+            angle = np.where(angle > math.pi, 2 * math.pi - angle, angle) / math.pi
+            
+            # Pad to max lengths
+            padded_trace_road_id = np.pad(trace_road_id, (0, max_trace_len - len(trace_road_id)), 'constant')
+            padded_temporal_info = np.pad(temporal_info, (0, max_trace_len - len(temporal_info)), 'constant')
+            padded_trace_distance_mat = np.pad(trace_distance_mat, ((0, max_trace_len - trace_distance_mat.shape[0]), (0, max_trace_len - trace_distance_mat.shape[1])), 'constant')
+            padded_trace_time_interval_mat = np.pad(trace_time_interval_mat, ((0, max_trace_len - trace_time_interval_mat.shape[0]), (0, max_trace_len - trace_time_interval_mat.shape[1])), 'constant')
+            padded_candidate_road_id = np.pad(candidate_road_id, (0, max_candidate_len - len(candidate_road_id)), 'constant')
+            padded_metric_dis = np.pad(metric_dis, (0, max_candidate_len - len(metric_dis)), 'constant', constant_values=1e6)
+            padded_metric_angle = np.pad(angle, (0, max_candidate_len - len(angle)), 'constant', constant_values=1.0)
+            
+            batch_trace_road_id.append(padded_trace_road_id)
+            batch_temporal_info.append(padded_temporal_info)
+            batch_trace_distance_mat.append(padded_trace_distance_mat)
+            batch_trace_time_interval_mat.append(padded_trace_time_interval_mat)
+            batch_trace_len.append(len(trace_road_id))
+            batch_destination_road_id.append(destination_road_id)
+            batch_candidate_road_id.append(padded_candidate_road_id)
+            batch_metric_dis.append(padded_metric_dis)
+            batch_metric_angle.append(padded_metric_angle)
+        
+        # Convert to tensors
+        return {
+            'trace_road_id': torch.tensor(np.array(batch_trace_road_id), dtype=torch.long, device=self.device),
+            'temporal_info': torch.tensor(np.array(batch_temporal_info), dtype=torch.float32, device=self.device),
+            'trace_distance_mat': torch.tensor(np.array(batch_trace_distance_mat), dtype=torch.float32, device=self.device),
+            'trace_time_interval_mat': torch.tensor(np.array(batch_trace_time_interval_mat), dtype=torch.float32, device=self.device),
+            'trace_len': torch.tensor(batch_trace_len, dtype=torch.long, device=self.device),
+            'destination_road_id': torch.tensor(batch_destination_road_id, dtype=torch.long, device=self.device),
+            'candidate_road_id': torch.tensor(np.array(batch_candidate_road_id), dtype=torch.long, device=self.device),
+            'metric_dis': torch.tensor(np.array(batch_metric_dis), dtype=torch.float32, device=self.device),
+            'metric_angle': torch.tensor(np.array(batch_metric_angle), dtype=torch.float32, device=self.device)
+        }
+    
     def batch_search(self, batch_origins, batch_origin_times, batch_destinations, max_search_step=5000):
         """Process multiple trajectory searches in parallel to better utilize GPU"""
         batch_size = len(batch_origins)
@@ -511,6 +687,8 @@ if __name__ == '__main__':
     parser.add_argument('--cuda', type=int, default=0)
     parser.add_argument('--num_gene', type=int, default=5000)
     parser.add_argument('--processes', type=int, default=1, help='(Deprecated - single process is optimal for GPU inference)')
+    parser.add_argument('--beam_search', action='store_true', help='Use beam search instead of A* search')
+    parser.add_argument('--beam_width', type=int, default=8, help='Beam width for beam search')
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -592,27 +770,19 @@ if __name__ == '__main__':
                        data['road_end_coords'], data['timestamp_label_array_log1p_mean'], 
                        data['timestamp_label_array_log1p_std'], device)
     
-    # Process trajectories in batches for better GPU utilization
-    batch_size = 32  # Process 32 trajectories in parallel
-    num_batches = (args.num_gene + batch_size - 1) // batch_size
-    
-    for batch_idx in tqdm(range(num_batches), desc='Processing batches'):
-        start_idx = batch_idx * batch_size
-        end_idx = min(start_idx + batch_size, args.num_gene)
+    # Process trajectories 
+    if args.beam_search:
+        print(f"🔍 Using beam search with width {args.beam_width}")
+        search_fn = lambda o, t, d: searcher.beam_search(o, t, d, beam_width=args.beam_width)
+    else:
+        print(f"🔍 Using standard A* search")
+        search_fn = searcher.search
         
-        # Prepare batch data
-        batch_origins = [od_coords[i][0] for i in range(start_idx, end_idx)]
-        batch_destinations = [od_coords[i][1] for i in range(start_idx, end_idx)]
-        batch_origin_times = origin_datetime_list[start_idx:end_idx]
-        
-        # Batch search
-        batch_results = searcher.batch_search(batch_origins, batch_origin_times, batch_destinations)
-        
-        # Store results
-        for i, (trace_road_id, trace_datetime) in enumerate(batch_results):
-            if trace_road_id is not None:
-                gene_trace_road_id[start_idx + i] = trace_road_id
-                gene_trace_datetime[start_idx + i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
+    for i, ((origin_road_id, destination_road_id), origin_datetime) in enumerate(
+            tqdm(zip(od_coords, origin_datetime_list), total=len(od_coords), desc='Generating trajectories')):
+        trace_road_id, trace_datetime = search_fn(origin_road_id, origin_datetime, destination_road_id)
+        gene_trace_road_id[i] = trace_road_id
+        gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
 
     res_df = pd.DataFrame({
         'gene_trace_road_id': gene_trace_road_id,
