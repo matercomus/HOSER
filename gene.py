@@ -921,7 +921,7 @@ if __name__ == '__main__':
     config.road_network_encoder_feature.zone_edge_index = data['zone_edge_index']
     config.road_network_encoder_feature.zone_edge_weight = data['zone_edge_weight']
 
-    print(" lọc... Filtering valid OD pairs...")
+    print(" ... Filtering valid OD pairs...")
     valid_destinations = {i for i in range(num_roads) if len(data['reachable_road_id_dict'][i]) > 0}
     valid_od_pairs = [(o, d) for (o, d), count in data['od_counts'].items() if d in valid_destinations]
     valid_od_counts = np.array([data['od_counts'][od] for od in valid_od_pairs], dtype=np.float32)
@@ -982,10 +982,16 @@ if __name__ == '__main__':
         from multiprocessing import Pool
         
         def process_trajectory(args_tuple):
-            idx, origin_road_id, destination_road_id, origin_datetime, model_state, data, device, beam_search, beam_width, num_reachable_dict = args_tuple
+            idx, origin_road_id, destination_road_id, origin_datetime, model_state, data, device, beam_search, beam_width, model_config = args_tuple
             
             # Create model and searcher for this process
-            model = HOSER(num_reachable_dict).to(device)
+            model = HOSER(
+                model_config['road_network_encoder_config'],
+                model_config['road_network_encoder_feature'],
+                model_config['trajectory_encoder_config'],
+                model_config['navigator_config'],
+                model_config['road2zone'],
+            ).to(device)
             model.load_state_dict(model_state)
             model.eval()
             
@@ -1003,7 +1009,14 @@ if __name__ == '__main__':
         
         # Prepare arguments for multiprocessing
         model_state = model.state_dict()
-        mp_args = [(i, od[0], od[1], t, model_state, data, device, args.beam_search, args.beam_width, num_reachable_dict) 
+        model_config = {
+            'road_network_encoder_config': config.road_network_encoder_config,
+            'road_network_encoder_feature': config.road_network_encoder_feature,
+            'trajectory_encoder_config': config.trajectory_encoder_config,
+            'navigator_config': config.navigator_config,
+            'road2zone': data['road2zone'],
+        }
+        mp_args = [(i, od[0], od[1], t, model_state, data, device, args.beam_search, args.beam_width, model_config) 
                    for i, (od, t) in enumerate(zip(od_coords, origin_datetime_list))]
         
         with Pool(processes=args.processes) as pool:
@@ -1017,7 +1030,7 @@ if __name__ == '__main__':
             gene_trace_datetime[idx] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
             
     elif args.vectorized:
-        print(f"🚀 Using vectorized parallel search")
+        print("🚀 Using vectorized parallel search")
         # Process all trajectories in parallel
         results = searcher.vectorized_search(od_coords, origin_datetime_list)
         for i, (trace_road_id, trace_datetime) in enumerate(results):
@@ -1026,9 +1039,10 @@ if __name__ == '__main__':
     else:
         if args.beam_search:
             print(f"🔍 Using beam search with width {args.beam_width}")
-            search_fn = lambda o, t, d: searcher.beam_search(o, t, d, beam_width=args.beam_width)
+            def search_fn(o, t, d):
+                return searcher.beam_search(o, t, d, beam_width=args.beam_width)
         else:
-            print(f"🔍 Using standard A* search")
+            print("🔍 Using standard A* search")
             search_fn = searcher.search
             
         for i, ((origin_road_id, destination_road_id), origin_datetime) in enumerate(
