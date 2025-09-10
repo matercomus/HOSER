@@ -488,7 +488,7 @@ class Searcher:
         vec2 = dest_end_pos - last_positions.unsqueeze(1)
         angle2 = torch.atan2(vec2[:, :, 1], vec2[:, :, 0])
         
-        angles = torch.abs(angle1 - angle2.squeeze(1))
+        angles = torch.abs(angle1 - angle2)  # angle2 keeps shape [batch_size, 1] for broadcasting
         angles = torch.where(angles > math.pi, 2 * math.pi - angles, angles) / math.pi
         
         # Set invalid candidates to high values
