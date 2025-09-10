@@ -53,6 +53,10 @@ class Searcher:
         self.timestamp_label_array_log1p_mean = timestamp_label_array_log1p_mean
         self.timestamp_label_array_log1p_std = timestamp_label_array_log1p_std
         self.device = device
+        
+        # Pre-compute constants for timestamp operations
+        self.timestamp_mean_tensor = torch.tensor(timestamp_label_array_log1p_mean, device=device)
+        self.timestamp_std_tensor = torch.tensor(timestamp_label_array_log1p_std, device=device)
 
         # Setup road network features once
         with torch.no_grad():
@@ -127,28 +131,28 @@ class Searcher:
             angle = np.where(angle > math.pi, 2 * math.pi - angle, angle) / math.pi
             metric_angle = angle
 
-            # Create tensors directly on device to avoid CPU->GPU transfer overhead
-            batch_trace_road_id = torch.tensor([trace_road_id], dtype=torch.long, device=self.device)
-            batch_temporal_info = torch.tensor([temporal_info], dtype=torch.float32, device=self.device)
-            batch_trace_distance_mat = torch.tensor([trace_distance_mat], dtype=torch.float32, device=self.device)
-            batch_trace_time_interval_mat = torch.tensor([trace_time_interval_mat], dtype=torch.float32, device=self.device)
-            batch_trace_len = torch.tensor([trace_len], dtype=torch.long, device=self.device)
-            batch_destination_road_id = torch.tensor([destination_road_id], dtype=torch.long, device=self.device)
-            batch_candidate_road_id = torch.tensor([candidate_road_id], dtype=torch.long, device=self.device)
-            batch_metric_dis = torch.tensor([metric_dis], dtype=torch.float32, device=self.device)
-            batch_metric_angle = torch.tensor([metric_angle], dtype=torch.float32, device=self.device)
+            # Create tensors efficiently - expand dims instead of wrapping in list
+            batch_trace_road_id = torch.from_numpy(trace_road_id).unsqueeze(0).to(self.device)
+            batch_temporal_info = torch.from_numpy(temporal_info).unsqueeze(0).to(self.device)
+            batch_trace_distance_mat = torch.from_numpy(trace_distance_mat).unsqueeze(0).to(self.device)
+            batch_trace_time_interval_mat = torch.from_numpy(trace_time_interval_mat).unsqueeze(0).to(self.device)
+            batch_trace_len = torch.tensor(trace_len, dtype=torch.long, device=self.device).unsqueeze(0)
+            batch_destination_road_id = torch.tensor(destination_road_id, dtype=torch.long, device=self.device).unsqueeze(0)
+            batch_candidate_road_id = torch.from_numpy(candidate_road_id).to(self.device).unsqueeze(0)
+            batch_metric_dis = torch.from_numpy(metric_dis).unsqueeze(0).to(self.device)
+            batch_metric_angle = torch.from_numpy(metric_angle).unsqueeze(0).to(self.device)
 
             # Inference without autocast for single samples (autocast adds overhead)
             with torch.no_grad():
                 logits, time_pred = self.model.infer(batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle)
 
             logits = logits[0]
-            output = F.softmax(logits, dim=-1)
-            log_output = torch.log(output)
+            # Use log_softmax for numerical stability and efficiency
+            log_output = F.log_softmax(logits, dim=-1)
             log_output += cur_node.log_prob
 
             time_pred = time_pred[0]
-            time_pred = time_pred * self.timestamp_label_array_log1p_std + self.timestamp_label_array_log1p_mean
+            time_pred = time_pred * self.timestamp_std_tensor + self.timestamp_mean_tensor
             time_pred = torch.expm1(time_pred)
             time_pred = torch.clamp(time_pred, min=0.0)
 
@@ -381,6 +385,14 @@ if __name__ == '__main__':
     # Move model to GPU once and set to eval mode
     model = model.to(device)
     model.eval()
+    
+    # Try to compile the model for faster inference (PyTorch 2.0+)
+    try:
+        import torch._dynamo
+        model = torch.compile(model, mode="reduce-overhead")
+        print("✅ Model compiled with torch.compile for faster inference")
+    except (ImportError, AttributeError):
+        pass  # torch.compile not available, use regular model
     
     # Create searcher instance
     searcher = Searcher(model, data['reachable_road_id_dict'], data['geo'], data['road_center_gps'], 
