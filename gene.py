@@ -15,9 +15,13 @@ from shapely.geometry import LineString
 from haversine import haversine, haversine_vector
 import torch
 import torch.nn.functional as F
+import pickle
+import sys
 
 from utils import set_seed, create_nested_namespace, get_angle
 from models.hoser import HOSER
+
+sys.setrecursionlimit(2000) # Set recursion limit for deep data structures
 
 
 class SearchNode:
@@ -40,13 +44,14 @@ class SearchNode:
 
 
 class Searcher:
-    def __init__(self, model, reachable_road_id_dict, geo, road_center_gps, timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std, device):
+    def __init__(self, model, reachable_road_id_dict, geo, road_center_gps, road_end_coords, timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std, device):
         self.model = model.to(device)
         self.model.eval()
 
         self.reachable_road_id_dict = reachable_road_id_dict
         self.geo = geo
         self.road_center_gps = road_center_gps
+        self.road_end_coords = road_end_coords
         self.timestamp_label_array_log1p_mean = timestamp_label_array_log1p_mean
         self.timestamp_label_array_log1p_std = timestamp_label_array_log1p_std
         self.device = device
@@ -109,8 +114,16 @@ class Searcher:
             metric_dis = haversine_vector(self.road_center_gps[candidate_road_id], self.road_center_gps[destination_road_id].reshape(1, -1), 'm', comb=True).reshape(-1).astype(np.float32)
             metric_dis = np.log1p((metric_dis - np.min(metric_dis)) / 100)
 
-            angle1 = np.vectorize(lambda candidate: get_angle(*(eval(self.geo.loc[cur_road_id, 'coordinates'])[-1]), *(eval(self.geo.loc[candidate, 'coordinates'])[-1])))(candidate_road_id)
-            angle2 = get_angle(*(eval(self.geo.loc[cur_road_id, 'coordinates'])[-1]), *(eval(self.geo.loc[destination_road_id, 'coordinates'])[-1]))
+            cur_road_end_coord = self.road_end_coords[cur_road_id]
+            candidate_end_coords = self.road_end_coords[candidate_road_id]
+            dest_end_coord = self.road_end_coords[destination_road_id]
+
+            vec1 = candidate_end_coords - cur_road_end_coord
+            angle1 = np.arctan2(vec1[:, 1], vec1[:, 0])
+
+            vec2 = dest_end_coord - cur_road_end_coord
+            angle2 = np.arctan2(vec2[1], vec2[0])
+
             angle = np.abs(angle1 - angle2).astype(np.float32)
             angle = np.where(angle > math.pi, 2 * math.pi - angle, angle) / math.pi
             metric_angle = angle
@@ -138,18 +151,18 @@ class Searcher:
             time_pred = torch.expm1(time_pred)
             time_pred = torch.clamp(time_pred, min=0.0)
 
-            for index, candidate_road_id in enumerate(reachable_road_id_list):
+            for index, candidate_road_id_val in enumerate(reachable_road_id_list):
                 candidate_log_prob = log_output[index].item()
                 next_datatime = cur_node.trace_datetime[-1] + timedelta(seconds=round(time_pred[index].item()))
 
-                if candidate_road_id not in road_id2log_prob or candidate_log_prob > road_id2log_prob[candidate_road_id]:
+                if candidate_road_id_val not in road_id2log_prob or candidate_log_prob > road_id2log_prob[candidate_road_id_val]:
                     new_node = SearchNode(
-                        trace_road_id=cur_node.trace_road_id+[candidate_road_id],
+                        trace_road_id=cur_node.trace_road_id+[candidate_road_id_val],
                         trace_datetime=cur_node.trace_datetime+[next_datatime],
                         log_prob=candidate_log_prob
                     )
                     pq.put((-candidate_log_prob, new_node))
-                    road_id2log_prob[candidate_road_id] = candidate_log_prob
+                    road_id2log_prob[candidate_road_id_val] = candidate_log_prob
 
             search_step += 1
 
@@ -157,9 +170,9 @@ class Searcher:
         return best_trace[0], best_trace[1]
 
 
-def init_searcher(model, reachable_road_id_dict, geo, road_center_gps, timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std, device):
+def init_searcher(model, reachable_road_id_dict, geo, road_center_gps, road_end_coords, timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std, device):
     global searcher
-    searcher = Searcher(model, reachable_road_id_dict, geo, road_center_gps, timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std, device)
+    searcher = Searcher(model, reachable_road_id_dict, geo, road_center_gps, road_end_coords, timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std, device)
 
 def process_task(args):
     (origin_road_id, destination_road_id), origin_datetime = args
@@ -167,9 +180,143 @@ def process_task(args):
     trace_datetime = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
     return trace_road_id, trace_datetime
 
+def load_and_preprocess_data(dataset):
+    cache_path = f'./data/{dataset}/gene_preprocessed_cache.pkl'
+    if os.path.exists(cache_path):
+        print(f"✅ Loading preprocessed data from cache: {cache_path}")
+        with open(cache_path, 'rb') as f:
+            return pickle.load(f)
+
+    print("🚀 Preprocessing data for trajectory generation (first time only)...")
+
+    geo_file = f'./data/{dataset}/roadmap.geo'
+    rel_file = f'./data/{dataset}/roadmap.rel'
+    train_traj_file = f'./data/{dataset}/train.csv'
+    road_network_partition_file = f'./data/{dataset}/road_network_partition'
+    zone_trans_mat_file = f'./data/{dataset}/zone_trans_mat.npy'
+
+    print("📂 Loading road network data...")
+    geo = pd.read_csv(geo_file)
+    rel = pd.read_csv(rel_file)
+    num_roads = len(geo)
+    print(f"✅ Loaded {num_roads} road segments.")
+
+    print("🛰️  Calculating road coordinates and centers...")
+    geo['coordinates_parsed'] = [eval(coord_str) for coord_str in tqdm(geo['coordinates'], desc="Parsing Coords")]
+    road_center_gps = np.array([LineString(coords).centroid.coords[0][::-1] for coords in tqdm(geo['coordinates_parsed'], desc="Centroids")])
+    road_end_coords = np.array([coords[-1] for coords in geo['coordinates_parsed']])
+    print("✅ GPS calculation complete.")
+
+    print("📝 Preprocessing road attributes...")
+    road_attr_len = geo['length'].to_numpy(dtype=np.float32)
+    road_attr_len = np.log1p(road_attr_len)
+    road_attr_len = (road_attr_len - np.mean(road_attr_len)) / np.std(road_attr_len)
+
+    road_attr_type = geo['highway'].values.tolist()
+    if dataset in ['Beijing', 'San_Francisco']:
+        for i in range(len(road_attr_type)):
+            if isinstance(road_attr_type[i], str) and road_attr_type[i].startswith('[') and road_attr_type[i].endswith(']'):
+                info = eval(road_attr_type[i])
+                road_attr_type[i] = info[0] if info[0] != 'unclassified' else info[1]
+    le = LabelEncoder()
+    road_attr_type = le.fit_transform(road_attr_type)
+    
+    road_attr_lon = np.array([c[0] for c in road_center_gps]).astype(np.float32)
+    road_attr_lon = (road_attr_lon - np.mean(road_attr_lon)) / np.std(road_attr_lon)
+    road_attr_lat = np.array([c[1] for c in road_center_gps]).astype(np.float32)
+    road_attr_lat = (road_attr_lat - np.mean(road_attr_lat)) / np.std(road_attr_lat)
+    print("✅ Attribute preprocessing complete.")
+
+    reachable_road_id_dict = {i: [] for i in range(num_roads)}
+    for _, row in rel.iterrows():
+        reachable_road_id_dict[row['origin_id']].append(row['destination_id'])
+
+    print("🔗 Building road network graph...")
+    coord2road_id = {}
+    for road_id, row in tqdm(geo.iterrows(), total=num_roads, desc="Building graph"):
+        coord = row['coordinates_parsed']
+        start_coord, end_coord = tuple(coord[0]), tuple(coord[-1])
+        coord2road_id.setdefault(start_coord, []).append(road_id)
+        coord2road_id.setdefault(end_coord, []).append(road_id)
+
+    adj_row, adj_col, adj_angle, adj_reachability = [], [], [], []
+    road_adj_lists = {i: set() for i in range(num_roads)}
+    for v in coord2road_id.values():
+        for r1 in v:
+            for r2 in v:
+                if r1 != r2:
+                    road_adj_lists[r1].add(r2)
+
+    for road_id in range(num_roads):
+        for adj_road_id in road_adj_lists[road_id]:
+            adj_row.append(road_id)
+            adj_col.append(adj_road_id)
+
+            r1_coords, r2_coords = geo.at[road_id, 'coordinates_parsed'], geo.at[adj_road_id, 'coordinates_parsed']
+            r1_angle = get_angle(r1_coords[0][1], r1_coords[0][0], r1_coords[-1][1], r1_coords[-1][0])
+            r2_angle = get_angle(r2_coords[0][1], r2_coords[0][0], r2_coords[-1][1], r2_coords[-1][0])
+            
+            angle = abs(r1_angle - r2_angle)
+            angle = (math.pi * 2 - angle) if angle > math.pi else angle
+            adj_angle.append(angle / math.pi)
+            adj_reachability.append(1.0 if adj_road_id in reachable_road_id_dict[road_id] else 0.0)
+    print("✅ Graph construction complete.")
+    
+    road_edge_index = np.stack([np.array(adj_row, dtype=np.int64), np.array(adj_col, dtype=np.int64)])
+    intersection_attr = np.stack([np.array(adj_angle, dtype=np.float32), np.array(adj_reachability, dtype=np.float32)], axis=1)
+
+    zone_trans_mat = np.load(zone_trans_mat_file)
+    zone_edge_index = np.stack(zone_trans_mat.nonzero())
+    zone_trans_mat = zone_trans_mat.astype(np.float32)
+    D_inv_sqrt = 1.0 / np.sqrt(np.maximum(np.sum(zone_trans_mat, axis=1), 1.0))
+    zone_trans_mat_norm = zone_trans_mat * D_inv_sqrt[:, np.newaxis] * D_inv_sqrt[np.newaxis, :]
+    zone_edge_weight = zone_trans_mat_norm[zone_edge_index[0], zone_edge_index[1]]
+
+    road2zone = np.loadtxt(road_network_partition_file, dtype=np.int32)
+
+    print("🗺️  Loading training trajectories for OD matrix...")
+    train_traj = pd.read_csv(train_traj_file)
+    print(f"✅ Loaded {len(train_traj)} trajectories.")
+
+    print("... Calculating OD matrix...")
+    od_counts = Counter()
+    for rid_list_str in tqdm(train_traj['rid_list'], desc="Calculating OD"):
+        rid_list = eval(rid_list_str)
+        if len(rid_list) >= 2:
+            od_counts[(rid_list[0], rid_list[-1])] += 1.0
+    print("✅ OD matrix calculation complete.")
+
+    print("🕒 Calculating timestamp statistics...")
+    timestamp_labels = [
+        (datetime.strptime(t2, '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(t1, '%Y-%m-%dT%H:%M:%SZ')).total_seconds()
+        for time_list_str in train_traj['time_list']
+        for t1, t2 in zip(time_list_str.split(',')[:-1], time_list_str.split(',')[1:])
+    ]
+    timestamp_label_array = np.array(timestamp_labels, dtype=np.float32)
+    timestamp_label_array_log1p_mean = np.mean(np.log1p(timestamp_label_array))
+    timestamp_label_array_log1p_std = np.std(np.log1p(timestamp_label_array))
+    print(f'📊 Timestamp Stats: mean {timestamp_label_array_log1p_mean:.3f}, std {timestamp_label_array_log1p_std:.3f}')
+    
+    data = {
+        "geo": geo, "rel": rel, "num_roads": num_roads, "road_center_gps": road_center_gps,
+        "road_end_coords": road_end_coords, "road_attr_len": road_attr_len, "road_attr_type": road_attr_type,
+        "road_attr_lon": road_attr_lon, "road_attr_lat": road_attr_lat, "road_edge_index": road_edge_index,
+        "intersection_attr": intersection_attr, "zone_edge_index": zone_edge_index,
+        "zone_edge_weight": zone_edge_weight, "road2zone": road2zone, "train_traj": train_traj,
+        "reachable_road_id_dict": reachable_road_id_dict, "od_counts": od_counts,
+        "timestamp_label_array_log1p_mean": timestamp_label_array_log1p_mean,
+        "timestamp_label_array_log1p_std": timestamp_label_array_log1p_std
+    }
+
+    with open(cache_path, 'wb') as f:
+        pickle.dump(data, f)
+    print(f"✅ Saved preprocessed data to cache: {cache_path}")
+
+    return data
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str)
+    parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--cuda', type=int, default=0)
     parser.add_argument('--num_gene', type=int, default=5000)
@@ -179,220 +326,41 @@ if __name__ == '__main__':
     set_seed(args.seed)
     device = f'cuda:{args.cuda}'
 
-    print("🚀 Starting trajectory generation script...")
-
-    # Prepare model config and related features
-
-    geo_file = f'./data/{args.dataset}/roadmap.geo'
-    rel_file = f'./data/{args.dataset}/roadmap.rel'
-    train_traj_file = f'./data/{args.dataset}/train.csv'
-    val_traj_file = f'./data/{args.dataset}/val.csv'
-    test_traj_file = f'./data/{args.dataset}/test.csv'
-    road_network_partition_file = f'./data/{args.dataset}/road_network_partition'
-    zone_trans_mat_file = f'./data/{args.dataset}/zone_trans_mat.npy'
-
-    save_dir = f'./save/{args.dataset}/seed{args.seed}'
-    tensorboard_log_dir = f'./tensorboard_log/{args.dataset}/seed{args.seed}'
-    loguru_log_dir = f'./log/{args.dataset}/seed{args.seed}'
-    gene_dir = f'./gene/{args.dataset}/seed{args.seed}'
+    data = load_and_preprocess_data(args.dataset)
+    num_roads = data['num_roads']
 
     with open(f'./config/{args.dataset}.yaml', 'r') as file:
         config = yaml.safe_load(file)
     config = create_nested_namespace(config)
-
-    print("📂 Loading road network data...")
-    geo = pd.read_csv(geo_file)
-    rel = pd.read_csv(rel_file)
-    num_roads = len(geo)
-    print(f"✅ Loaded {num_roads} road segments.")
-
-    print("🛰️ Calculating road center GPS coordinates...")
-    road_center_gps = []
-    for _, row in tqdm(geo.iterrows(), total=num_roads, desc="Processing GPS"):
-        coordinates = eval(row['coordinates'])
-        road_line = LineString(coordinates=coordinates)
-        center_coord = road_line.centroid
-        road_center_gps.append((center_coord.y, center_coord.x))
-    road_center_gps = np.array(road_center_gps)
-    print("✅ GPS calculation complete.")
-
-    print("📝 Preprocessing road attributes...")
-    road_attr_len = geo['length'].to_numpy().astype(np.float32)
-    road_attr_len = np.log1p(road_attr_len)
-    road_attr_len = (road_attr_len - np.mean(road_attr_len)) / np.std(road_attr_len)
-
-    road_attr_type = geo['highway'].values.tolist()
-    if args.dataset in ['Beijing', 'San_Francisco']:
-        for i in range(len(road_attr_type)):
-            # Only process string values that contain list representations
-            if isinstance(road_attr_type[i], str) and road_attr_type[i].startswith('[') and road_attr_type[i].endswith(']'):
-                info = eval(road_attr_type[i])
-                road_attr_type[i] = info[0] if info[0] != 'unclassified' else info[1]
-    le = LabelEncoder()
-    road_attr_type = le.fit_transform(road_attr_type)
-
-    road_attr_lon = np.array([LineString(coordinates=eval(row['coordinates'])).centroid.x for _, row in geo.iterrows()]).astype(np.float32)
-    road_attr_lon = (road_attr_lon - np.mean(road_attr_lon)) / np.std(road_attr_lon)
-    road_attr_lat = np.array([LineString(coordinates=eval(row['coordinates'])).centroid.y for _, row in geo.iterrows()]).astype(np.float32)
-    road_attr_lat = (road_attr_lat - np.mean(road_attr_lat)) / np.std(road_attr_lat)
-    print("✅ Attribute preprocessing complete.")
-
-    adj_row = []
-    adj_col = []
-    adj_angle = []
-    adj_reachability = []
-
-    reachable_road_id_dict = dict()
-    for i in range(num_roads):
-        reachable_road_id_dict[i] = []
-    for _, row in rel.iterrows():
-        origin_id = row['origin_id']
-        destination_id = row['destination_id']
-        reachable_road_id_dict[origin_id].append(destination_id)
-
-    print("🔗 Building road network graph...")
-    coord2road_id = dict()
-    for road_id, row in tqdm(geo.iterrows(), total=num_roads, desc="Building graph"):
-        coord = json.loads(row['coordinates'], parse_float=str)
-        start_coord = tuple(coord[0])
-        end_coord = tuple(coord[-1])
-        if start_coord not in coord2road_id:
-            coord2road_id[start_coord] = [road_id]
-        else:
-            coord2road_id[start_coord].append(road_id)
-        if end_coord not in coord2road_id:
-            coord2road_id[end_coord] = [road_id]
-        else:
-            coord2road_id[end_coord].append(road_id)
-
-    # Build adjacency lists more efficiently without huge matrix
-    road_adj_lists = {i: set() for i in range(num_roads)}
-    for k, v in coord2road_id.items():
-        for road_id1 in v:
-            for road_id2 in v:
-                if road_id1 != road_id2:
-                    road_adj_lists[road_id1].add(road_id2)
-
-    for road_id in range(num_roads):
-        adj_road_id_list = list(road_adj_lists[road_id])
-        for adj_road_id in adj_road_id_list:
-            adj_row.append(road_id)
-            adj_col.append(adj_road_id)
-
-            road_id_coord = eval(geo.loc[road_id, 'coordinates'])
-            adj_road_id_coord = eval(geo.loc[adj_road_id, 'coordinates'])
-            
-            road_id_angle = get_angle(road_id_coord[0][1], road_id_coord[0][0], road_id_coord[-1][1], road_id_coord[-1][0])
-            adj_road_id_angle = get_angle(adj_road_id_coord[0][1], adj_road_id_coord[0][0], adj_road_id_coord[-1][1], adj_road_id_coord[-1][0])
-            angle = abs(road_id_angle - adj_road_id_angle)
-            if angle > math.pi:
-                angle = math.pi * 2 - angle
-            angle /= math.pi
-            adj_angle.append(angle)
-
-            if adj_road_id in reachable_road_id_dict[road_id]:
-                adj_reachability.append(1.0)
-            else:
-                adj_reachability.append(0.0)
-    print("✅ Graph construction complete.")
-
-    road_edge_index = np.stack([
-        np.array(adj_row).astype(np.int64),
-        np.array(adj_col).astype(np.int64),
-    ], axis=0)
-    intersection_attr = np.stack([
-        np.array(adj_angle).astype(np.float32),
-        np.array(adj_reachability).astype(np.float32),
-    ], axis=1)
-
-    zone_trans_mat = np.load(zone_trans_mat_file)
-    zone_edge_index = np.stack(zone_trans_mat.nonzero())
-
-    zone_trans_mat = zone_trans_mat.astype(np.float32)
-    D_inv_sqrt = 1.0 / np.sqrt(np.maximum(np.sum(zone_trans_mat, axis=1), 1.0))
-    zone_trans_mat_norm = zone_trans_mat * D_inv_sqrt[:, np.newaxis] * D_inv_sqrt[np.newaxis, :]
-    zone_edge_weight = zone_trans_mat_norm[zone_edge_index[0], zone_edge_index[1]]
-
-    config.road_network_encoder_config.road_id_num_embeddings = num_roads
-    config.road_network_encoder_config.type_num_embeddings = len(np.unique(road_attr_type))
-    config.road_network_encoder_feature.road_attr.len = road_attr_len
-    config.road_network_encoder_feature.road_attr.type = road_attr_type
-    config.road_network_encoder_feature.road_attr.lon = road_attr_lon
-    config.road_network_encoder_feature.road_attr.lat = road_attr_lat
-    config.road_network_encoder_feature.road_edge_index = road_edge_index
-    config.road_network_encoder_feature.intersection_attr = intersection_attr
-    config.road_network_encoder_feature.zone_edge_index = zone_edge_index
-    config.road_network_encoder_feature.zone_edge_weight = zone_edge_weight
-
-    road2zone = []
-    with open(road_network_partition_file, 'r') as file:
-        for line in file:
-            road2zone.append(int(line.strip()))
-    road2zone = np.array(road2zone)
-
-    # Prepare OD matrix
-    print("🗺️ Loading training trajectories for OD matrix...")
-    train_traj = pd.read_csv(train_traj_file)
-    print(f"✅ Loaded {len(train_traj)} trajectories.")
-
-    print("... Calculating OD matrix using memory-efficient method...")
-    od_counts = Counter()
-    for _, row in tqdm(train_traj.iterrows(), total=len(train_traj), desc="Calculating OD"):
-        rid_list = eval(row['rid_list'])
-        if len(rid_list) < 2:
-            continue
-        origin_id = rid_list[0]
-        destination_id = rid_list[-1]
-        od_counts[(origin_id, destination_id)] += 1.0
     
-    print("✅ OD matrix calculation complete.")
-
-    # Generating trajectories
-    print("🕒 Calculating timestamp statistics...")
-    timestamp_label_array = []
-    for _, row in train_traj.iterrows():
-        time_list = row['time_list'].split(',')
-        time_list = [datetime.strptime(t, '%Y-%m-%dT%H:%M:%SZ') for t in time_list]
-
-        timestamp_label = np.array([(time_list[i+1] - time_list[i]).total_seconds() for i in range(len(time_list)-1)]).astype(np.float32)
-        timestamp_label_array.extend(timestamp_label)
-    timestamp_label_array = np.array(timestamp_label_array)
-    timestamp_label_array_log1p_mean = np.log1p(timestamp_label_array).mean()
-    timestamp_label_array_log1p_std = np.log1p(timestamp_label_array).std()
-
-    print(f'📊 Timestamp Stats: mean {timestamp_label_array_log1p_mean:.3f}, std {timestamp_label_array_log1p_std:.3f}')
+    config.road_network_encoder_config.road_id_num_embeddings = num_roads
+    config.road_network_encoder_config.type_num_embeddings = len(np.unique(data['road_attr_type']))
+    config.road_network_encoder_feature.road_attr.len = data['road_attr_len']
+    config.road_network_encoder_feature.road_attr.type = data['road_attr_type']
+    config.road_network_encoder_feature.road_attr.lon = data['road_attr_lon']
+    config.road_network_encoder_feature.road_attr.lat = data['road_attr_lat']
+    config.road_network_encoder_feature.road_edge_index = data['road_edge_index']
+    config.road_network_encoder_feature.intersection_attr = data['intersection_attr']
+    config.road_network_encoder_feature.zone_edge_index = data['zone_edge_index']
+    config.road_network_encoder_feature.zone_edge_weight = data['zone_edge_weight']
 
     print(" lọc... Filtering valid OD pairs...")
-    # Filter out dead-end destinations (roads with no outgoing connections)
-    valid_destinations = {i for i in range(num_roads) if len(reachable_road_id_dict[i]) > 0}
-    
-    valid_od_pairs = []
-    valid_od_counts = []
-    
-    for (origin_id, dest_id), count in tqdm(od_counts.items(), desc="Filtering OD pairs"):
-        if dest_id in valid_destinations:
-            valid_od_pairs.append((origin_id, dest_id))
-            valid_od_counts.append(count)
+    valid_destinations = {i for i in range(num_roads) if len(data['reachable_road_id_dict'][i]) > 0}
+    valid_od_pairs = [(o, d) for (o, d), count in data['od_counts'].items() if d in valid_destinations]
+    valid_od_counts = np.array([data['od_counts'][od] for od in valid_od_pairs], dtype=np.float32)
 
     if not valid_od_pairs:
         raise ValueError("No valid origin-destination pairs found (all destinations are dead-ends)")
 
-    valid_od_counts = np.array(valid_od_counts, dtype=np.float32)
     od_probabilities = valid_od_counts / valid_od_counts.sum()
     print(f"✅ Found {len(valid_od_pairs)} valid OD pairs.")
 
     print(f"🎲 Sampling {args.num_gene} OD pairs for generation...")
-    num_valid_pairs = len(valid_od_pairs)
-    sampled_indices = np.random.choice(num_valid_pairs, size=args.num_gene, p=od_probabilities)
+    sampled_indices = np.random.choice(len(valid_od_pairs), size=args.num_gene, p=od_probabilities)
     od_coords = [valid_od_pairs[i] for i in sampled_indices]
 
-    # Sample timestamps with replacement if needed
-    time_list = list(train_traj['time_list'])
-    if len(time_list) >= args.num_gene:
-        origin_datetime_list = [datetime.strptime(row.split(',')[0], '%Y-%m-%dT%H:%M:%SZ') for row in random.sample(time_list, args.num_gene)]
-    else:
-        # Sample with replacement if we need more timestamps than available
-        origin_datetime_list = [datetime.strptime(row.split(',')[0], '%Y-%m-%dT%H:%M:%SZ') for row in random.choices(time_list, k=args.num_gene)]
+    time_list = list(data['train_traj']['time_list'])
+    origin_datetime_list = [datetime.strptime(row.split(',')[0], '%Y-%m-%dT%H:%M:%SZ') for row in random.choices(time_list, k=args.num_gene)]
 
     print("🧠 Loading trained model...")
     model = HOSER(
@@ -400,10 +368,11 @@ if __name__ == '__main__':
         config.road_network_encoder_feature,
         config.trajectory_encoder_config,
         config.navigator_config,
-        road2zone,
+        data['road2zone'],
     )
 
-    model_state_dict = torch.load(os.path.join(save_dir, f'best.pth'), map_location='cpu')
+    save_dir = f'./save/{args.dataset}/seed{args.seed}'
+    model_state_dict = torch.load(os.path.join(save_dir, 'best.pth'), map_location='cpu')
     model.load_state_dict(model_state_dict)
     print("✅ Model loaded successfully.")
 
@@ -412,7 +381,8 @@ if __name__ == '__main__':
 
     print(f"🧬 Starting trajectory generation for {args.num_gene} trajectories using {args.processes} processes...")
     torch.multiprocessing.set_start_method('spawn', force=True)
-    initargs = (model, reachable_road_id_dict, geo, road_center_gps, timestamp_label_array_log1p_mean, timestamp_label_array_log1p_std, device)
+    initargs = (model, data['reachable_road_id_dict'], data['geo'], data['road_center_gps'], data['road_end_coords'], data['timestamp_label_array_log1p_mean'], data['timestamp_label_array_log1p_std'], device)
+    
     with torch.multiprocessing.Pool(processes=args.processes, initializer=init_searcher, initargs=initargs) as pool:
         tasks = zip(od_coords, origin_datetime_list)
         results = list(tqdm(pool.imap(process_task, tasks), total=len(od_coords), desc='Generating trajectories'))
@@ -425,6 +395,8 @@ if __name__ == '__main__':
         'gene_trace_road_id': gene_trace_road_id,
         'gene_trace_datetime': gene_trace_datetime,
     })
+    
+    gene_dir = f'./gene/{args.dataset}/seed{args.seed}'
     os.makedirs(gene_dir, exist_ok=True)
     now = datetime.now()
     output_path = os.path.join(gene_dir, f'{now.strftime("%Y-%m-%d_%H-%M-%S")}.csv')
