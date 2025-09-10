@@ -270,6 +270,210 @@ class Searcher:
         
         return best_trace[0], best_trace[1] if best_trace else (None, None)
     
+    def vectorized_search(self, od_coords, origin_datetime_list, batch_size=256, max_search_step=5000):
+        """Process multiple trajectories in parallel using vectorized GPU operations"""
+        num_trajectories = len(od_coords)
+        all_results = []
+        
+        # Convert road network data to GPU tensors for fast lookups
+        road_gps_tensor = torch.tensor(self.road_center_gps, dtype=torch.float32, device=self.device)
+        road_end_tensor = torch.tensor(self.road_end_coords, dtype=torch.float32, device=self.device)
+        
+        # Process in batches
+        for batch_start in tqdm(range(0, num_trajectories, batch_size), desc='Processing trajectory batches'):
+            batch_end = min(batch_start + batch_size, num_trajectories)
+            batch_od = od_coords[batch_start:batch_end]
+            batch_times = origin_datetime_list[batch_start:batch_end]
+            
+            # Initialize batch search state
+            batch_results = [None] * len(batch_od)
+            active_searches = list(range(len(batch_od)))
+            
+            # Current nodes for each active search
+            current_nodes = {i: SearchNode(trace_road_id=[batch_od[i][0]], 
+                                         trace_datetime=[batch_times[i]], 
+                                         log_prob=0) 
+                           for i in active_searches}
+            
+            # Best traces for fallback
+            best_traces = {i: (current_nodes[i].trace_road_id, current_nodes[i].trace_datetime) 
+                          for i in active_searches}
+            min_distances = {i: float('inf') for i in active_searches}
+            
+            visited = {i: set() for i in active_searches}
+            
+            for step in range(max_search_step):
+                if not active_searches:
+                    break
+                
+                # Collect all active nodes and their candidates
+                batch_nodes = []
+                batch_destinations = []
+                search_indices = []
+                
+                for idx in active_searches[:]:
+                    node = current_nodes[idx]
+                    destination = batch_od[idx][1]
+                    
+                    # Check if reached destination
+                    if node.trace_road_id[-1] == destination:
+                        batch_results[idx] = (node.trace_road_id, node.trace_datetime)
+                        active_searches.remove(idx)
+                        continue
+                    
+                    # Update best trace
+                    cur_pos = road_gps_tensor[node.trace_road_id[-1]]
+                    dest_pos = road_gps_tensor[destination]
+                    dist = torch.norm(cur_pos - dest_pos).item() * 111000  # Approximate meters
+                    
+                    if dist < min_distances[idx]:
+                        min_distances[idx] = dist
+                        best_traces[idx] = (node.trace_road_id, node.trace_datetime)
+                    
+                    # Skip if visited
+                    if node.trace_road_id[-1] in visited[idx]:
+                        continue
+                    visited[idx].add(node.trace_road_id[-1])
+                    
+                    # Get reachable roads
+                    reachable = self.reachable_road_id_dict.get(node.trace_road_id[-1], [])
+                    if reachable:
+                        batch_nodes.append(node)
+                        batch_destinations.append(destination)
+                        search_indices.append((idx, reachable))
+                
+                if not batch_nodes:
+                    break
+                
+                # Prepare vectorized batch data
+                batch_data = self._prepare_vectorized_batch(batch_nodes, batch_destinations, 
+                                                           search_indices, road_gps_tensor, road_end_tensor)
+                
+                # Single GPU inference for all candidates
+                with torch.no_grad():
+                    logits, time_pred = self.model.infer(
+                        batch_data['trace_road_id'],
+                        batch_data['temporal_info'],
+                        batch_data['trace_distance_mat'],
+                        batch_data['trace_time_interval_mat'],
+                        batch_data['trace_len'],
+                        batch_data['destination_road_id'],
+                        batch_data['candidate_road_id'],
+                        batch_data['metric_dis'],
+                        batch_data['metric_angle']
+                    )
+                
+                # Process results and select best candidates
+                result_idx = 0
+                for node, dest, (search_idx, reachable) in zip(batch_nodes, batch_destinations, search_indices):
+                    # Get predictions for this search
+                    node_logits = logits[result_idx]
+                    node_time_pred = time_pred[result_idx]
+                    
+                    # Find best candidate
+                    log_probs = F.log_softmax(node_logits[:len(reachable)], dim=-1) + node.log_prob
+                    best_idx = torch.argmax(log_probs).item()
+                    
+                    # Create new node
+                    best_road = reachable[best_idx]
+                    time_delta = (node_time_pred[best_idx] * self.timestamp_std_tensor + self.timestamp_mean_tensor).exp() - 1
+                    time_delta = max(0, time_delta.item())
+                    
+                    new_node = SearchNode(
+                        trace_road_id=node.trace_road_id + [best_road],
+                        trace_datetime=node.trace_datetime + [node.trace_datetime[-1] + timedelta(seconds=round(time_delta))],
+                        log_prob=log_probs[best_idx].item()
+                    )
+                    
+                    current_nodes[search_idx] = new_node
+                    result_idx += 1
+            
+            # Collect results
+            for i in range(len(batch_od)):
+                if batch_results[i] is not None:
+                    all_results.append(batch_results[i])
+                else:
+                    all_results.append(best_traces[i])
+        
+        return all_results
+    
+    def _prepare_vectorized_batch(self, nodes, destinations, search_indices, road_gps_tensor, road_end_tensor):
+        """Prepare batch data for vectorized search with minimal CPU operations"""
+        # Use maximum sizes for padding
+        max_trace_len = max(len(n.trace_road_id) for n in nodes)
+        max_candidates = max(len(reachable) for _, reachable in search_indices)
+        
+        # Pre-allocate tensors
+        batch_size = len(nodes)
+        trace_road_ids = torch.zeros((batch_size, max_trace_len), dtype=torch.long, device=self.device)
+        temporal_infos = torch.zeros((batch_size, max_trace_len), dtype=torch.float32, device=self.device)
+        trace_lens = torch.zeros(batch_size, dtype=torch.long, device=self.device)
+        destination_ids = torch.zeros(batch_size, dtype=torch.long, device=self.device)
+        candidate_ids = torch.zeros((batch_size, max_candidates), dtype=torch.long, device=self.device)
+        
+        # Fill tensors
+        for i, (node, dest, (_, reachable)) in enumerate(zip(nodes, destinations, search_indices)):
+            trace_len = len(node.trace_road_id)
+            trace_road_ids[i, :trace_len] = torch.tensor(node.trace_road_id, device=self.device)
+            
+            # Temporal info
+            times = torch.tensor([(t.hour * 60.0 + t.minute + t.second / 60.0) / 1440.0 
+                                 for t in node.trace_datetime], dtype=torch.float32, device=self.device)
+            if node.trace_datetime[0].weekday() >= 5:
+                times *= -1.0
+            temporal_infos[i, :trace_len] = times
+            
+            trace_lens[i] = trace_len
+            destination_ids[i] = dest
+            candidate_ids[i, :len(reachable)] = torch.tensor(reachable, device=self.device)
+        
+        # Compute distance matrices using GPU operations
+        trace_positions = road_gps_tensor[trace_road_ids]  # (batch, max_trace, 2)
+        trace_dist_mat = torch.cdist(trace_positions, trace_positions) * 111000  # Approximate meters
+        trace_dist_mat = torch.clamp(trace_dist_mat, 0, 1000) / 1000
+        
+        # Time interval matrix
+        time_expanded = temporal_infos.unsqueeze(2) * 1440  # (batch, max_trace, 1)
+        time_interval_mat = torch.abs(time_expanded - time_expanded.transpose(1, 2))
+        time_interval_mat = torch.clamp(time_interval_mat, 0, 5) / 5
+        
+        # Candidate metrics
+        candidate_positions = road_gps_tensor[candidate_ids]  # (batch, max_candidates, 2)
+        dest_positions = road_gps_tensor[destination_ids].unsqueeze(1)  # (batch, 1, 2)
+        metric_distances = torch.norm(candidate_positions - dest_positions, dim=2) * 111000
+        metric_distances = torch.log1p((metric_distances - metric_distances.min(dim=1, keepdim=True)[0]) / 100)
+        
+        # Angles (simplified for GPU)
+        last_road_ids = trace_road_ids[torch.arange(batch_size), trace_lens - 1]
+        last_positions = road_end_tensor[last_road_ids]
+        candidate_end_pos = road_end_tensor[candidate_ids]
+        dest_end_pos = road_end_tensor[destination_ids].unsqueeze(1)
+        
+        vec1 = candidate_end_pos - last_positions.unsqueeze(1)
+        angle1 = torch.atan2(vec1[:, :, 1], vec1[:, :, 0])
+        vec2 = dest_end_pos - last_positions.unsqueeze(1)
+        angle2 = torch.atan2(vec2[:, :, 1], vec2[:, :, 0])
+        
+        angles = torch.abs(angle1 - angle2.squeeze(1))
+        angles = torch.where(angles > math.pi, 2 * math.pi - angles, angles) / math.pi
+        
+        # Set invalid candidates to high values
+        valid_mask = candidate_ids > 0
+        metric_distances = torch.where(valid_mask, metric_distances, torch.tensor(1e6, device=self.device))
+        angles = torch.where(valid_mask, angles, torch.tensor(1.0, device=self.device))
+        
+        return {
+            'trace_road_id': trace_road_ids,
+            'temporal_info': temporal_infos,
+            'trace_distance_mat': trace_dist_mat,
+            'trace_time_interval_mat': time_interval_mat,
+            'trace_len': trace_lens,
+            'destination_road_id': destination_ids,
+            'candidate_road_id': candidate_ids,
+            'metric_dis': metric_distances,
+            'metric_angle': angles
+        }
+    
     def _prepare_beam_batch_data(self, nodes, candidate_info, destination_road_id):
         """Prepare batch data for beam search"""
         # Find max lengths for padding
@@ -689,6 +893,7 @@ if __name__ == '__main__':
     parser.add_argument('--processes', type=int, default=1, help='(Deprecated - single process is optimal for GPU inference)')
     parser.add_argument('--beam_search', action='store_true', help='Use beam search instead of A* search')
     parser.add_argument('--beam_width', type=int, default=8, help='Beam width for beam search')
+    parser.add_argument('--vectorized', action='store_true', help='Use vectorized GPU-parallel search')
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -771,18 +976,26 @@ if __name__ == '__main__':
                        data['timestamp_label_array_log1p_std'], device)
     
     # Process trajectories 
-    if args.beam_search:
-        print(f"🔍 Using beam search with width {args.beam_width}")
-        search_fn = lambda o, t, d: searcher.beam_search(o, t, d, beam_width=args.beam_width)
+    if args.vectorized:
+        print(f"🚀 Using vectorized parallel search")
+        # Process all trajectories in parallel
+        results = searcher.vectorized_search(od_coords, origin_datetime_list)
+        for i, (trace_road_id, trace_datetime) in enumerate(results):
+            gene_trace_road_id[i] = trace_road_id
+            gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
     else:
-        print(f"🔍 Using standard A* search")
-        search_fn = searcher.search
-        
-    for i, ((origin_road_id, destination_road_id), origin_datetime) in enumerate(
-            tqdm(zip(od_coords, origin_datetime_list), total=len(od_coords), desc='Generating trajectories')):
-        trace_road_id, trace_datetime = search_fn(origin_road_id, origin_datetime, destination_road_id)
-        gene_trace_road_id[i] = trace_road_id
-        gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
+        if args.beam_search:
+            print(f"🔍 Using beam search with width {args.beam_width}")
+            search_fn = lambda o, t, d: searcher.beam_search(o, t, d, beam_width=args.beam_width)
+        else:
+            print(f"🔍 Using standard A* search")
+            search_fn = searcher.search
+            
+        for i, ((origin_road_id, destination_road_id), origin_datetime) in enumerate(
+                tqdm(zip(od_coords, origin_datetime_list), total=len(od_coords), desc='Generating trajectories')):
+            trace_road_id, trace_datetime = search_fn(origin_road_id, origin_datetime, destination_road_id)
+            gene_trace_road_id[i] = trace_road_id
+            gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
 
     res_df = pd.DataFrame({
         'gene_trace_road_id': gene_trace_road_id,
