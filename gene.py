@@ -1057,6 +1057,9 @@ if __name__ == '__main__':
         # Process all trajectories in parallel
         results = searcher.vectorized_search(od_coords, origin_datetime_list)
         for i, (trace_road_id, trace_datetime) in enumerate(results):
+            # Fallback: if vectorized search failed to produce a valid path (path length < 2)
+            if trace_road_id is None or len(trace_road_id) < 2:
+                trace_road_id, trace_datetime = searcher.search(od_coords[i][0], origin_datetime_list[i], od_coords[i][1])
             gene_trace_road_id[i] = trace_road_id
             gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
     else:
