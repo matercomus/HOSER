@@ -23,6 +23,40 @@ from models.hoser import HOSER
 sys.setrecursionlimit(2000) # Set recursion limit for deep data structures
 
 
+def process_trajectory_mp(args_tuple):
+    """Multiprocessing worker function for trajectory generation"""
+    idx, origin_road_id, destination_road_id, origin_datetime, model_state, data, device, beam_search, beam_width, model_config = args_tuple
+    
+    # Import inside worker to avoid CUDA issues
+    from models.hoser import HOSER
+    
+    # Use CPU for multiprocessing to avoid CUDA conflicts
+    device = 'cpu'
+    
+    # Create model and searcher for this process
+    model = HOSER(
+        model_config['road_network_encoder_config'],
+        model_config['road_network_encoder_feature'],
+        model_config['trajectory_encoder_config'],
+        model_config['navigator_config'],
+        model_config['road2zone'],
+    ).to(device)
+    model.load_state_dict(model_state)
+    model.eval()
+    
+    searcher = Searcher(model, data['reachable_road_id_dict'], data['geo'], 
+                      data['road_center_gps'], data['road_end_coords'], 
+                      data['timestamp_label_array_log1p_mean'], 
+                      data['timestamp_label_array_log1p_std'], device)
+    
+    if beam_search:
+        trace_road_id, trace_datetime = searcher.beam_search(origin_road_id, origin_datetime, destination_road_id, beam_width=beam_width)
+    else:
+        trace_road_id, trace_datetime = searcher.search(origin_road_id, origin_datetime, destination_road_id)
+    
+    return idx, trace_road_id, trace_datetime
+
+
 class SearchNode:
     def __init__(self, trace_road_id, trace_datetime, log_prob):
         self.trace_road_id = trace_road_id
@@ -978,34 +1012,9 @@ if __name__ == '__main__':
     # Process trajectories 
     if args.processes > 1:
         print(f"🚀 Using {args.processes} CPU processes for parallel search")
+        print("💡 Note: Using CPU for multiprocessing to avoid CUDA conflicts")
         # Use multiprocessing for CPU-bound work
         from multiprocessing import Pool
-        
-        def process_trajectory(args_tuple):
-            idx, origin_road_id, destination_road_id, origin_datetime, model_state, data, device, beam_search, beam_width, model_config = args_tuple
-            
-            # Create model and searcher for this process
-            model = HOSER(
-                model_config['road_network_encoder_config'],
-                model_config['road_network_encoder_feature'],
-                model_config['trajectory_encoder_config'],
-                model_config['navigator_config'],
-                model_config['road2zone'],
-            ).to(device)
-            model.load_state_dict(model_state)
-            model.eval()
-            
-            searcher = Searcher(model, data['reachable_road_id_dict'], data['geo'], 
-                              data['road_center_gps'], data['road_end_coords'], 
-                              data['timestamp_label_array_log1p_mean'], 
-                              data['timestamp_label_array_log1p_std'], device)
-            
-            if beam_search:
-                trace_road_id, trace_datetime = searcher.beam_search(origin_road_id, origin_datetime, destination_road_id, beam_width=beam_width)
-            else:
-                trace_road_id, trace_datetime = searcher.search(origin_road_id, origin_datetime, destination_road_id)
-            
-            return idx, trace_road_id, trace_datetime
         
         # Prepare arguments for multiprocessing
         model_state = model.state_dict()
@@ -1020,7 +1029,7 @@ if __name__ == '__main__':
                    for i, (od, t) in enumerate(zip(od_coords, origin_datetime_list))]
         
         with Pool(processes=args.processes) as pool:
-            results = list(tqdm(pool.imap(process_trajectory, mp_args), 
+            results = list(tqdm(pool.imap(process_trajectory_mp, mp_args), 
                               total=len(mp_args), desc='Generating trajectories'))
         
         # Sort results by index and store
