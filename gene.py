@@ -19,6 +19,7 @@ import sys
 
 from utils import set_seed, create_nested_namespace, get_angle
 from models.hoser import HOSER
+import networkx as nx
 
 sys.setrecursionlimit(2000) # Set recursion limit for deep data structures
 
@@ -87,7 +88,7 @@ class Searcher:
         self.timestamp_label_array_log1p_mean = timestamp_label_array_log1p_mean
         self.timestamp_label_array_log1p_std = timestamp_label_array_log1p_std
         self.device = device
-        
+
         # Pre-compute constants for timestamp operations
         self.timestamp_mean_tensor = torch.tensor(timestamp_label_array_log1p_mean, device=device)
         self.timestamp_std_tensor = torch.tensor(timestamp_label_array_log1p_std, device=device)
@@ -96,6 +97,31 @@ class Searcher:
         with torch.no_grad():
             with torch.amp.autocast(device_type='cuda' if 'cuda' in device else 'cpu'):
                 self.model.setup_road_network_features()
+
+        # Build a NetworkX graph once for robust, fast A* routing
+        self._build_networkx_graph()
+
+    def _build_networkx_graph(self) -> None:
+        """Build a directed graph of the road network for NetworkX A* routing."""
+        G = nx.DiGraph()
+        # Prefer road length as edge weight; fallback to haversine distance
+        road_lengths = None
+        if 'length' in self.geo.columns:
+            try:
+                road_lengths = self.geo['length'].to_numpy(dtype=np.float32)
+            except Exception:
+                road_lengths = None
+
+        for u, neighbors in self.reachable_road_id_dict.items():
+            for v in neighbors:
+                if road_lengths is not None:
+                    weight = float(road_lengths[v])
+                else:
+                    # Approximate by center-to-center distance in meters
+                    weight = float(haversine(self.road_center_gps[u], self.road_center_gps[v], unit='m'))
+                G.add_edge(u, v, weight=weight)
+
+        self.nx_graph = G
 
     def search(self, origin_road_id, origin_datetime, destination_road_id, max_search_step=5000):
         vis_set = set()
@@ -207,7 +233,7 @@ class Searcher:
 
         assert best_trace is not None
         return best_trace[0], best_trace[1]
-    
+
     def beam_search(self, origin_road_id, origin_datetime, destination_road_id, beam_width=8, max_search_step=5000):
         """Beam search that processes multiple candidates in parallel for better GPU utilization"""
         vis_set = set()
@@ -303,6 +329,87 @@ class Searcher:
             search_step += len(all_candidates)
         
         return best_trace[0], best_trace[1] if best_trace else (None, None)
+
+    def nx_astar_search(self, origin_road_id, origin_datetime, destination_road_id):
+        """Use NetworkX A* to find path; use the model only to timestamp along the chosen path."""
+        def heuristic(u, v):
+            # Ignore v; compute distance to destination for admissible heuristic
+            return haversine(self.road_center_gps[u], self.road_center_gps[destination_road_id], unit='m')
+
+        try:
+            path = nx.astar_path(self.nx_graph, origin_road_id, destination_road_id, heuristic=heuristic, weight='weight')
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            # Fallback to original A*
+            return self.search(origin_road_id, origin_datetime, destination_road_id)
+
+        # Timestamp along the fixed path using single-candidate inference per step
+        trace_road_id = [origin_road_id]
+        trace_datetime = [origin_datetime]
+
+        for next_road_id in path[1:]:
+            # Prepare single-step tensors (candidate is the chosen next road only)
+            trace_arr = np.array(trace_road_id, dtype=np.int64)
+            temporal_info = np.array([(t.hour * 60.0 + t.minute + t.second / 60.0) / 1440.0 for t in trace_datetime], dtype=np.float32)
+            if trace_datetime[0].weekday() >= 5:
+                temporal_info *= -1.0
+
+            trace_distance_mat = haversine_vector(self.road_center_gps[trace_arr], self.road_center_gps[trace_arr], 'm', comb=True).astype(np.float32)
+            trace_distance_mat = np.clip(trace_distance_mat, 0.0, 1000.0) / 1000.0
+            trace_time_interval_mat = np.abs(temporal_info[:, None] * 1440.0 - temporal_info * 1440.0)
+            trace_time_interval_mat = np.clip(trace_time_interval_mat, 0.0, 5.0) / 5.0
+
+            candidate_road_id = np.array([next_road_id], dtype=np.int64)
+
+            # Metrics for the chosen candidate
+            metric_dis = haversine_vector(self.road_center_gps[candidate_road_id], self.road_center_gps[destination_road_id].reshape(1, -1), 'm', comb=True).reshape(-1).astype(np.float32)
+            metric_dis = np.log1p((metric_dis - np.min(metric_dis)) / 100)
+
+            cur_road_id = trace_road_id[-1]
+            cur_road_end_coord = self.road_end_coords[cur_road_id]
+            candidate_end_coords = self.road_end_coords[candidate_road_id]
+            dest_end_coord = self.road_end_coords[destination_road_id]
+            vec1 = candidate_end_coords - cur_road_end_coord
+            angle1 = np.arctan2(vec1[:, 1], vec1[:, 0])
+            vec2 = dest_end_coord - cur_road_end_coord
+            angle2 = np.arctan2(vec2[1], vec2[0])
+            angle = np.abs(angle1 - angle2).astype(np.float32)
+            angle = np.where(angle > math.pi, 2 * math.pi - angle, angle) / math.pi
+
+            # Tensors
+            batch_trace_road_id = torch.from_numpy(trace_arr).unsqueeze(0).to(self.device)
+            batch_temporal_info = torch.from_numpy(temporal_info).unsqueeze(0).to(self.device)
+            batch_trace_distance_mat = torch.from_numpy(trace_distance_mat).unsqueeze(0).to(self.device)
+            batch_trace_time_interval_mat = torch.from_numpy(trace_time_interval_mat).unsqueeze(0).to(self.device)
+            batch_trace_len = torch.tensor(len(trace_arr), dtype=torch.long, device=self.device).unsqueeze(0)
+            batch_destination_road_id = torch.tensor(destination_road_id, dtype=torch.long, device=self.device).unsqueeze(0)
+            batch_candidate_road_id = torch.from_numpy(candidate_road_id).unsqueeze(0).to(self.device)
+            batch_metric_dis = torch.from_numpy(metric_dis).unsqueeze(0).to(self.device)
+            batch_metric_angle = torch.from_numpy(angle.astype(np.float32)).unsqueeze(0).to(self.device)
+
+            with torch.no_grad():
+                _, time_pred = self.model.infer(
+                    batch_trace_road_id,
+                    batch_temporal_info,
+                    batch_trace_distance_mat,
+                    batch_trace_time_interval_mat,
+                    batch_trace_len,
+                    batch_destination_road_id,
+                    batch_candidate_road_id,
+                    batch_metric_dis,
+                    batch_metric_angle,
+                )
+
+            # Decode predicted time
+            time_pred = time_pred[0]
+            time_pred = time_pred * self.timestamp_std_tensor + self.timestamp_mean_tensor
+            time_pred = torch.expm1(time_pred)
+            time_pred = torch.clamp(time_pred, min=0.0)
+            dt_seconds = int(round(time_pred[0].item()))
+
+            trace_road_id.append(next_road_id)
+            trace_datetime.append(trace_datetime[-1] + timedelta(seconds=dt_seconds))
+
+        return trace_road_id, trace_datetime
     
     def vectorized_search(self, od_coords, origin_datetime_list, batch_size=256, max_search_step=5000):
         """Process multiple trajectories in parallel using vectorized GPU operations"""
@@ -928,6 +1035,7 @@ if __name__ == '__main__':
     parser.add_argument('--beam_search', action='store_true', help='Use beam search instead of A* search')
     parser.add_argument('--beam_width', type=int, default=8, help='Beam width for beam search')
     parser.add_argument('--vectorized', action='store_true', help='Use vectorized GPU-parallel search')
+    parser.add_argument('--nx_astar', action='store_true', help='Use NetworkX A* for routing with ML timing')
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -1010,7 +1118,14 @@ if __name__ == '__main__':
                        data['timestamp_label_array_log1p_std'], device)
     
     # Process trajectories 
-    if args.processes > 1:
+    if args.nx_astar:
+        print("🔍 Using NetworkX A* routing + ML timing")
+        for i, ((origin_road_id, destination_road_id), origin_datetime) in enumerate(
+                tqdm(zip(od_coords, origin_datetime_list), total=len(od_coords), desc='Generating trajectories')):
+            trace_road_id, trace_datetime = searcher.nx_astar_search(origin_road_id, origin_datetime, destination_road_id)
+            gene_trace_road_id[i] = trace_road_id
+            gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
+    elif args.processes > 1:
         print(f"🚀 Using {args.processes} CPU processes for parallel search")
         print("💡 Note: Using CPU for multiprocessing to avoid CUDA conflicts")
         # Use multiprocessing for CPU-bound work
