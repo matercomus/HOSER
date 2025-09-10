@@ -1,7 +1,6 @@
 import os
 import argparse
 from queue import PriorityQueue
-import json
 import math
 from datetime import datetime, timedelta
 import random
@@ -60,7 +59,7 @@ class Searcher:
             with torch.amp.autocast(device_type='cuda'):
                 model.setup_road_network_features()
 
-    def search(self, origin_road_id, origin_datetime, destination_road_id, max_search_step=5000):
+    def search(self, origin_road_id, origin_datetime, destination_road_id, batch_size=32, max_search_step=5000):
         vis_set = set()
         pq = PriorityQueue()
         road_id2log_prob = dict()
@@ -75,96 +74,147 @@ class Searcher:
 
         search_step = 0
         while (not pq.empty()) and (search_step < max_search_step):
-            neg_log_prob, cur_node = pq.get()
-            cur_road_id = cur_node.trace_road_id[-1]
+            
+            batch = []
+            while not pq.empty() and len(batch) < batch_size:
+                neg_log_prob, cur_node = pq.get()
+                cur_road_id = cur_node.trace_road_id[-1]
+                if cur_road_id in vis_set:
+                    continue
+                vis_set.add(cur_road_id)
+                batch.append(cur_node)
 
-            if cur_road_id in vis_set:
-                continue
-            vis_set.add(cur_road_id)
-
-            if cur_road_id == destination_road_id:
-                best_trace = cur_node.trace_road_id, cur_node.trace_datetime
-                break
-
-            dis = haversine(self.road_center_gps[cur_road_id], self.road_center_gps[destination_road_id], unit='m')
-            if dis < min_dis:
-                min_dis = dis
-                best_trace = cur_node.trace_road_id, cur_node.trace_datetime
-
-            reachable_road_id_list = self.reachable_road_id_dict[cur_road_id]
-            if len(reachable_road_id_list) == 0:
-                # Dead-end road reached, skip this path
+            if not batch:
                 continue
 
-            # Predicts the next spatio-temporal point based on the current state
-            trace_road_id = np.array(cur_node.trace_road_id)
-            temporal_info = np.array([(t.hour * 60.0 + t.minute + t.second / 60.0) / 1440.0 for t in cur_node.trace_datetime]).astype(np.float32)
+            # Batch processing
+            trace_road_ids = []
+            temporal_infos = []
+            trace_distance_mats = []
+            trace_time_interval_mats = []
+            trace_lens = []
+            candidate_road_ids = []
+            metric_diss = []
+            metric_angles = []
+            cur_log_probs = []
+            next_road_id_lists = []
+            cur_datetimes = []
 
-            if cur_node.trace_datetime[0].weekday() >= 5:
-                temporal_info *= -1.0
+            for cur_node in batch:
+                cur_road_id = cur_node.trace_road_id[-1]
 
-            trace_distance_mat = haversine_vector(self.road_center_gps[trace_road_id], self.road_center_gps[trace_road_id], 'm', comb=True).astype(np.float32)
-            trace_distance_mat = np.clip(trace_distance_mat, 0.0, 1000.0) / 1000.0
-            trace_time_interval_mat = np.abs(temporal_info[:, None] * 1440.0 - temporal_info * 1440.0)
-            trace_time_interval_mat = np.clip(trace_time_interval_mat, 0.0, 5.0) / 5.0
-            trace_len = len(trace_road_id)
+                if cur_road_id == destination_road_id:
+                    best_trace = cur_node.trace_road_id, cur_node.trace_datetime
+                    # Found the destination, we can break the main loop
+                    pq = PriorityQueue() # Clear PQ to stop
+                    break
 
-            candidate_road_id = np.array(reachable_road_id_list)
+                dis = haversine(self.road_center_gps[cur_road_id], self.road_center_gps[destination_road_id], unit='m')
+                if dis < min_dis:
+                    min_dis = dis
+                    best_trace = cur_node.trace_road_id, cur_node.trace_datetime
 
-            metric_dis = haversine_vector(self.road_center_gps[candidate_road_id], self.road_center_gps[destination_road_id].reshape(1, -1), 'm', comb=True).reshape(-1).astype(np.float32)
-            metric_dis = np.log1p((metric_dis - np.min(metric_dis)) / 100)
+                reachable_road_id_list = self.reachable_road_id_dict[cur_road_id]
+                if len(reachable_road_id_list) == 0:
+                    continue
 
-            cur_road_end_coord = self.road_end_coords[cur_road_id]
-            candidate_end_coords = self.road_end_coords[candidate_road_id]
-            dest_end_coord = self.road_end_coords[destination_road_id]
+                trace_road_id = np.array(cur_node.trace_road_id)
+                temporal_info = np.array([(t.hour * 60.0 + t.minute + t.second / 60.0) / 1440.0 for t in cur_node.trace_datetime]).astype(np.float32)
 
-            vec1 = candidate_end_coords - cur_road_end_coord
-            angle1 = np.arctan2(vec1[:, 1], vec1[:, 0])
+                if cur_node.trace_datetime[0].weekday() >= 5:
+                    temporal_info *= -1.0
 
-            vec2 = dest_end_coord - cur_road_end_coord
-            angle2 = np.arctan2(vec2[1], vec2[0])
+                trace_distance_mat = haversine_vector(self.road_center_gps[trace_road_id], self.road_center_gps[trace_road_id], 'm', comb=True).astype(np.float32)
+                trace_distance_mat = np.clip(trace_distance_mat, 0.0, 1000.0) / 1000.0
+                trace_time_interval_mat = np.abs(temporal_info[:, None] * 1440.0 - temporal_info * 1440.0)
+                trace_time_interval_mat = np.clip(trace_time_interval_mat, 0.0, 5.0) / 5.0
 
-            angle = np.abs(angle1 - angle2).astype(np.float32)
-            angle = np.where(angle > math.pi, 2 * math.pi - angle, angle) / math.pi
-            metric_angle = angle
+                candidate_road_id = np.array(reachable_road_id_list)
+                
+                metric_dis = haversine_vector(self.road_center_gps[candidate_road_id], self.road_center_gps[destination_road_id].reshape(1, -1), 'm', comb=True).reshape(-1).astype(np.float32)
+                metric_dis = np.log1p((metric_dis - np.min(metric_dis)) / 100)
 
-            batch_trace_road_id = torch.from_numpy(np.array([trace_road_id])).to(self.device)
-            batch_temporal_info = torch.from_numpy(np.array([temporal_info])).to(self.device)
-            batch_trace_distance_mat = torch.from_numpy(np.array([trace_distance_mat])).to(self.device)
-            batch_trace_time_interval_mat = torch.from_numpy(np.array([trace_time_interval_mat])).to(self.device)
-            batch_trace_len = torch.from_numpy(np.array([trace_len])).to(self.device)
-            batch_destination_road_id = torch.from_numpy(np.array([destination_road_id])).to(self.device)
-            batch_candidate_road_id = torch.from_numpy(np.array([candidate_road_id])).to(self.device)
-            batch_metric_dis = torch.from_numpy(np.array([metric_dis])).to(self.device)
-            batch_metric_angle = torch.from_numpy(np.array([metric_angle])).to(self.device)
+                cur_road_end_coord = self.road_end_coords[cur_road_id]
+                candidate_end_coords = self.road_end_coords[candidate_road_id]
+                dest_end_coord = self.road_end_coords[destination_road_id]
+
+                vec1 = candidate_end_coords - cur_road_end_coord
+                angle1 = np.arctan2(vec1[:, 1], vec1[:, 0])
+
+                vec2 = dest_end_coord - cur_road_end_coord
+                angle2 = np.arctan2(vec2[1], vec2[0])
+
+                angle = np.abs(angle1 - angle2).astype(np.float32)
+                angle = np.where(angle > math.pi, 2 * math.pi - angle, angle) / math.pi
+                metric_angle = angle
+
+                trace_road_ids.append(trace_road_id)
+                temporal_infos.append(temporal_info)
+                trace_distance_mats.append(trace_distance_mat)
+                trace_time_interval_mats.append(trace_time_interval_mat)
+                trace_lens.append(len(trace_road_id))
+                candidate_road_ids.append(candidate_road_id)
+                metric_diss.append(metric_dis)
+                metric_angles.append(metric_angle)
+                cur_log_probs.append(cur_node.log_prob)
+                next_road_id_lists.append(reachable_road_id_list)
+                cur_datetimes.append(cur_node.trace_datetime[-1])
+            
+            if not trace_road_ids: # if all nodes in batch were dead-ends
+                continue
+
+            # Padding and creating tensors
+            max_trace_len = max(len(x) for x in trace_road_ids)
+            max_candidate_len = max(len(x) for x in candidate_road_ids)
+
+            padded_trace_road_ids = [np.pad(x, (0, max_trace_len - len(x)), 'constant') for x in trace_road_ids]
+            padded_temporal_infos = [np.pad(x, (0, max_trace_len - len(x)), 'constant') for x in temporal_infos]
+            padded_trace_distance_mats = [np.pad(x, ((0, max_trace_len - len(x[0])), (0, max_trace_len - len(x[1]))), 'constant') for x in trace_distance_mats]
+            padded_trace_time_interval_mats = [np.pad(x, ((0, max_trace_len - len(x[0])), (0, max_trace_len - len(x[1]))), 'constant') for x in trace_time_interval_mats]
+            
+            padded_candidate_road_ids = [np.pad(x, (0, max_candidate_len - len(x)), 'constant') for x in candidate_road_ids]
+            padded_metric_diss = [np.pad(x, (0, max_candidate_len - len(x)), 'constant') for x in metric_diss]
+            padded_metric_angles = [np.pad(x, (0, max_candidate_len - len(x)), 'constant') for x in metric_angles]
+            
+            batch_trace_road_id = torch.from_numpy(np.array(padded_trace_road_ids)).to(self.device)
+            batch_temporal_info = torch.from_numpy(np.array(padded_temporal_infos)).to(self.device)
+            batch_trace_distance_mat = torch.from_numpy(np.array(padded_trace_distance_mats)).to(self.device)
+            batch_trace_time_interval_mat = torch.from_numpy(np.array(padded_trace_time_interval_mats)).to(self.device)
+            batch_trace_len = torch.from_numpy(np.array(trace_lens)).to(self.device)
+            batch_destination_road_id = torch.from_numpy(np.array([destination_road_id] * len(batch))).to(self.device)
+            batch_candidate_road_id = torch.from_numpy(np.array(padded_candidate_road_ids)).to(self.device)
+            batch_metric_dis = torch.from_numpy(np.array(padded_metric_diss)).to(self.device)
+            batch_metric_angle = torch.from_numpy(np.array(padded_metric_angles)).to(self.device)
 
             with torch.amp.autocast(device_type='cuda'):
                 logits, time_pred = self.model.infer(batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle)
-
-            logits = logits[0]
+            
             output = F.softmax(logits, dim=-1)
             log_output = torch.log(output)
-            log_output += cur_node.log_prob
-
-            time_pred = time_pred[0]
+            
             time_pred = time_pred * self.timestamp_label_array_log1p_std + self.timestamp_label_array_log1p_mean
             time_pred = torch.expm1(time_pred)
             time_pred = torch.clamp(time_pred, min=0.0)
 
-            for index, candidate_road_id_val in enumerate(reachable_road_id_list):
-                candidate_log_prob = log_output[index].item()
-                next_datatime = cur_node.trace_datetime[-1] + timedelta(seconds=round(time_pred[index].item()))
+            for i, cur_node in enumerate(batch):
+                num_candidates = len(next_road_id_lists[i])
+                node_log_output = log_output[i, :num_candidates] + cur_log_probs[i]
+                node_time_pred = time_pred[i, :num_candidates]
 
-                if candidate_road_id_val not in road_id2log_prob or candidate_log_prob > road_id2log_prob[candidate_road_id_val]:
-                    new_node = SearchNode(
-                        trace_road_id=cur_node.trace_road_id+[candidate_road_id_val],
-                        trace_datetime=cur_node.trace_datetime+[next_datatime],
-                        log_prob=candidate_log_prob
-                    )
-                    pq.put((-candidate_log_prob, new_node))
-                    road_id2log_prob[candidate_road_id_val] = candidate_log_prob
+                for index, candidate_road_id_val in enumerate(next_road_id_lists[i]):
+                    candidate_log_prob = node_log_output[index].item()
+                    next_datatime = cur_datetimes[i] + timedelta(seconds=round(node_time_pred[index].item()))
 
-            search_step += 1
+                    if candidate_road_id_val not in road_id2log_prob or candidate_log_prob > road_id2log_prob[candidate_road_id_val]:
+                        new_node = SearchNode(
+                            trace_road_id=cur_node.trace_road_id + [candidate_road_id_val],
+                            trace_datetime=cur_node.trace_datetime + [next_datatime],
+                            log_prob=candidate_log_prob
+                        )
+                        pq.put((-candidate_log_prob, new_node))
+                        road_id2log_prob[candidate_road_id_val] = candidate_log_prob
+
+            search_step += len(batch)
 
         assert best_trace is not None
         return best_trace[0], best_trace[1]
