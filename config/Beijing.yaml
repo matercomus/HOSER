@@ -1,11 +1,11 @@
 road_network_encoder_config:
-  road_id_emb_dim: 32
+  road_id_emb_dim: 64
   len_emb_dim: 16
   type_emb_dim: 16
   lon_emb_dim: 16
   lat_emb_dim: 16
-  intersection_emb_dim: 64
-  zone_id_emb_dim: 64
+  intersection_emb_dim: 128
+  zone_id_emb_dim: 128
   # determined at runtime
   road_id_num_embeddings:
   # determined at runtime
