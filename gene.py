@@ -1017,7 +1017,11 @@ if __name__ == '__main__':
         from multiprocessing import Pool
         
         # Prepare arguments for multiprocessing
-        model_state = model.state_dict()
+        # Move model to CPU to avoid CUDA issues in multiprocessing
+        model_cpu = model.cpu()
+        model_state = model_cpu.state_dict()
+        # Move model back to GPU for single-process fallback
+        model = model.to(device)
         model_config = {
             'road_network_encoder_config': config.road_network_encoder_config,
             'road_network_encoder_feature': config.road_network_encoder_feature,
@@ -1025,7 +1029,17 @@ if __name__ == '__main__':
             'navigator_config': config.navigator_config,
             'road2zone': data['road2zone'],
         }
-        mp_args = [(i, od[0], od[1], t, model_state, data, device, args.beam_search, args.beam_width, model_config) 
+        # Prepare data for multiprocessing - ensure no CUDA tensors
+        mp_data = {
+            'reachable_road_id_dict': data['reachable_road_id_dict'],
+            'geo': data['geo'],
+            'road_center_gps': data['road_center_gps'],
+            'road_end_coords': data['road_end_coords'],
+            'timestamp_label_array_log1p_mean': data['timestamp_label_array_log1p_mean'],
+            'timestamp_label_array_log1p_std': data['timestamp_label_array_log1p_std'],
+            'road2zone': data['road2zone'],
+        }
+        mp_args = [(i, od[0], od[1], t, model_state, mp_data, 'cpu', args.beam_search, args.beam_width, model_config) 
                    for i, (od, t) in enumerate(zip(od_coords, origin_datetime_list))]
         
         with Pool(processes=args.processes) as pool:
