@@ -7,7 +7,7 @@ import random
 from collections import Counter
 import yaml
 from tqdm import tqdm
-import pandas as pd
+import polars as pl
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from shapely.geometry import LineString
@@ -16,6 +16,7 @@ import torch
 import torch.nn.functional as F
 import pickle
 import sys
+import json
 
 from utils import set_seed, create_nested_namespace, get_angle
 from models.hoser import HOSER
@@ -93,10 +94,11 @@ class Searcher:
         self.timestamp_mean_tensor = torch.tensor(timestamp_label_array_log1p_mean, device=device)
         self.timestamp_std_tensor = torch.tensor(timestamp_label_array_log1p_std, device=device)
 
-        # Setup road network features once
-        with torch.no_grad():
-            with torch.amp.autocast(device_type='cuda' if 'cuda' in device else 'cpu'):
-                self.model.setup_road_network_features()
+        # Setup road network features once (if model is available)
+        if self.model is not None:
+            with torch.no_grad():
+                with torch.amp.autocast(device_type='cuda' if 'cuda' in device else 'cpu'):
+                    self.model.setup_road_network_features()
 
         # Build a NetworkX graph once for robust, fast A* routing
         self._build_networkx_graph()
@@ -108,7 +110,12 @@ class Searcher:
         road_lengths = None
         if 'length' in self.geo.columns:
             try:
-                road_lengths = self.geo['length'].to_numpy(dtype=np.float32)
+                if hasattr(self.geo, 'get_column'):
+                    # Polars
+                    road_lengths = self.geo.get_column('length').to_numpy().astype(np.float32)
+                else:
+                    # Pandas-like
+                    road_lengths = np.asarray(self.geo['length']).astype(np.float32)
             except Exception:
                 road_lengths = None
 
@@ -386,25 +393,33 @@ class Searcher:
             batch_metric_dis = torch.from_numpy(metric_dis).unsqueeze(0).to(self.device)
             batch_metric_angle = torch.from_numpy(angle.astype(np.float32)).unsqueeze(0).to(self.device)
 
-            with torch.no_grad():
-                _, time_pred = self.model.infer(
-                    batch_trace_road_id,
-                    batch_temporal_info,
-                    batch_trace_distance_mat,
-                    batch_trace_time_interval_mat,
-                    batch_trace_len,
-                    batch_destination_road_id,
-                    batch_candidate_road_id,
-                    batch_metric_dis,
-                    batch_metric_angle,
-                )
+            if self.model is not None:
+                with torch.no_grad():
+                    _, time_pred = self.model.infer(
+                        batch_trace_road_id,
+                        batch_temporal_info,
+                        batch_trace_distance_mat,
+                        batch_trace_time_interval_mat,
+                        batch_trace_len,
+                        batch_destination_road_id,
+                        batch_candidate_road_id,
+                        batch_metric_dis,
+                        batch_metric_angle,
+                    )
 
-            # Decode predicted time
-            time_pred = time_pred[0]
-            time_pred = time_pred * self.timestamp_std_tensor + self.timestamp_mean_tensor
-            time_pred = torch.expm1(time_pred)
-            time_pred = torch.clamp(time_pred, min=0.0)
-            dt_seconds = int(round(time_pred[0].item()))
+                # Decode predicted time
+                time_pred = time_pred[0]
+                time_pred = time_pred * self.timestamp_std_tensor + self.timestamp_mean_tensor
+                time_pred = torch.expm1(time_pred)
+                time_pred = torch.clamp(time_pred, min=0.0)
+                dt_seconds = int(round(time_pred[0].item()))
+            else:
+                # Heuristic fallback: sample per-step time from global log-normal stats
+                log_dt = np.random.normal(
+                    float(self.timestamp_label_array_log1p_mean),
+                    float(self.timestamp_label_array_log1p_std),
+                )
+                dt_seconds = int(max(1, round(np.expm1(log_dt))))
 
             trace_road_id.append(next_road_id)
             trace_datetime.append(trace_datetime[-1] + timedelta(seconds=dt_seconds))
@@ -896,7 +911,23 @@ def load_and_preprocess_data(dataset):
     if os.path.exists(cache_path):
         print(f"✅ Loading preprocessed data from cache: {cache_path}")
         with open(cache_path, 'rb') as f:
-            return pickle.load(f)
+            data = pickle.load(f)
+        # Backfill OD → train row mapping if missing in older caches
+        if 'od_to_train_indices' not in data:
+            print("ℹ️ Building OD→train row mapping (not found in cache)...")
+            train_traj = data['train_traj']
+            od_to_train_indices = {}
+            col = train_traj.get_column('rid_list').to_list() if hasattr(train_traj, 'get_column') else train_traj['rid_list']
+            for idx, rid_list_str in enumerate(tqdm(col, desc="Indexing OD→rows")):
+                rid_list = eval(rid_list_str)
+                if len(rid_list) >= 2:
+                    od = (rid_list[0], rid_list[-1])
+                    od_to_train_indices.setdefault(od, []).append(idx)
+            data['od_to_train_indices'] = od_to_train_indices
+            # Persist updated cache with mapping for future runs
+            with open(cache_path, 'wb') as f:
+                pickle.dump(data, f)
+        return data
 
     print("🚀 Preprocessing data for trajectory generation (first time only)...")
 
@@ -907,23 +938,24 @@ def load_and_preprocess_data(dataset):
     zone_trans_mat_file = f'./data/{dataset}/zone_trans_mat.npy'
 
     print("📂 Loading road network data...")
-    geo = pd.read_csv(geo_file)
-    rel = pd.read_csv(rel_file)
-    num_roads = len(geo)
+    geo = pl.read_csv(geo_file)
+    rel = pl.read_csv(rel_file)
+    num_roads = geo.height
     print(f"✅ Loaded {num_roads} road segments.")
 
     print("🛰️  Calculating road coordinates and centers...")
-    geo['coordinates_parsed'] = [eval(coord_str) for coord_str in tqdm(geo['coordinates'], desc="Parsing Coords")]
-    road_center_gps = np.array([LineString(coords).centroid.coords[0][::-1] for coords in tqdm(geo['coordinates_parsed'], desc="Centroids")])
-    road_end_coords = np.array([coords[-1] for coords in geo['coordinates_parsed']])
+    coordinates_list = geo.get_column('coordinates').to_list()
+    coordinates_parsed = [eval(coord_str) for coord_str in tqdm(coordinates_list, desc="Parsing Coords")]
+    road_center_gps = np.array([LineString(coords).centroid.coords[0][::-1] for coords in tqdm(coordinates_parsed, desc="Centroids")])
+    road_end_coords = np.array([coords[-1] for coords in coordinates_parsed])
     print("✅ GPS calculation complete.")
 
     print("📝 Preprocessing road attributes...")
-    road_attr_len = geo['length'].to_numpy(dtype=np.float32)
+    road_attr_len = geo.get_column('length').to_numpy().astype(np.float32)
     road_attr_len = np.log1p(road_attr_len)
     road_attr_len = (road_attr_len - np.mean(road_attr_len)) / np.std(road_attr_len)
 
-    road_attr_type = geo['highway'].values.tolist()
+    road_attr_type = geo.get_column('highway').to_list()
     if dataset in ['Beijing', 'San_Francisco']:
         for i in range(len(road_attr_type)):
             if isinstance(road_attr_type[i], str) and road_attr_type[i].startswith('[') and road_attr_type[i].endswith(']'):
@@ -939,13 +971,14 @@ def load_and_preprocess_data(dataset):
     print("✅ Attribute preprocessing complete.")
 
     reachable_road_id_dict = {i: [] for i in range(num_roads)}
-    for _, row in rel.iterrows():
-        reachable_road_id_dict[row['origin_id']].append(row['destination_id'])
+    origins = rel.get_column('origin_id').to_list()
+    destinations = rel.get_column('destination_id').to_list()
+    for o, d in zip(origins, destinations):
+        reachable_road_id_dict[int(o)].append(int(d))
 
     print("🔗 Building road network graph...")
     coord2road_id = {}
-    for road_id, row in tqdm(geo.iterrows(), total=num_roads, desc="Building graph"):
-        coord = row['coordinates_parsed']
+    for road_id, coord in tqdm(list(enumerate(coordinates_parsed)), total=num_roads, desc="Building graph"):
         start_coord, end_coord = tuple(coord[0]), tuple(coord[-1])
         coord2road_id.setdefault(start_coord, []).append(road_id)
         coord2road_id.setdefault(end_coord, []).append(road_id)
@@ -963,7 +996,7 @@ def load_and_preprocess_data(dataset):
             adj_row.append(road_id)
             adj_col.append(adj_road_id)
 
-            r1_coords, r2_coords = geo.at[road_id, 'coordinates_parsed'], geo.at[adj_road_id, 'coordinates_parsed']
+            r1_coords, r2_coords = coordinates_parsed[road_id], coordinates_parsed[adj_road_id]
             r1_angle = get_angle(r1_coords[0][1], r1_coords[0][0], r1_coords[-1][1], r1_coords[-1][0])
             r2_angle = get_angle(r2_coords[0][1], r2_coords[0][0], r2_coords[-1][1], r2_coords[-1][0])
             
@@ -986,21 +1019,31 @@ def load_and_preprocess_data(dataset):
     road2zone = np.loadtxt(road_network_partition_file, dtype=np.int32)
 
     print("🗺️  Loading training trajectories for OD matrix...")
-    train_traj = pd.read_csv(train_traj_file)
+    train_traj = pl.read_csv(train_traj_file)
     print(f"✅ Loaded {len(train_traj)} trajectories.")
 
     print("... Calculating OD matrix...")
     od_counts = Counter()
-    for rid_list_str in tqdm(train_traj['rid_list'], desc="Calculating OD"):
+    for rid_list_str in tqdm(train_traj.get_column('rid_list').to_list(), desc="Calculating OD"):
         rid_list = eval(rid_list_str)
         if len(rid_list) >= 2:
             od_counts[(rid_list[0], rid_list[-1])] += 1.0
     print("✅ OD matrix calculation complete.")
 
+    # Build mapping from OD pair → list of training row indices for provenance
+    print("... Building OD→train row mapping ...")
+    od_to_train_indices = {}
+    for idx, rid_list_str in enumerate(tqdm(train_traj.get_column('rid_list').to_list(), desc="Indexing OD→rows")):
+        rid_list = eval(rid_list_str)
+        if len(rid_list) >= 2:
+            od = (rid_list[0], rid_list[-1])
+            od_to_train_indices.setdefault(od, []).append(idx)
+    print(f"✅ Indexed {len(od_to_train_indices)} OD keys.")
+
     print("🕒 Calculating timestamp statistics...")
     timestamp_labels = [
         (datetime.strptime(t2, '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(t1, '%Y-%m-%dT%H:%M:%SZ')).total_seconds()
-        for time_list_str in train_traj['time_list']
+        for time_list_str in train_traj.get_column('time_list').to_list()
         for t1, t2 in zip(time_list_str.split(',')[:-1], time_list_str.split(',')[1:])
     ]
     timestamp_label_array = np.array(timestamp_labels, dtype=np.float32)
@@ -1014,7 +1057,7 @@ def load_and_preprocess_data(dataset):
         "road_attr_lon": road_attr_lon, "road_attr_lat": road_attr_lat, "road_edge_index": road_edge_index,
         "intersection_attr": intersection_attr, "zone_edge_index": zone_edge_index,
         "zone_edge_weight": zone_edge_weight, "road2zone": road2zone, "train_traj": train_traj,
-        "reachable_road_id_dict": reachable_road_id_dict, "od_counts": od_counts,
+        "reachable_road_id_dict": reachable_road_id_dict, "od_counts": od_counts, "od_to_train_indices": od_to_train_indices,
         "timestamp_label_array_log1p_mean": timestamp_label_array_log1p_mean,
         "timestamp_label_array_log1p_std": timestamp_label_array_log1p_std
     }
@@ -1077,40 +1120,70 @@ if __name__ == '__main__':
     print(f"🎲 Sampling {args.num_gene} OD pairs for generation...")
     sampled_indices = np.random.choice(len(valid_od_pairs), size=args.num_gene, p=od_probabilities)
     od_coords = [valid_od_pairs[i] for i in sampled_indices]
-
-    time_list = list(data['train_traj']['time_list'])
-    origin_datetime_list = [datetime.strptime(row.split(',')[0], '%Y-%m-%dT%H:%M:%SZ') for row in random.choices(time_list, k=args.num_gene)]
+    # For each sampled OD, pick a concrete source training row and use its start time
+    source_train_indices = []
+    origin_datetime_list = []
+    train_traj_df = data['train_traj']
+    for od in od_coords:
+        candidates = data['od_to_train_indices'].get(od, [])
+        if candidates:
+            src_idx = random.choice(candidates)
+            # Handle both Polars and Pandas cached DataFrames
+            if hasattr(train_traj_df, 'get_column'):
+                time_list_str = train_traj_df.get_column('time_list')[src_idx]
+            else:
+                time_list_str = train_traj_df['time_list'].iloc[src_idx] if hasattr(train_traj_df, 'iloc') else train_traj_df['time_list'][src_idx]
+            src_time_str = time_list_str.split(',')[0]
+            origin_dt = datetime.strptime(src_time_str, '%Y-%m-%dT%H:%M:%SZ')
+        else:
+            # Fallback: use a random start time if no exact source row found
+            time_values = (
+                train_traj_df.get_column('time_list').to_list()
+                if hasattr(train_traj_df, 'get_column')
+                else train_traj_df['time_list'].tolist()
+            )
+            time_list_str = random.choice(time_values)
+            src_time_str = time_list_str.split(',')[0]
+            origin_dt = datetime.strptime(src_time_str, '%Y-%m-%dT%H:%M:%SZ')
+            src_idx = -1
+        source_train_indices.append(src_idx)
+        origin_datetime_list.append(origin_dt)
 
     print("🧠 Loading trained model...")
-    model = HOSER(
-        config.road_network_encoder_config,
-        config.road_network_encoder_feature,
-        config.trajectory_encoder_config,
-        config.navigator_config,
-        data['road2zone'],
-    )
-
     save_dir = f'./save/{args.dataset}/seed{args.seed}'
-    model_state_dict = torch.load(os.path.join(save_dir, 'best.pth'), map_location='cpu')
-    model.load_state_dict(model_state_dict)
-    print("✅ Model loaded successfully.")
+    save_path = os.path.join(save_dir, 'best.pth')
+    if os.path.exists(save_path):
+        model = HOSER(
+            config.road_network_encoder_config,
+            config.road_network_encoder_feature,
+            config.trajectory_encoder_config,
+            config.navigator_config,
+            data['road2zone'],
+        )
+        model_state_dict = torch.load(save_path, map_location='cpu')
+        model.load_state_dict(model_state_dict)
+        print("✅ Model loaded successfully.")
+    else:
+        print(f"⚠️  No checkpoint found at {save_path}. Falling back to heuristic timing.")
+        model = None
 
     gene_trace_road_id = [None] * args.num_gene
     gene_trace_datetime = [None] * args.num_gene
 
     print(f"🧬 Starting trajectory generation for {args.num_gene} trajectories...")
     
-    # Move model to GPU once and set to eval mode
-    model = model.to(device)
-    model.eval()
-    
-    # Try to compile the model for faster inference (PyTorch 2.0+)
-    try:
-        import torch._dynamo
-        model = torch.compile(model, mode="reduce-overhead")
-        print("✅ Model compiled with torch.compile for faster inference")
-    except (ImportError, AttributeError):
-        pass  # torch.compile not available, use regular model
+    # Move model to GPU once and set to eval mode (if available)
+    if model is not None:
+        model = model.to(device)
+        model.eval()
+        
+        # Try to compile the model for faster inference (PyTorch 2.0+)
+        try:
+            import torch._dynamo
+            model = torch.compile(model, mode="reduce-overhead")
+            print("✅ Model compiled with torch.compile for faster inference")
+        except (ImportError, AttributeError):
+            pass  # torch.compile not available, use regular model
     
     # Create searcher instance
     searcher = Searcher(model, data['reachable_road_id_dict'], data['geo'], data['road_center_gps'], 
@@ -1192,14 +1265,26 @@ if __name__ == '__main__':
             gene_trace_road_id[i] = trace_road_id
             gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
 
-    res_df = pd.DataFrame({
-        'gene_trace_road_id': gene_trace_road_id,
-        'gene_trace_datetime': gene_trace_datetime,
+    # Prepare provenance columns for comparison with real trips
+    origin_road_ids = [od[0] for od in od_coords]
+    destination_road_ids = [od[1] for od in od_coords]
+
+    # CSV cannot store nested lists; serialize trace columns as JSON strings
+    gene_trace_road_id_json = [json.dumps(lst if lst is not None else []) for lst in gene_trace_road_id]
+    gene_trace_datetime_json = [json.dumps(lst if lst is not None else []) for lst in gene_trace_datetime]
+
+    res_df = pl.DataFrame({
+        'origin_road_id': origin_road_ids,
+        'destination_road_id': destination_road_ids,
+        'source_train_index': source_train_indices,
+        'source_origin_time': [dt.strftime('%Y-%m-%dT%H:%M:%SZ') for dt in origin_datetime_list],
+        'gene_trace_road_id': gene_trace_road_id_json,
+        'gene_trace_datetime': gene_trace_datetime_json,
     })
     
     gene_dir = f'./gene/{args.dataset}/seed{args.seed}'
     os.makedirs(gene_dir, exist_ok=True)
     now = datetime.now()
     output_path = os.path.join(gene_dir, f'{now.strftime("%Y-%m-%d_%H-%M-%S")}.csv')
-    res_df.to_csv(output_path, index=False)
+    res_df.write_csv(output_path)
     print(f"🎉 Trajectory generation complete. Saved to {output_path}")
