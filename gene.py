@@ -347,6 +347,7 @@ class Searcher:
             path = nx.astar_path(self.nx_graph, origin_road_id, destination_road_id, heuristic=heuristic, weight='weight')
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             # Fallback to original A*
+            print("No path found, falling back to original A*")
             return self.search(origin_road_id, origin_datetime, destination_road_id)
 
         # Timestamp along the fixed path using single-candidate inference per step
