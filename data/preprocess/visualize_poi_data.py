@@ -303,7 +303,17 @@ class POIDataVisualizer:
         fig.suptitle('Spatial Distribution Analysis: POI Data and HOSER Zones in Beijing', 
                     fontsize=16, fontweight='bold', y=0.95)
         
-        # Common function to plot Beijing boundary
+        # Common function to plot Beijing boundary and get bounds
+        def get_beijing_bounds():
+            """Get Beijing boundary bounds for clipping heatmaps"""
+            if self.beijing_boundary is not None:
+                try:
+                    bounds = self.beijing_boundary.total_bounds
+                    return bounds[0], bounds[2], bounds[1], bounds[3]  # lon_min, lon_max, lat_min, lat_max
+                except Exception as e:
+                    print(f"⚠️  Error getting Beijing boundary: {e}")
+            return None, None, None, None
+        
         def plot_beijing_boundary(ax):
             if self.beijing_boundary is not None:
                 try:
@@ -314,18 +324,32 @@ class POIDataVisualizer:
                 except Exception as e:
                     print(f"⚠️  Error plotting Beijing boundary: {e}")
         
-        # Create data-specific grid bounds to show spatial differences
+        # Create data-specific grid bounds clipped to Beijing boundary
         def get_data_bounds(data_lons, data_lats, data_name):
-            """Get grid bounds for specific dataset"""
+            """Get grid bounds for specific dataset, clipped to Beijing boundary"""
             if not data_lons or not data_lats:
                 return None, None, None, None, None, None
             
-            lon_min, lon_max = min(data_lons), max(data_lons)
-            lat_min, lat_max = min(data_lats), max(data_lats)
+            # Get Beijing boundary bounds for clipping
+            beijing_lon_min, beijing_lon_max, beijing_lat_min, beijing_lat_max = get_beijing_bounds()
             
-            # Add padding
-            lon_padding = (lon_max - lon_min) * 0.05
-            lat_padding = (lat_max - lat_min) * 0.05
+            # Start with data bounds
+            data_lon_min, data_lon_max = min(data_lons), max(data_lons)
+            data_lat_min, data_lat_max = min(data_lats), max(data_lats)
+            
+            # Clip to Beijing boundary if available
+            if beijing_lon_min is not None:
+                lon_min = max(data_lon_min, beijing_lon_min)
+                lon_max = min(data_lon_max, beijing_lon_max)
+                lat_min = max(data_lat_min, beijing_lat_min)
+                lat_max = min(data_lat_max, beijing_lat_max)
+            else:
+                lon_min, lon_max = data_lon_min, data_lon_max
+                lat_min, lat_max = data_lat_min, data_lat_max
+            
+            # Add small padding
+            lon_padding = (lon_max - lon_min) * 0.02
+            lat_padding = (lat_max - lat_min) * 0.02
             
             lon_min -= lon_padding
             lon_max += lon_padding
@@ -336,7 +360,7 @@ class POIDataVisualizer:
             lon_bins = np.linspace(lon_min, lon_max, 50)
             lat_bins = np.linspace(lat_min, lat_max, 50)
             
-            print(f"📊 {data_name} spatial extent: lon {lon_min:.3f}-{lon_max:.3f}, lat {lat_min:.3f}-{lat_max:.3f}")
+            print(f"📊 {data_name} spatial extent (clipped to Beijing): lon {lon_min:.3f}-{lon_max:.3f}, lat {lat_min:.3f}-{lat_max:.3f}")
             
             return lon_bins, lat_bins, lon_min, lon_max, lat_min, lat_max
         
