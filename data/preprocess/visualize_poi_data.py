@@ -235,19 +235,63 @@ class POIDataVisualizer:
         ax1.grid(True, alpha=0.3)
         ax1.ticklabel_format(style='plain', axis='both')
         
-        # Plot 2: Box plot with better styling
-        box_plot = ax2.boxplot(zone_totals[zone_totals > 0], patch_artist=True)
-        box_plot['boxes'][0].set_facecolor('lightgreen')
-        box_plot['boxes'][0].set_alpha(0.7)
+        # Plot 2: Box plots for top 10 POI categories (with outlier filtering)
+        # Get top 10 categories by total POI count
+        category_totals = np.sum(self.density_matrix, axis=0)
+        top_10_indices = np.argsort(category_totals)[-10:][::-1]  # Top 10, descending order
+        top_10_categories = [self.english_categories[i] for i in top_10_indices]
+        
+        # Prepare data for box plots with outlier filtering
+        box_data = []
+        filtered_stats = []
+        
+        for cat_idx in top_10_indices:
+            category_data = self.density_matrix[:, cat_idx]
+            # Only include zones with POIs in this category
+            non_zero_data = category_data[category_data > 0]
+            
+            # Filter extreme outliers (top 1% of values) to better show distribution
+            if len(non_zero_data) > 0:
+                threshold = np.percentile(non_zero_data, 99)
+                filtered_data = non_zero_data[non_zero_data <= threshold]
+                box_data.append(filtered_data)
+                filtered_stats.append({
+                    'original_count': len(non_zero_data),
+                    'filtered_count': len(filtered_data),
+                    'max_original': np.max(non_zero_data),
+                    'max_filtered': np.max(filtered_data) if len(filtered_data) > 0 else 0
+                })
+            else:
+                box_data.append(non_zero_data)
+                filtered_stats.append({
+                    'original_count': 0,
+                    'filtered_count': 0,
+                    'max_original': 0,
+                    'max_filtered': 0
+                })
+        
+        # Create box plots
+        box_plot = ax2.boxplot(box_data, patch_artist=True, labels=top_10_categories)
+        
+        # Color the boxes with different colors
+        colors = plt.cm.Set3(np.linspace(0, 1, len(box_data)))
+        for patch, color in zip(box_plot['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+        
+        ax2.set_xlabel('POI Category', fontsize=12)
         ax2.set_ylabel('POI Count per Zone (number of POIs)', fontsize=12)
-        ax2.set_title('POI Count Distribution (Zones with POIs)', fontsize=14, fontweight='bold')
+        ax2.set_title('POI Distribution by Category (Top 10 Categories, Outliers Filtered)', fontsize=14, fontweight='bold')
         ax2.grid(True, alpha=0.3)
         ax2.ticklabel_format(style='plain', axis='y')
+        plt.setp(ax2.get_xticklabels(), rotation=45, ha='right', fontsize=10)
         
-        # Add statistics text
-        stats_text = f'Min: {zone_totals[zone_totals > 0].min():.0f}\nMax: {zone_totals[zone_totals > 0].max():.0f}\nStd: {zone_totals[zone_totals > 0].std():.0f}'
+        # Add summary statistics
+        total_pois = np.sum(category_totals[top_10_indices])
+        total_filtered = sum(len(data) for data in box_data)
+        stats_text = f'Top 10 Categories (99th percentile):\nTotal POIs: {total_pois:,.0f}\nZones shown: {total_filtered:,}'
         ax2.text(0.02, 0.98, stats_text, transform=ax2.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=9)
+                bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8), fontsize=9)
         
         # Plot 3: Geographic distribution of zones by POI count
         if self.hoser_zones and self.beijing_boundary is not None:
