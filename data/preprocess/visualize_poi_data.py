@@ -36,6 +36,7 @@ class POIDataVisualizer:
         self.hoser_zones = None
         self.density_matrix = None
         self.beijing_boundary = None
+        self.poi_points = None
         
     def load_data(self):
         """Load all processed POI data"""
@@ -128,6 +129,44 @@ class POIDataVisualizer:
             print(f"⚠️  Error loading Beijing boundary: {e}")
             print("   Proceeding without boundary overlay")
             self.beijing_boundary = None
+    
+    def load_poi_points(self, poi_file: str = "/home/matt/POI/2021_combined_utf8_no_bom.csv", sample_size: int = 10000):
+        """Load a sample of POI points for visualization"""
+        print("📍 Loading POI points for visualization...")
+        
+        try:
+            # Load POI data with Polars for speed
+            poi_df = pl.scan_csv(poi_file, encoding='utf8').head(sample_size).collect()
+            
+            # Clean coordinates and filter to Beijing bounds
+            beijing_bounds = {
+                'min_lon': 115.4, 'max_lon': 117.5,
+                'min_lat': 39.4, 'max_lat': 41.1
+            }
+            
+            # Filter POIs within Beijing bounds
+            poi_df = poi_df.filter(
+                (pl.col('大地X').cast(pl.Float64).is_not_null()) &
+                (pl.col('大地Y').cast(pl.Float64).is_not_null()) &
+                (pl.col('大地X') >= beijing_bounds['min_lon']) &
+                (pl.col('大地X') <= beijing_bounds['max_lon']) &
+                (pl.col('大地Y') >= beijing_bounds['min_lat']) &
+                (pl.col('大地Y') <= beijing_bounds['max_lat'])
+            )
+            
+            # Convert to numpy arrays for plotting
+            self.poi_points = {
+                'lon': poi_df.select('大地X').to_numpy().flatten(),
+                'lat': poi_df.select('大地Y').to_numpy().flatten(),
+                'categories': poi_df.select('类型1').to_numpy().flatten()
+            }
+            
+            print(f"✅ Loaded {len(self.poi_points['lon'])} POI points for visualization")
+            
+        except Exception as e:
+            print(f"⚠️  Error loading POI points: {e}")
+            print("   Proceeding without POI points")
+            self.poi_points = None
         
     def plot_poi_category_distribution(self):
         """Plot distribution of POI categories across all zones"""
@@ -251,81 +290,139 @@ class POIDataVisualizer:
         plt.close()
         
     def plot_zone_geographic_distribution(self):
-        """Plot geographic distribution of zones with POIs"""
+        """Plot geographic distribution of zones, POI points, and POI-rich zones"""
         print("📊 Creating geographic distribution plot...")
         
-        # Extract zone coordinates and POI counts
+        # Create 3 subplots
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 8))
+        
+        # Common function to plot Beijing boundary
+        def plot_beijing_boundary(ax):
+            if self.beijing_boundary is not None:
+                try:
+                    self.beijing_boundary.boundary.plot(ax=ax, color='black', linewidth=2, alpha=0.8)
+                    bounds = self.beijing_boundary.total_bounds
+                    ax.set_xlim(bounds[0] - 0.1, bounds[2] + 0.1)
+                    ax.set_ylim(bounds[1] - 0.1, bounds[3] + 0.1)
+                except Exception as e:
+                    print(f"⚠️  Error plotting Beijing boundary: {e}")
+        
+        # Plot 1: POI-Rich Zones
         zone_data = []
         for zone_id, zone_info in self.hoser_zones.items():
             if zone_info['poi_count'] > 0:
                 center = zone_info['center']
-                bounds = zone_info['bounds']
                 zone_data.append({
                     'zone_id': int(zone_id),
                     'lon': center['lon'],
                     'lat': center['lat'],
-                    'poi_count': zone_info['poi_count'],
-                    'area': zone_info['area']
+                    'poi_count': zone_info['poi_count']
                 })
         
-        if not zone_data:
-            print("⚠️  No zones with POIs found for geographic visualization")
-            return
+        if zone_data:
+            df_zones = pl.DataFrame(zone_data)
+            plot_beijing_boundary(ax1)
+            
+            scatter1 = ax1.scatter(df_zones['lon'], df_zones['lat'], 
+                                c=df_zones['poi_count'], 
+                                s=np.clip(df_zones['poi_count']/100, 20, 200),
+                                alpha=0.7, 
+                                cmap='viridis',
+                                edgecolors='black',
+                                linewidth=0.5)
+            ax1.set_xlabel('Longitude (degrees)', fontsize=12)
+            ax1.set_ylabel('Latitude (degrees)', fontsize=12)
+            ax1.set_title('POI-Rich Zones Distribution', fontsize=14, fontweight='bold')
+            ax1.grid(True, alpha=0.3)
+            
+            cbar1 = plt.colorbar(scatter1, ax=ax1)
+            cbar1.set_label('POI Count (number of POIs)', fontsize=12)
+        else:
+            ax1.text(0.5, 0.5, 'No POI-rich zones found', ha='center', va='center', transform=ax1.transAxes)
+            ax1.set_title('POI-Rich Zones Distribution', fontsize=14, fontweight='bold')
         
-        # Convert to DataFrame for easier plotting
-        df = pl.DataFrame(zone_data)
+        # Plot 2: POI Points
+        if self.poi_points is not None and len(self.poi_points['lon']) > 0:
+            plot_beijing_boundary(ax2)
+            
+            # Sample POI points for better visualization (max 5000 points)
+            n_points = min(len(self.poi_points['lon']), 5000)
+            if n_points < len(self.poi_points['lon']):
+                indices = np.random.choice(len(self.poi_points['lon']), n_points, replace=False)
+                lon_sample = self.poi_points['lon'][indices]
+                lat_sample = self.poi_points['lat'][indices]
+                cat_sample = self.poi_points['categories'][indices]
+            else:
+                lon_sample = self.poi_points['lon']
+                lat_sample = self.poi_points['lat']
+                cat_sample = self.poi_points['categories']
+            
+            # Color by category
+            unique_cats = np.unique(cat_sample)
+            colors = plt.cm.tab20(np.linspace(0, 1, len(unique_cats)))
+            cat_to_color = dict(zip(unique_cats, colors))
+            
+            for cat in unique_cats:
+                mask = cat_sample == cat
+                ax2.scatter(lon_sample[mask], lat_sample[mask], 
+                          c=[cat_to_color[cat]], s=1, alpha=0.6, label=cat)
+            
+            ax2.set_xlabel('Longitude (degrees)', fontsize=12)
+            ax2.set_ylabel('Latitude (degrees)', fontsize=12)
+            ax2.set_title(f'POI Points Distribution (n={len(lon_sample):,})', fontsize=14, fontweight='bold')
+            ax2.grid(True, alpha=0.3)
+            
+            # Add legend for top categories only (to avoid clutter)
+            if len(unique_cats) <= 10:
+                ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+        else:
+            ax2.text(0.5, 0.5, 'No POI points loaded', ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title('POI Points Distribution', fontsize=14, fontweight='bold')
         
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+        # Plot 3: All HOSER Zones
+        all_zone_data = []
+        for zone_id, zone_info in self.hoser_zones.items():
+            center = zone_info['center']
+            all_zone_data.append({
+                'zone_id': int(zone_id),
+                'lon': center['lon'],
+                'lat': center['lat'],
+                'poi_count': zone_info['poi_count']
+            })
         
-        # Plot Beijing boundary if available
-        if self.beijing_boundary is not None:
-            try:
-                # Plot the boundary
-                self.beijing_boundary.boundary.plot(ax=ax1, color='black', linewidth=2, alpha=0.8, label='Beijing Boundary')
-                # Set plot limits based on boundary bounds
-                bounds = self.beijing_boundary.total_bounds
-                ax1.set_xlim(bounds[0] - 0.1, bounds[2] + 0.1)
-                ax1.set_ylim(bounds[1] - 0.1, bounds[3] + 0.1)
-            except Exception as e:
-                print(f"⚠️  Error plotting Beijing boundary: {e}")
-        
-        # Scatter plot: POI count vs location
-        scatter = ax1.scatter(df['lon'], df['lat'], 
-                            c=df['poi_count'], 
-                            s=np.clip(df['poi_count']/100, 20, 200),  # Better size scaling
-                            alpha=0.7, 
-                            cmap='viridis',
-                            edgecolors='black',
-                            linewidth=0.5)
-        ax1.set_xlabel('Longitude (degrees)', fontsize=12)
-        ax1.set_ylabel('Latitude (degrees)', fontsize=12)
-        ax1.set_title('Geographic Distribution of POI-Rich Zones', fontsize=14, fontweight='bold')
-        ax1.grid(True, alpha=0.3)
-        
-        # Add colorbar
-        cbar = plt.colorbar(scatter, ax=ax1)
-        cbar.set_label('POI Count (number of POIs)', fontsize=12)
-        
-        # POI density vs area
-        ax2.scatter(df['area'], df['poi_count'], alpha=0.7, color='steelblue', s=50)
-        ax2.set_xlabel('Zone Area (square degrees)', fontsize=12)
-        ax2.set_ylabel('POI Count (number of POIs)', fontsize=12)
-        ax2.set_title('POI Count vs Zone Area', fontsize=14, fontweight='bold')
-        ax2.grid(True, alpha=0.3)
-        ax2.ticklabel_format(style='plain', axis='both')
-        
-        # Add trend line
-        if len(df) > 1:
-            z = np.polyfit(df['area'], df['poi_count'], 1)
-            p = np.poly1d(z)
-            ax2.plot(df['area'], p(df['area']), "r--", alpha=0.8, linewidth=2, label=f'Trend (slope: {z[0]:.2f})')
-            ax2.legend()
-        
-        # Add correlation coefficient
-        if len(df) > 1:
-            corr = np.corrcoef(df['area'], df['poi_count'])[0, 1]
-            ax2.text(0.05, 0.95, f'Correlation: {corr:.3f}', transform=ax2.transAxes, 
-                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=10)
+        if all_zone_data:
+            df_all_zones = pl.DataFrame(all_zone_data)
+            plot_beijing_boundary(ax3)
+            
+            # Color zones by POI count (0 = gray, >0 = viridis)
+            has_pois = df_all_zones['poi_count'] > 0
+            no_pois = df_all_zones['poi_count'] == 0
+            
+            if no_pois.any():
+                ax3.scatter(df_all_zones.filter(no_pois)['lon'], 
+                          df_all_zones.filter(no_pois)['lat'], 
+                          c='lightgray', s=20, alpha=0.7, label='No POIs')
+            
+            if has_pois.any():
+                scatter3 = ax3.scatter(df_all_zones.filter(has_pois)['lon'], 
+                                    df_all_zones.filter(has_pois)['lat'], 
+                                    c=df_all_zones.filter(has_pois)['poi_count'], 
+                                    s=30, alpha=0.7, cmap='viridis', 
+                                    edgecolors='black', linewidth=0.3)
+                
+                cbar3 = plt.colorbar(scatter3, ax=ax3)
+                cbar3.set_label('POI Count (number of POIs)', fontsize=12)
+            
+            ax3.set_xlabel('Longitude (degrees)', fontsize=12)
+            ax3.set_ylabel('Latitude (degrees)', fontsize=12)
+            ax3.set_title(f'All HOSER Zones (n={len(df_all_zones)})', fontsize=14, fontweight='bold')
+            ax3.grid(True, alpha=0.3)
+            
+            if no_pois.any():
+                ax3.legend(fontsize=10)
+        else:
+            ax3.text(0.5, 0.5, 'No zones found', ha='center', va='center', transform=ax3.transAxes)
+            ax3.set_title('All HOSER Zones', fontsize=14, fontweight='bold')
         
         plt.tight_layout()
         plt.savefig(self.data_dir / 'zone_geographic_distribution.pdf', dpi=300, bbox_inches='tight')
@@ -469,6 +566,7 @@ def main():
     visualizer = POIDataVisualizer(args.data_dir)
     visualizer.load_data()
     visualizer.load_beijing_boundary()
+    visualizer.load_poi_points()
     
     if 'all' in args.plots or 'categories' in args.plots:
         visualizer.plot_poi_category_distribution()
