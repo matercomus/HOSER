@@ -130,7 +130,7 @@ class POIDataVisualizer:
             print("   Proceeding without boundary overlay")
             self.beijing_boundary = None
     
-    def load_poi_points(self, poi_file: str = "/home/matt/POI/2021_combined_utf8_no_bom.csv", sample_size: int = 10000):
+    def load_poi_points(self, poi_file: str = "/home/matt/POI/2021_combined_utf8_no_bom.csv", sample_size: int = 5000):
         """Load a sample of POI points for visualization"""
         print("📍 Loading POI points for visualization...")
         
@@ -293,8 +293,10 @@ class POIDataVisualizer:
         """Plot geographic distribution of zones, POI points, and POI-rich zones"""
         print("📊 Creating geographic distribution plot...")
         
-        # Create 3 subplots
+        # Create 3 subplots with better spacing
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 8))
+        fig.suptitle('Spatial Distribution Analysis: POI Data and HOSER Zones in Beijing', 
+                    fontsize=16, fontweight='bold', y=0.95)
         
         # Common function to plot Beijing boundary
         def plot_beijing_boundary(ax):
@@ -336,7 +338,12 @@ class POIDataVisualizer:
             ax1.grid(True, alpha=0.3)
             
             cbar1 = plt.colorbar(scatter1, ax=ax1)
-            cbar1.set_label('POI Count (number of POIs)', fontsize=12)
+            cbar1.set_label('POI Count (millions)', fontsize=12)
+            cbar1.ax.ticklabel_format(style='plain')
+            # Format tick labels to show millions
+            ticks = cbar1.get_ticks()
+            cbar1.set_ticks(ticks)
+            cbar1.set_ticklabels([f'{t/1e6:.1f}M' for t in ticks])
         else:
             ax1.text(0.5, 0.5, 'No POI-rich zones found', ha='center', va='center', transform=ax1.transAxes)
             ax1.set_title('POI-Rich Zones Distribution', fontsize=14, fontweight='bold')
@@ -345,8 +352,8 @@ class POIDataVisualizer:
         if self.poi_points is not None and len(self.poi_points['lon']) > 0:
             plot_beijing_boundary(ax2)
             
-            # Sample POI points for better visualization (max 5000 points)
-            n_points = min(len(self.poi_points['lon']), 5000)
+            # Sample POI points for better visualization (max 2000 points for clarity)
+            n_points = min(len(self.poi_points['lon']), 2000)
             if n_points < len(self.poi_points['lon']):
                 indices = np.random.choice(len(self.poi_points['lon']), n_points, replace=False)
                 lon_sample = self.poi_points['lon'][indices]
@@ -357,24 +364,33 @@ class POIDataVisualizer:
                 lat_sample = self.poi_points['lat']
                 cat_sample = self.poi_points['categories']
             
-            # Color by category
-            unique_cats = np.unique(cat_sample)
-            colors = plt.cm.tab20(np.linspace(0, 1, len(unique_cats)))
-            cat_to_color = dict(zip(unique_cats, colors))
+            # Get top 8 categories by frequency for cleaner legend
+            unique_cats, counts = np.unique(cat_sample, return_counts=True)
+            top_cats = unique_cats[np.argsort(counts)[-8:]]  # Top 8 categories
             
-            for cat in unique_cats:
+            # Color by category using a more distinct colormap
+            colors = plt.cm.Set3(np.linspace(0, 1, len(top_cats)))
+            cat_to_color = dict(zip(top_cats, colors))
+            
+            # Plot all points first in light gray
+            ax2.scatter(lon_sample, lat_sample, c='lightgray', s=2, alpha=0.3, label='Other POIs')
+            
+            # Then overlay top categories
+            for cat in top_cats:
                 mask = cat_sample == cat
-                ax2.scatter(lon_sample[mask], lat_sample[mask], 
-                          c=[cat_to_color[cat]], s=1, alpha=0.6, label=cat)
+                if mask.any():
+                    # Translate category name for better readability
+                    cat_name = self.category_translation.get(cat, cat)
+                    ax2.scatter(lon_sample[mask], lat_sample[mask], 
+                              c=[cat_to_color[cat]], s=3, alpha=0.8, label=cat_name)
             
             ax2.set_xlabel('Longitude (degrees)', fontsize=12)
             ax2.set_ylabel('Latitude (degrees)', fontsize=12)
             ax2.set_title(f'POI Points Distribution (n={len(lon_sample):,})', fontsize=14, fontweight='bold')
             ax2.grid(True, alpha=0.3)
             
-            # Add legend for top categories only (to avoid clutter)
-            if len(unique_cats) <= 10:
-                ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+            # Add legend for top categories
+            ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9, framealpha=0.9)
         else:
             ax2.text(0.5, 0.5, 'No POI points loaded', ha='center', va='center', transform=ax2.transAxes)
             ax2.set_title('POI Points Distribution', fontsize=14, fontweight='bold')
@@ -394,32 +410,40 @@ class POIDataVisualizer:
             df_all_zones = pl.DataFrame(all_zone_data)
             plot_beijing_boundary(ax3)
             
-            # Color zones by POI count (0 = gray, >0 = viridis)
+            # Color zones by POI count (0 = red, >0 = viridis)
             has_pois = df_all_zones['poi_count'] > 0
             no_pois = df_all_zones['poi_count'] == 0
             
+            # Plot zones with no POIs first in red
             if no_pois.any():
                 ax3.scatter(df_all_zones.filter(no_pois)['lon'], 
                           df_all_zones.filter(no_pois)['lat'], 
-                          c='lightgray', s=20, alpha=0.7, label='No POIs')
+                          c='red', s=25, alpha=0.8, marker='x', 
+                          label=f'No POIs (n={no_pois.sum()})', linewidth=2)
             
+            # Plot zones with POIs
             if has_pois.any():
                 scatter3 = ax3.scatter(df_all_zones.filter(has_pois)['lon'], 
                                     df_all_zones.filter(has_pois)['lat'], 
                                     c=df_all_zones.filter(has_pois)['poi_count'], 
-                                    s=30, alpha=0.7, cmap='viridis', 
-                                    edgecolors='black', linewidth=0.3)
+                                    s=40, alpha=0.8, cmap='viridis', 
+                                    edgecolors='black', linewidth=0.5)
                 
                 cbar3 = plt.colorbar(scatter3, ax=ax3)
-                cbar3.set_label('POI Count (number of POIs)', fontsize=12)
+                cbar3.set_label('POI Count (millions)', fontsize=12)
+                cbar3.ax.ticklabel_format(style='plain')
+                # Format tick labels to show millions
+                ticks = cbar3.get_ticks()
+                cbar3.set_ticks(ticks)
+                cbar3.set_ticklabels([f'{t/1e6:.1f}M' for t in ticks])
             
             ax3.set_xlabel('Longitude (degrees)', fontsize=12)
             ax3.set_ylabel('Latitude (degrees)', fontsize=12)
             ax3.set_title(f'All HOSER Zones (n={len(df_all_zones)})', fontsize=14, fontweight='bold')
             ax3.grid(True, alpha=0.3)
             
-            if no_pois.any():
-                ax3.legend(fontsize=10)
+            # Add legend
+            ax3.legend(fontsize=10, loc='upper right')
         else:
             ax3.text(0.5, 0.5, 'No zones found', ha='center', va='center', transform=ax3.transAxes)
             ax3.set_title('All HOSER Zones', fontsize=14, fontweight='bold')
