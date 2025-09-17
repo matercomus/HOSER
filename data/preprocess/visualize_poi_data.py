@@ -9,9 +9,10 @@ import numpy as np
 import json
 import matplotlib.pyplot as plt
 import seaborn as sns
+import geopandas as gpd
 from pathlib import Path
 import argparse
-from typing import Dict, List, Tuple
+# from typing import Dict, List, Tuple  # Unused imports removed
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -34,6 +35,7 @@ class POIDataVisualizer:
         self.zone_mapping = None
         self.hoser_zones = None
         self.density_matrix = None
+        self.beijing_boundary = None
         
     def load_data(self):
         """Load all processed POI data"""
@@ -88,10 +90,44 @@ class POIDataVisualizer:
             self.category_translation.get(cat, cat) for cat in self.poi_categories
         ]
         
-        print(f"✅ Loaded data:")
+        print("✅ Loaded data:")
         print(f"  - {len(self.poi_categories)} POI categories")
         print(f"  - {len(self.zone_mapping)} zones")
         print(f"  - {self.density_matrix.shape[0]} zones × {self.density_matrix.shape[1]} categories")
+    
+    def load_beijing_boundary(self, shapefile_path: str = "/home/matt/gadm41_CHN_shp/gadm41_CHN_3.shp"):
+        """Load Beijing boundary from GADM shapefile"""
+        print("🗺️  Loading Beijing boundary...")
+        
+        try:
+            # Load the shapefile
+            gdf = gpd.read_file(shapefile_path)
+            
+            # Filter for Beijing (assuming it's identified by NAME_1 or similar field)
+            # Beijing might be identified as "Beijing" or "北京市" in different fields
+            beijing_fields = ['NAME_1', 'NAME_2', 'NAME_3', 'VARNAME_1', 'VARNAME_2', 'VARNAME_3']
+            beijing_keywords = ['Beijing', '北京市', 'beijing', 'BEIJING']
+            
+            beijing_mask = None
+            for field in beijing_fields:
+                if field in gdf.columns:
+                    for keyword in beijing_keywords:
+                        if beijing_mask is None:
+                            beijing_mask = gdf[field].str.contains(keyword, case=False, na=False)
+                        else:
+                            beijing_mask |= gdf[field].str.contains(keyword, case=False, na=False)
+            
+            if beijing_mask is not None and beijing_mask.any():
+                self.beijing_boundary = gdf[beijing_mask]
+                print(f"✅ Found Beijing boundary with {len(self.beijing_boundary)} features")
+            else:
+                print("⚠️  Could not find Beijing in shapefile, using all features")
+                self.beijing_boundary = gdf
+                
+        except Exception as e:
+            print(f"⚠️  Error loading Beijing boundary: {e}")
+            print("   Proceeding without boundary overlay")
+            self.beijing_boundary = None
         
     def plot_poi_category_distribution(self):
         """Plot distribution of POI categories across all zones"""
@@ -240,6 +276,18 @@ class POIDataVisualizer:
         df = pl.DataFrame(zone_data)
         
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+        
+        # Plot Beijing boundary if available
+        if self.beijing_boundary is not None:
+            try:
+                # Plot the boundary
+                self.beijing_boundary.boundary.plot(ax=ax1, color='black', linewidth=2, alpha=0.8, label='Beijing Boundary')
+                # Set plot limits based on boundary bounds
+                bounds = self.beijing_boundary.total_bounds
+                ax1.set_xlim(bounds[0] - 0.1, bounds[2] + 0.1)
+                ax1.set_ylim(bounds[1] - 0.1, bounds[3] + 0.1)
+            except Exception as e:
+                print(f"⚠️  Error plotting Beijing boundary: {e}")
         
         # Scatter plot: POI count vs location
         scatter = ax1.scatter(df['lon'], df['lat'], 
@@ -420,6 +468,7 @@ def main():
     
     visualizer = POIDataVisualizer(args.data_dir)
     visualizer.load_data()
+    visualizer.load_beijing_boundary()
     
     if 'all' in args.plots or 'categories' in args.plots:
         visualizer.plot_poi_category_distribution()
