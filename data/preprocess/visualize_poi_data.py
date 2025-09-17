@@ -324,6 +324,39 @@ class POIDataVisualizer:
                 except Exception as e:
                     print(f"⚠️  Error plotting Beijing boundary: {e}")
         
+        # Function to mask heatmap data outside Beijing boundary
+        def mask_outside_boundary(heatmap_data, lon_edges, lat_edges):
+            """Mask heatmap data outside Beijing boundary"""
+            if self.beijing_boundary is None:
+                return heatmap_data
+            
+            try:
+                # Create coordinate grids
+                lon_centers = (lon_edges[:-1] + lon_edges[1:]) / 2
+                lat_centers = (lat_edges[:-1] + lat_edges[1:]) / 2
+                lon_grid, lat_grid = np.meshgrid(lon_centers, lat_centers)
+                
+                # Create points for checking
+                points = np.column_stack([lon_grid.ravel(), lat_grid.ravel()])
+                
+                # Check which points are inside Beijing boundary
+                from shapely.geometry import Point
+                inside_mask = np.array([
+                    self.beijing_boundary.geometry.apply(
+                        lambda geom: geom.contains(Point(point[0], point[1]))
+                    ).any() for point in points
+                ]).reshape(heatmap_data.shape)
+                
+                # Mask data outside boundary
+                masked_data = heatmap_data.copy()
+                masked_data[~inside_mask] = np.nan
+                
+                return masked_data
+                
+            except Exception as e:
+                print(f"⚠️  Error masking heatmap: {e}")
+                return heatmap_data
+        
         # Create data-specific grid bounds clipped to Beijing boundary
         def get_data_bounds(data_lons, data_lats, data_name):
             """Get grid bounds for specific dataset, clipped to Beijing boundary"""
@@ -395,6 +428,9 @@ class POIDataVisualizer:
                     weights=df_zones['poi_count']
                 )
                 
+                # Mask areas outside Beijing boundary
+                poi_heatmap = mask_outside_boundary(poi_heatmap, lon_edges, lat_edges)
+                
                 im1 = ax1.imshow(poi_heatmap.T, 
                                extent=[zone_lon_min, zone_lon_max, zone_lat_min, zone_lat_max], 
                                origin='lower', cmap='viridis', alpha=0.8, aspect='auto')
@@ -452,6 +488,9 @@ class POIDataVisualizer:
                     bins=[poi_lon_bins, poi_lat_bins]
                 )
                 
+                # Mask areas outside Beijing boundary
+                poi_density = mask_outside_boundary(poi_density, lon_edges, lat_edges)
+                
                 im2 = ax2.imshow(poi_density.T, 
                                extent=[poi_lon_min, poi_lon_max, poi_lat_min, poi_lat_max], 
                                origin='lower', cmap='plasma', alpha=0.8, aspect='auto')
@@ -483,6 +522,9 @@ class POIDataVisualizer:
                     df_zones['lon'], df_zones['lat'], 
                     bins=[zone_lon_bins, zone_lat_bins]
                 )
+                
+                # Mask areas outside Beijing boundary
+                zone_heatmap = mask_outside_boundary(zone_heatmap, lon_edges, lat_edges)
                 
                 im3 = ax3.imshow(zone_heatmap.T, 
                                extent=[zone_lon_min, zone_lon_max, zone_lat_min, zone_lat_max], 
