@@ -210,16 +210,17 @@ class POIDataVisualizer:
         plt.close()
         
     def plot_zone_poi_density(self):
-        """Plot POI density across zones"""
-        print("📊 Creating zone POI density plot...")
+        """Plot POI density across zones with geographic context"""
+        print("📊 Creating zone POI density plot with geographic context...")
         
         # Calculate total POIs per zone
         zone_totals = self.density_matrix.sum(axis=1)
         zones_with_pois = np.sum(zone_totals > 0)
         
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 12))
+        fig.suptitle('POI Density Analysis Across HOSER Zones', fontsize=16, fontweight='bold', y=0.95)
         
-        # Histogram of POI counts per zone
+        # Plot 1: Histogram of POI counts per zone
         n, bins, patches = ax1.hist(zone_totals[zone_totals > 0], bins=30, alpha=0.7, 
                                    edgecolor='black', color='lightblue')
         ax1.set_xlabel('POI Count per Zone (number of POIs)', fontsize=12)
@@ -234,7 +235,7 @@ class POIDataVisualizer:
         ax1.grid(True, alpha=0.3)
         ax1.ticklabel_format(style='plain', axis='both')
         
-        # Box plot with better styling
+        # Plot 2: Box plot with better styling
         box_plot = ax2.boxplot(zone_totals[zone_totals > 0], patch_artist=True)
         box_plot['boxes'][0].set_facecolor('lightgreen')
         box_plot['boxes'][0].set_alpha(0.7)
@@ -248,50 +249,201 @@ class POIDataVisualizer:
         ax2.text(0.02, 0.98, stats_text, transform=ax2.transAxes, verticalalignment='top',
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=9)
         
+        # Plot 3: Geographic distribution of zones by POI count
+        if self.hoser_zones and self.beijing_boundary is not None:
+            # Prepare zone data
+            zone_data = []
+            for zone_id, zone_info in self.hoser_zones.items():
+                center = zone_info['center']
+                zone_data.append({
+                    'zone_id': int(zone_id),
+                    'lon': center['lon'],
+                    'lat': center['lat'],
+                    'poi_count': zone_info['poi_count']
+                })
+            
+            # Create GeoDataFrame
+            from shapely.geometry import Point
+            zones_gdf = gpd.GeoDataFrame(
+                zone_data,
+                geometry=[Point(xy) for xy in zip([z['lon'] for z in zone_data], [z['lat'] for z in zone_data])],
+                crs='EPSG:4326'
+            )
+            
+            # Plot Beijing boundary
+            self.beijing_boundary.boundary.plot(ax=ax3, color='black', linewidth=2, alpha=0.8)
+            
+            # Plot zones colored by POI count
+            zones_gdf.plot(column='poi_count', 
+                          cmap='viridis', 
+                          markersize=80,
+                          alpha=0.8,
+                          ax=ax3,
+                          legend=True,
+                          legend_kwds={'shrink': 0.8, 'label': 'POI Count'})
+            
+            ax3.set_xlabel('Longitude (degrees)', fontsize=12)
+            ax3.set_ylabel('Latitude (degrees)', fontsize=12)
+            ax3.set_title('Geographic Distribution of POI Density', fontsize=14, fontweight='bold')
+            ax3.grid(True, alpha=0.3)
+            
+            # Set axis limits
+            bounds = self.beijing_boundary.total_bounds
+            ax3.set_xlim(bounds[0] - 0.1, bounds[2] + 0.1)
+            ax3.set_ylim(bounds[1] - 0.1, bounds[3] + 0.1)
+        else:
+            ax3.text(0.5, 0.5, 'Geographic data not available', ha='center', va='center', transform=ax3.transAxes)
+            ax3.set_title('Geographic Distribution of POI Density', fontsize=14, fontweight='bold')
+        
+        # Plot 4: POI count vs zone area (if available)
+        if self.hoser_zones:
+            zone_areas = []
+            zone_counts = []
+            for zone_id, zone_info in self.hoser_zones.items():
+                if 'area' in zone_info:
+                    zone_areas.append(zone_info['area'])
+                    zone_counts.append(zone_info['poi_count'])
+            
+            if zone_areas:
+                ax4.scatter(zone_areas, zone_counts, alpha=0.6, color='purple', s=50)
+                ax4.set_xlabel('Zone Area (km²)', fontsize=12)
+                ax4.set_ylabel('POI Count', fontsize=12)
+                ax4.set_title('POI Count vs Zone Area', fontsize=14, fontweight='bold')
+                ax4.grid(True, alpha=0.3)
+                ax4.ticklabel_format(style='plain', axis='both')
+                
+                # Add correlation coefficient
+                correlation = np.corrcoef(zone_areas, zone_counts)[0, 1]
+                ax4.text(0.05, 0.95, f'Correlation: {correlation:.3f}', 
+                        transform=ax4.transAxes, verticalalignment='top',
+                        bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8), fontsize=10)
+            else:
+                ax4.text(0.5, 0.5, 'Zone area data not available', ha='center', va='center', transform=ax4.transAxes)
+                ax4.set_title('POI Count vs Zone Area', fontsize=14, fontweight='bold')
+        else:
+            ax4.text(0.5, 0.5, 'Zone data not available', ha='center', va='center', transform=ax4.transAxes)
+            ax4.set_title('POI Count vs Zone Area', fontsize=14, fontweight='bold')
+        
         plt.tight_layout()
         plt.savefig(self.data_dir / 'zone_poi_density.pdf', dpi=300, bbox_inches='tight')
+        print(f"✅ Zone POI density plot with geographic context saved to {self.data_dir / 'zone_poi_density.pdf'}")
         plt.close()
         
     def plot_poi_density_heatmap(self):
-        """Create heatmap of POI density by zone and category"""
-        print("📊 Creating POI density heatmap...")
+        """Create geographic POI density heatmap using GeoPandas and spatial interpolation"""
+        print("📊 Creating geographic POI density heatmap...")
         
-        # Only show top zones with significant POI counts for readability
-        zone_totals = np.sum(self.density_matrix, axis=1)
-        top_zones_threshold = np.percentile(zone_totals[zone_totals > 0], 75)  # Top 25% of zones with POIs
-        top_zones_mask = zone_totals >= top_zones_threshold
-        filtered_matrix = self.density_matrix[top_zones_mask]
+        if not self.hoser_zones or self.beijing_boundary is None:
+            print("❌ Missing required data for geographic density plotting")
+            return
         
-        # Get zone indices for labeling
-        zone_indices = np.where(top_zones_mask)[0]
-        zone_labels = [f"Zone {i}" for i in zone_indices]
+        # Prepare zone data with POI counts
+        zone_data = []
+        for zone_id, zone_info in self.hoser_zones.items():
+            center = zone_info['center']
+            zone_data.append({
+                'zone_id': int(zone_id),
+                'lon': center['lon'],
+                'lat': center['lat'],
+                'poi_count': zone_info['poi_count']
+            })
         
-        # Create figure with appropriate size
-        plt.figure(figsize=(16, 12))
+        if not zone_data:
+            print("❌ No zone data available")
+            return
         
-        # Create heatmap with better styling - no annotations for cleaner look
-        ax = sns.heatmap(filtered_matrix, 
-                        xticklabels=self.english_categories,
-                        yticklabels=zone_labels,
-                        cmap='YlOrRd',
-                        cbar_kws={'label': 'POI Count (number of POIs)'},
-                        linewidths=0.1,
-                        square=False,
-                        fmt='.0f')
+        # Create GeoDataFrame
+        from shapely.geometry import Point
+        zones_gdf = gpd.GeoDataFrame(
+            zone_data,
+            geometry=[Point(xy) for xy in zip([z['lon'] for z in zone_data], [z['lat'] for z in zone_data])],
+            crs='EPSG:4326'
+        )
         
-        plt.title(f'POI Density Heatmap - Top {len(zone_labels)} Zones by POI Count', 
-                 fontsize=16, fontweight='bold', pad=20)
-        plt.xlabel('POI Category', fontsize=12)
-        plt.ylabel('HOSER Zone', fontsize=12)
-        plt.xticks(rotation=45, ha='right', fontsize=10)
-        plt.yticks(rotation=0, fontsize=9)
+        # Create figure with subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
+        fig.suptitle('Geographic POI Density Analysis', fontsize=16, fontweight='bold', y=0.95)
         
-        # Format colorbar to avoid scientific notation
-        cbar = ax.collections[0].colorbar
-        cbar.ax.ticklabel_format(style='plain')
+        # Plot 1: Geographic POI Density Surface
+        self.beijing_boundary.boundary.plot(ax=ax1, color='black', linewidth=2, alpha=0.8)
+        
+        # Create a smooth density surface using interpolation
+        from scipy.interpolate import griddata
+        
+        # Get Beijing bounds
+        bounds = self.beijing_boundary.total_bounds
+        lon_min, lon_max = bounds[0], bounds[2]
+        lat_min, lat_max = bounds[1], bounds[3]
+        
+        # Create a regular grid for interpolation
+        grid_resolution = 100
+        lon_grid = np.linspace(lon_min, lon_max, grid_resolution)
+        lat_grid = np.linspace(lat_min, lat_max, grid_resolution)
+        lon_mesh, lat_mesh = np.meshgrid(lon_grid, lat_grid)
+        
+        # Prepare data for interpolation
+        points = np.column_stack([zones_gdf.geometry.x, zones_gdf.geometry.y])
+        values = zones_gdf['poi_count'].values
+        
+        # Interpolate POI density across the grid
+        density_surface = griddata(points, values, (lon_mesh, lat_mesh), method='cubic', fill_value=0)
+        
+        # Create a mask for areas outside Beijing boundary
+        from shapely.geometry import Point as ShapelyPoint
+        beijing_mask = np.zeros_like(density_surface, dtype=bool)
+        for i in range(grid_resolution):
+            for j in range(grid_resolution):
+                point = ShapelyPoint(lon_mesh[i, j], lat_mesh[i, j])
+                beijing_mask[i, j] = self.beijing_boundary.geometry.apply(
+                    lambda geom: geom.contains(point)
+                ).any()
+        
+        # Apply mask to density surface
+        density_surface[~beijing_mask] = np.nan
+        
+        # Plot the interpolated density surface
+        im1 = ax1.imshow(density_surface, 
+                        extent=[lon_min, lon_max, lat_min, lat_max], 
+                        origin='lower', 
+                        cmap='YlOrRd', 
+                        alpha=0.8, 
+                        aspect='auto')
+        
+        ax1.set_xlabel('Longitude (degrees)', fontsize=12)
+        ax1.set_ylabel('Latitude (degrees)', fontsize=12)
+        ax1.set_title('POI Density Surface (Interpolated)', fontsize=14, fontweight='bold')
+        ax1.grid(True, alpha=0.3)
+        
+        # Add colorbar
+        cbar1 = plt.colorbar(im1, ax=ax1, shrink=0.8)
+        cbar1.set_label('POI Count', fontsize=12)
+        cbar1.ax.ticklabel_format(style='plain')
+        
+        # Plot 2: Zone Points with POI Count
+        self.beijing_boundary.boundary.plot(ax=ax2, color='black', linewidth=2, alpha=0.8)
+        
+        # Plot zones colored by POI count
+        zones_gdf.plot(column='poi_count', 
+                      cmap='YlOrRd', 
+                      markersize=100,
+                      alpha=0.8,
+                      ax=ax2,
+                      legend=True,
+                      legend_kwds={'shrink': 0.8, 'label': 'POI Count'})
+        
+        ax2.set_xlabel('Longitude (degrees)', fontsize=12)
+        ax2.set_ylabel('Latitude (degrees)', fontsize=12)
+        ax2.set_title('HOSER Zones by POI Count', fontsize=14, fontweight='bold')
+        ax2.grid(True, alpha=0.3)
+        
+        # Set consistent axis limits
+        for ax in [ax1, ax2]:
+            ax.set_xlim(lon_min - 0.1, lon_max + 0.1)
+            ax.set_ylim(lat_min - 0.1, lat_max + 0.1)
         
         plt.tight_layout()
         plt.savefig(self.data_dir / 'poi_density_heatmap.pdf', dpi=300, bbox_inches='tight')
+        print(f"✅ Geographic POI density heatmap saved to {self.data_dir / 'poi_density_heatmap.pdf'}")
         plt.close()
         
     def plot_zone_geographic_distribution(self):
