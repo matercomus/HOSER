@@ -62,15 +62,15 @@ def load_trajectories(traj_path, is_real_data):
             rids = [int(r) for r in str(row['rid_list']).split(',')]
             timestamps = [datetime.strptime(t, '%Y-%m-%dT%H:%M:%SZ') for t in row['time_list'].split(',')]
             trajectories.append(list(zip(rids, timestamps)))
-    else:  # Generated data
+    else:  # Generated data - new format
         for _, row in traj_df.iterrows():
-            # gene_trace_road_id is a string like "[np.int64(1), 2, ...]"
-            rid_str = row['gene_trace_road_id'].replace("np.int64(", "").replace(")", "")
+            # gene_trace_road_id is a string like "[2977, 2979, 26496, ...]"
+            rid_str = str(row['gene_trace_road_id'])
             rids = json.loads(rid_str)
 
             # gene_trace_datetime is a string representation of a list of strings
             datetime_list_str = ast.literal_eval(row['gene_trace_datetime'])
-            timestamps = [datetime.strptime(t, '%Y-%m-%dT%H:%M:%SZ') for t in datetime_list_str]
+            timestamps = [datetime.strptime(t.strip('"'), '%Y-%m-%dT%H:%M:%SZ') for t in datetime_list_str]
             trajectories.append(list(zip(rids, timestamps)))
             
     print(f"✅ Loaded {len(trajectories)} trajectories.")
@@ -249,15 +249,47 @@ class LocalMetrics:
 # --- Main Execution ---
 
 def find_generated_file(directory):
-    """Finds the generated trajectory file in the directory."""
+    """Finds the newest generated trajectory file in the directory by timestamp in filename."""
+    import re
+    from datetime import datetime
+    
+    timestamp_pattern = re.compile(r'^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.csv$')
+    
+    # Collect all CSV files that match the timestamp pattern
+    timestamped_files = []
+    other_csv_files = []
+    
     for filename in os.listdir(directory):
         if filename.endswith('.csv') and filename not in ['train.csv', 'val.csv', 'test.csv', 'road_id_mapping.csv']:
-            return os.path.join(directory, filename)
+            match = timestamp_pattern.match(filename)
+            if match:
+                try:
+                    # Parse timestamp from filename
+                    timestamp_str = match.group(1)
+                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d_%H-%M-%S')
+                    timestamped_files.append((timestamp, filename))
+                except ValueError:
+                    # If timestamp parsing fails, treat as other CSV
+                    other_csv_files.append(filename)
+            else:
+                other_csv_files.append(filename)
+    
+    # Return the newest timestamped file if any exist
+    if timestamped_files:
+        timestamped_files.sort(key=lambda x: x[0], reverse=True)  # Sort by timestamp, newest first
+        newest_file = timestamped_files[0][1]
+        return os.path.join(directory, newest_file)
+    
+    # Fallback to any other CSV file
+    if other_csv_files:
+        return os.path.join(directory, other_csv_files[0])
+    
     return None
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate trajectory generation models.")
     parser.add_argument('--run_dir', type=str, required=True, help='Path to the run directory containing hoser_format folder.')
+    parser.add_argument('--generated_file', type=str, help='Path to specific generated CSV file. If not provided, will search for generated files in run_dir/hoser_format/')
     args = parser.parse_args()
 
     hoser_format_path = os.path.join(args.run_dir, 'hoser_format')
@@ -268,11 +300,20 @@ def main():
     # Define paths based on the hoser_format directory
     real_path = os.path.join(hoser_format_path, 'test.csv')
     geo_path = os.path.join(hoser_format_path, 'roadmap.geo')
-    generated_path = find_generated_file(hoser_format_path)
-
-    if not generated_path:
-        print(f"❌ Error: No generated trajectory CSV file found in {hoser_format_path}")
-        return
+    
+    # Use provided generated file or search for one
+    if args.generated_file:
+        generated_path = args.generated_file
+        if not os.path.exists(generated_path):
+            print(f"❌ Error: Generated file not found: {generated_path}")
+            return
+        print(f"📂 Using provided generated file: {generated_path}")
+    else:
+        generated_path = find_generated_file(hoser_format_path)
+        if not generated_path:
+            print(f"❌ Error: No generated trajectory CSV file found in {hoser_format_path}")
+            return
+        print(f"📂 Found generated file: {os.path.basename(generated_path)}")
 
     # Create output directory inside the run_dir
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -290,12 +331,23 @@ def main():
 
     # Combine and display results
     all_results = {**global_metrics, **local_metrics}
+    
+    # Add metadata about the evaluation
+    all_results["metadata"] = {
+        "run_directory": args.run_dir,
+        "generated_file": generated_path,
+        "real_data_file": real_path,
+        "road_network_file": geo_path,
+        "evaluation_timestamp": datetime.now().isoformat(),
+        "real_trajectories_count": len(real_trajectories),
+        "generated_trajectories_count": len(generated_trajectories)
+    }
 
     print("\n--- Evaluation Results ---")
     for metric, value in all_results.items():
-        if isinstance(value, float):
+        if metric != "metadata" and isinstance(value, float):
             print(f"{metric:<20} {value:.4f}")
-        else:
+        elif metric != "metadata":
             print(f"{metric:<20} {value}")
     print("--------------------------\n")
     
@@ -305,6 +357,8 @@ def main():
         json.dump(all_results, f, indent=4)
         
     print(f"Results saved to {results_file}")
+    print(f"Generated file: {os.path.basename(generated_path)}")
+    print(f"Run directory: {args.run_dir}")
 
 if __name__ == '__main__':
     main()
