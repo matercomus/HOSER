@@ -295,109 +295,19 @@ class POIDataVisualizer:
         plt.close()
         
     def plot_zone_geographic_distribution(self):
-        """Plot geographic distribution using heatmap approach with HOSER zone grid"""
-        print("📊 Creating geographic distribution heatmap...")
+        """Create geographic distribution plots using GeoPandas best practices"""
+        print("📊 Creating geographic distribution plots with GeoPandas...")
         
-        # Create 3 subplots with better spacing
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 8))
+        if not self.hoser_zones or self.beijing_boundary is None:
+            print("❌ Missing required data for geographic plotting")
+            return
+        
+        # Create 3 subplots
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6))
         fig.suptitle('Spatial Distribution Analysis: POI Data and HOSER Zones in Beijing', 
-                    fontsize=16, fontweight='bold', y=0.95)
+                     fontsize=16, fontweight='bold', y=0.95)
         
-        # Common function to plot Beijing boundary and get bounds
-        def get_beijing_bounds():
-            """Get Beijing boundary bounds for clipping heatmaps"""
-            if self.beijing_boundary is not None:
-                try:
-                    bounds = self.beijing_boundary.total_bounds
-                    return bounds[0], bounds[2], bounds[1], bounds[3]  # lon_min, lon_max, lat_min, lat_max
-                except Exception as e:
-                    print(f"⚠️  Error getting Beijing boundary: {e}")
-            return None, None, None, None
-        
-        def plot_beijing_boundary(ax):
-            if self.beijing_boundary is not None:
-                try:
-                    self.beijing_boundary.boundary.plot(ax=ax, color='black', linewidth=2, alpha=0.8)
-                    bounds = self.beijing_boundary.total_bounds
-                    ax.set_xlim(bounds[0] - 0.1, bounds[2] + 0.1)
-                    ax.set_ylim(bounds[1] - 0.1, bounds[3] + 0.1)
-                except Exception as e:
-                    print(f"⚠️  Error plotting Beijing boundary: {e}")
-        
-        # Function to mask heatmap data outside Beijing boundary
-        def mask_outside_boundary(heatmap_data, lon_edges, lat_edges):
-            """Mask heatmap data outside Beijing boundary"""
-            if self.beijing_boundary is None:
-                return heatmap_data
-            
-            try:
-                # Create coordinate grids
-                lon_centers = (lon_edges[:-1] + lon_edges[1:]) / 2
-                lat_centers = (lat_edges[:-1] + lat_edges[1:]) / 2
-                lon_grid, lat_grid = np.meshgrid(lon_centers, lat_centers)
-                
-                # Create points for checking
-                points = np.column_stack([lon_grid.ravel(), lat_grid.ravel()])
-                
-                # Check which points are inside Beijing boundary
-                from shapely.geometry import Point
-                inside_mask = np.array([
-                    self.beijing_boundary.geometry.apply(
-                        lambda geom: geom.contains(Point(point[0], point[1]))
-                    ).any() for point in points
-                ]).reshape(heatmap_data.shape)
-                
-                # Mask data outside boundary
-                masked_data = heatmap_data.copy()
-                masked_data[~inside_mask] = np.nan
-                
-                return masked_data
-                
-            except Exception as e:
-                print(f"⚠️  Error masking heatmap: {e}")
-                return heatmap_data
-        
-        # Create data-specific grid bounds clipped to Beijing boundary
-        def get_data_bounds(data_lons, data_lats, data_name):
-            """Get grid bounds for specific dataset, clipped to Beijing boundary"""
-            if not data_lons or not data_lats:
-                return None, None, None, None, None, None
-            
-            # Get Beijing boundary bounds for clipping
-            beijing_lon_min, beijing_lon_max, beijing_lat_min, beijing_lat_max = get_beijing_bounds()
-            
-            # Start with data bounds
-            data_lon_min, data_lon_max = min(data_lons), max(data_lons)
-            data_lat_min, data_lat_max = min(data_lats), max(data_lats)
-            
-            # Clip to Beijing boundary if available
-            if beijing_lon_min is not None:
-                lon_min = max(data_lon_min, beijing_lon_min)
-                lon_max = min(data_lon_max, beijing_lon_max)
-                lat_min = max(data_lat_min, beijing_lat_min)
-                lat_max = min(data_lat_max, beijing_lat_max)
-            else:
-                lon_min, lon_max = data_lon_min, data_lon_max
-                lat_min, lat_max = data_lat_min, data_lat_max
-            
-            # Add small padding
-            lon_padding = (lon_max - lon_min) * 0.02
-            lat_padding = (lat_max - lat_min) * 0.02
-            
-            lon_min -= lon_padding
-            lon_max += lon_padding
-            lat_min -= lat_padding
-            lat_max += lat_padding
-            
-            # Create regular grid
-            lon_bins = np.linspace(lon_min, lon_max, 50)
-            lat_bins = np.linspace(lat_min, lat_max, 50)
-            
-            print(f"📊 {data_name} spatial extent (clipped to Beijing): lon {lon_min:.3f}-{lon_max:.3f}, lat {lat_min:.3f}-{lat_max:.3f}")
-            
-            return lon_bins, lat_bins, lon_min, lon_max, lat_min, lat_max
-        
-        # Plot 1: POI Count Heatmap (HOSER Zones)
+        # Prepare HOSER zones GeoDataFrame
         zone_data = []
         for zone_id, zone_info in self.hoser_zones.items():
             center = zone_info['center']
@@ -408,146 +318,115 @@ class POIDataVisualizer:
                 'poi_count': zone_info['poi_count']
             })
         
-        if zone_data:
-            df_zones = pl.DataFrame(zone_data)
-            
-            # Get HOSER zone-specific bounds
-            zone_lons = df_zones['lon'].to_list()
-            zone_lats = df_zones['lat'].to_list()
-            zone_bounds = get_data_bounds(zone_lons, zone_lats, "HOSER Zones")
-            
-            if zone_bounds[0] is not None:
-                zone_lon_bins, zone_lat_bins, zone_lon_min, zone_lon_max, zone_lat_min, zone_lat_max = zone_bounds
-                
-                plot_beijing_boundary(ax1)
-                
-                # Create POI count heatmap using HOSER zone bounds
-                poi_heatmap, lon_edges, lat_edges = np.histogram2d(
-                    df_zones['lon'], df_zones['lat'], 
-                    bins=[zone_lon_bins, zone_lat_bins], 
-                    weights=df_zones['poi_count']
-                )
-                
-                # Mask areas outside Beijing boundary
-                poi_heatmap = mask_outside_boundary(poi_heatmap, lon_edges, lat_edges)
-                
-                im1 = ax1.imshow(poi_heatmap.T, 
-                               extent=[zone_lon_min, zone_lon_max, zone_lat_min, zone_lat_max], 
-                               origin='lower', cmap='viridis', alpha=0.8, aspect='auto')
-                
-                ax1.set_xlabel('Longitude (degrees)', fontsize=12)
-                ax1.set_ylabel('Latitude (degrees)', fontsize=12)
-                ax1.set_title('POI Count Heatmap (HOSER Zones)', fontsize=14, fontweight='bold')
-                ax1.grid(True, alpha=0.3)
-                
-                # Add colorbar with proper range
-                cbar1 = plt.colorbar(im1, ax=ax1)
-                cbar1.set_label('POI Count (millions)', fontsize=12)
-                cbar1.ax.ticklabel_format(style='plain')
-                
-                # Format colorbar to show millions
-                ticks = cbar1.get_ticks()
-                if len(ticks) > 0:
-                    cbar1.set_ticks(ticks)
-                    cbar1.set_ticklabels([f'{t/1e6:.1f}M' for t in ticks])
-            else:
-                ax1.text(0.5, 0.5, 'No HOSER zone data available', ha='center', va='center', transform=ax1.transAxes)
-                ax1.set_title('POI Count Heatmap (HOSER Zones)', fontsize=14, fontweight='bold')
-        else:
-            ax1.text(0.5, 0.5, 'No POI data available', ha='center', va='center', transform=ax1.transAxes)
-            ax1.set_title('POI Count Heatmap (HOSER Zones)', fontsize=14, fontweight='bold')
+        if not zone_data:
+            print("❌ No zone data available")
+            return
         
-        # Plot 2: POI Points Density Heatmap (Raw POI Data)
+        # Convert to GeoDataFrame
+        from shapely.geometry import Point
+        zones_gdf = gpd.GeoDataFrame(
+            zone_data,
+            geometry=[Point(xy) for xy in zip([z['lon'] for z in zone_data], [z['lat'] for z in zone_data])],
+            crs='EPSG:4326'
+        )
+        
+        # Plot 1: POI Count by HOSER Zones
+        self.beijing_boundary.boundary.plot(ax=ax1, color='black', linewidth=2, alpha=0.8)
+        
+        # Plot zones colored by POI count with proper scaling
+        zones_gdf.plot(column='poi_count', 
+                      cmap='viridis', 
+                      markersize=100,
+                      alpha=0.8,
+                      ax=ax1,
+                      legend=True,
+                      legend_kwds={'shrink': 0.8, 'label': 'POI Count'})
+        
+        ax1.set_xlabel('Longitude (degrees)', fontsize=12)
+        ax1.set_ylabel('Latitude (degrees)', fontsize=12)
+        ax1.set_title('POI Count by HOSER Zones', fontsize=14, fontweight='bold')
+        ax1.grid(True, alpha=0.3)
+        
+        # Set consistent axis limits
+        bounds = self.beijing_boundary.total_bounds
+        ax1.set_xlim(bounds[0] - 0.1, bounds[2] + 0.1)
+        ax1.set_ylim(bounds[1] - 0.1, bounds[3] + 0.1)
+        
+        # Plot 2: POI Points Distribution
         if self.poi_points is not None and len(self.poi_points['lon']) > 0:
-            # Sample POI points for better visualization - use stratified sampling to ensure coverage
+            # Sample POI points for better visualization
             n_points = min(len(self.poi_points['lon']), 5000)
             if n_points < len(self.poi_points['lon']):
-                # Use stratified sampling to ensure geographic coverage
-                # Sort by latitude to get better spatial distribution
-                sorted_indices = np.argsort(self.poi_points['lat'])
-                # Sample evenly across the latitude range
-                step = len(sorted_indices) // n_points
-                indices = sorted_indices[::step][:n_points]
-                lon_sample = self.poi_points['lon'][indices]
-                lat_sample = self.poi_points['lat'][indices]
+                # Random sampling for better geographic coverage
+                import random
+                random.seed(42)
+                indices = random.sample(range(len(self.poi_points['lon'])), n_points)
+                lon_sample = [self.poi_points['lon'][i] for i in indices]
+                lat_sample = [self.poi_points['lat'][i] for i in indices]
             else:
                 lon_sample = self.poi_points['lon']
                 lat_sample = self.poi_points['lat']
             
-            # Get POI data-specific bounds
-            poi_bounds = get_data_bounds(lon_sample.tolist(), lat_sample.tolist(), "POI Points")
+            # Create POI points GeoDataFrame
+            poi_gdf = gpd.GeoDataFrame(
+                {'lon': lon_sample, 'lat': lat_sample},
+                geometry=[Point(xy) for xy in zip(lon_sample, lat_sample)],
+                crs='EPSG:4326'
+            )
             
-            if poi_bounds[0] is not None:
-                poi_lon_bins, poi_lat_bins, poi_lon_min, poi_lon_max, poi_lat_min, poi_lat_max = poi_bounds
-                
-                plot_beijing_boundary(ax2)
-                
-                # Create density heatmap for POI points using POI data bounds
-                poi_density, lon_edges, lat_edges = np.histogram2d(
-                    lon_sample, lat_sample, 
-                    bins=[poi_lon_bins, poi_lat_bins]
-                )
-                
-                # Mask areas outside Beijing boundary
-                poi_density = mask_outside_boundary(poi_density, lon_edges, lat_edges)
-                
-                im2 = ax2.imshow(poi_density.T, 
-                               extent=[poi_lon_min, poi_lon_max, poi_lat_min, poi_lat_max], 
-                               origin='lower', cmap='plasma', alpha=0.8, aspect='auto')
-                
-                ax2.set_xlabel('Longitude (degrees)', fontsize=12)
-                ax2.set_ylabel('Latitude (degrees)', fontsize=12)
-                ax2.set_title(f'POI Points Density (n={len(lon_sample):,})', fontsize=14, fontweight='bold')
-                ax2.grid(True, alpha=0.3)
-                
-                # Add colorbar
-                cbar2 = plt.colorbar(im2, ax=ax2)
-                cbar2.set_label('POI Density (count)', fontsize=12)
-                cbar2.ax.ticklabel_format(style='plain')
-            else:
-                ax2.text(0.5, 0.5, 'No POI points data available', ha='center', va='center', transform=ax2.transAxes)
-                ax2.set_title('POI Points Density', fontsize=14, fontweight='bold')
+            # Clip POI points to Beijing boundary using GeoPandas
+            poi_clipped = gpd.clip(poi_gdf, self.beijing_boundary)
+            
+            # Plot Beijing boundary
+            self.beijing_boundary.boundary.plot(ax=ax2, color='black', linewidth=2, alpha=0.8)
+            
+            # Plot clipped POI points
+            poi_clipped.plot(ax=ax2, 
+                           color='red', 
+                           markersize=1,
+                           alpha=0.6,
+                           label=f'POI Points (n={len(poi_clipped):,})')
+            
+            ax2.set_xlabel('Longitude (degrees)', fontsize=12)
+            ax2.set_ylabel('Latitude (degrees)', fontsize=12)
+            ax2.set_title(f'POI Points Distribution (n={len(poi_clipped):,})', fontsize=14, fontweight='bold')
+            ax2.grid(True, alpha=0.3)
+            ax2.legend()
         else:
-            ax2.text(0.5, 0.5, 'No POI points loaded', ha='center', va='center', transform=ax2.transAxes)
-            ax2.set_title('POI Points Density', fontsize=14, fontweight='bold')
+            ax2.text(0.5, 0.5, 'No POI points data available', ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title('POI Points Distribution', fontsize=14, fontweight='bold')
         
-        # Plot 3: HOSER Zone Coverage Heatmap
-        if zone_data:
-            # Use the same HOSER zone bounds as plot 1
-            if zone_bounds[0] is not None:
-                plot_beijing_boundary(ax3)
-                
-                # Create zone presence heatmap using HOSER zone bounds
-                zone_heatmap, lon_edges, lat_edges = np.histogram2d(
-                    df_zones['lon'], df_zones['lat'], 
-                    bins=[zone_lon_bins, zone_lat_bins]
-                )
-                
-                # Mask areas outside Beijing boundary
-                zone_heatmap = mask_outside_boundary(zone_heatmap, lon_edges, lat_edges)
-                
-                im3 = ax3.imshow(zone_heatmap.T, 
-                               extent=[zone_lon_min, zone_lon_max, zone_lat_min, zone_lat_max], 
-                               origin='lower', cmap='RdYlBu_r', alpha=0.8, aspect='auto')
-                
-                ax3.set_xlabel('Longitude (degrees)', fontsize=12)
-                ax3.set_ylabel('Latitude (degrees)', fontsize=12)
-                ax3.set_title(f'HOSER Zone Coverage (n={len(self.hoser_zones)})', fontsize=14, fontweight='bold')
-                ax3.grid(True, alpha=0.3)
-                
-                # Add colorbar
-                cbar3 = plt.colorbar(im3, ax=ax3)
-                cbar3.set_label('Zone Count', fontsize=12)
-                cbar3.ax.ticklabel_format(style='plain')
-            else:
-                ax3.text(0.5, 0.5, 'No HOSER zone data available', ha='center', va='center', transform=ax3.transAxes)
-                ax3.set_title('HOSER Zone Coverage', fontsize=14, fontweight='bold')
-        else:
-            ax3.text(0.5, 0.5, 'No zone data available', ha='center', va='center', transform=ax3.transAxes)
-            ax3.set_title('HOSER Zone Coverage', fontsize=14, fontweight='bold')
+        # Set consistent axis limits
+        ax2.set_xlim(bounds[0] - 0.1, bounds[2] + 0.1)
+        ax2.set_ylim(bounds[1] - 0.1, bounds[3] + 0.1)
+        
+        # Plot 3: HOSER Zone Coverage
+        self.beijing_boundary.boundary.plot(ax=ax3, color='black', linewidth=2, alpha=0.8)
+        
+        # Plot all HOSER zones
+        zones_gdf.plot(ax=ax3, 
+                      color='blue', 
+                      markersize=50,
+                      alpha=0.7,
+                      label=f'HOSER Zones (n={len(zones_gdf)})')
+        
+        ax3.set_xlabel('Longitude (degrees)', fontsize=12)
+        ax3.set_ylabel('Latitude (degrees)', fontsize=12)
+        ax3.set_title(f'HOSER Zone Coverage (n={len(zones_gdf)})', fontsize=14, fontweight='bold')
+        ax3.grid(True, alpha=0.3)
+        ax3.legend()
+        
+        # Set consistent axis limits
+        ax3.set_xlim(bounds[0] - 0.1, bounds[2] + 0.1)
+        ax3.set_ylim(bounds[1] - 0.1, bounds[3] + 0.1)
         
         plt.tight_layout()
-        plt.savefig(self.data_dir / 'zone_geographic_distribution.pdf', dpi=300, bbox_inches='tight')
+        
+        # Save the plot
+        output_path = self.data_dir / 'zone_geographic_distribution.pdf'
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"✅ Geographic distribution plot saved to {output_path}")
+        
         plt.close()
         
     def plot_category_correlation(self):
