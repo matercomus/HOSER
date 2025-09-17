@@ -309,82 +309,91 @@ class POIDataVisualizer:
                 except Exception as e:
                     print(f"⚠️  Error plotting Beijing boundary: {e}")
         
-        # Create zone grid heatmap data
-        def create_zone_heatmap_data():
-            """Create grid data for heatmap visualization"""
-            # Get all zone centers and POI counts
-            zone_data = []
-            for zone_id, zone_info in self.hoser_zones.items():
-                center = zone_info['center']
-                zone_data.append({
-                    'zone_id': int(zone_id),
-                    'lon': center['lon'],
-                    'lat': center['lat'],
-                    'poi_count': zone_info['poi_count']
-                })
+        # Create data-specific grid bounds to show spatial differences
+        def get_data_bounds(data_lons, data_lats, data_name):
+            """Get grid bounds for specific dataset"""
+            if not data_lons or not data_lats:
+                return None, None, None, None, None, None
             
-            if not zone_data:
-                return None, None, None, None
+            lon_min, lon_max = min(data_lons), max(data_lons)
+            lat_min, lat_max = min(data_lats), max(data_lats)
             
-            df = pl.DataFrame(zone_data)
+            # Add padding
+            lon_padding = (lon_max - lon_min) * 0.05
+            lat_padding = (lat_max - lat_min) * 0.05
             
-            # Create grid for heatmap
-            lon_min, lon_max = df['lon'].min(), df['lon'].max()
-            lat_min, lat_max = df['lat'].min(), df['lat'].max()
+            lon_min -= lon_padding
+            lon_max += lon_padding
+            lat_min -= lat_padding
+            lat_max += lat_padding
             
             # Create regular grid
             lon_bins = np.linspace(lon_min, lon_max, 50)
             lat_bins = np.linspace(lat_min, lat_max, 50)
             
-            # Create 2D histogram for POI counts
-            poi_heatmap, lon_edges, lat_edges = np.histogram2d(
-                df['lon'], df['lat'], 
-                bins=[lon_bins, lat_bins], 
-                weights=df['poi_count']
-            )
+            print(f"📊 {data_name} spatial extent: lon {lon_min:.3f}-{lon_max:.3f}, lat {lat_min:.3f}-{lat_max:.3f}")
             
-            # Create binary grid for zone presence
-            zone_heatmap, _, _ = np.histogram2d(
-                df['lon'], df['lat'], 
-                bins=[lon_bins, lat_bins]
-            )
-            
-            return poi_heatmap, zone_heatmap, lon_edges, lat_edges
+            return lon_bins, lat_bins, lon_min, lon_max, lat_min, lat_max
         
-        # Plot 1: POI Count Heatmap
-        poi_heatmap, zone_heatmap, lon_edges, lat_edges = create_zone_heatmap_data()
+        # Plot 1: POI Count Heatmap (HOSER Zones)
+        zone_data = []
+        for zone_id, zone_info in self.hoser_zones.items():
+            center = zone_info['center']
+            zone_data.append({
+                'zone_id': int(zone_id),
+                'lon': center['lon'],
+                'lat': center['lat'],
+                'poi_count': zone_info['poi_count']
+            })
         
-        if poi_heatmap is not None:
-            plot_beijing_boundary(ax1)
+        if zone_data:
+            df_zones = pl.DataFrame(zone_data)
             
-            # Create heatmap
-            im1 = ax1.imshow(poi_heatmap.T, 
-                           extent=[lon_edges[0], lon_edges[-1], lat_edges[0], lat_edges[-1]], 
-                           origin='lower', cmap='viridis', alpha=0.8, aspect='auto')
+            # Get HOSER zone-specific bounds
+            zone_lons = df_zones['lon'].to_list()
+            zone_lats = df_zones['lat'].to_list()
+            zone_bounds = get_data_bounds(zone_lons, zone_lats, "HOSER Zones")
             
-            ax1.set_xlabel('Longitude (degrees)', fontsize=12)
-            ax1.set_ylabel('Latitude (degrees)', fontsize=12)
-            ax1.set_title('POI Count Heatmap', fontsize=14, fontweight='bold')
-            ax1.grid(True, alpha=0.3)
-            
-            # Add colorbar with proper range
-            cbar1 = plt.colorbar(im1, ax=ax1)
-            cbar1.set_label('POI Count (millions)', fontsize=12)
-            cbar1.ax.ticklabel_format(style='plain')
-            
-            # Format colorbar to show millions
-            ticks = cbar1.get_ticks()
-            if len(ticks) > 0:
-                cbar1.set_ticks(ticks)
-                cbar1.set_ticklabels([f'{t/1e6:.1f}M' for t in ticks])
+            if zone_bounds[0] is not None:
+                zone_lon_bins, zone_lat_bins, zone_lon_min, zone_lon_max, zone_lat_min, zone_lat_max = zone_bounds
+                
+                plot_beijing_boundary(ax1)
+                
+                # Create POI count heatmap using HOSER zone bounds
+                poi_heatmap, lon_edges, lat_edges = np.histogram2d(
+                    df_zones['lon'], df_zones['lat'], 
+                    bins=[zone_lon_bins, zone_lat_bins], 
+                    weights=df_zones['poi_count']
+                )
+                
+                im1 = ax1.imshow(poi_heatmap.T, 
+                               extent=[zone_lon_min, zone_lon_max, zone_lat_min, zone_lat_max], 
+                               origin='lower', cmap='viridis', alpha=0.8, aspect='auto')
+                
+                ax1.set_xlabel('Longitude (degrees)', fontsize=12)
+                ax1.set_ylabel('Latitude (degrees)', fontsize=12)
+                ax1.set_title('POI Count Heatmap (HOSER Zones)', fontsize=14, fontweight='bold')
+                ax1.grid(True, alpha=0.3)
+                
+                # Add colorbar with proper range
+                cbar1 = plt.colorbar(im1, ax=ax1)
+                cbar1.set_label('POI Count (millions)', fontsize=12)
+                cbar1.ax.ticklabel_format(style='plain')
+                
+                # Format colorbar to show millions
+                ticks = cbar1.get_ticks()
+                if len(ticks) > 0:
+                    cbar1.set_ticks(ticks)
+                    cbar1.set_ticklabels([f'{t/1e6:.1f}M' for t in ticks])
+            else:
+                ax1.text(0.5, 0.5, 'No HOSER zone data available', ha='center', va='center', transform=ax1.transAxes)
+                ax1.set_title('POI Count Heatmap (HOSER Zones)', fontsize=14, fontweight='bold')
         else:
             ax1.text(0.5, 0.5, 'No POI data available', ha='center', va='center', transform=ax1.transAxes)
-            ax1.set_title('POI Count Heatmap', fontsize=14, fontweight='bold')
+            ax1.set_title('POI Count Heatmap (HOSER Zones)', fontsize=14, fontweight='bold')
         
-        # Plot 2: POI Points Density Heatmap
+        # Plot 2: POI Points Density Heatmap (Raw POI Data)
         if self.poi_points is not None and len(self.poi_points['lon']) > 0:
-            plot_beijing_boundary(ax2)
-            
             # Sample POI points for better visualization
             n_points = min(len(self.poi_points['lon']), 5000)
             if n_points < len(self.poi_points['lon']):
@@ -395,47 +404,68 @@ class POIDataVisualizer:
                 lon_sample = self.poi_points['lon']
                 lat_sample = self.poi_points['lat']
             
-            # Create density heatmap for POI points
-            poi_density, lon_edges, lat_edges = np.histogram2d(
-                lon_sample, lat_sample, 
-                bins=[50, 50]
-            )
+            # Get POI data-specific bounds
+            poi_bounds = get_data_bounds(lon_sample.tolist(), lat_sample.tolist(), "POI Points")
             
-            im2 = ax2.imshow(poi_density.T, 
-                           extent=[lon_edges[0], lon_edges[-1], lat_edges[0], lat_edges[-1]], 
-                           origin='lower', cmap='plasma', alpha=0.8, aspect='auto')
-            
-            ax2.set_xlabel('Longitude (degrees)', fontsize=12)
-            ax2.set_ylabel('Latitude (degrees)', fontsize=12)
-            ax2.set_title(f'POI Points Density (n={len(lon_sample):,})', fontsize=14, fontweight='bold')
-            ax2.grid(True, alpha=0.3)
-            
-            # Add colorbar
-            cbar2 = plt.colorbar(im2, ax=ax2)
-            cbar2.set_label('POI Density (count)', fontsize=12)
-            cbar2.ax.ticklabel_format(style='plain')
+            if poi_bounds[0] is not None:
+                poi_lon_bins, poi_lat_bins, poi_lon_min, poi_lon_max, poi_lat_min, poi_lat_max = poi_bounds
+                
+                plot_beijing_boundary(ax2)
+                
+                # Create density heatmap for POI points using POI data bounds
+                poi_density, lon_edges, lat_edges = np.histogram2d(
+                    lon_sample, lat_sample, 
+                    bins=[poi_lon_bins, poi_lat_bins]
+                )
+                
+                im2 = ax2.imshow(poi_density.T, 
+                               extent=[poi_lon_min, poi_lon_max, poi_lat_min, poi_lat_max], 
+                               origin='lower', cmap='plasma', alpha=0.8, aspect='auto')
+                
+                ax2.set_xlabel('Longitude (degrees)', fontsize=12)
+                ax2.set_ylabel('Latitude (degrees)', fontsize=12)
+                ax2.set_title(f'POI Points Density (n={len(lon_sample):,})', fontsize=14, fontweight='bold')
+                ax2.grid(True, alpha=0.3)
+                
+                # Add colorbar
+                cbar2 = plt.colorbar(im2, ax=ax2)
+                cbar2.set_label('POI Density (count)', fontsize=12)
+                cbar2.ax.ticklabel_format(style='plain')
+            else:
+                ax2.text(0.5, 0.5, 'No POI points data available', ha='center', va='center', transform=ax2.transAxes)
+                ax2.set_title('POI Points Density', fontsize=14, fontweight='bold')
         else:
             ax2.text(0.5, 0.5, 'No POI points loaded', ha='center', va='center', transform=ax2.transAxes)
             ax2.set_title('POI Points Density', fontsize=14, fontweight='bold')
         
-        # Plot 3: Zone Presence Heatmap
-        if zone_heatmap is not None:
-            plot_beijing_boundary(ax3)
-            
-            # Create binary heatmap showing zone presence
-            im3 = ax3.imshow(zone_heatmap.T, 
-                           extent=[lon_edges[0], lon_edges[-1], lat_edges[0], lat_edges[-1]], 
-                           origin='lower', cmap='RdYlBu_r', alpha=0.8, aspect='auto')
-            
-            ax3.set_xlabel('Longitude (degrees)', fontsize=12)
-            ax3.set_ylabel('Latitude (degrees)', fontsize=12)
-            ax3.set_title(f'HOSER Zone Coverage (n={len(self.hoser_zones)})', fontsize=14, fontweight='bold')
-            ax3.grid(True, alpha=0.3)
-            
-            # Add colorbar
-            cbar3 = plt.colorbar(im3, ax=ax3)
-            cbar3.set_label('Zone Count', fontsize=12)
-            cbar3.ax.ticklabel_format(style='plain')
+        # Plot 3: HOSER Zone Coverage Heatmap
+        if zone_data:
+            # Use the same HOSER zone bounds as plot 1
+            if zone_bounds[0] is not None:
+                plot_beijing_boundary(ax3)
+                
+                # Create zone presence heatmap using HOSER zone bounds
+                zone_heatmap, lon_edges, lat_edges = np.histogram2d(
+                    df_zones['lon'], df_zones['lat'], 
+                    bins=[zone_lon_bins, zone_lat_bins]
+                )
+                
+                im3 = ax3.imshow(zone_heatmap.T, 
+                               extent=[zone_lon_min, zone_lon_max, zone_lat_min, zone_lat_max], 
+                               origin='lower', cmap='RdYlBu_r', alpha=0.8, aspect='auto')
+                
+                ax3.set_xlabel('Longitude (degrees)', fontsize=12)
+                ax3.set_ylabel('Latitude (degrees)', fontsize=12)
+                ax3.set_title(f'HOSER Zone Coverage (n={len(self.hoser_zones)})', fontsize=14, fontweight='bold')
+                ax3.grid(True, alpha=0.3)
+                
+                # Add colorbar
+                cbar3 = plt.colorbar(im3, ax=ax3)
+                cbar3.set_label('Zone Count', fontsize=12)
+                cbar3.ax.ticklabel_format(style='plain')
+            else:
+                ax3.text(0.5, 0.5, 'No HOSER zone data available', ha='center', va='center', transform=ax3.transAxes)
+                ax3.set_title('HOSER Zone Coverage', fontsize=14, fontweight='bold')
         else:
             ax3.text(0.5, 0.5, 'No zone data available', ha='center', va='center', transform=ax3.transAxes)
             ax3.set_title('HOSER Zone Coverage', fontsize=14, fontweight='bold')
