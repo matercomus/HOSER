@@ -135,8 +135,8 @@ class POIDataVisualizer:
         print("📍 Loading POI points for visualization...")
         
         try:
-            # Load POI data with Polars for speed
-            poi_df = pl.scan_csv(poi_file, encoding='utf8').head(sample_size).collect()
+            # Load larger sample to ensure geographic coverage, then filter
+            poi_df = pl.scan_csv(poi_file, encoding='utf8').head(sample_size * 3).collect()
             
             # Clean coordinates and filter to Beijing bounds
             beijing_bounds = {
@@ -154,6 +154,10 @@ class POIDataVisualizer:
                 (pl.col('大地Y') <= beijing_bounds['max_lat'])
             )
             
+            # Randomly sample from filtered data to ensure geographic diversity
+            if len(poi_df) > sample_size:
+                poi_df = poi_df.sample(n=sample_size, seed=42)
+            
             # Convert to numpy arrays for plotting
             self.poi_points = {
                 'lon': poi_df.select('大地X').to_numpy().flatten(),
@@ -162,6 +166,7 @@ class POIDataVisualizer:
             }
             
             print(f"✅ Loaded {len(self.poi_points['lon'])} POI points for visualization")
+            print(f"   Latitude range: {self.poi_points['lat'].min():.3f} to {self.poi_points['lat'].max():.3f}")
             
         except Exception as e:
             print(f"⚠️  Error loading POI points: {e}")
@@ -394,10 +399,15 @@ class POIDataVisualizer:
         
         # Plot 2: POI Points Density Heatmap (Raw POI Data)
         if self.poi_points is not None and len(self.poi_points['lon']) > 0:
-            # Sample POI points for better visualization
+            # Sample POI points for better visualization - use stratified sampling to ensure coverage
             n_points = min(len(self.poi_points['lon']), 5000)
             if n_points < len(self.poi_points['lon']):
-                indices = np.random.choice(len(self.poi_points['lon']), n_points, replace=False)
+                # Use stratified sampling to ensure geographic coverage
+                # Sort by latitude to get better spatial distribution
+                sorted_indices = np.argsort(self.poi_points['lat'])
+                # Sample evenly across the latitude range
+                step = len(sorted_indices) // n_points
+                indices = sorted_indices[::step][:n_points]
                 lon_sample = self.poi_points['lon'][indices]
                 lat_sample = self.poi_points['lat'][indices]
             else:
