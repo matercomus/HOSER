@@ -3,6 +3,7 @@ import argparse
 import json
 import math
 from datetime import datetime
+from typing import Optional
 import yaml
 from tqdm import tqdm
 import pandas as pd
@@ -17,6 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 from loguru import logger
 
 from utils import set_seed, create_nested_namespace, get_angle
+from typing import Optional
 from models.hoser import HOSER
 from dataset import Dataset
 

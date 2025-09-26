@@ -70,9 +70,14 @@ class LMTADTeacher:
         if code_path not in sys.path:
             sys.path.insert(0, code_path)
 
-        # Lazy imports from LM-TAD
-        from models import LMTAD  # type: ignore
-        from datasets import PortoDataset  # type: ignore
+        # Lazy imports from LM-TAD (module names within their repo)
+        try:
+            from models import LMTAD  # type: ignore
+            from datasets import PortoDataset  # type: ignore
+        except Exception as e:
+            raise ImportError(
+                f"Failed to import LMTAD from repo at {code_path}. Ensure the path is correct and contains 'models' and 'datasets'. Original error: {e}"
+            )
 
         # Load checkpoint (compatibly with train_LMTAD.py/eval_porto.py)
         try:
