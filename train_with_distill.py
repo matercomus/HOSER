@@ -528,6 +528,78 @@ if __name__ == '__main__':
 
         logger.info(f'[training+distill] epoch{epoch_id+1}, loss_next_step {loss_next_step.item():.3f}, loss_time_pred {loss_time_pred.item():.3f}' + (f', loss_kl {kl_loss.item():.3f}' if distill_mgr is not None else ''))
 
+        # -----------------------------
+        # Validation (per-epoch)
+        # -----------------------------
+        model.eval()
+        val_next_step_correct_cnt, val_next_step_total_cnt = 0, 0
+        val_time_pred_mape_sum, val_time_pred_total_cnt = 0, 0
+        with torch.no_grad():
+            for (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in val_dataloader:
+                batch_trace_road_id = batch_trace_road_id.to(device, non_blocking=True)
+                batch_temporal_info = batch_temporal_info.to(device, non_blocking=True)
+                batch_trace_distance_mat = batch_trace_distance_mat.to(device, non_blocking=True)
+                batch_trace_time_interval_mat = batch_trace_time_interval_mat.to(device, non_blocking=True)
+                batch_trace_len = batch_trace_len.to(device, non_blocking=True)
+                batch_destination_road_id = batch_destination_road_id.to(device, non_blocking=True)
+
+                # Apply same candidate top-k cap as training
+                top_k = int(getattr(getattr(config, 'data', {}), 'candidate_top_k', 0) or 0)
+                if top_k > 0:
+                    with torch.no_grad():
+                        k = min(top_k, batch_candidate_road_id.size(-1))
+                        idx = torch.argsort(batch_metric_dis, dim=-1, descending=False)[..., :k]
+                    batch_candidate_road_id = torch.gather(batch_candidate_road_id, -1, idx)
+                    batch_metric_dis = torch.gather(batch_metric_dis, -1, idx)
+                    batch_metric_angle = torch.gather(batch_metric_angle, -1, idx)
+                    batch_candidate_len = torch.clamp(batch_candidate_len, max=k)
+
+                batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
+                batch_metric_dis = batch_metric_dis.to(device, non_blocking=True)
+                batch_metric_angle = batch_metric_angle.to(device, non_blocking=True)
+                batch_candidate_len = batch_candidate_len.to(device, non_blocking=True)
+                batch_road_label = batch_road_label.to(device, non_blocking=True)
+                batch_timestamp_label = batch_timestamp_label.to(device, non_blocking=True)
+
+                with torch.amp.autocast(device_type='cuda'):
+                    logits, time_pred = model(
+                        batch_trace_road_id,
+                        batch_temporal_info,
+                        batch_trace_distance_mat,
+                        batch_trace_time_interval_mat,
+                        batch_trace_len,
+                        batch_destination_road_id,
+                        batch_candidate_road_id,
+                        batch_metric_dis,
+                        batch_metric_angle,
+                    )
+
+                logits_mask = torch.arange(logits.size(1), dtype=torch.int64, device=device).unsqueeze(0) < batch_trace_len.unsqueeze(1)
+                selected_logits = logits[logits_mask]
+                selected_candidate_len = batch_candidate_len[logits_mask]
+                selected_road_label = batch_road_label[logits_mask]
+
+                candidate_mask = torch.arange(selected_logits.size(1), dtype=torch.int64, device=device).unsqueeze(0) < selected_candidate_len.unsqueeze(1)
+                masked_selected_logits = selected_logits.masked_fill(~candidate_mask, float('-inf'))
+
+                val_next_step_correct_cnt += torch.sum(torch.argmax(masked_selected_logits, dim=1) == selected_road_label).item()
+                val_next_step_total_cnt += torch.sum(batch_trace_len).item()
+
+                selected_time_pred = time_pred[logits_mask][torch.arange(time_pred[logits_mask].size(0)), selected_road_label]
+                selected_time_pred = selected_time_pred * timestamp_std + timestamp_mean
+                selected_timestamp_label = batch_timestamp_label[logits_mask]
+                selected_timestamp_label = selected_timestamp_label * timestamp_std + timestamp_mean
+                val_time_pred_mape_sum += torch.sum(torch.abs(selected_time_pred - selected_timestamp_label) / torch.clamp(selected_timestamp_label, min=1.0))
+                val_time_pred_total_cnt += torch.sum(batch_trace_len).item()
+
+        val_acc = val_next_step_correct_cnt / max(1, val_next_step_total_cnt)
+        val_mape = (val_time_pred_mape_sum / max(1, val_time_pred_total_cnt)).item()
+        writer.add_scalar('val/next_step_acc', val_acc, epoch_id)
+        writer.add_scalar('val/time_pred_mape', val_mape, epoch_id)
+        if wb_enable:
+            wandb.log({'val/next_step_acc': val_acc, 'val/time_pred_mape': val_mape, 'epoch': epoch_id + 1})
+        model.train()
+
     torch.save(model.state_dict(), os.path.join(save_dir, 'best.pth'))
     logger.info(f'[distill] Saved best model to {save_dir}/best.pth')
     if wb_enable:
