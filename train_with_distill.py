@@ -142,7 +142,12 @@ if __name__ == '__main__':
     tensorboard_log_dir = f'./tensorboard_log/{args.dataset}/seed{args.seed}_distill'
     loguru_log_dir = f'./log/{args.dataset}/seed{args.seed}_distill'
 
-    with open(f'./config/{args.dataset}.yaml', 'r') as file:
+    # Load config relative to this script's directory for robustness
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _config_path = os.path.join(_script_dir, 'config', f'{args.dataset}.yaml')
+    if not os.path.exists(_config_path):
+        raise FileNotFoundError(f"Config not found at {_config_path}. Ensure the dataset YAML exists.")
+    with open(_config_path, 'r') as file:
         config = yaml.safe_load(file)
     config = create_nested_namespace(config)
 
