@@ -19,7 +19,7 @@ from loguru import logger
 import wandb
 
 from utils import set_seed, create_nested_namespace, get_angle
-from typing import Optional
+from typing import Optional  # noqa: F811
 from models.hoser import HOSER
 from dataset import Dataset
 
@@ -143,8 +143,8 @@ if __name__ == '__main__':
     if not os.path.exists(_config_path):
         raise FileNotFoundError(f"Config not found at {_config_path}. Ensure the dataset YAML exists.")
     with open(_config_path, 'r') as file:
-        config = yaml.safe_load(file)
-    config = create_nested_namespace(config)
+        raw_config = yaml.safe_load(file)
+    config = create_nested_namespace(raw_config)
 
     # Determine dataset name (for save/log dir names) from CLI or config filename
     dataset_name = args.dataset if args.dataset else os.path.splitext(os.path.basename(_config_path))[0]
@@ -336,18 +336,8 @@ if __name__ == '__main__':
         wb_project = getattr(getattr(config, 'wandb', {}), 'project', 'hoser-distill')
         wb_run_name = getattr(getattr(config, 'wandb', {}), 'run_name', '') or f"{dataset_name}_b{config.optimizer_config.batch_size}_acc{getattr(config.optimizer_config,'accum_steps',1)}"
         wb_tags = list(getattr(getattr(config, 'wandb', {}), 'tags', []))
-        wandb.init(project=wb_project, name=wb_run_name, tags=wb_tags, config={
-            'dataset': dataset_name,
-            'batch_size': int(config.optimizer_config.batch_size),
-            'accum_steps': int(getattr(config.optimizer_config, 'accum_steps', 1)),
-            'lr': float(config.optimizer_config.learning_rate),
-            'weight_decay': float(config.optimizer_config.weight_decay),
-            'warmup_ratio': float(config.optimizer_config.warmup_ratio),
-            'max_len': int(getattr(config.trajectory_encoder_config, 'max_len', 0)),
-            'grad_checkpoint': bool(getattr(config.trajectory_encoder_config, 'grad_checkpoint', False)),
-            'distill_enable': enable_distill,
-            'distill_window': int(getattr(getattr(config, 'distill', {}), 'window', 0)),
-        })
+        # Log entire YAML config to wandb
+        wandb.init(project=wb_project, name=wb_run_name, tags=wb_tags, config=raw_config)
 
     # Training performance knobs
     allow_tf32 = bool(getattr(getattr(config, 'training', {}), 'allow_tf32', False))
