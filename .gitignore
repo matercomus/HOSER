@@ -11,3 +11,7 @@ HOSER_paper.txt
 EVAL_NOTES.md
 .cursor/
 *.pdf
+# Weights & Biases
+wandb/
+*.wandb
+

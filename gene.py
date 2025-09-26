@@ -1080,6 +1080,7 @@ if __name__ == '__main__':
     parser.add_argument('--beam_width', type=int, default=8, help='Beam width for beam search')
     parser.add_argument('--vectorized', action='store_true', help='Use vectorized GPU-parallel search')
     parser.add_argument('--nx_astar', action='store_true', help='Use NetworkX A* for routing with ML timing')
+    parser.add_argument('--model_path', type=str, default='', help='Path to trained HOSER checkpoint (.pth). Overrides default save/<dataset>/seed<seed>/best.pth')
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -1152,8 +1153,9 @@ if __name__ == '__main__':
 
     print("🧠 Loading trained model...")
     save_dir = f'./save/{args.dataset}/seed{args.seed}'
-    save_path = os.path.join(save_dir, 'best.pth')
-    if os.path.exists(save_path):
+    default_path = os.path.join(save_dir, 'best.pth')
+    model_path = args.model_path if args.model_path else default_path
+    if os.path.exists(model_path):
         model = HOSER(
             config.road_network_encoder_config,
             config.road_network_encoder_feature,
@@ -1161,11 +1163,13 @@ if __name__ == '__main__':
             config.navigator_config,
             data['road2zone'],
         )
-        model_state_dict = torch.load(save_path, map_location='cpu')
-        model.load_state_dict(model_state_dict)
-        print("✅ Model loaded successfully.")
+        loaded = torch.load(model_path, map_location='cpu')
+        # Support both raw state_dict and wrapped {'state_dict': ...}
+        state_dict = loaded.get('state_dict') if isinstance(loaded, dict) and 'state_dict' in loaded else loaded
+        model.load_state_dict(state_dict)
+        print(f"✅ Model loaded: {model_path}")
     else:
-        print(f"⚠️  No checkpoint found at {save_path}. Falling back to heuristic timing.")
+        print(f"⚠️  No checkpoint found at {model_path}. Falling back to heuristic timing.")
         model = None
 
     gene_trace_road_id = [None] * args.num_gene

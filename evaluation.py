@@ -10,6 +10,7 @@ from tqdm import tqdm
 from scipy.spatial.distance import jensenshannon
 from fastdtw import fastdtw
 from haversine import haversine, haversine_vector
+import wandb
 
 # --- Data Loading ---
 
@@ -290,6 +291,10 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate trajectory generation models.")
     parser.add_argument('--run_dir', type=str, required=True, help='Path to the run directory containing hoser_format folder.')
     parser.add_argument('--generated_file', type=str, help='Path to specific generated CSV file. If not provided, will search for generated files in run_dir/hoser_format/')
+    parser.add_argument('--wandb', action='store_true', help='Log results to Weights & Biases')
+    parser.add_argument('--wandb_project', type=str, default='hoser-eval', help='WandB project name')
+    parser.add_argument('--wandb_run_name', type=str, default='', help='WandB run name (optional)')
+    parser.add_argument('--wandb_tags', type=str, nargs='*', default=['eval'], help='WandB tags')
     args = parser.parse_args()
 
     hoser_format_path = os.path.join(args.run_dir, 'hoser_format')
@@ -359,6 +364,25 @@ def main():
     print(f"Results saved to {results_file}")
     print(f"Generated file: {os.path.basename(generated_path)}")
     print(f"Run directory: {args.run_dir}")
+
+    # Optional: log to Weights & Biases
+    if args.wandb:
+        run_name = args.wandb_run_name or f"eval-{os.path.basename(args.run_dir)}-{timestamp}"
+        wandb.init(project=args.wandb_project, name=run_name, tags=args.wandb_tags, config={
+            'run_directory': args.run_dir,
+            'generated_file': generated_path,
+            'real_data_file': real_path,
+            'road_network_file': geo_path,
+            'evaluation_timestamp': timestamp,
+            'real_trajectories_count': len(real_trajectories),
+            'generated_trajectories_count': len(generated_trajectories),
+        })
+        # Log scalar metrics
+        log_payload = {k: v for k, v in all_results.items() if k != 'metadata' and isinstance(v, float)}
+        wandb.log(log_payload)
+        # Save the results file as an artifact
+        wandb.save(results_file)
+        wandb.finish()
 
 if __name__ == '__main__':
     main()
