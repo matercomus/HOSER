@@ -37,6 +37,7 @@ navigator_config:
 optimizer_config:
   max_epoch: 25
   batch_size: 16
+  accum_steps: 2
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -55,3 +56,16 @@ distill:
 
 # Optional: point directly to external HOSER-format data dir
 data_dir: /mnt/i/Matt-Backups/BJUT-BJ-TAXI-DATASET-Backups/HOSER/2025-09-03-gps-gotrackit/output/run_20250908_195312/hoser_format
+
+# Dataloader performance knobs
+dataloader:
+  num_workers: 16
+  pin_memory: true
+  prefetch_factor: 4
+  persistent_workers: true
+
+# Training performance knobs
+training:
+  allow_tf32: true
+  cudnn_benchmark: true
+  torch_compile: true

@@ -275,21 +275,31 @@ if __name__ == '__main__':
     logger.info(f'[distill] timestamp_label_array_log1p_mean {timestamp_mean:.3f}')
     logger.info(f'[distill] timestamp_label_array_log1p_std {timestamp_std:.3f}')
 
+    # Dataloader knobs from config
+    dl_num_workers = getattr(getattr(config, 'dataloader', {}), 'num_workers', 16)
+    dl_pin = bool(getattr(getattr(config, 'dataloader', {}), 'pin_memory', False))
+    dl_prefetch = getattr(getattr(config, 'dataloader', {}), 'prefetch_factor', 4)
+    dl_persist = bool(getattr(getattr(config, 'dataloader', {}), 'persistent_workers', False))
+
     train_dataloader = DataLoader(
         train_dataset,
         config.optimizer_config.batch_size,
         shuffle=True,
         collate_fn=MyCollateFn(timestamp_mean, timestamp_std),
-        num_workers=16,
-        pin_memory=False,
+        num_workers=dl_num_workers,
+        pin_memory=dl_pin,
+        persistent_workers=dl_persist,
+        prefetch_factor=dl_prefetch if dl_num_workers > 0 else None,
     )
     val_dataloader = DataLoader(
         val_dataset,
         config.optimizer_config.batch_size,
         shuffle=False,
         collate_fn=MyCollateFn(timestamp_mean, timestamp_std),
-        num_workers=16,
-        pin_memory=False,
+        num_workers=dl_num_workers,
+        pin_memory=dl_pin,
+        persistent_workers=dl_persist,
+        prefetch_factor=dl_prefetch if dl_num_workers > 0 else None,
     )
 
     # Model
@@ -302,6 +312,21 @@ if __name__ == '__main__':
     ).to(device)
 
     logger.info('[distill] Initialized HOSER model for distillation training')
+
+    # Training performance knobs
+    allow_tf32 = bool(getattr(getattr(config, 'training', {}), 'allow_tf32', False))
+    cudnn_bench = bool(getattr(getattr(config, 'training', {}), 'cudnn_benchmark', False))
+    compile_flag = bool(getattr(getattr(config, 'training', {}), 'torch_compile', False))
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+        torch.backends.cudnn.allow_tf32 = allow_tf32
+        torch.backends.cudnn.benchmark = cudnn_bench
+    if compile_flag:
+        try:
+            model = torch.compile(model, mode="reduce-overhead")
+            logger.info('[perf] torch.compile enabled (reduce-overhead)')
+        except Exception as e:
+            logger.info(f'[perf] torch.compile failed: {e}')
 
     scaler = torch.amp.GradScaler()
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.optimizer_config.learning_rate, weight_decay=config.optimizer_config.weight_decay)
@@ -356,6 +381,7 @@ if __name__ == '__main__':
         coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
         return coeff * config.optimizer_config.learning_rate
 
+    accum_steps = int(getattr(config.optimizer_config, 'accum_steps', 1))
     for epoch_id in range(config.optimizer_config.max_epoch):
         model.train()
         for batch_id, (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in enumerate(tqdm(train_dataloader, desc=f'[training+distill] epoch{epoch_id+1}')):
@@ -380,7 +406,8 @@ if __name__ == '__main__':
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
 
-            optimizer.zero_grad()
+            if (batch_id % accum_steps) == 0:
+                optimizer.zero_grad()
 
             with torch.amp.autocast(device_type='cuda'):
                 logits, time_pred = model(
@@ -426,11 +453,12 @@ if __name__ == '__main__':
                     kl_loss = torch.tensor(0.0, device=device)
                     loss = loss_next_step + loss_time_pred
 
-            scaler.scale(loss).backward()
+            scaler.scale(loss / accum_steps).backward()
             scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(model.parameters(), config.optimizer_config.max_norm)
-            scaler.step(optimizer)
-            scaler.update()
+            if ((batch_id + 1) % accum_steps) == 0:
+                scaler.step(optimizer)
+                scaler.update()
 
             # Logging
             writer.add_scalar('loss_next_step', loss_next_step.item(), len(train_dataloader) * epoch_id + batch_id)
