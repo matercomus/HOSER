@@ -27,9 +27,10 @@ from critics.distill_hook import DistillationManager, DistillConfig
 
 
 class MyCollateFn:
-    def __init__(self, timestamp_label_log1p_mean, timestamp_label_log1p_std):
+    def __init__(self, timestamp_label_log1p_mean, timestamp_label_log1p_std, max_len: Optional[int] = None):
         self.timestamp_label_log1p_mean = timestamp_label_log1p_mean
         self.timestamp_label_log1p_std = timestamp_label_log1p_std
+        self.max_len = int(max_len) if max_len else None
 
     def __call__(self, items):
         batch_trace_road_id = []
@@ -63,6 +64,21 @@ class MyCollateFn:
         max_candidate_len = max([max(x) for x in batch_candidate_len])
 
         for i in range(len(batch_trace_road_id)):
+            # Optional cropping to control quadratic mats
+            if self.max_len is not None and batch_trace_len[i] > self.max_len:
+                crop = batch_trace_len[i] - self.max_len
+                # Crop to the most recent max_len steps
+                batch_trace_road_id[i] = batch_trace_road_id[i][crop:]
+                batch_temporal_info[i] = batch_temporal_info[i][crop:]
+                batch_trace_distance_mat[i] = batch_trace_distance_mat[i][crop:, crop:]
+                batch_trace_time_interval_mat[i] = batch_trace_time_interval_mat[i][crop:, crop:]
+                batch_candidate_road_id[i] = batch_candidate_road_id[i][crop:]
+                batch_metric_dis[i] = batch_metric_dis[i][crop:]
+                batch_metric_angle[i] = batch_metric_angle[i][crop:]
+                batch_candidate_len[i] = batch_candidate_len[i][crop:]
+                batch_road_label[i] = batch_road_label[i][crop:]
+                batch_timestamp_label[i] = batch_timestamp_label[i][crop:]
+                batch_trace_len[i] = self.max_len
             trace_pad_len = max_trace_len - batch_trace_len[i]
 
             batch_trace_road_id[i] = np.pad(batch_trace_road_id[i], (0, trace_pad_len), 'constant', constant_values=0)
@@ -285,7 +301,7 @@ if __name__ == '__main__':
         train_dataset,
         config.optimizer_config.batch_size,
         shuffle=True,
-        collate_fn=MyCollateFn(timestamp_mean, timestamp_std),
+        collate_fn=MyCollateFn(timestamp_mean, timestamp_std, getattr(config.trajectory_encoder_config, 'max_len', None)),
         num_workers=dl_num_workers,
         pin_memory=dl_pin,
         persistent_workers=dl_persist,
@@ -295,7 +311,7 @@ if __name__ == '__main__':
         val_dataset,
         config.optimizer_config.batch_size,
         shuffle=False,
-        collate_fn=MyCollateFn(timestamp_mean, timestamp_std),
+        collate_fn=MyCollateFn(timestamp_mean, timestamp_std, getattr(config.trajectory_encoder_config, 'max_len', None)),
         num_workers=dl_num_workers,
         pin_memory=dl_pin,
         persistent_workers=dl_persist,
@@ -390,18 +406,18 @@ if __name__ == '__main__':
             with torch.amp.autocast(device_type='cuda'):
                 model.setup_road_network_features()
 
-            batch_trace_road_id = batch_trace_road_id.to(device)
-            batch_temporal_info = batch_temporal_info.to(device)
-            batch_trace_distance_mat = batch_trace_distance_mat.to(device)
-            batch_trace_time_interval_mat = batch_trace_time_interval_mat.to(device)
-            batch_trace_len = batch_trace_len.to(device)
-            batch_destination_road_id = batch_destination_road_id.to(device)
-            batch_candidate_road_id = batch_candidate_road_id.to(device)
-            batch_metric_dis = batch_metric_dis.to(device)
-            batch_metric_angle = batch_metric_angle.to(device)
-            batch_candidate_len = batch_candidate_len.to(device)
-            batch_road_label = batch_road_label.to(device)
-            batch_timestamp_label = batch_timestamp_label.to(device)
+            batch_trace_road_id = batch_trace_road_id.to(device, non_blocking=True)
+            batch_temporal_info = batch_temporal_info.to(device, non_blocking=True)
+            batch_trace_distance_mat = batch_trace_distance_mat.to(device, non_blocking=True)
+            batch_trace_time_interval_mat = batch_trace_time_interval_mat.to(device, non_blocking=True)
+            batch_trace_len = batch_trace_len.to(device, non_blocking=True)
+            batch_destination_road_id = batch_destination_road_id.to(device, non_blocking=True)
+            batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
+            batch_metric_dis = batch_metric_dis.to(device, non_blocking=True)
+            batch_metric_angle = batch_metric_angle.to(device, non_blocking=True)
+            batch_candidate_len = batch_candidate_len.to(device, non_blocking=True)
+            batch_road_label = batch_road_label.to(device, non_blocking=True)
+            batch_timestamp_label = batch_timestamp_label.to(device, non_blocking=True)
 
             iter_num += 1
             lr = get_lr(iter_num)
