@@ -206,8 +206,10 @@ class LMTADTeacher:
         x = x.to(self.device)
         with self._ctx:
             logits, _ = self.model(x)  # (B, T, V)
-        logits_last = logits[:, -1, :].squeeze(0)  # (V,)
+        logits_last = logits[:, -1, :]  # (B,V)
         probs = torch.softmax(logits_last, dim=-1)
+        if probs.size(0) == 1:
+            return probs[0]
         return probs
 
 

@@ -131,44 +131,52 @@ class DistillationManager:
 
         num_samples = int(self.cfg.sample_steps_per_trace)
         # Only last step for now (simplest and robust)
+        # Vectorized over batch: build packed histories to reduce Python overhead
+        valid_indices: List[Tuple[int, int]] = []
+        hist_list: List[torch.LongTensor] = []
+        cand_token_list: List[torch.Tensor] = []
+
         for b in range(B):
             t = int(batch_trace_len[b].item()) - 1
             if t < 0:
                 continue
-
-            # History roads → tokens
-            roads_1d = batch_trace_road_id[b, : t + 1]
-            hist_tokens = self._make_history_tokens(roads_1d)
-
-            # Teacher dist over full vocab
-            q_full = self.teacher.predict_next_distribution(hist_tokens)
-
-            # Candidate slice and lengths
             cand_len = int(batch_candidate_len[b, t].item())
             if cand_len <= 0:
                 continue
-            cand_roads = batch_candidate_road_id[b, t, :cand_len]
+            roads_1d = batch_trace_road_id[b, : t + 1]
+            hist_tokens = self._make_history_tokens(roads_1d)
+            hist_list.append(hist_tokens)
 
-            # Map candidates to tokens and gather teacher probs
+            cand_roads = batch_candidate_road_id[b, t, :cand_len]
             cand_np = cand_roads.detach().cpu().numpy().astype(np.int64, copy=False)
-            cand_tokens = self.road_to_token[cand_np]
-            q_c = q_full[cand_tokens].to(device)
+            cand_tokens = torch.from_numpy(self.road_to_token[cand_np]).to(device)
+            cand_token_list.append(cand_tokens)
+            valid_indices.append((b, t))
+
+        if not valid_indices:
+            return torch.tensor(0.0, device=device)
+
+        # Batch teacher calls when possible (pad to same length)
+        max_hist = max(ht.numel() for ht in hist_list)
+        batch_hist = torch.zeros((len(hist_list), max_hist), dtype=torch.long, device=device)
+        for i, ht in enumerate(hist_list):
+            n = ht.numel()
+            batch_hist[i, -n:] = ht.to(device)
+
+        q_full = self.teacher.predict_next_distribution(batch_hist)  # (B,V)
+
+        for i, (b, t) in enumerate(valid_indices):
+            q_c = q_full[i][cand_token_list[i]]
             q_c = q_c / torch.clamp(q_c.sum(), min=1e-9)
 
-            # Student probs (temperature)
-            s_logits = logits[b, t, :cand_len]
+            s_logits = logits[b, t, : cand_token_list[i].numel()]
             T = float(self.cfg.temperature)
             p_tau = F.softmax(s_logits / T, dim=-1)
             q_tau = torch.pow(q_c, 1.0 / T)
             q_tau = q_tau / torch.clamp(q_tau.sum(), min=1e-9)
 
-            # KL(q||p)
             kl = torch.sum(q_tau * (torch.log(torch.clamp(q_tau, min=1e-9)) - torch.log(torch.clamp(p_tau, min=1e-9))))
             kl_accum.append(kl)
-
-            # Only 1 sample per trace by default
-            if len(kl_accum) >= (b + 1) * num_samples:
-                continue
 
         if not kl_accum:
             return torch.tensor(0.0, device=device)
