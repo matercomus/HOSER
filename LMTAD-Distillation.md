@@ -21,57 +21,57 @@ LM‑TAD tokens are grid cells produced from the road geometry’s centroid usin
 - grid_size (degrees) and optional downsample_factor
 - geographic boundaries (min/max lat/lng) used to compute indices
 
-Mapping formula (centroid at \(\text{lat},\text{lng}\)):
+Mapping formula (centroid at $\text{lat},\text{lng}$):
 
-\[
+$$
 \begin{aligned}
 g_i &= \left\lfloor \frac{\text{lat} - \text{min\_lat}}{\text{grid\_size}} \right\rfloor,\quad
 g_j = \left\lfloor \frac{\text{lng} - \text{min\_lng}}{\text{grid\_size}} \right\rfloor \\
 \text{token}(\text{road}) &= g_i \cdot N_{\text{lng}} + g_j\quad (\text{after downsampling and clamping})
 \end{aligned}
-\]
+$$
 
 Precompute a vectorized `road_id -> grid_token` array once at startup to make training‑time mapping O(1).
 
 ## Loss Design
 
-Let \(C\) be the candidate set at a step, \(z_k\) the teacher’s grid token for candidate \(k\), \(q\) the teacher’s distribution over the full grid vocab given history \(H\), and \(p\) the student’s candidate distribution from HOSER. With temperature \(\tau>0\):
+Let $C$ be the candidate set at a step, $z_k$ the teacher’s grid token for candidate $k$, $q$ the teacher’s distribution over the full grid vocab given history $H$, and $p$ the student’s candidate distribution from HOSER. With temperature $\tau>0$:
 
 - Teacher on candidates (renormalized):
-\[
+$$
 q_C^{(\tau)}(k) = \frac{\left(q(z_k)\right)^{1/\tau}}{\sum\limits_{j\in C} \left(q(z_j)\right)^{1/\tau}}
-\]
+$$
 
 - Student on candidates:
-\[
+$$
 p_C^{(\tau)}(k) = \frac{\exp\left(\frac{\text{logits}_k}{\tau}\right)}{\sum\limits_{j\in C} \exp\left(\frac{\text{logits}_j}{\tau}\right)}
-\]
+$$
 
 - Distillation term (teacher→student):
-\[
+$$
 \mathcal{L}_{\text{KL}} = \mathrm{KL}\left(q_C^{(\tau)}\;\Vert\; p_C^{(\tau)}\right) = \sum_{k\in C} q_C^{(\tau)}(k)\,\left[\log q_C^{(\tau)}(k) - \log p_C^{(\tau)}(k)\right]
-\]
+$$
 
 - Total training objective per step (unchanged supervised terms):
-\[
+$$
 \mathcal{L}_{\text{total}} = \underbrace{\mathcal{L}_{\text{road}}}_{\text{cross‑entropy to label}}\; +\; \underbrace{\mathcal{L}_{\text{time}}}_{\text{MAPE time}}\; +\; \lambda_{\text{KL}}\,\mathcal{L}_{\text{KL}}
-\]
+$$
 
 Notes:
-- Renormalization on \(C\) makes the teacher comparable to the student (which only scores candidates).
-- \(\tau\) softens distributions; typical \(\tau\in[1,3]\).
+- Renormalization on $C$ makes the teacher comparable to the student (which only scores candidates).
+- $\tau$ softens distributions; typical $\tau\in[1,3]$.
 
 ## Simple Illustrative Example
 
-Assume 3 candidates \(C=\{A,B,C\}\) mapped to grid tokens \(\{t_5,t_8,t_{12}\}\).
+Assume 3 candidates $C=\{A,B,C\}$ mapped to grid tokens $\{t_5,t_8,t_{12}\}$.
 
-- Teacher (LM‑TAD) over full vocab assigns: \(q(t_5)=0.7,\; q(t_8)=0.2,\; q(t_{12})=0.1\). After renormalizing to \(C\): \(q_C = [0.7, 0.2, 0.1]\).
-- Student (HOSER) logits over candidates → \(p_C = [0.4, 0.4, 0.2]\).
+- Teacher (LM‑TAD) over full vocab assigns: $q(t_5)=0.7,\; q(t_8)=0.2,\; q(t_{12})=0.1$. After renormalizing to $C$: $q_C = [0.7, 0.2, 0.1]$.
+- Student (HOSER) logits over candidates → $p_C = [0.4, 0.4, 0.2]$.
 
-With \(\tau=1\):
-\[
+With $\tau=1$:
+$$
 \mathcal{L}_{\text{KL}} = 0.7\log\frac{0.7}{0.4}+0.2\log\frac{0.2}{0.4}+0.1\log\frac{0.1}{0.2}
-\]
+$$
 This term pushes the student to up‑weight \(A\) and down‑weight \(B\) and \(C\), aligning with teacher preferences while the main CE still anchors to the ground‑truth label.
 
 ## Implementation Plan
@@ -109,12 +109,12 @@ distill:
 
 After computing HOSER logits/time (inside the training loop):
 
-1. Choose which step(s) to distill per sequence (e.g., last step or random \(M\) steps per trace to bound cost).
+1. Choose which step(s) to distill per sequence (e.g., last step or random $M$ steps per trace to bound cost).
 2. For each selected step:
    - Build the history as grid tokens (prepend SOT token if LM‑TAD expects it; omit EOT).
    - Map the candidate road IDs at that step to grid tokens; deduplicate identical grid tokens (sum later if many‑to‑one).
-   - Call the teacher to get \(q\); gather \(q\) for the candidate tokens; renormalize to \(q_C\).
-   - Compute student \(p_C\) with temperature; compute \(\mathcal{L}_{\text{KL}}\) and add to the batch loss.
+   - Call the teacher to get $q$; gather $q$ for the candidate tokens; renormalize to $q_C$.
+   - Compute student $p_C$ with temperature; compute $\mathcal{L}_{\text{KL}}$ and add to the batch loss.
 
 Pseudocode sketch:
 
@@ -159,18 +159,18 @@ loss = loss_next_step + loss_time_pred + lambda_kl * (kl_loss / len(idxs))
 - Many‑to‑one mapping: multiple roads can map to the same grid token. This is fine: the teacher supplies probability mass per grid cell, and renormalization on candidates makes the KL comparable.
 - Special tokens: If LM‑TAD requires `SOT`, prepend it exactly as used in training; EOT is not needed for next‑step.
 - Numerical stability: clamp denominators and add small epsilons in logs.
-- Ablations: set `lambda_kl=0` to disable, or try different \(\tau\) values.
+- Ablations: set `lambda_kl=0` to disable, or try different $\tau$ values.
 
 ## Evaluation Plan
 
-- Training metrics: Observe reduced `loss_next_step` and stable/declining `kl_loss` over epochs when \(\lambda_{\text{KL}}>0\).
+- Training metrics: Observe reduced `loss_next_step` and stable/declining `kl_loss` over epochs when $\lambda_{\text{KL}}>0$.
 - Validation metrics: HOSER’s next‑step accuracy and time MAPE should stay the same or improve.
 - Trajectory‑level: Compare DTW/EDR and distributional JSD vs real data; expect improvements similar to the runtime critic but at zero inference cost.
 
 ## Risks and Mitigations
 
 - Teacher mismatch (tokens/grid): Ensure the mapping uses the LM‑TAD checkpoint’s dataset_config.
-- Over‑regularization: Very high \(\lambda_{\text{KL}}\) can hurt supervised metrics—sweep \(\lambda_{\text{KL}}\) and \(\tau\).
+- Over‑regularization: Very high $\lambda_{\text{KL}}$ can hurt supervised metrics—sweep $\lambda_{\text{KL}}$ and $\tau$.
 - Compute overhead: Limit sampled steps and use small windows; teacher runs in FP16 with no_grad.
 
 ## Deliverables
