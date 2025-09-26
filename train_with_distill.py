@@ -16,6 +16,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from loguru import logger
+import wandb
 
 from utils import set_seed, create_nested_namespace, get_angle
 from typing import Optional
@@ -329,6 +330,25 @@ if __name__ == '__main__':
 
     logger.info('[distill] Initialized HOSER model for distillation training')
 
+    # Initialize Weights & Biases if enabled
+    wb_enable = bool(getattr(getattr(config, 'wandb', {}), 'enable', False))
+    if wb_enable:
+        wb_project = getattr(getattr(config, 'wandb', {}), 'project', 'hoser-distill')
+        wb_run_name = getattr(getattr(config, 'wandb', {}), 'run_name', '') or f"{dataset_name}_b{config.optimizer_config.batch_size}_acc{getattr(config.optimizer_config,'accum_steps',1)}"
+        wb_tags = list(getattr(getattr(config, 'wandb', {}), 'tags', []))
+        wandb.init(project=wb_project, name=wb_run_name, tags=wb_tags, config={
+            'dataset': dataset_name,
+            'batch_size': int(config.optimizer_config.batch_size),
+            'accum_steps': int(getattr(config.optimizer_config, 'accum_steps', 1)),
+            'lr': float(config.optimizer_config.learning_rate),
+            'weight_decay': float(config.optimizer_config.weight_decay),
+            'warmup_ratio': float(config.optimizer_config.warmup_ratio),
+            'max_len': int(getattr(config.trajectory_encoder_config, 'max_len', 0)),
+            'grad_checkpoint': bool(getattr(config.trajectory_encoder_config, 'grad_checkpoint', False)),
+            'distill_enable': enable_distill,
+            'distill_window': int(getattr(getattr(config, 'distill', {}), 'window', 0)),
+        })
+
     # Training performance knobs
     allow_tf32 = bool(getattr(getattr(config, 'training', {}), 'allow_tf32', False))
     cudnn_bench = bool(getattr(getattr(config, 'training', {}), 'cudnn_benchmark', False))
@@ -483,16 +503,30 @@ if __name__ == '__main__':
                 scaler.update()
 
             # Logging
-            writer.add_scalar('loss_next_step', loss_next_step.item(), len(train_dataloader) * epoch_id + batch_id)
-            writer.add_scalar('loss_time_pred', loss_time_pred.item(), len(train_dataloader) * epoch_id + batch_id)
+            step_idx = len(train_dataloader) * epoch_id + batch_id
+            writer.add_scalar('loss_next_step', loss_next_step.item(), step_idx)
+            writer.add_scalar('loss_time_pred', loss_time_pred.item(), step_idx)
             if distill_mgr is not None:
-                writer.add_scalar('loss_kl', kl_loss.item(), len(train_dataloader) * epoch_id + batch_id)
-            writer.add_scalar('loss', loss.item(), len(train_dataloader) * epoch_id + batch_id)
-            writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], len(train_dataloader) * epoch_id + batch_id)
+                writer.add_scalar('loss_kl', kl_loss.item(), step_idx)
+            writer.add_scalar('loss', loss.item(), step_idx)
+            writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], step_idx)
+            if wb_enable:
+                wandb.log({
+                    'loss_next_step': loss_next_step.item(),
+                    'loss_time_pred': loss_time_pred.item(),
+                    'loss': loss.item(),
+                    **({'loss_kl': kl_loss.item()} if distill_mgr is not None else {}),
+                    'lr': optimizer.param_groups[0]['lr'],
+                    'epoch': epoch_id + 1,
+                    'iter': step_idx,
+                })
 
         logger.info(f'[training+distill] epoch{epoch_id+1}, loss_next_step {loss_next_step.item():.3f}, loss_time_pred {loss_time_pred.item():.3f}' + (f', loss_kl {kl_loss.item():.3f}' if distill_mgr is not None else ''))
 
     torch.save(model.state_dict(), os.path.join(save_dir, 'best.pth'))
     logger.info(f'[distill] Saved best model to {save_dir}/best.pth')
+    if wb_enable:
+        wandb.save(os.path.join(save_dir, 'best.pth'))
+        wandb.finish()
 
 

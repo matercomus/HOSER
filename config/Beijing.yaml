@@ -37,7 +37,7 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 20
+  batch_size: 32
   accum_steps: 3
   learning_rate: 0.001
   weight_decay: 0.1
@@ -71,3 +71,10 @@ training:
   cudnn_benchmark: true
   torch_compile: true
   disable_cudagraphs: true
+
+# Weights & Biases logging
+wandb:
+  enable: true
+  project: hoser-distill
+  run_name: ''
+  tags: [beijing, lmtad, distillation]
