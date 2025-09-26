@@ -106,6 +106,7 @@ class MyCollateFn:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str)
+    parser.add_argument('--config', type=str, default='', help='Path to YAML config (overrides dataset default path)')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--cuda', type=int, default=0)
     parser.add_argument('--data_dir', type=str, default='', help='Path to HOSER-format data directory (overrides YAML)')
@@ -115,17 +116,24 @@ if __name__ == '__main__':
     device = f'cuda:{args.cuda}'
 
     # Prepare model config and related features (copied and generalized)
-    # Prefer config-defined data_dir; CLI overrides if provided
+    # Prefer explicit --config; else fall back to dataset default; else Beijing
     _script_dir = os.path.dirname(os.path.abspath(__file__))
-    _config_path = os.path.join(_script_dir, 'config', f'{args.dataset}.yaml')
+    if args.config:
+        _config_path = args.config
+    else:
+        _default_ds = args.dataset if args.dataset else 'Beijing'
+        _config_path = os.path.join(_script_dir, 'config', f'{_default_ds}.yaml')
     if not os.path.exists(_config_path):
         raise FileNotFoundError(f"Config not found at {_config_path}. Ensure the dataset YAML exists.")
     with open(_config_path, 'r') as file:
         config = yaml.safe_load(file)
     config = create_nested_namespace(config)
 
+    # Determine dataset name (for save/log dir names) from CLI or config filename
+    dataset_name = args.dataset if args.dataset else os.path.splitext(os.path.basename(_config_path))[0]
+
     cfg_data_dir = getattr(config, 'data_dir', None) if hasattr(config, 'data_dir') else None
-    base_data_dir = args.data_dir if args.data_dir else (cfg_data_dir if cfg_data_dir else f'./data/{args.dataset}')
+    base_data_dir = args.data_dir if args.data_dir else (cfg_data_dir if cfg_data_dir else f'./data/{dataset_name}')
     geo_file = os.path.join(base_data_dir, 'roadmap.geo')
     rel_file = os.path.join(base_data_dir, 'roadmap.rel')
     train_traj_file = os.path.join(base_data_dir, 'train.csv')
@@ -140,9 +148,9 @@ if __name__ == '__main__':
     if missing:
         raise FileNotFoundError(f"Missing required data files: {missing}. Set --data_dir to your HOSER-format directory.")
 
-    save_dir = f'./save/{args.dataset}/seed{args.seed}_distill'
-    tensorboard_log_dir = f'./tensorboard_log/{args.dataset}/seed{args.seed}_distill'
-    loguru_log_dir = f'./log/{args.dataset}/seed{args.seed}_distill'
+    save_dir = f'./save/{dataset_name}/seed{args.seed}_distill'
+    tensorboard_log_dir = f'./tensorboard_log/{dataset_name}/seed{args.seed}_distill'
+    loguru_log_dir = f'./log/{dataset_name}/seed{args.seed}_distill'
 
     # config already loaded above
 
@@ -161,7 +169,7 @@ if __name__ == '__main__':
     road_attr_len = (road_attr_len - np.mean(road_attr_len)) / np.std(road_attr_len)
 
     road_attr_type = geo['highway'].values.tolist()
-    if args.dataset in ['Beijing', 'San_Francisco']:
+    if dataset_name in ['Beijing', 'San_Francisco']:
         for i in range(len(road_attr_type)):
             if isinstance(road_attr_type[i], str) and road_attr_type[i].startswith('[') and road_attr_type[i].endswith(']'):
                 info = eval(road_attr_type[i])
