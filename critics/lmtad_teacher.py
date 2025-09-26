@@ -85,7 +85,7 @@ class LMTADTeacher:
         # Load model directly from models/LMTAD.py and datasets from code/datasets.py
         lmtad_model_py = _os.path.join(code_path, 'models', 'LMTAD.py')
         lmtad_utils_py = _os.path.join(code_path, 'utils.py')
-        lmtad_datasets_py = _os.path.join(code_path, 'datasets.py')
+        # We do not need datasets for distillation; skip importing datasets.py
         if not _os.path.exists(lmtad_model_py):
             raise ImportError(f"LM-TAD repo missing {lmtad_model_py}")
         # Ensure LM-TAD's 'utils' is used by model code
@@ -105,10 +105,6 @@ class LMTADTeacher:
         LMTAD = getattr(lmtad_models, 'LMTAD', None)
         if LMTAD is None:
             raise ImportError("LMTAD class not found in LM-TAD model file")
-        PortoDataset = None
-        if _os.path.exists(lmtad_datasets_py):
-            lmtad_datasets = _load_module('lmtad_datasets', lmtad_datasets_py)
-            PortoDataset = getattr(lmtad_datasets, 'PortoDataset', None)
 
         # Load checkpoint (compatibly with train_LMTAD.py/eval_porto.py)
         try:
@@ -132,14 +128,8 @@ class LMTADTeacher:
 
         # Optional: build dataset to access dictionary (SOT/EOT/PAD)
         self.dictionary = None
-        if PortoDataset is not None:
-            try:
-                if self.dataset_config is not None:
-                    self.dataset_config.logging = False
-                    ds = PortoDataset(self.dataset_config)  # may load data; used only for dictionary
-                    self.dictionary = getattr(ds, "dictionary", None)
-            except Exception:
-                self.dictionary = None
+        # Dictionary is not required for distillation (SOT optional)
+        self.dictionary = None
 
         # AMP/autocast context used for teacher forward
         if self.device.startswith("cuda"):
