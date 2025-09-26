@@ -78,15 +78,24 @@ This term pushes the student to up‑weight \(A\) and down‑weight \(B\) and \(
 
 ### 1) Teacher Wrapper (LM‑TAD)
 
-- Load the trained LM‑TAD checkpoint using the same path as `eval_porto.py`.
-- Expose: `predict_next_distribution(history_tokens: LongTensor[1,T]) -> Tensor[V]` returning a softmax over grid vocab.
-- Use AMP/FP16, `torch.no_grad()`, and a sliding window (e.g., last 64 tokens). Cache KV state by the last K tokens if the LM‑TAD model exposes it.
+- Load the trained LM‑TAD checkpoint using the same path and keys as `eval_porto.py` / `train_LMTAD.py`:
+  - `checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)`
+  - Keys used: `model` (state_dict), `model_config` (LMTADConfig), `dataset_config` (PortoConfig), `args`
+  - Strip `"_orig_mod."` prefix from keys if present (see `eval_porto.py`).
+- Instantiate and move to device using the same dtype/AMP policy as in LMTAD:
+  - Prefer `float16` on RTX 20‑series; use `torch.amp.autocast(device_type='cuda', dtype=torch.float16)` like `train_LMTAD.py`.
+  - Enable `torch.backends.cudnn.benchmark = True` on CUDA (optional but consistent).
+- Expose: `predict_next_distribution(history_tokens: LongTensor[1,T]) -> Tensor[V]` returning `softmax(logits[:, -1, :])`.
+- Use `no_grad()` and a sliding window (default `window=64`, but cap by `model_conf.block_size`). Cache keyed by the last K tokens.
+- Use `dataset.dictionary` if needed to get `SOT/EOT/PAD` indices (see `eval_porto.py` usage of `dataset.dictionary.eot_token()`); prepend `SOT` if required by your trained checkpoint.
 
 Suggested module: `critics/lmtad_teacher.py`.
 
 ### 2) Grid Mapping Utility
 
-- Build once: `road_id -> grid_token` using LM‑TAD’s dataset_config boundaries and grid parameters.
+- Build once: `road_id -> grid_token` using the same boundary → grid mapping as the HOSER→LMTAD converter, and verify dimensions against the teacher:
+  - Compute `lat_grid_num × lng_grid_num` from HOSER `roadmap.geo` and your `grid_size/downsample_factor`.
+  - If the teacher checkpoint is trained on the Beijing‑HOSER dataset, compare against `dataset_config.grip_size` from `train_LMTAD.py` (height, width). If mismatched, adjust your grid parameters to match the teacher or abort with an informative error.
 - Vectorize with NumPy for speed and store as a contiguous `np.int64` array. Move to GPU only if needed.
 
 ### 3) Training Config (YAML)
@@ -103,6 +112,8 @@ distill:
   window: 64
   sample_steps_per_trace: 1   # number of time steps per sequence to distill
   teacher_fp16: true
+  dtype: float16              # align with LMTAD default on RTX 2080 Ti
+  verify_grid_dims: true      # assert our mapping matches teacher grip_size if provided
 ```
 
 ### 4) Hook in `train.py`
@@ -111,7 +122,7 @@ After computing HOSER logits/time (inside the training loop):
 
 1. Choose which step(s) to distill per sequence (e.g., last step or random $M$ steps per trace to bound cost).
 2. For each selected step:
-   - Build the history as grid tokens (prepend SOT token if LM‑TAD expects it; omit EOT).
+   - Build the history as grid tokens (prepend SOT token if LM‑TAD expects it; omit EOT). Respect the teacher window: `hist = hist[-min(window, teacher_block_size):]`.
    - Map the candidate road IDs at that step to grid tokens; deduplicate identical grid tokens (sum later if many‑to‑one).
    - Call the teacher to get $q$; gather $q$ for the candidate tokens; renormalize to $q_C$.
    - Compute student $p_C$ with temperature; compute $\mathcal{L}_{\text{KL}}$ and add to the batch loss.
@@ -151,8 +162,31 @@ loss = loss_next_step + loss_time_pred + lambda_kl * (kl_loss / len(idxs))
 
 - Use a small window (e.g., 64) for history.
 - Distill only 1–2 steps per sequence per batch (`sample_steps_per_trace`) to bound compute.
-- Batch teacher calls across sequences where possible.
+- Batch teacher calls across sequences where possible. Follow LMTAD’s precision policy:
+  - Use `float16` with autocast on CUDA (`train_LMTAD.py` default), or `bfloat16` on Ampere+.
+  - Keep teacher on GPU; your student (HOSER) already runs on GPU.
 - Cache `road_id -> grid_token` and LM‑TAD model on GPU; run student forward as before.
+
+## Alignment with LMTAD Code (train.sh, train_LMTAD.py, eval_porto.py)
+
+- Checkpoint structure and loading
+  - `train_LMTAD.py` saves checkpoints with `model`, `optimizer`, `scaler`, `scheduler`, `model_config`, `dataset_config`, `args`.
+  - Use `torch.load(..., weights_only=False)` for compatibility (see `_load_checkpoint`).
+  - Remove unwanted prefix `_orig_mod.` from state_dict keys like `eval_porto.py`.
+
+- Dtype and AMP policy
+  - On RTX 2080 Ti, prefer `float16` autocast; set via config `distill.dtype: float16`.
+  - Use `ctx = torch.amp.autocast(device_type='cuda', dtype=ptdtype)` as in both `eval_porto.py` and `train_LMTAD.py` for teacher forward.
+
+- Dictionary and special tokens
+  - If needed, instantiate a lightweight `PortoDataset(dataset_config)` only to access `dictionary` (SOT/EOT/PAD). For next‑token scoring, EOT is not required; prepend SOT if your checkpoint used it.
+
+- Grid dimensions (Beijing‑HOSER)
+  - `train.sh` passes `--grip_size H W` (grid height, width) into `train_LMTAD.py`, stored in `dataset_config.grip_size` for Beijing runs.
+  - Validate your computed grid dims against `dataset_config.grip_size` when `verify_grid_dims` is true.
+
+- Efficient evaluation path
+  - Follow `eval_porto.py` to compute probabilities efficiently: run the model once on the (windowed) history, take `logits[:, -1, :]`, apply `softmax`, then gather candidate token probabilities. No dataloader is needed for the teacher inside distillation.
 
 ## Practical Considerations
 
