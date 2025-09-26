@@ -1,0 +1,179 @@
+"""
+LM-TAD Teacher Wrapper
+======================
+
+Purpose
+-------
+Provide a small, readable wrapper around the external LM-TAD codebase to:
+- Load a trained LM-TAD checkpoint
+- Expose next-token distribution for a given history (grid tokens)
+- Handle dtype/AMP context and minor checkpoint quirks
+
+Notes
+-----
+- This module intentionally lives outside the core model code to keep
+  the original training script untouched unless distillation is enabled.
+- It assumes the LM-TAD repo is available locally and provides the
+  same import structure as used in eval_porto.py (models, datasets).
+"""
+
+from __future__ import annotations
+
+import sys
+from contextlib import nullcontext
+from typing import Optional, Tuple
+
+import torch
+
+
+class LMTADTeacher:
+    """Thin wrapper to load and query a trained LM-TAD model.
+
+    Parameters
+    ----------
+    repo_path: str
+        Path to the LM-TAD repository root (expects a `code/` subfolder).
+    ckpt_path: str
+        Path to the LM-TAD checkpoint (.pt) produced by train_LMTAD.py.
+    device: str
+        Torch device string, e.g. 'cuda:0' or 'cpu'.
+    dtype: str
+        One of {'float16','bfloat16','float32'} for AMP context.
+    window: int
+        Max history length to feed the teacher (truncate from the left).
+    """
+
+    def __init__(
+        self,
+        repo_path: str,
+        ckpt_path: str,
+        device: str,
+        dtype: str = "float16",
+        window: int = 64,
+    ) -> None:
+        self.repo_path = repo_path
+        self.ckpt_path = ckpt_path
+        self.device = device
+        self.window = int(window)
+
+        # AMP precision per LMTAD defaults
+        if dtype not in {"float16", "bfloat16", "float32"}:
+            dtype = "float16"
+        self._ptdtype = {
+            "float32": torch.float32,
+            "bfloat16": torch.bfloat16,
+            "float16": torch.float16,
+        }[dtype]
+
+        # Add LM-TAD repo to sys.path and import lazily
+        code_path = f"{self.repo_path}/code"
+        if code_path not in sys.path:
+            sys.path.insert(0, code_path)
+
+        # Lazy imports from LM-TAD
+        from models import LMTAD  # type: ignore
+        from datasets import PortoDataset  # type: ignore
+
+        # Load checkpoint (compatibly with train_LMTAD.py/eval_porto.py)
+        try:
+            checkpoint = torch.load(self.ckpt_path, map_location=self.device, weights_only=False)
+        except TypeError:
+            checkpoint = torch.load(self.ckpt_path, map_location=self.device)
+
+        model_conf = checkpoint["model_config"]
+        model_conf.logging = False
+        self.model = LMTAD(model_conf)
+
+        state_dict = checkpoint["model"]
+        unwanted_prefix = "_orig_mod."
+        for k in list(state_dict.keys()):
+            if k.startswith(unwanted_prefix):
+                state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
+        self.model.load_state_dict(state_dict)
+        self.model.eval().to(self.device)
+
+        self.dataset_config = checkpoint.get("dataset_config", None)
+
+        # Optional: build dataset to access dictionary (SOT/EOT/PAD)
+        self.dictionary = None
+        try:
+            if self.dataset_config is not None:
+                self.dataset_config.logging = False
+                ds = PortoDataset(self.dataset_config)  # may load data; used only for dictionary
+                self.dictionary = getattr(ds, "dictionary", None)
+        except Exception:
+            # Proceed without dictionary if not strictly needed
+            self.dictionary = None
+
+        # AMP/autocast context used for teacher forward
+        if self.device.startswith("cuda"):
+            self._ctx = torch.amp.autocast(device_type="cuda", dtype=self._ptdtype)
+        else:
+            self._ctx = nullcontext()
+
+    # ---------------------------------------------------------------------
+    # Public API
+    # ---------------------------------------------------------------------
+    def get_grid_size_hw(self) -> Optional[Tuple[int, int]]:
+        """Return (height, width) for Beijing-style datasets if available.
+
+        LM-TAD training code stores it under `dataset_config.grip_size`.
+        Returns None if not present.
+        """
+        if self.dataset_config is None:
+            return None
+        # Some configs use attribute name 'grip_size'
+        h_w = getattr(self.dataset_config, "grip_size", None)
+        if isinstance(h_w, (list, tuple)) and len(h_w) == 2:
+            return int(h_w[0]), int(h_w[1])
+        return None
+
+    def sot_token(self) -> Optional[int]:
+        """Return SOT token id if dictionary is available."""
+        if self.dictionary is None:
+            return None
+        # Try multiple access patterns for robustness
+        for name in ("sot_token", "SOT"):
+            tok = getattr(self.dictionary, name, None)
+            if callable(tok):
+                try:
+                    return int(tok())  # type: ignore[arg-type]
+                except Exception:
+                    pass
+        # Named lookup
+        try:
+            return int(self.dictionary["SOT"])  # type: ignore[index]
+        except Exception:
+            return None
+
+    @torch.no_grad()
+    def predict_next_distribution(self, history_tokens: torch.LongTensor) -> torch.Tensor:
+        """Return next-token probability distribution over the LM-TAD vocab.
+
+        Parameters
+        ----------
+        history_tokens: torch.LongTensor
+            Shape (T,) or (1,T). This should contain grid-tokenized history.
+
+        Returns
+        -------
+        torch.Tensor
+            Shape (V,), probabilities over the entire vocabulary.
+        """
+        if history_tokens.dim() == 1:
+            x = history_tokens.unsqueeze(0)
+        else:
+            x = history_tokens
+
+        # Truncate to window
+        if x.size(1) > self.window:
+            x = x[:, -self.window:]
+
+        x = x.to(self.device)
+        with self._ctx:
+            logits, _ = self.model(x)  # (B, T, V)
+        logits_last = logits[:, -1, :].squeeze(0)  # (V,)
+        probs = torch.softmax(logits_last, dim=-1)
+        return probs
+
+
