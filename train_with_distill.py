@@ -113,7 +113,7 @@ if __name__ == '__main__':
     parser.add_argument('--distill_ckpt', type=str, default='')
     parser.add_argument('--distill_lambda', type=float, default=0.01)
     parser.add_argument('--distill_temperature', type=float, default=2.0)
-    parser.add_argument('--distill_window', type=int, default=64)
+    parser.add_argument('--distill_window', type=int, default=None)
     parser.add_argument('--distill_grid_size', type=float, default=0.001)
     parser.add_argument('--distill_downsample', type=int, default=1)
     parser.add_argument('--data_dir', type=str, default='', help='Path to HOSER-format data directory (overrides --dataset default path)')
@@ -305,13 +305,18 @@ if __name__ == '__main__':
 
     # Distillation manager setup (optional)
     distill_mgr: Optional[DistillationManager] = None
+    # Prefer config over CLI, with CLI as fallback if given
+    distill_window_cfg = None
+    if hasattr(config, 'distill') and hasattr(config.distill, 'window'):
+        distill_window_cfg = int(config.distill.window)
+
     if args.distill:
         dcfg = DistillConfig(
             enabled=True,
             repo_path=args.distill_repo,
             ckpt_path=args.distill_ckpt,
             dtype='float16',
-            window=int(args.distill_window),
+            window=int(args.distill_window or distill_window_cfg or 64),
             lambda_kl=float(args.distill_lambda),
             temperature=float(args.distill_temperature),
             sample_steps_per_trace=1,
