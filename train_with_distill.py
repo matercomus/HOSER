@@ -321,9 +321,11 @@ if __name__ == '__main__':
         torch.backends.cuda.matmul.allow_tf32 = allow_tf32
         torch.backends.cudnn.allow_tf32 = allow_tf32
         torch.backends.cudnn.benchmark = cudnn_bench
+    # torch.compile and cudagraphs interaction: allow disabling cudagraphs
+    disable_cudagraphs = bool(getattr(getattr(config, 'training', {}), 'disable_cudagraphs', False))
     if compile_flag:
         try:
-            model = torch.compile(model, mode="reduce-overhead")
+            model = torch.compile(model, mode="reduce-overhead", disable=disable_cudagraphs)
             logger.info('[perf] torch.compile enabled (reduce-overhead)')
         except Exception as e:
             logger.info(f'[perf] torch.compile failed: {e}')

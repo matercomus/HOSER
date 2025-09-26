@@ -69,3 +69,4 @@ training:
   allow_tf32: true
   cudnn_benchmark: true
   torch_compile: true
+  disable_cudagraphs: true
