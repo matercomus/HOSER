@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint
 
 
 class CausalSelfAttention(nn.Module):
@@ -110,6 +111,9 @@ class TrajectoryEncoder(nn.Module):
         )
         self.temporal_encoder = TemporalEncoder(config.hidden_dim)
 
+        # Optional gradient checkpointing for reduced activation memory
+        self.grad_checkpoint = getattr(config, 'grad_checkpoint', False)
+
         self.transformer = nn.ModuleDict(dict(
             drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([Block(config.hidden_dim*2, config.num_heads, config.dropout, config.max_len) for _ in range(config.num_layers)])
@@ -122,5 +126,13 @@ class TrajectoryEncoder(nn.Module):
 
         x = self.transformer.drop(x)
         for block in self.transformer.h:
-            x = block(x, trace_distance_mat, trace_time_interval_mat, trace_len)
+            if self.grad_checkpoint:
+                # Use non-reentrant checkpointing to better support compile
+                x = checkpoint.checkpoint(
+                    lambda inp, dmat, tmat, tlen, b=block: b(inp, dmat, tmat, tlen),
+                    x, trace_distance_mat, trace_time_interval_mat, trace_len,
+                    use_reentrant=False,
+                )
+            else:
+                x = block(x, trace_distance_mat, trace_time_interval_mat, trace_len)
         return x

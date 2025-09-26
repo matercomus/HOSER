@@ -30,6 +30,7 @@ trajectory_encoder_config:
   num_layers: 2
   dropout: 0.0
   max_len: 1024
+  grad_checkpoint: true
 
 navigator_config:
   hidden_dim: 128
