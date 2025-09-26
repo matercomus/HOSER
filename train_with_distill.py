@@ -114,19 +114,27 @@ if __name__ == '__main__':
     parser.add_argument('--distill_window', type=int, default=64)
     parser.add_argument('--distill_grid_size', type=float, default=0.001)
     parser.add_argument('--distill_downsample', type=int, default=1)
+    parser.add_argument('--data_dir', type=str, default='', help='Path to HOSER-format data directory (overrides --dataset default path)')
     args = parser.parse_args()
 
     set_seed(args.seed)
     device = f'cuda:{args.cuda}'
 
-    # Prepare model config and related features (copied from original train.py for parity)
-    geo_file = f'./data/{args.dataset}/roadmap.geo'
-    rel_file = f'./data/{args.dataset}/roadmap.rel'
-    train_traj_file = f'./data/{args.dataset}/train.csv'
-    val_traj_file = f'./data/{args.dataset}/val.csv'
-    test_traj_file = f'./data/{args.dataset}/test.csv'
-    road_network_partition_file = f'./data/{args.dataset}/road_network_partition'
-    zone_trans_mat_file = f'./data/{args.dataset}/zone_trans_mat.npy'
+    # Prepare model config and related features (copied and generalized)
+    base_data_dir = args.data_dir if args.data_dir else f'./data/{args.dataset}'
+    geo_file = os.path.join(base_data_dir, 'roadmap.geo')
+    rel_file = os.path.join(base_data_dir, 'roadmap.rel')
+    train_traj_file = os.path.join(base_data_dir, 'train.csv')
+    val_traj_file = os.path.join(base_data_dir, 'val.csv')
+    test_traj_file = os.path.join(base_data_dir, 'test.csv')
+    road_network_partition_file = os.path.join(base_data_dir, 'road_network_partition')
+    zone_trans_mat_file = os.path.join(base_data_dir, 'zone_trans_mat.npy')
+
+    # Sanity check for required files
+    required_files = [geo_file, rel_file, train_traj_file, val_traj_file, test_traj_file, road_network_partition_file, zone_trans_mat_file]
+    missing = [p for p in required_files if not os.path.exists(p)]
+    if missing:
+        raise FileNotFoundError(f"Missing required data files: {missing}. Set --data_dir to your HOSER-format directory.")
 
     save_dir = f'./save/{args.dataset}/seed{args.seed}_distill'
     tensorboard_log_dir = f'./tensorboard_log/{args.dataset}/seed{args.seed}_distill'
