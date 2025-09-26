@@ -84,10 +84,24 @@ class LMTADTeacher:
 
         # Load model directly from models/LMTAD.py and datasets from code/datasets.py
         lmtad_model_py = _os.path.join(code_path, 'models', 'LMTAD.py')
+        lmtad_utils_py = _os.path.join(code_path, 'utils.py')
         lmtad_datasets_py = _os.path.join(code_path, 'datasets.py')
         if not _os.path.exists(lmtad_model_py):
             raise ImportError(f"LM-TAD repo missing {lmtad_model_py}")
-        lmtad_models = _load_module('lmtad_models', lmtad_model_py)
+        # Ensure LM-TAD's 'utils' is used by model code
+        import sys as _sys
+        prev_utils = _sys.modules.get('utils')
+        try:
+            if _os.path.exists(lmtad_utils_py):
+                lmtad_utils = _load_module('lmtad_utils', lmtad_utils_py)
+                _sys.modules['utils'] = lmtad_utils
+            lmtad_models = _load_module('lmtad_models', lmtad_model_py)
+        finally:
+            # Do not leave a broken state; restore previous utils if any
+            if prev_utils is not None:
+                _sys.modules['utils'] = prev_utils
+            else:
+                _sys.modules.pop('utils', None)
         LMTAD = getattr(lmtad_models, 'LMTAD', None)
         if LMTAD is None:
             raise ImportError("LMTAD class not found in LM-TAD model file")
