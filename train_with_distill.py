@@ -346,6 +346,11 @@ if __name__ == '__main__':
         except Exception as e:
             logger.info(f'[perf] torch.compile failed: {e}')
 
+    # Cache road/zone embeddings once per run (do not recompute every batch)
+    with torch.no_grad():
+        with torch.amp.autocast(device_type='cuda'):
+            model.setup_road_network_features()
+
     scaler = torch.amp.GradScaler()
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.optimizer_config.learning_rate, weight_decay=config.optimizer_config.weight_decay)
 
@@ -403,8 +408,6 @@ if __name__ == '__main__':
     for epoch_id in range(config.optimizer_config.max_epoch):
         model.train()
         for batch_id, (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in enumerate(tqdm(train_dataloader, desc=f'[training+distill] epoch{epoch_id+1}')):
-            with torch.amp.autocast(device_type='cuda'):
-                model.setup_road_network_features()
 
             batch_trace_road_id = batch_trace_road_id.to(device, non_blocking=True)
             batch_temporal_info = batch_temporal_info.to(device, non_blocking=True)
