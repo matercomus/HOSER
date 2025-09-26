@@ -37,8 +37,8 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 32
-  accum_steps: 3
+  batch_size: 24
+  accum_steps: 4
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -49,7 +49,7 @@ distill:
   enable: true
   repo: /home/matt/Dev/LMTAD
   ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser/ckpt_best_weights_only.pt
-  window: 48
+  window: 32
   lambda: 0.01
   temperature: 2.0
   grid_size: 0.001
@@ -60,14 +60,14 @@ data_dir: /mnt/i/Matt-Backups/BJUT-BJ-TAXI-DATASET-Backups/HOSER/2025-09-03-gps-
 
 # Dataloader performance knobs
 dataloader:
-  num_workers: 32
-  pin_memory: true
-  prefetch_factor: 6
+  num_workers: 16
+  pin_memory: false
+  prefetch_factor: 2
   persistent_workers: true
 
 # Data-specific knobs
 data:
-  candidate_top_k: 24
+  candidate_top_k: 16
 
 # Training performance knobs
 training:
