@@ -70,14 +70,30 @@ class LMTADTeacher:
         if code_path not in sys.path:
             sys.path.insert(0, code_path)
 
-        # Lazy imports from LM-TAD (module names within their repo)
-        try:
-            from models import LMTAD  # type: ignore
-            from datasets import PortoDataset  # type: ignore
-        except Exception as e:
-            raise ImportError(
-                f"Failed to import LMTAD from repo at {code_path}. Ensure the path is correct and contains 'models' and 'datasets'. Original error: {e}"
-            )
+        # Robust import of LM-TAD modules without colliding with local `models` package
+        import importlib.util
+        import os as _os
+
+        def _load_module(module_name: str, module_path: str):
+            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Cannot load module {module_name} from {module_path}")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+            return mod
+
+        models_init = _os.path.join(code_path, 'models', '__init__.py')
+        datasets_init = _os.path.join(code_path, 'datasets', '__init__.py')
+        if not _os.path.exists(models_init) or not _os.path.exists(datasets_init):
+            raise ImportError(f"LM-TAD repo at {code_path} missing models/ or datasets/ package")
+
+        lmtad_models = _load_module('lmtad_models', models_init)
+        lmtad_datasets = _load_module('lmtad_datasets', datasets_init)
+
+        LMTAD = getattr(lmtad_models, 'LMTAD', None)
+        if LMTAD is None:
+            raise ImportError("LMTAD class not found in LM-TAD models package")
+        PortoDataset = getattr(lmtad_datasets, 'PortoDataset', None)
 
         # Load checkpoint (compatibly with train_LMTAD.py/eval_porto.py)
         try:
