@@ -82,18 +82,19 @@ class LMTADTeacher:
             spec.loader.exec_module(mod)  # type: ignore[attr-defined]
             return mod
 
-        models_init = _os.path.join(code_path, 'models', '__init__.py')
-        datasets_init = _os.path.join(code_path, 'datasets', '__init__.py')
-        if not _os.path.exists(models_init) or not _os.path.exists(datasets_init):
-            raise ImportError(f"LM-TAD repo at {code_path} missing models/ or datasets/ package")
-
-        lmtad_models = _load_module('lmtad_models', models_init)
-        lmtad_datasets = _load_module('lmtad_datasets', datasets_init)
-
+        # Load model directly from models/LMTAD.py and datasets from code/datasets.py
+        lmtad_model_py = _os.path.join(code_path, 'models', 'LMTAD.py')
+        lmtad_datasets_py = _os.path.join(code_path, 'datasets.py')
+        if not _os.path.exists(lmtad_model_py):
+            raise ImportError(f"LM-TAD repo missing {lmtad_model_py}")
+        lmtad_models = _load_module('lmtad_models', lmtad_model_py)
         LMTAD = getattr(lmtad_models, 'LMTAD', None)
         if LMTAD is None:
-            raise ImportError("LMTAD class not found in LM-TAD models package")
-        PortoDataset = getattr(lmtad_datasets, 'PortoDataset', None)
+            raise ImportError("LMTAD class not found in LM-TAD model file")
+        PortoDataset = None
+        if _os.path.exists(lmtad_datasets_py):
+            lmtad_datasets = _load_module('lmtad_datasets', lmtad_datasets_py)
+            PortoDataset = getattr(lmtad_datasets, 'PortoDataset', None)
 
         # Load checkpoint (compatibly with train_LMTAD.py/eval_porto.py)
         try:
@@ -117,14 +118,14 @@ class LMTADTeacher:
 
         # Optional: build dataset to access dictionary (SOT/EOT/PAD)
         self.dictionary = None
-        try:
-            if self.dataset_config is not None:
-                self.dataset_config.logging = False
-                ds = PortoDataset(self.dataset_config)  # may load data; used only for dictionary
-                self.dictionary = getattr(ds, "dictionary", None)
-        except Exception:
-            # Proceed without dictionary if not strictly needed
-            self.dictionary = None
+        if PortoDataset is not None:
+            try:
+                if self.dataset_config is not None:
+                    self.dataset_config.logging = False
+                    ds = PortoDataset(self.dataset_config)  # may load data; used only for dictionary
+                    self.dictionary = getattr(ds, "dictionary", None)
+            except Exception:
+                self.dictionary = None
 
         # AMP/autocast context used for teacher forward
         if self.device.startswith("cuda"):
