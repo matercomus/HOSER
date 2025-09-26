@@ -456,9 +456,10 @@ if __name__ == '__main__':
                     loss = loss_next_step + loss_time_pred
 
             scaler.scale(loss / accum_steps).backward()
-            scaler.unscale_(optimizer)
-            nn.utils.clip_grad_norm_(model.parameters(), config.optimizer_config.max_norm)
             if ((batch_id + 1) % accum_steps) == 0:
+                # Unscale and clip just before stepping
+                scaler.unscale_(optimizer)
+                nn.utils.clip_grad_norm_(model.parameters(), config.optimizer_config.max_norm)
                 scaler.step(optimizer)
                 scaler.update()
 
