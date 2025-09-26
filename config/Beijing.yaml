@@ -44,4 +44,14 @@ optimizer_config:
 
 # Distillation settings (used by train_with_distill.py)
 distill:
+  enable: true
+  repo: /home/matt/Dev/LMTAD
+  ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser/ckpt_best_weights_only.pt
   window: 32
+  lambda: 0.01
+  temperature: 2.0
+  grid_size: 0.001
+  downsample: 4
+
+# Optional: point directly to external HOSER-format data dir
+data_dir: /mnt/i/Matt-Backups/BJUT-BJ-TAXI-DATASET-Backups/HOSER/2025-09-03-gps-gotrackit/output/run_20250908_195312/hoser_format

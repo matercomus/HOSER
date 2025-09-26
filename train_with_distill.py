@@ -108,22 +108,24 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--cuda', type=int, default=0)
-    parser.add_argument('--distill', action='store_true', help='Enable LM-TAD distillation')
-    parser.add_argument('--distill_repo', type=str, default='/home/matt/Dev/LMTAD')
-    parser.add_argument('--distill_ckpt', type=str, default='')
-    parser.add_argument('--distill_lambda', type=float, default=0.01)
-    parser.add_argument('--distill_temperature', type=float, default=2.0)
-    parser.add_argument('--distill_window', type=int, default=None)
-    parser.add_argument('--distill_grid_size', type=float, default=0.001)
-    parser.add_argument('--distill_downsample', type=int, default=1)
-    parser.add_argument('--data_dir', type=str, default='', help='Path to HOSER-format data directory (overrides --dataset default path)')
+    parser.add_argument('--data_dir', type=str, default='', help='Path to HOSER-format data directory (overrides YAML)')
     args = parser.parse_args()
 
     set_seed(args.seed)
     device = f'cuda:{args.cuda}'
 
     # Prepare model config and related features (copied and generalized)
-    base_data_dir = args.data_dir if args.data_dir else f'./data/{args.dataset}'
+    # Prefer config-defined data_dir; CLI overrides if provided
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _config_path = os.path.join(_script_dir, 'config', f'{args.dataset}.yaml')
+    if not os.path.exists(_config_path):
+        raise FileNotFoundError(f"Config not found at {_config_path}. Ensure the dataset YAML exists.")
+    with open(_config_path, 'r') as file:
+        config = yaml.safe_load(file)
+    config = create_nested_namespace(config)
+
+    cfg_data_dir = getattr(config, 'data_dir', None) if hasattr(config, 'data_dir') else None
+    base_data_dir = args.data_dir if args.data_dir else (cfg_data_dir if cfg_data_dir else f'./data/{args.dataset}')
     geo_file = os.path.join(base_data_dir, 'roadmap.geo')
     rel_file = os.path.join(base_data_dir, 'roadmap.rel')
     train_traj_file = os.path.join(base_data_dir, 'train.csv')
@@ -142,14 +144,7 @@ if __name__ == '__main__':
     tensorboard_log_dir = f'./tensorboard_log/{args.dataset}/seed{args.seed}_distill'
     loguru_log_dir = f'./log/{args.dataset}/seed{args.seed}_distill'
 
-    # Load config relative to this script's directory for robustness
-    _script_dir = os.path.dirname(os.path.abspath(__file__))
-    _config_path = os.path.join(_script_dir, 'config', f'{args.dataset}.yaml')
-    if not os.path.exists(_config_path):
-        raise FileNotFoundError(f"Config not found at {_config_path}. Ensure the dataset YAML exists.")
-    with open(_config_path, 'r') as file:
-        config = yaml.safe_load(file)
-    config = create_nested_namespace(config)
+    # config already loaded above
 
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(tensorboard_log_dir, exist_ok=True)
@@ -310,18 +305,22 @@ if __name__ == '__main__':
     if hasattr(config, 'distill') and hasattr(config.distill, 'window'):
         distill_window_cfg = int(config.distill.window)
 
-    if args.distill:
+    # Enable distill if config says so
+    enable_distill = False
+    if hasattr(config, 'distill') and hasattr(config.distill, 'enable'):
+        enable_distill = bool(config.distill.enable)
+    if enable_distill:
         dcfg = DistillConfig(
             enabled=True,
-            repo_path=args.distill_repo,
-            ckpt_path=args.distill_ckpt,
+            repo_path=getattr(config.distill, 'repo', '/home/matt/Dev/LMTAD'),
+            ckpt_path=getattr(config.distill, 'ckpt', ''),
             dtype='float16',
-            window=int(args.distill_window or distill_window_cfg or 64),
-            lambda_kl=float(args.distill_lambda),
-            temperature=float(args.distill_temperature),
+            window=int(distill_window_cfg or 64),
+            lambda_kl=float(getattr(config.distill, 'lambda', 0.01)),
+            temperature=float(getattr(config.distill, 'temperature', 2.0)),
             sample_steps_per_trace=1,
-            grid_size=float(args.distill_grid_size),
-            downsample_factor=int(args.distill_downsample),
+            grid_size=float(getattr(config.distill, 'grid_size', 0.001)),
+            downsample_factor=int(getattr(config.distill, 'downsample', 1)),
             verify_grid_dims=True,
         )
         distill_mgr = DistillationManager(
