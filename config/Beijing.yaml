@@ -65,6 +65,10 @@ dataloader:
   prefetch_factor: 6
   persistent_workers: true
 
+# Data-specific knobs
+data:
+  candidate_top_k: 24
+
 # Training performance knobs
 training:
   allow_tf32: true

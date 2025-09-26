@@ -435,6 +435,21 @@ if __name__ == '__main__':
             batch_trace_time_interval_mat = batch_trace_time_interval_mat.to(device, non_blocking=True)
             batch_trace_len = batch_trace_len.to(device, non_blocking=True)
             batch_destination_road_id = batch_destination_road_id.to(device, non_blocking=True)
+            # Optional candidate top-K cap to reduce memory/time
+            top_k = int(getattr(getattr(config, 'data', {}), 'candidate_top_k', 0) or 0)
+            if top_k > 0:
+                # Select top-k by smallest distance metric (already prepared)
+                # Build mask per (B,T)
+                with torch.no_grad():
+                    k = min(top_k, batch_candidate_road_id.size(-1))
+                    # argsort ascending by distance
+                    idx = torch.argsort(batch_metric_dis, dim=-1, descending=False)[..., :k]
+                gather_idx = idx.unsqueeze(-1)
+                batch_candidate_road_id = torch.gather(batch_candidate_road_id, -1, idx)
+                batch_metric_dis = torch.gather(batch_metric_dis, -1, idx)
+                batch_metric_angle = torch.gather(batch_metric_angle, -1, idx)
+                batch_candidate_len = torch.clamp(batch_candidate_len, max=k)
+
             batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
             batch_metric_dis = batch_metric_dis.to(device, non_blocking=True)
             batch_metric_angle = batch_metric_angle.to(device, non_blocking=True)
