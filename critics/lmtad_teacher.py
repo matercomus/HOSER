@@ -106,17 +106,25 @@ class LMTADTeacher:
         if LMTAD is None:
             raise ImportError("LMTAD class not found in LM-TAD model file")
 
-        # Load checkpoint (compatibly with train_LMTAD.py/eval_porto.py)
+        # Prefer weights-only checkpoints: {'state_dict','model_config' (plain dict)}
         try:
             checkpoint = torch.load(self.ckpt_path, map_location=self.device, weights_only=False)
         except TypeError:
             checkpoint = torch.load(self.ckpt_path, map_location=self.device)
 
-        model_conf = checkpoint["model_config"]
-        model_conf.logging = False
-        self.model = LMTAD(model_conf)
+        state_dict = checkpoint.get("state_dict") or checkpoint.get("model")
+        if state_dict is None:
+            raise RuntimeError("Checkpoint missing 'state_dict'/'model'")
+        model_conf = checkpoint.get("model_config")
+        if model_conf is None:
+            raise RuntimeError("Checkpoint missing 'model_config'")
 
-        state_dict = checkpoint["model"]
+        # If config is a dataclass-like object, turn into plain dict
+        if hasattr(model_conf, "__dict__") and not isinstance(model_conf, dict):
+            model_conf = dict(model_conf.__dict__)
+        model_conf["logging"] = False
+        self.model = LMTAD(type("Cfg", (), model_conf))
+
         unwanted_prefix = "_orig_mod."
         for k in list(state_dict.keys()):
             if k.startswith(unwanted_prefix):
