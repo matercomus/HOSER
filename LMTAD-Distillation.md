@@ -8,6 +8,19 @@ We propose a training‑time distillation approach where a frozen LM‑TAD model
 - Minimal code changes: a teacher wrapper, a road→grid token mapping, and a KL term in `train.py`.
 - Tunable: temperature, KL weight, and sampling frequency control compute/quality trade‑offs.
 
+## What’s Implemented (Current Code)
+
+- `critics/lmtad_teacher.py`: Loads LM‑TAD from a weights‑only export (`{'state_dict', 'model_config'}`) and provides vectorized next‑token distributions with sliding window and AMP.
+- `tools/export_lmtad_weights.py`: Utility to export LM‑TAD checkpoints into a pickle‑free, weights‑only format to avoid module import collisions.
+- `critics/grid_mapper.py`: Vectorized road‑centroid → grid‑token mapper; precomputes `road_id → grid_token` using dataset bounds and grid params.
+- `critics/distill_hook.py`: `DistillationManager` orchestrates teacher calls, mapping of candidates, renormalization on candidate set, and computes batched KL loss.
+- `train_with_distill.py`: Standalone training script that wires in distillation, gradient accumulation, AMP, `torch.compile` (with CUDA graphs disabled), gradient checkpointing, dataloader tuning, per‑epoch validation, and full‑config WandB logging.
+- `config/Beijing.yaml`: Single source of truth (config‑first). Contains `distill`, `training`, `dataloader`, `data`, `wandb`, and optimizer/model settings.
+- Generation and evaluation:
+  - `gene.py` supports `--model_path` to load the distilled checkpoint for generation.
+  - `evaluation.py` computes global/local metrics (JSD, Hausdorff, DTW) and logs to WandB.
+  - `tools/collect_distill_artifacts.py` converts generated trips to GeoJSON and bundles model/eval/WandB artifacts.
+
 ## Overview
 
 - Teacher: a trained LM‑TAD model over grid tokens (SOT/EOT/PAD + grid indices). It outputs a probability distribution over the grid vocabulary given a history of grid tokens.
@@ -61,6 +74,93 @@ Notes:
 - Renormalization on $C$ makes the teacher comparable to the student (which only scores candidates).
 - $\tau$ softens distributions; typical $\tau\in[1,3]$.
 
+## Current Implementation Details
+
+### 1) Teacher Wrapper (LM‑TAD)
+
+- Robust loading via weights‑only artifacts to avoid pickle/import issues:
+  - Export once using `tools/export_lmtad_weights.py` to a file with `{'state_dict', 'model_config'}`.
+  - `critics/lmtad_teacher.py` constructs `LMTAD` from `model_config`, strips any `_orig_mod.` prefixes, and loads `state_dict`.
+- Precision and perf:
+  - Uses `torch.amp.autocast(device_type='cuda', dtype=torch.float16)` on RTX 20‑series.
+  - Sliding window history with `config.distill.window` (e.g., 32) capped by the model’s block size.
+  - Returns log‑softmax or softmax distributions over the full grid vocab; batched over histories for throughput.
+- Tokens:
+  - If special tokens exist in the checkpoint’s config, the wrapper handles them; current Beijing setup does not require an explicit SOT (logged as `SOT token id: None`).
+
+### 2) Grid Mapping Utility
+
+- Implemented in `critics/grid_mapper.py`.
+- Computes `road_id → grid_token` once from `roadmap.geo` centroids using:
+  - `distill.grid_size` (degrees) and optional `distill.downsample`.
+  - Dataset bounds inferred from geometries.
+- Mapping is NumPy‑vectorized and returns a contiguous `np.int64` array for O(1) lookups during training.
+
+### 3) Distillation Hook and KL Computation
+
+- Implemented in `critics/distill_hook.py` as `DistillationManager`.
+- Core flow per batch (`compute_kl_for_batch`):
+  1. Slice history per sample to the last `window` grid tokens via `GridMapper`.
+  2. Batch teacher calls to get next‑token distributions for all histories.
+  3. Map candidate road IDs at each distilled position to grid tokens; cap candidates to `data.candidate_top_k` for memory.
+  4. Gather teacher probabilities for candidate tokens and renormalize to the candidate set $C$.
+  5. Compute student candidate distribution with temperature and apply KL divergence.
+  6. Return the mean KL loss for integration into the total loss.
+- The computation is vectorized on GPU to maximize utilization.
+
+### 4) Training Script and Loop
+
+- Implemented in `train_with_distill.py`.
+- Config‑first: loads `config/Beijing.yaml`; CLI can override `--dataset`, `--config`, `--data_dir`, `--seed`.
+- Performance features:
+  - AMP + `GradScaler` with correct accumulation semantics (`unscale_` only on optimizer step).
+  - Gradient accumulation (`optimizer_config.accum_steps`).
+  - `torch.compile(mode='reduce-overhead')` with CUDA graphs disabled (`training.disable_cudagraphs: true`) to avoid graph reuse issues.
+  - Gradient checkpointing in `TrajectoryEncoder` (`trajectory_encoder_config.grad_checkpoint: true`).
+  - Dataloader tuning: `num_workers`, `pin_memory`, `prefetch_factor`, `persistent_workers`.
+  - Candidate capping: `data.candidate_top_k` reduces memory and HtoD traffic.
+  - Cached road/zone embeddings once per epoch to avoid redundant recomputation.
+- Logging & validation:
+  - Full YAML config is logged to WandB at run start.
+  - Per‑epoch validation of next‑step accuracy and time‑prediction MAPE (TensorBoard + WandB).
+
+### 5) Configuration (YAML)
+
+`config/Beijing.yaml` (key excerpts):
+
+```yaml
+distill:
+  enable: true
+  repo: /home/matt/Dev/LMTAD
+  ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser/ckpt_best_weights_only.pt
+  window: 32
+  lambda: 0.01
+  temperature: 2.0
+  grid_size: 0.001
+  downsample: 4
+
+dataloader:
+  num_workers: 16
+  pin_memory: false
+  prefetch_factor: 2
+  persistent_workers: true
+
+data:
+  candidate_top_k: 16
+
+training:
+  allow_tf32: true
+  cudnn_benchmark: true
+  torch_compile: true
+  disable_cudagraphs: true
+
+wandb:
+  enable: true
+  project: hoser-distill
+  run_name: ''
+  tags: [beijing, lmtad, distillation]
+```
+
 ## Simple Illustrative Example
 
 Assume 3 candidates $C=\{A,B,C\}$ mapped to grid tokens $\{t_5,t_8,t_{12}\}$.
@@ -76,87 +176,14 @@ This term pushes the student to up‑weight \(A\) and down‑weight \(B\) and \(
 
 ## Implementation Plan
 
-### 1) Teacher Wrapper (LM‑TAD)
+### 6) Hook‑Up Summary (How it fits together)
 
-- Load the trained LM‑TAD checkpoint using the same path and keys as `eval_porto.py` / `train_LMTAD.py`:
-  - `checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)`
-  - Keys used: `model` (state_dict), `model_config` (LMTADConfig), `dataset_config` (PortoConfig), `args`
-  - Strip `"_orig_mod."` prefix from keys if present (see `eval_porto.py`).
-- Instantiate and move to device using the same dtype/AMP policy as in LMTAD:
-  - Prefer `float16` on RTX 20‑series; use `torch.amp.autocast(device_type='cuda', dtype=torch.float16)` like `train_LMTAD.py`.
-  - Enable `torch.backends.cudnn.benchmark = True` on CUDA (optional but consistent).
-- Expose: `predict_next_distribution(history_tokens: LongTensor[1,T]) -> Tensor[V]` returning `softmax(logits[:, -1, :])`.
-- Use `no_grad()` and a sliding window (default `window=64`, but cap by `model_conf.block_size`). Cache keyed by the last K tokens.
-- Use `dataset.dictionary` if needed to get `SOT/EOT/PAD` indices (see `eval_porto.py` usage of `dataset.dictionary.eot_token()`); prepend `SOT` if required by your trained checkpoint.
-
-Suggested module: `critics/lmtad_teacher.py`.
-
-### 2) Grid Mapping Utility
-
-- Build once: `road_id -> grid_token` using the same boundary → grid mapping as the HOSER→LMTAD converter, and verify dimensions against the teacher:
-  - Compute `lat_grid_num × lng_grid_num` from HOSER `roadmap.geo` and your `grid_size/downsample_factor`.
-  - If the teacher checkpoint is trained on the Beijing‑HOSER dataset, compare against `dataset_config.grip_size` from `train_LMTAD.py` (height, width). If mismatched, adjust your grid parameters to match the teacher or abort with an informative error.
-- Vectorize with NumPy for speed and store as a contiguous `np.int64` array. Move to GPU only if needed.
-
-### 3) Training Config (YAML)
-
-Add a `distill` section:
-
-```yaml
-distill:
-  enabled: true
-  repo_path: /home/matt/Dev/LMTAD
-  ckpt_path: /home/matt/Dev/LMTAD/checkpoints/porto_lmtad.pt
-  lambda_kl: 0.01
-  temperature: 2.0
-  window: 64
-  sample_steps_per_trace: 1   # number of time steps per sequence to distill
-  teacher_fp16: true
-  dtype: float16              # align with LMTAD default on RTX 2080 Ti
-  verify_grid_dims: true      # assert our mapping matches teacher grip_size if provided
-```
-
-### 4) Hook in `train.py`
-
-After computing HOSER logits/time (inside the training loop):
-
-1. Choose which step(s) to distill per sequence (e.g., last step or random $M$ steps per trace to bound cost).
-2. For each selected step:
-   - Build the history as grid tokens (prepend SOT token if LM‑TAD expects it; omit EOT). Respect the teacher window: `hist = hist[-min(window, teacher_block_size):]`.
-   - Map the candidate road IDs at that step to grid tokens; deduplicate identical grid tokens (sum later if many‑to‑one).
-   - Call the teacher to get $q$; gather $q$ for the candidate tokens; renormalize to $q_C$.
-   - Compute student $p_C$ with temperature; compute $\mathcal{L}_{\text{KL}}$ and add to the batch loss.
-
-Pseudocode sketch:
-
-```python
-# logits: (B, T, Cmax), candidate_len: (B, T)
-# Select positions idxs to distill
-with torch.no_grad():
-    q_list = []
-    for b,t in idxs:
-        hist_roads = batch_trace_road_id[b, :batch_trace_len[b]]  # to road IDs
-        hist_tokens = road_to_grid[hist_roads.cpu().numpy()]      # to grid tokens
-        hist_tokens = add_sot(hist_tokens)
-        q_full = teacher.predict_next_distribution(hist_tokens)   # (V,)
-
-        cand_roads = batch_candidate_road_id[b, t, :candidate_len[b, t]]
-        cand_tokens = road_to_grid[cand_roads.cpu().numpy()]
-        q_c = q_full[cand_tokens]
-        q_c = q_c / q_c.sum().clamp_min(1e-9)
-        q_list.append(q_c)
-
-kl_loss = 0.0
-for (b,t), q_c in zip(idxs, q_list):
-    s_logits = logits[b, t, :candidate_len[b, t]]                # (C,)
-    p_tau = torch.softmax(s_logits / T, dim=-1)
-    q_tau = (q_c ** (1.0 / T))
-    q_tau = q_tau / q_tau.sum().clamp_min(1e-9)
-    kl = torch.sum(q_tau * (torch.log(q_tau + 1e-9) - torch.log(p_tau + 1e-9)))
-    kl_loss = kl_loss + kl
-
-loss = loss_next_step + loss_time_pred + lambda_kl * (kl_loss / len(idxs))
-```
+1. `train_with_distill.py` loads config and model, prepares dataloaders, and constructs `DistillationManager` with `LMTADTeacher` and `GridMapper`.
+2. For each batch, the standard supervised losses are computed.
+3. If `distill.enable`, `DistillationManager.compute_kl_for_batch(...)` is called to obtain `kl_loss` using the vectorized pipeline above.
+4. The final loss is: `loss_total = loss_road + loss_time + distill.lambda * kl_loss`.
+5. Gradients are accumulated per `accum_steps`, scaled/unscaled correctly, clipped (`max_norm`), and optimizer stepped.
+6. Per‑epoch validation metrics are logged alongside training metrics to WandB/TensorBoard.
 
 ### 5) Performance Tips
 
@@ -167,12 +194,17 @@ loss = loss_next_step + loss_time_pred + lambda_kl * (kl_loss / len(idxs))
   - Keep teacher on GPU; your student (HOSER) already runs on GPU.
 - Cache `road_id -> grid_token` and LM‑TAD model on GPU; run student forward as before.
 
+Additional optimizations implemented:
+- Gradient accumulation (`optimizer_config.accum_steps`).
+- `torch.compile` with CUDA graphs disabled to avoid tensor reuse errors.
+- Gradient checkpointing in `TrajectoryEncoder`.
+- Dataloader tuning and candidate capping to reduce memory pressure.
+
 ## Alignment with LMTAD Code (train.sh, train_LMTAD.py, eval_porto.py)
 
 - Checkpoint structure and loading
-  - `train_LMTAD.py` saves checkpoints with `model`, `optimizer`, `scaler`, `scheduler`, `model_config`, `dataset_config`, `args`.
-  - Use `torch.load(..., weights_only=False)` for compatibility (see `_load_checkpoint`).
-  - Remove unwanted prefix `_orig_mod.` from state_dict keys like `eval_porto.py`.
+  - We export to weights‑only (`state_dict` + `model_config`) to eliminate pickle dependencies and module name collisions.
+  - `_orig_mod.` prefixes are stripped before `load_state_dict`.
 
 - Dtype and AMP policy
   - On RTX 2080 Ti, prefer `float16` autocast; set via config `distill.dtype: float16`.
@@ -209,15 +241,36 @@ loss = loss_next_step + loss_time_pred + lambda_kl * (kl_loss / len(idxs))
 
 ## Deliverables
 
-- `critics/lmtad_teacher.py` (LM‑TAD loader + next‑token distribution) 
-- Grid mapping utility (reuse LMTAD preprocessing formula)
-- `train.py` updates: config flags, KL computation path, logging for `kl_loss`
+- `critics/lmtad_teacher.py` (LM‑TAD loader + next‑token distribution, weights‑only load)
+- `critics/grid_mapper.py` (vectorized road→grid mapping)
+- `critics/distill_hook.py` (batched KL computation over candidate set)
+- `train_with_distill.py` (training loop integration, AMP/accumulation/compile/validation/WandB)
+- `tools/export_lmtad_weights.py` (robust checkpoint exporter)
 
 ## Usage (example)
 
 ```bash
-uv run python train.py --dataset Beijing --cuda 0 \
-  --config config/Beijing.yaml  # distill.* keys enabled in YAML
+uv run python train_with_distill.py --dataset Beijing --cuda 0 \
+  --config config/Beijing.yaml \
+  --data_dir /path/to/hoser_format
+```
+
+### Generation and Evaluation
+
+```bash
+# Generate with distilled model
+uv run python gene.py --dataset Beijing --model_path save/Beijing/seed0_distill/best.pth
+
+# Evaluate and log to WandB
+uv run python evaluation.py --run_dir <RUN_DIR> --wandb --wandb_project hoser-eval \
+  --wandb_run_name <RUN_NAME>_eval --wandb_tags beijing distill eval
+
+# Bundle artifacts and convert to GeoJSON
+uv run python tools/collect_distill_artifacts.py \
+  --run_name <RUN_NAME> \
+  --run_dir <RUN_DIR> \
+  --generated_csv <path/to/generated.csv> \
+  --backup_root /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil
 ```
 
 
