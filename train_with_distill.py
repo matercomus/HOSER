@@ -120,14 +120,18 @@ class MyCollateFn:
         return batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str)
-    parser.add_argument('--config', type=str, default='', help='Path to YAML config (overrides dataset default path)')
-    parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--cuda', type=int, default=0)
-    parser.add_argument('--data_dir', type=str, default='', help='Path to HOSER-format data directory (overrides YAML)')
-    args = parser.parse_args()
+def main(args=None, return_metrics=False):
+    """Main training function that can be called programmatically or from CLI."""
+    if args is None:
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--dataset', type=str)
+        parser.add_argument('--config', type=str, default='', help='Path to YAML config (overrides dataset default path)')
+        parser.add_argument('--seed', type=int, default=0)
+        parser.add_argument('--cuda', type=int, default=0)
+        parser.add_argument('--data_dir', type=str, default='', help='Path to HOSER-format data directory (overrides YAML)')
+        parser.add_argument('--return_metrics', action='store_true', help='Return validation metrics (for Optuna)')
+        args = parser.parse_args()
+        return_metrics = args.return_metrics
 
     set_seed(args.seed)
     device = f'cuda:{args.cuda}'
@@ -415,6 +419,11 @@ if __name__ == '__main__':
         return coeff * config.optimizer_config.learning_rate
 
     accum_steps = int(getattr(config.optimizer_config, 'accum_steps', 1))
+    
+    # Track validation metrics for Optuna
+    validation_metrics = []
+    best_val_acc = 0.0
+    
     for epoch_id in range(config.optimizer_config.max_epoch):
         model.train()
         for batch_id, (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in enumerate(tqdm(train_dataloader, desc=f'[training+distill] epoch{epoch_id+1}')):
@@ -434,7 +443,6 @@ if __name__ == '__main__':
                     k = min(top_k, batch_candidate_road_id.size(-1))
                     # argsort ascending by distance
                     idx = torch.argsort(batch_metric_dis, dim=-1, descending=False)[..., :k]
-                gather_idx = idx.unsqueeze(-1)
                 batch_candidate_road_id = torch.gather(batch_candidate_road_id, -1, idx)
                 batch_metric_dis = torch.gather(batch_metric_dis, -1, idx)
                 batch_metric_angle = torch.gather(batch_metric_angle, -1, idx)
@@ -598,6 +606,15 @@ if __name__ == '__main__':
         writer.add_scalar('val/time_pred_mape', val_mape, epoch_id)
         if wb_enable:
             wandb.log({'val/next_step_acc': val_acc, 'val/time_pred_mape': val_mape, 'epoch': epoch_id + 1})
+        
+        # Track for Optuna
+        validation_metrics.append({
+            'epoch': epoch_id + 1,
+            'val_acc': val_acc,
+            'val_mape': val_mape
+        })
+        best_val_acc = max(best_val_acc, val_acc)
+        
         model.train()
 
     torch.save(model.state_dict(), os.path.join(save_dir, 'best.pth'))
@@ -605,5 +622,18 @@ if __name__ == '__main__':
     if wb_enable:
         wandb.save(os.path.join(save_dir, 'best.pth'))
         wandb.finish()
+    
+    # Return metrics for Optuna if requested
+    if return_metrics:
+        return {
+            'best_val_acc': best_val_acc,
+            'final_val_acc': validation_metrics[-1]['val_acc'] if validation_metrics else 0.0,
+            'final_val_mape': validation_metrics[-1]['val_mape'] if validation_metrics else float('inf'),
+            'validation_history': validation_metrics
+        }
+
+
+if __name__ == '__main__':
+    main()
 
 
