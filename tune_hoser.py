@@ -42,18 +42,22 @@ class HOSERObjective:
     def __call__(self, trial: optuna.Trial) -> float:
         """Objective function called by Optuna for each trial."""
         self.trial_counter += 1
-        
-        # Suggest trial type: vanilla HOSER or distilled HOSER
-        trial_type = trial.suggest_categorical('trial_type', ['vanilla', 'distilled'])
-        
+
+        # For trial 0, force vanilla (baseline) - don't use suggest_categorical
+        if trial.number == 0:
+            trial_type = 'vanilla'
+        else:
+            # Suggest trial type: vanilla HOSER or distilled HOSER
+            trial_type = trial.suggest_categorical('trial_type', ['vanilla', 'distilled'])
+
         # Create trial-specific config
         config = self._create_trial_config(trial, trial_type)
-        
+
         # Create temporary config file for this trial
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             yaml.dump(config, f)
             temp_config_path = f.name
-        
+
         try:
             # Run training with trial config
             result = self._run_training_trial(trial, temp_config_path, trial_type)
@@ -269,17 +273,10 @@ def main():
         max_epochs=args.max_epochs
     )
     
-    # Ensure vanilla HOSER is included in first few trials
-    def enhanced_objective(trial):
-        # Force first trial to be vanilla for baseline
-        if trial.number == 0:
-            trial.suggest_categorical('trial_type', ['vanilla'])
-        return objective(trial)
-    
     # Run optimization
     try:
         study.optimize(
-            enhanced_objective,
+            objective,
             n_trials=args.n_trials,
             callbacks=[wandbc],
             gc_after_trial=True,

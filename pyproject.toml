@@ -13,6 +13,7 @@ dependencies = [
     "networkx>=3.5",
     "numpy>=2.3.2",
     "optuna>=4.5.0",
+    "optuna-integration[wandb]>=4.5.0",
     "pandas>=2.3.1",
     "plotly>=6.3.0",
     "polars>=1.33.1",
