@@ -48,15 +48,15 @@ optimizer_config:
 distill:
   enable: true
   repo: /home/matt/Dev/LMTAD
-  ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser/ckpt_best_weights_only.pt
+  ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
   window: 32
   lambda: 0.01
   temperature: 2.0
-  grid_size: 0.001
-  downsample: 4
+  grid_size: 0.001  # Based on LM-TAD training: grip_size="205 252" (no downsampling)
+  downsample: 1     # No downsampling for this model
 
-# Optional: point directly to external HOSER-format data dir
-data_dir: /mnt/i/Matt-Backups/BJUT-BJ-TAXI-DATASET-Backups/HOSER/2025-09-03-gps-gotrackit/output/run_20250908_195312/hoser_format
+# Point to the original HOSER dataset (beijing_hoser_reference is LM-TAD format only)
+data_dir: /home/matt/Dev/HOSER-dataset
 
 # Dataloader performance knobs
 dataloader:
