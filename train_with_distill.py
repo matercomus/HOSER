@@ -437,16 +437,17 @@ def main(args=None, return_metrics=False):
             # Optional candidate top-K cap to reduce memory/time
             top_k = int(getattr(getattr(config, 'data', {}), 'candidate_top_k', 0) or 0)
             if top_k > 0:
-                # Select top-k by smallest distance metric (already prepared)
-                # Build mask per (B,T)
+                # Move candidate selection to GPU for better performance
                 with torch.no_grad():
                     k = min(top_k, batch_candidate_road_id.size(-1))
-                    # argsort ascending by distance
-                    idx = torch.argsort(batch_metric_dis, dim=-1, descending=False)[..., :k]
-                batch_candidate_road_id = torch.gather(batch_candidate_road_id, -1, idx)
-                batch_metric_dis = torch.gather(batch_metric_dis, -1, idx)
-                batch_metric_angle = torch.gather(batch_metric_angle, -1, idx)
-                batch_candidate_len = torch.clamp(batch_candidate_len, max=k)
+                    # Move to GPU first, then sort
+                    batch_metric_dis_gpu = batch_metric_dis.to(device, non_blocking=True)
+                    idx = torch.argsort(batch_metric_dis_gpu, dim=-1, descending=False)[..., :k]
+                    # Gather on GPU
+                    batch_candidate_road_id = torch.gather(batch_candidate_road_id.to(device, non_blocking=True), -1, idx)
+                    batch_metric_dis = torch.gather(batch_metric_dis_gpu, -1, idx)
+                    batch_metric_angle = torch.gather(batch_metric_angle.to(device, non_blocking=True), -1, idx)
+                    batch_candidate_len = torch.clamp(batch_candidate_len.to(device, non_blocking=True), max=k)
 
             batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
             batch_metric_dis = batch_metric_dis.to(device, non_blocking=True)
@@ -551,16 +552,19 @@ def main(args=None, return_metrics=False):
                 batch_trace_len = batch_trace_len.to(device, non_blocking=True)
                 batch_destination_road_id = batch_destination_road_id.to(device, non_blocking=True)
 
-                # Apply same candidate top-k cap as training
+                # Apply same candidate top-k cap as training (GPU-optimized)
                 top_k = int(getattr(getattr(config, 'data', {}), 'candidate_top_k', 0) or 0)
                 if top_k > 0:
                     with torch.no_grad():
                         k = min(top_k, batch_candidate_road_id.size(-1))
-                        idx = torch.argsort(batch_metric_dis, dim=-1, descending=False)[..., :k]
-                    batch_candidate_road_id = torch.gather(batch_candidate_road_id, -1, idx)
-                    batch_metric_dis = torch.gather(batch_metric_dis, -1, idx)
-                    batch_metric_angle = torch.gather(batch_metric_angle, -1, idx)
-                    batch_candidate_len = torch.clamp(batch_candidate_len, max=k)
+                        # Move to GPU first, then sort
+                        batch_metric_dis_gpu = batch_metric_dis.to(device, non_blocking=True)
+                        idx = torch.argsort(batch_metric_dis_gpu, dim=-1, descending=False)[..., :k]
+                        # Gather on GPU
+                        batch_candidate_road_id = torch.gather(batch_candidate_road_id.to(device, non_blocking=True), -1, idx)
+                        batch_metric_dis = torch.gather(batch_metric_dis_gpu, -1, idx)
+                        batch_metric_angle = torch.gather(batch_metric_angle.to(device, non_blocking=True), -1, idx)
+                        batch_candidate_len = torch.clamp(batch_candidate_len.to(device, non_blocking=True), max=k)
 
                 batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
                 batch_metric_dis = batch_metric_dis.to(device, non_blocking=True)
