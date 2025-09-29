@@ -30,14 +30,14 @@ trajectory_encoder_config:
   num_layers: 2
   dropout: 0.0
   max_len: 1024
-  grad_checkpoint: true
+  grad_checkpoint: false # Disabled: we have enough VRAM, this trades memory for speed
 
 navigator_config:
   hidden_dim: 128
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 256  # Even more aggressive - 10x original size
+  batch_size: 512  # Doubled again to saturate VRAM after disabling checkpointing
   accum_steps: 1   # No accumulation needed with large batch
   learning_rate: 0.001
   weight_decay: 0.1
