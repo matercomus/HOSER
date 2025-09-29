@@ -113,75 +113,87 @@ class DistillationManager:
 
     def compute_kl_for_batch(
         self,
-        logits: torch.Tensor,                      # (B, T, Cmax)
-        batch_trace_road_id: torch.Tensor,         # (B, T)
-        batch_trace_len: torch.Tensor,             # (B,)
-        batch_candidate_road_id: torch.Tensor,     # (B, T, Cmax)
-        batch_candidate_len: torch.Tensor,         # (B, T)
+        logits: torch.Tensor,
+        batch_trace_road_id: torch.Tensor,
+        batch_trace_len: torch.Tensor,
+        batch_candidate_road_id: torch.Tensor,
+        batch_candidate_len: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute average KL loss across sampled steps in the batch.
+        return self._compute_vectorized(
+            logits,
+            batch_trace_road_id,
+            batch_trace_len,
+            batch_candidate_road_id,
+            batch_candidate_len,
+        )
 
-        Strategy: sample last valid step per trace (configurable up to N steps).
-        This keeps compute low and code straightforward.
-        """
-        B, T, Cmax = logits.shape
+    def _compute_vectorized(
+        self,
+        logits: torch.Tensor,
+        batch_trace_road_id: torch.Tensor,
+        batch_trace_len: torch.Tensor,
+        batch_candidate_road_id: torch.Tensor,
+        batch_candidate_len: torch.Tensor,
+    ) -> torch.Tensor:
         device = logits.device
+        B, T, _ = logits.shape
 
-        kl_accum: List[torch.Tensor] = []
+        batch_trace_len = batch_trace_len.to(device)
+        batch_candidate_len = batch_candidate_len.to(device)
+        batch_trace_road_id = batch_trace_road_id.to(device)
+        batch_candidate_road_id = batch_candidate_road_id.to(device)
 
-        num_samples = int(self.cfg.sample_steps_per_trace)
-        # Only last step for now (simplest and robust)
-        # Vectorized over batch: build packed histories to reduce Python overhead
-        valid_indices: List[Tuple[int, int]] = []
-        hist_list: List[torch.LongTensor] = []
-        cand_token_list: List[torch.Tensor] = []
-
-        for b in range(B):
-            t = int(batch_trace_len[b].item()) - 1
-            if t < 0:
-                continue
-            cand_len = int(batch_candidate_len[b, t].item())
-            if cand_len <= 0:
-                continue
-            roads_1d = batch_trace_road_id[b, : t + 1]
-            hist_tokens = self._make_history_tokens(roads_1d)
-            hist_list.append(hist_tokens)
-
-            cand_roads = batch_candidate_road_id[b, t, :cand_len]
-            cand_np = cand_roads.detach().cpu().numpy().astype(np.int64, copy=False)
-            cand_tokens = torch.from_numpy(self.road_to_token[cand_np]).to(device)
-            cand_token_list.append(cand_tokens)
-            valid_indices.append((b, t))
-
-        if not valid_indices:
+        last_idx = batch_trace_len - 1
+        valid_mask = last_idx >= 0
+        if not valid_mask.any():
             return torch.tensor(0.0, device=device)
 
-        # Batch teacher calls when possible (pad to same length)
-        max_hist = max(ht.numel() for ht in hist_list)
-        batch_hist = torch.zeros((len(hist_list), max_hist), dtype=torch.long, device=device)
-        for i, ht in enumerate(hist_list):
-            n = ht.numel()
-            batch_hist[i, -n:] = ht.to(device)
+        batch_indices = torch.arange(B, device=device)[valid_mask]
+        last_idx = last_idx[valid_mask]
+        candidate_len = batch_candidate_len[batch_indices, last_idx]
+        valid_candidate = candidate_len > 0
+        if not valid_candidate.any():
+            return torch.tensor(0.0, device=device)
 
-        q_full = self.teacher.predict_next_distribution(batch_hist)  # (B,V)
+        batch_indices = batch_indices[valid_candidate]
+        last_idx = last_idx[valid_candidate]
+        candidate_len = candidate_len[valid_candidate]
 
-        for i, (b, t) in enumerate(valid_indices):
-            q_c = q_full[i][cand_token_list[i]]
+        sorted_indices = torch.argsort(candidate_len, descending=True)
+        batch_indices = batch_indices[sorted_indices]
+        last_idx = last_idx[sorted_indices]
+        candidate_len = candidate_len[sorted_indices]
+
+        max_hist = int(batch_trace_len.max().item())
+        history_tokens = torch.zeros((batch_indices.size(0), max_hist), dtype=torch.long, device=device)
+        for row, (b, t) in enumerate(zip(batch_indices.tolist(), last_idx.tolist())):
+            seq = batch_trace_road_id[b, : t + 1]
+            seq = torch.from_numpy(self.road_to_token[seq.cpu().numpy()]).to(device)
+            if self.sot_id is not None:
+                seq = torch.cat([torch.tensor([self.sot_id], device=device, dtype=torch.long), seq], dim=0)
+            history_tokens[row, -seq.size(0):] = seq
+
+        teacher_logits = self.teacher.predict_next_distribution(history_tokens)
+        if teacher_logits.dim() == 1:
+            teacher_logits = teacher_logits.unsqueeze(0)
+
+        kl_terms = []
+        for row, (b, t, cand) in enumerate(zip(batch_indices.tolist(), last_idx.tolist(), candidate_len.tolist())):
+            candidate_ids = batch_candidate_road_id[b, t, : cand]
+            candidate_tokens = torch.from_numpy(self.road_to_token[candidate_ids.cpu().numpy()]).to(device)
+            q_c = teacher_logits[row, candidate_tokens]
             q_c = q_c / torch.clamp(q_c.sum(), min=1e-9)
 
-            s_logits = logits[b, t, : cand_token_list[i].numel()]
+            s_logits = logits[b, t, : cand]
             T = float(self.cfg.temperature)
-            p_tau = F.softmax(s_logits / T, dim=-1)
-            q_tau = torch.pow(q_c, 1.0 / T)
+            p_tau = torch.softmax(s_logits / T, dim=-1)
+            q_tau = torch.clamp(q_c, min=1e-9).pow(1.0 / T)
             q_tau = q_tau / torch.clamp(q_tau.sum(), min=1e-9)
+            kl = torch.sum(q_tau * (torch.log(q_tau) - torch.log(torch.clamp(p_tau, min=1e-9))))
+            kl_terms.append(kl)
 
-            kl = torch.sum(q_tau * (torch.log(torch.clamp(q_tau, min=1e-9)) - torch.log(torch.clamp(p_tau, min=1e-9))))
-            kl_accum.append(kl)
-
-        if not kl_accum:
+        if not kl_terms:
             return torch.tensor(0.0, device=device)
-
-        kl_mean = torch.stack(kl_accum).mean()
-        return kl_mean
+        return torch.stack(kl_terms).mean()
 
 

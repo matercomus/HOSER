@@ -47,8 +47,25 @@ class MyCollateFn:
         batch_candidate_len = []
         batch_road_label = []
         batch_timestamp_label = []
+        batch_trace_grid_token = []
+        batch_candidate_grid_token = []
 
-        for trace_road_id, temporal_info, trace_distance_mat, trace_time_interval_mat, trace_len, destination_road_id, candidate_road_id, metric_dis, metric_angle, candidate_len, road_label, timestamp_label in items:
+        for (
+            trace_road_id,
+            temporal_info,
+            trace_distance_mat,
+            trace_time_interval_mat,
+            trace_len,
+            destination_road_id,
+            candidate_road_id,
+            metric_dis,
+            metric_angle,
+            candidate_len,
+            road_label,
+            timestamp_label,
+            trace_grid_token,
+            candidate_grid_token,
+        ) in items:
             batch_trace_road_id.append(trace_road_id)
             batch_temporal_info.append(temporal_info)
             batch_trace_distance_mat.append(trace_distance_mat)
@@ -61,15 +78,17 @@ class MyCollateFn:
             batch_candidate_len.append(candidate_len)
             batch_road_label.append(road_label)
             batch_timestamp_label.append(timestamp_label)
+            batch_trace_grid_token.append(trace_grid_token)
+            batch_candidate_grid_token.append(candidate_grid_token)
 
         max_trace_len = max(batch_trace_len)
-        max_candidate_len = max([max(x) for x in batch_candidate_len])
+        max_candidate_len = max([max(x) if len(x) > 0 else 0 for x in batch_candidate_len])
 
         for i in range(len(batch_trace_road_id)):
-            # Optional cropping to control quadratic mats
+            trace_pad_len = max_trace_len - batch_trace_len[i]
+
             if self.max_len is not None and batch_trace_len[i] > self.max_len:
                 crop = batch_trace_len[i] - self.max_len
-                # Crop to the most recent max_len steps
                 batch_trace_road_id[i] = batch_trace_road_id[i][crop:]
                 batch_temporal_info[i] = batch_temporal_info[i][crop:]
                 batch_trace_distance_mat[i] = batch_trace_distance_mat[i][crop:, crop:]
@@ -80,28 +99,69 @@ class MyCollateFn:
                 batch_candidate_len[i] = batch_candidate_len[i][crop:]
                 batch_road_label[i] = batch_road_label[i][crop:]
                 batch_timestamp_label[i] = batch_timestamp_label[i][crop:]
+                if batch_trace_grid_token[i] is not None:
+                    batch_trace_grid_token[i] = batch_trace_grid_token[i][crop:]
+                if batch_candidate_grid_token[i] is not None:
+                    batch_candidate_grid_token[i] = batch_candidate_grid_token[i][crop:]
                 batch_trace_len[i] = self.max_len
-            trace_pad_len = max_trace_len - batch_trace_len[i]
+                trace_pad_len = max_trace_len - batch_trace_len[i]
 
             batch_trace_road_id[i] = np.pad(batch_trace_road_id[i], (0, trace_pad_len), 'constant', constant_values=0)
             batch_temporal_info[i] = np.pad(batch_temporal_info[i], (0, trace_pad_len), 'constant', constant_values=0.0)
             batch_trace_distance_mat[i] = np.pad(batch_trace_distance_mat[i], ((0, trace_pad_len), (0, trace_pad_len)), 'constant', constant_values=0.0)
             batch_trace_time_interval_mat[i] = np.pad(batch_trace_time_interval_mat[i], ((0, trace_pad_len), (0, trace_pad_len)), 'constant', constant_values=0.0)
-            
+
+            metric_dis_pad_list = []
+            metric_angle_pad_list = []
+            candidate_pad_arrays = []
+
             for j in range(len(batch_candidate_road_id[i])):
                 candidate_pad_len = max_candidate_len - batch_candidate_len[i][j]
+                candidate_pad_arrays.append(
+                    np.pad(batch_candidate_road_id[i][j], (0, candidate_pad_len), 'constant', constant_values=0)
+                )
+                metric_dis_pad_list.append(
+                    np.pad(batch_metric_dis[i][j], (0, candidate_pad_len), 'constant', constant_values=0.0)
+                )
+                metric_angle_pad_list.append(
+                    np.pad(batch_metric_angle[i][j], (0, candidate_pad_len), 'constant', constant_values=0.0)
+                )
 
-                batch_candidate_road_id[i][j] = np.pad(batch_candidate_road_id[i][j], (0, candidate_pad_len), 'constant', constant_values=0)
-                batch_metric_dis[i][j] = np.pad(batch_metric_dis[i][j], (0, candidate_pad_len), 'constant', constant_values=0.0)
-                batch_metric_angle[i][j] = np.pad(batch_metric_angle[i][j], (0, candidate_pad_len), 'constant', constant_values=0.0)
-
-            batch_candidate_road_id[i] = np.concatenate((np.stack(batch_candidate_road_id[i]), np.zeros((trace_pad_len, max_candidate_len), dtype=np.int64)), axis=0)
-            batch_metric_dis[i] = np.concatenate((np.stack(batch_metric_dis[i]), np.zeros((trace_pad_len, max_candidate_len), dtype=np.float32)), axis=0)
-            batch_metric_angle[i] = np.concatenate((np.stack(batch_metric_angle[i]), np.zeros((trace_pad_len, max_candidate_len), dtype=np.float32)), axis=0)
+            pad_matrix_shape = (trace_pad_len, max_candidate_len)
+            batch_candidate_road_id[i] = np.concatenate(
+                (np.stack(candidate_pad_arrays), np.zeros(pad_matrix_shape, dtype=np.int64)), axis=0
+            )
+            batch_metric_dis[i] = np.concatenate(
+                (np.stack(metric_dis_pad_list), np.zeros(pad_matrix_shape, dtype=np.float32)), axis=0
+            )
+            batch_metric_angle[i] = np.concatenate(
+                (np.stack(metric_angle_pad_list), np.zeros(pad_matrix_shape, dtype=np.float32)), axis=0
+            )
 
             batch_candidate_len[i] = np.pad(batch_candidate_len[i], (0, trace_pad_len), 'constant', constant_values=0)
             batch_road_label[i] = np.pad(batch_road_label[i], (0, trace_pad_len), 'constant', constant_values=0)
             batch_timestamp_label[i] = np.pad(batch_timestamp_label[i], (0, trace_pad_len), 'constant', constant_values=0.0)
+            
+            # Handle grid tokens padding
+            if batch_trace_grid_token[i] is not None:
+                batch_trace_grid_token[i] = np.pad(batch_trace_grid_token[i], (0, trace_pad_len), 'constant', constant_values=0)
+            else:
+                batch_trace_grid_token[i] = np.zeros(max_trace_len, dtype=np.int64)
+                
+            if batch_candidate_grid_token[i] is not None:
+                # Pad candidate grid tokens similar to other candidate data
+                candidate_grid_pad_list = []
+                for j in range(len(batch_candidate_grid_token[i])):
+                    candidate_pad_len = max_candidate_len - batch_candidate_len[i][j]
+                    candidate_grid_pad_list.append(
+                        np.pad(batch_candidate_grid_token[i][j], (0, candidate_pad_len), 'constant', constant_values=0)
+                    )
+                pad_matrix_shape = (trace_pad_len, max_candidate_len)
+                batch_candidate_grid_token[i] = np.concatenate(
+                    (np.stack(candidate_grid_pad_list), np.zeros(pad_matrix_shape, dtype=np.int64)), axis=0
+                )
+            else:
+                batch_candidate_grid_token[i] = np.zeros((max_trace_len, max_candidate_len), dtype=np.int64)
 
         batch_timestamp_label = (np.log1p(batch_timestamp_label) - self.timestamp_label_log1p_mean) / self.timestamp_label_log1p_std
 
@@ -117,8 +177,25 @@ class MyCollateFn:
         batch_candidate_len = torch.from_numpy(np.array(batch_candidate_len))
         batch_road_label = torch.from_numpy(np.array(batch_road_label))
         batch_timestamp_label = torch.from_numpy(np.array(batch_timestamp_label))
+        batch_trace_grid_token = torch.from_numpy(np.array(batch_trace_grid_token))
+        batch_candidate_grid_token = torch.from_numpy(np.array(batch_candidate_grid_token))
 
-        return batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label
+        return (
+            batch_trace_road_id,
+            batch_temporal_info,
+            batch_trace_distance_mat,
+            batch_trace_time_interval_mat,
+            batch_trace_len,
+            batch_destination_road_id,
+            batch_candidate_road_id,
+            batch_metric_dis,
+            batch_metric_angle,
+            batch_candidate_len,
+            batch_road_label,
+            batch_timestamp_label,
+            batch_trace_grid_token,
+            batch_candidate_grid_token,
+        )
 
 
 def main(args=None, return_metrics=False):
@@ -428,7 +505,22 @@ def main(args=None, return_metrics=False):
     
     for epoch_id in range(config.optimizer_config.max_epoch):
         model.train()
-        for batch_id, (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in enumerate(tqdm(train_dataloader, desc=f'[training+distill] epoch{epoch_id+1}')):
+        for batch_id, (
+            batch_trace_road_id,
+            batch_temporal_info,
+            batch_trace_distance_mat,
+            batch_trace_time_interval_mat,
+            batch_trace_len,
+            batch_destination_road_id,
+            batch_candidate_road_id,
+            batch_metric_dis,
+            batch_metric_angle,
+            batch_candidate_len,
+            batch_road_label,
+            batch_timestamp_label,
+            batch_trace_grid_token,
+            batch_candidate_grid_token,
+        ) in enumerate(tqdm(train_dataloader, desc=f'[training+distill] epoch{epoch_id+1}')):
             
             # --- Profiling Start ---
             torch.cuda.synchronize()
@@ -461,6 +553,8 @@ def main(args=None, return_metrics=False):
             batch_candidate_len = batch_candidate_len.to(device, non_blocking=True)
             batch_road_label = batch_road_label.to(device, non_blocking=True)
             batch_timestamp_label = batch_timestamp_label.to(device, non_blocking=True)
+            batch_trace_grid_token = batch_trace_grid_token.to(device, non_blocking=True)
+            batch_candidate_grid_token = batch_candidate_grid_token.to(device, non_blocking=True)
 
             torch.cuda.synchronize()
             t_data = time.time()
@@ -585,7 +679,22 @@ def main(args=None, return_metrics=False):
         val_next_step_correct_cnt, val_next_step_total_cnt = 0, 0
         val_time_pred_mape_sum, val_time_pred_total_cnt = 0, 0
         with torch.no_grad():
-            for (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in val_dataloader:
+            for (
+                batch_trace_road_id,
+                batch_temporal_info,
+                batch_trace_distance_mat,
+                batch_trace_time_interval_mat,
+                batch_trace_len,
+                batch_destination_road_id,
+                batch_candidate_road_id,
+                batch_metric_dis,
+                batch_metric_angle,
+                batch_candidate_len,
+                batch_road_label,
+                batch_timestamp_label,
+                batch_trace_grid_token,
+                batch_candidate_grid_token,
+            ) in val_dataloader:
                 batch_trace_road_id = batch_trace_road_id.to(device, non_blocking=True)
                 batch_temporal_info = batch_temporal_info.to(device, non_blocking=True)
                 batch_trace_distance_mat = batch_trace_distance_mat.to(device, non_blocking=True)
@@ -613,6 +722,8 @@ def main(args=None, return_metrics=False):
                 batch_candidate_len = batch_candidate_len.to(device, non_blocking=True)
                 batch_road_label = batch_road_label.to(device, non_blocking=True)
                 batch_timestamp_label = batch_timestamp_label.to(device, non_blocking=True)
+                batch_trace_grid_token = batch_trace_grid_token.to(device, non_blocking=True)
+                batch_candidate_grid_token = batch_candidate_grid_token.to(device, non_blocking=True)
 
                 with torch.amp.autocast(device_type='cuda'):
                     logits, time_pred = model(

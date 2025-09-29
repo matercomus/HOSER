@@ -37,7 +37,7 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 256  # Reduced from 512, which was inefficient for the GPU architecture
+  batch_size: 128  # Reduced from 512, which was inefficient for the GPU architecture
   accum_steps: 1   # No accumulation needed with large batch
   learning_rate: 0.001
   weight_decay: 0.1
@@ -49,7 +49,7 @@ distill:
   enable: true
   repo: /home/matt/Dev/LMTAD
   ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
-  window: 128  # Much more aggressive - 4x original size
+  window: 32  # Much more aggressive - 4x original size
   lambda: 0.01
   temperature: 2.0
   grid_size: 0.001  # Based on LM-TAD training: grip_size="205 252" (no downsampling)
@@ -67,7 +67,7 @@ dataloader:
 
 # Data-specific knobs
 data:
-  candidate_top_k: 128  # Even more aggressive - 8x original size
+  candidate_top_k: 32  # Even more aggressive - 8x original size
 
 # Training performance knobs
 training:
