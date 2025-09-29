@@ -37,7 +37,7 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 512  # Doubled again to saturate VRAM after disabling checkpointing
+  batch_size: 256  # Reduced from 512, which was inefficient for the GPU architecture
   accum_steps: 1   # No accumulation needed with large batch
   learning_rate: 0.001
   weight_decay: 0.1

@@ -5,6 +5,7 @@ import math
 from datetime import datetime
 from typing import Optional
 import yaml
+import time # For profiling
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
@@ -423,10 +424,15 @@ def main(args=None, return_metrics=False):
     # Track validation metrics for Optuna
     validation_metrics = []
     best_val_acc = 0.0
+    profiler_ran = False # Ensure profiler runs only once
     
     for epoch_id in range(config.optimizer_config.max_epoch):
         model.train()
         for batch_id, (batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle, batch_candidate_len, batch_road_label, batch_timestamp_label) in enumerate(tqdm(train_dataloader, desc=f'[training+distill] epoch{epoch_id+1}')):
+            
+            # --- Profiling Start ---
+            torch.cuda.synchronize()
+            t_start = time.time()
 
             batch_trace_road_id = batch_trace_road_id.to(device, non_blocking=True)
             batch_temporal_info = batch_temporal_info.to(device, non_blocking=True)
@@ -455,6 +461,9 @@ def main(args=None, return_metrics=False):
             batch_candidate_len = batch_candidate_len.to(device, non_blocking=True)
             batch_road_label = batch_road_label.to(device, non_blocking=True)
             batch_timestamp_label = batch_timestamp_label.to(device, non_blocking=True)
+
+            torch.cuda.synchronize()
+            t_data = time.time()
 
             iter_num += 1
             lr = get_lr(iter_num)
@@ -494,27 +503,59 @@ def main(args=None, return_metrics=False):
 
                 loss_time_pred = torch.mean(torch.abs(selected_time_pred - selected_timestamp_label) / torch.clamp(selected_timestamp_label, min=1.0))
 
-                # Optional KL from teacher
-                if distill_mgr is not None:
-                    kl_loss = distill_mgr.compute_kl_for_batch(
-                        logits=logits,
-                        batch_trace_road_id=batch_trace_road_id,
-                        batch_trace_len=batch_trace_len,
-                        batch_candidate_road_id=batch_candidate_road_id,
-                        batch_candidate_len=batch_candidate_len,
-                    )
-                    loss = loss_next_step + loss_time_pred + distill_mgr.cfg.lambda_kl * kl_loss
-                else:
-                    kl_loss = torch.tensor(0.0, device=device)
-                    loss = loss_next_step + loss_time_pred
+            torch.cuda.synchronize()
+            t_forward = time.time()
+
+            # Optional KL from teacher
+            if distill_mgr is not None:
+                kl_loss = distill_mgr.compute_kl_for_batch(
+                    logits=logits,
+                    batch_trace_road_id=batch_trace_road_id,
+                    batch_trace_len=batch_trace_len,
+                    batch_candidate_road_id=batch_candidate_road_id,
+                    batch_candidate_len=batch_candidate_len,
+                )
+                loss = loss_next_step + loss_time_pred + distill_mgr.cfg.lambda_kl * kl_loss
+            else:
+                kl_loss = torch.tensor(0.0, device=device)
+                loss = loss_next_step + loss_time_pred
+
+            torch.cuda.synchronize()
+            t_distill = time.time()
 
             scaler.scale(loss / accum_steps).backward()
+
+            torch.cuda.synchronize()
+            t_backward = time.time()
+
             if ((batch_id + 1) % accum_steps) == 0:
                 # Unscale and clip just before stepping
                 scaler.unscale_(optimizer)
                 nn.utils.clip_grad_norm_(model.parameters(), config.optimizer_config.max_norm)
                 scaler.step(optimizer)
                 scaler.update()
+
+            torch.cuda.synchronize()
+            t_optim = time.time()
+
+            # --- Profiling Report ---
+            if not profiler_ran and batch_id == 20: # After 20 warmup steps
+                logger.info("--- Performance Profile (ms/batch) ---")
+                total_time = (t_optim - t_start) * 1000
+                profile_data = {
+                    "Data Transfer": (t_data - t_start) * 1000,
+                    "HOSER Forward": (t_forward - t_data) * 1000,
+                    "Distill KL (Teacher)": (t_distill - t_forward) * 1000,
+                    "Backward Pass": (t_backward - t_distill) * 1000,
+                    "Optimizer Step": (t_optim - t_backward) * 1000,
+                }
+                for name, duration in profile_data.items():
+                    percentage = (duration / total_time) * 100 if total_time > 0 else 0
+                    logger.info(f"{name:<25}: {duration:>8.2f} ms ({percentage:.1f}%)")
+                logger.info(f"{'Total':<25}: {total_time:>8.2f} ms")
+                logger.info("----------------------------------------")
+                profiler_ran = True
+
 
             # Logging
             step_idx = len(train_dataloader) * epoch_id + batch_id

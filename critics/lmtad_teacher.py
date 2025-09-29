@@ -122,6 +122,24 @@ class LMTADTeacher:
         # If config is a dataclass-like object, turn into plain dict
         if hasattr(model_conf, "__dict__") and not isinstance(model_conf, dict):
             model_conf = dict(model_conf.__dict__)
+
+        # Fallbacks: infer vocab_size and block_size from weights if missing or invalid
+        if not model_conf.get("vocab_size"):
+            emb_weight = state_dict.get("transformer.wte.weight")
+            if emb_weight is not None:
+                model_conf["vocab_size"] = emb_weight.shape[0]
+        block_size_val = model_conf.get("block_size")
+        if block_size_val is None or block_size_val <= 0:
+            wpe_weight = state_dict.get("transformer.wpe.weight")
+            if wpe_weight is not None:
+                model_conf["block_size"] = wpe_weight.shape[0]
+
+        # Ensure expected optional flags exist
+        if "integer_poe" not in model_conf:
+            model_conf["integer_poe"] = False
+        if "bias" not in model_conf:
+            model_conf["bias"] = False
+
         model_conf["logging"] = False
         self.model = LMTAD(type("Cfg", (), model_conf))
 
