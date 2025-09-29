@@ -37,8 +37,8 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 64  # Increased from 24 - smaller roadmap allows larger batches
-  accum_steps: 2  # Reduced from 4 - larger effective batch size
+  batch_size: 128  # Much more aggressive - 5x original size
+  accum_steps: 1   # No accumulation needed with large batch
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -49,7 +49,7 @@ distill:
   enable: true
   repo: /home/matt/Dev/LMTAD
   ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
-  window: 64  # Increased from 32 - smaller roadmap allows longer history windows
+  window: 128  # Much more aggressive - 4x original size
   lambda: 0.01
   temperature: 2.0
   grid_size: 0.001  # Based on LM-TAD training: grip_size="205 252" (no downsampling)
@@ -58,16 +58,16 @@ distill:
 # Point to the original HOSER dataset (beijing_hoser_reference is LM-TAD format only)
 data_dir: /home/matt/Dev/HOSER-dataset
 
-# Dataloader performance knobs
+# Dataloader performance knobs - optimized for small dataset
 dataloader:
-  num_workers: 16
-  pin_memory: false
-  prefetch_factor: 2
+  num_workers: 4   # Reduced from 16 - small dataset doesn't need many workers
+  pin_memory: true # Enable for faster GPU transfer
+  prefetch_factor: 4  # Increased for better pipelining
   persistent_workers: true
 
 # Data-specific knobs
 data:
-  candidate_top_k: 32  # Increased from 16 - smaller roadmap allows more candidates
+  candidate_top_k: 64  # Much more aggressive - 4x original size
 
 # Training performance knobs
 training:
