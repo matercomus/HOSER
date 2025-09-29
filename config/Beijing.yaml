@@ -37,7 +37,7 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 128  # Much more aggressive - 5x original size
+  batch_size: 256  # Even more aggressive - 10x original size
   accum_steps: 1   # No accumulation needed with large batch
   learning_rate: 0.001
   weight_decay: 0.1
@@ -67,7 +67,7 @@ dataloader:
 
 # Data-specific knobs
 data:
-  candidate_top_k: 64  # Much more aggressive - 4x original size
+  candidate_top_k: 128  # Even more aggressive - 8x original size
 
 # Training performance knobs
 training:
