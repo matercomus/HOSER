@@ -37,8 +37,8 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 24
-  accum_steps: 4
+  batch_size: 64  # Increased from 24 - smaller roadmap allows larger batches
+  accum_steps: 2  # Reduced from 4 - larger effective batch size
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -49,7 +49,7 @@ distill:
   enable: true
   repo: /home/matt/Dev/LMTAD
   ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
-  window: 32
+  window: 64  # Increased from 32 - smaller roadmap allows longer history windows
   lambda: 0.01
   temperature: 2.0
   grid_size: 0.001  # Based on LM-TAD training: grip_size="205 252" (no downsampling)
@@ -67,7 +67,7 @@ dataloader:
 
 # Data-specific knobs
 data:
-  candidate_top_k: 16
+  candidate_top_k: 32  # Increased from 16 - smaller roadmap allows more candidates
 
 # Training performance knobs
 training:
