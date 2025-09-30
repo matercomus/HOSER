@@ -66,7 +66,8 @@ class LMTADTeacher:
         }[dtype]
 
         # Add LM-TAD repo to sys.path and import lazily
-        code_path = self.repo_path  # repo_path is already the code directory
+        # Note: repo_path in config is /home/matt/Dev/LMTAD but code is in /home/matt/Dev/LMTAD/code
+        code_path = f"{self.repo_path}/code"
         if code_path not in sys.path:
             sys.path.insert(0, code_path)
 
