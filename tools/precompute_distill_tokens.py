@@ -39,8 +39,9 @@ def load_config(config_path: Path) -> dict:
         return yaml.safe_load(f)
 
 
-def build_road_to_token_mapping(config: dict) -> np.ndarray:
-    data_dir = Path(config.get("data_dir", ROOT / "data/Beijing"))
+def build_road_to_token_mapping(config: dict, data_dir: Path = None) -> np.ndarray:
+    if data_dir is None:
+        data_dir = Path(config.get("data_dir", ROOT / "data/Beijing"))
     geo_path = data_dir / "roadmap.geo"
 
     if not geo_path.exists():
@@ -152,6 +153,7 @@ def augment_cache(cache_dir: Path, road_to_token: np.ndarray) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Precompute LM-TAD grid tokens for HOSER caches")
     parser.add_argument("--config", default="config/Beijing.yaml", help="Path to training config YAML")
+    parser.add_argument("--data_dir", help="Override data directory (optional, defaults to config value)")
     parser.add_argument("--splits", default="train,val", help="Comma separated splits to process (train,val)")
     args = parser.parse_args()
 
@@ -160,9 +162,14 @@ def main() -> None:
         raise FileNotFoundError(f"Config not found at {config_path}")
 
     config = load_config(config_path)
-    road_to_token = build_road_to_token_mapping(config)
 
-    data_dir = Path(config.get("data_dir", ROOT / "data/Beijing"))
+    # Use provided data_dir or fall back to config
+    if args.data_dir:
+        data_dir = Path(args.data_dir)
+    else:
+        data_dir = Path(config.get("data_dir", ROOT / "data/Beijing"))
+
+    road_to_token = build_road_to_token_mapping(config, data_dir)
     splits = [split.strip() for split in args.splits.split(",") if split.strip()]
 
     for split in splits:
