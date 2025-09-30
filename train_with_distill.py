@@ -12,6 +12,7 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from shapely.geometry import LineString
 import torch
+import torch._dynamo
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -441,7 +442,6 @@ def main(args=None, return_metrics=False):
 
             # Use torch.compile with caching enabled
             # Set cache directory for torch.compile (global setting)
-            import torch._dynamo
             torch._dynamo.config.cache_dir = cache_dir
 
             model = torch.compile(
