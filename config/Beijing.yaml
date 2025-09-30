@@ -37,7 +37,7 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 32  # Reduced from 512, which was inefficient for the GPU architecture
+  batch_size: 256  # Reduced from 512, which was inefficient for the GPU architecture
   accum_steps: 2   # No accumulation needed with large batch
   learning_rate: 0.001
   weight_decay: 0.1
@@ -60,7 +60,7 @@ data_dir: /home/matt/Dev/HOSER-dataset
 
 # Dataloader performance knobs - optimized for small dataset
 dataloader:
-  num_workers: 8   # Reduced from 16 - small dataset doesn't need many workers
+  num_workers: 16   # Reduced from 16 - small dataset doesn't need many workers
   pin_memory: true # Enable for faster GPU transfer
   prefetch_factor: 4  # Increased for better pipelining
   persistent_workers: true
