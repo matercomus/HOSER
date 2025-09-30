@@ -152,6 +152,11 @@ class Dataset(torch.utils.data.Dataset):
     
     def __getitem__(self, i):
         data = torch.load(self.file_paths[i], weights_only=False)
+
+        # Handle missing grid tokens (for backward compatibility)
+        trace_grid_token = data.get('trace_grid_token', None)
+        candidate_grid_token = data.get('candidate_grid_token', None)
+
         return (
             data['trace_road_id'],
             data['temporal_info'],
@@ -165,6 +170,8 @@ class Dataset(torch.utils.data.Dataset):
             data['candidate_len'],
             data['road_label'],
             data['timestamp_label'],
+            trace_grid_token,
+            candidate_grid_token,
         )
 
     def get_stats(self):

@@ -15,10 +15,9 @@ Uses multiprocessing for efficient parallel processing like dataset.py (all avai
 
 import argparse
 import multiprocessing
-import os
 import sys
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
@@ -144,7 +143,7 @@ def augment_cache(cache_dir: Path, road_to_token: np.ndarray) -> None:
         initargs=(road_to_token,)
     ) as pool:
         # Process files in parallel with progress tracking
-        for _ in tqdm(pool.imap_unordered(process_single_file, tasks), total=len(tasks), desc=f'Precomputing grid tokens'):
+        for _ in tqdm(pool.imap_unordered(process_single_file, tasks), total=len(tasks), desc='Precomputing grid tokens'):
             pass
 
     print(f"✅ Completed processing {len(pt_files)} files in {cache_dir}")
