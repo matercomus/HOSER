@@ -212,9 +212,7 @@ class DistillationManager:
 
             q_c = q_c / torch.clamp(q_c_sum, min=1e-9)
 
-            # Get student logits for the specific candidate roads
-            # HOSER outputs logits for all roads, we need to index the candidates
-            s_logits = logits[b, t, candidate_ids]
+            s_logits = logits[b, t, : cand]
             T = float(self.cfg.temperature)
             p_tau = torch.softmax(s_logits / T, dim=-1)
 
