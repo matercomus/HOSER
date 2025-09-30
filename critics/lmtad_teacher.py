@@ -66,7 +66,7 @@ class LMTADTeacher:
         }[dtype]
 
         # Add LM-TAD repo to sys.path and import lazily
-        code_path = f"{self.repo_path}/code"
+        code_path = self.repo_path  # repo_path is already the code directory
         if code_path not in sys.path:
             sys.path.insert(0, code_path)
 
@@ -82,7 +82,7 @@ class LMTADTeacher:
             spec.loader.exec_module(mod)  # type: ignore[attr-defined]
             return mod
 
-        # Load model directly from models/LMTAD.py and datasets from code/datasets.py
+        # Load model from models/LMTAD.py
         lmtad_model_py = _os.path.join(code_path, 'models', 'LMTAD.py')
         lmtad_utils_py = _os.path.join(code_path, 'utils.py')
         # We do not need datasets for distillation; skip importing datasets.py
