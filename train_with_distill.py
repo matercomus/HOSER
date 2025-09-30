@@ -555,14 +555,42 @@ def main(args=None, return_metrics=False):
             if top_k > 0:
                 # Move candidate selection to GPU for better performance
                 with torch.no_grad():
-                    k = min(top_k, batch_candidate_road_id.size(-1))
-                    # Move to GPU first, then sort
+                    # Move data to GPU first
+                    batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
                     batch_metric_dis_gpu = batch_metric_dis.to(device, non_blocking=True)
-                    idx = torch.argsort(batch_metric_dis_gpu, dim=-1, descending=False)[..., :k]
-                    # Gather on GPU
-                    batch_candidate_road_id = torch.gather(batch_candidate_road_id.to(device, non_blocking=True), -1, idx)
+                    batch_metric_angle = batch_metric_angle.to(device, non_blocking=True)
+                    batch_candidate_len_gpu = batch_candidate_len.to(device, non_blocking=True)
+                    
+                    # Get the actual max candidates in this batch
+                    max_cand = batch_candidate_road_id.size(-1)
+                    k = min(top_k, max_cand)
+                    
+                    # Sort by distance and get indices
+                    sorted_indices = torch.argsort(batch_metric_dis_gpu, dim=-1, descending=False)
+                    
+                    # Create a mask for valid candidates (within candidate_len)
+                    B, T, C = batch_candidate_road_id.shape
+                    indices = torch.arange(C, device=device).unsqueeze(0).unsqueeze(0)  # [1, 1, C]
+                    valid_mask = indices < batch_candidate_len_gpu.unsqueeze(-1)  # [B, T, C]
+                    
+                    # Only keep top-k among valid candidates
+                    # First, move invalid candidates to the end by setting their indices to a large value
+                    sorted_indices_masked = torch.where(
+                        valid_mask.gather(-1, sorted_indices),
+                        sorted_indices,
+                        torch.tensor(C, device=device)  # Push invalid to end
+                    )
+                    
+                    # Now take only the first k
+                    idx = sorted_indices_masked[..., :k]
+                    
+                    # For positions where idx >= C (invalid), replace with 0 to avoid index errors
+                    idx = torch.clamp(idx, max=C-1)
+                    
+                    # Gather using the clamped indices
+                    batch_candidate_road_id = torch.gather(batch_candidate_road_id, -1, idx)
                     batch_metric_dis = torch.gather(batch_metric_dis_gpu, -1, idx)
-                    batch_metric_angle = torch.gather(batch_metric_angle.to(device, non_blocking=True), -1, idx)
+                    batch_metric_angle = torch.gather(batch_metric_angle, -1, idx)
                     batch_candidate_len = torch.clamp(batch_candidate_len.to(device, non_blocking=True), max=k)
                     
                     # Update road labels to match the filtered candidates
@@ -570,12 +598,12 @@ def main(args=None, return_metrics=False):
                     batch_road_label_device = batch_road_label.to(device, non_blocking=True)
                     
                     # Create a reverse mapping: for each position, find where the original label ended up
-                    # idx contains the original indices that were selected
-                    # We need to find where batch_road_label appears in idx
+                    # Use the original sorted_indices (before masking) for label mapping
+                    # We need to find where batch_road_label appears in the top-k sorted indices
                     
                     # Expand dimensions for broadcasting
                     labels_expanded = batch_road_label_device.unsqueeze(-1)  # [B, T, 1]
-                    idx_expanded = idx  # [B, T, k]
+                    idx_expanded = sorted_indices[..., :k]  # [B, T, k] - use original sorted indices
                     
                     # Find matches: where does each label appear in the sorted indices?
                     matches = (idx_expanded == labels_expanded).float()  # [B, T, k]
@@ -771,14 +799,42 @@ def main(args=None, return_metrics=False):
                 top_k = int(getattr(getattr(config, 'data', {}), 'candidate_top_k', 0) or 0)
                 if top_k > 0:
                     with torch.no_grad():
-                        k = min(top_k, batch_candidate_road_id.size(-1))
-                        # Move to GPU first, then sort
+                        # Move data to GPU first
+                        batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
                         batch_metric_dis_gpu = batch_metric_dis.to(device, non_blocking=True)
-                        idx = torch.argsort(batch_metric_dis_gpu, dim=-1, descending=False)[..., :k]
-                        # Gather on GPU
-                        batch_candidate_road_id = torch.gather(batch_candidate_road_id.to(device, non_blocking=True), -1, idx)
+                        batch_metric_angle = batch_metric_angle.to(device, non_blocking=True)
+                        batch_candidate_len_gpu = batch_candidate_len.to(device, non_blocking=True)
+                        
+                        # Get the actual max candidates in this batch
+                        max_cand = batch_candidate_road_id.size(-1)
+                        k = min(top_k, max_cand)
+                        
+                        # Sort by distance and get indices
+                        sorted_indices = torch.argsort(batch_metric_dis_gpu, dim=-1, descending=False)
+                        
+                        # Create a mask for valid candidates (within candidate_len)
+                        B, T, C = batch_candidate_road_id.shape
+                        indices = torch.arange(C, device=device).unsqueeze(0).unsqueeze(0)  # [1, 1, C]
+                        valid_mask = indices < batch_candidate_len_gpu.unsqueeze(-1)  # [B, T, C]
+                        
+                        # Only keep top-k among valid candidates
+                        # First, move invalid candidates to the end by setting their indices to a large value
+                        sorted_indices_masked = torch.where(
+                            valid_mask.gather(-1, sorted_indices),
+                            sorted_indices,
+                            torch.tensor(C, device=device)  # Push invalid to end
+                        )
+                        
+                        # Now take only the first k
+                        idx = sorted_indices_masked[..., :k]
+                        
+                        # For positions where idx >= C (invalid), replace with 0 to avoid index errors
+                        idx = torch.clamp(idx, max=C-1)
+                        
+                        # Gather using the clamped indices
+                        batch_candidate_road_id = torch.gather(batch_candidate_road_id, -1, idx)
                         batch_metric_dis = torch.gather(batch_metric_dis_gpu, -1, idx)
-                        batch_metric_angle = torch.gather(batch_metric_angle.to(device, non_blocking=True), -1, idx)
+                        batch_metric_angle = torch.gather(batch_metric_angle, -1, idx)
                         batch_candidate_len = torch.clamp(batch_candidate_len.to(device, non_blocking=True), max=k)
                         
                         # Update road labels to match the filtered candidates
@@ -786,12 +842,12 @@ def main(args=None, return_metrics=False):
                         batch_road_label_device = batch_road_label.to(device, non_blocking=True)
                         
                         # Create a reverse mapping: for each position, find where the original label ended up
-                        # idx contains the original indices that were selected
-                        # We need to find where batch_road_label appears in idx
+                        # Use the original sorted_indices (before masking) for label mapping
+                        # We need to find where batch_road_label appears in the top-k sorted indices
                         
                         # Expand dimensions for broadcasting
                         labels_expanded = batch_road_label_device.unsqueeze(-1)  # [B, T, 1]
-                        idx_expanded = idx  # [B, T, k]
+                        idx_expanded = sorted_indices[..., :k]  # [B, T, k] - use original sorted indices
                         
                         # Find matches: where does each label appear in the sorted indices?
                         matches = (idx_expanded == labels_expanded).float()  # [B, T, k]
