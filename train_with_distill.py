@@ -440,15 +440,14 @@ def main(args=None, return_metrics=False):
             os.makedirs(cache_dir, exist_ok=True)
 
             # Use torch.compile with caching enabled
+            # Set cache directory for torch.compile (global setting)
+            import torch._dynamo
+            torch._dynamo.config.cache_dir = cache_dir
+
             model = torch.compile(
                 model,
-                # Enable caching for faster subsequent compilations
-                options={
-                    "cache_dir": cache_dir,
-                    "cache_limit": "1GB",  # Reasonable cache size
-                    "mode": "reduce-overhead",
-                    "disable": disable_cudagraphs,
-                }
+                mode="reduce-overhead",
+                disable=disable_cudagraphs
             )
             logger.info(f'[perf] torch.compile enabled (reduce-overhead) with caching at {cache_dir}')
         except Exception as e:
@@ -584,8 +583,8 @@ def main(args=None, return_metrics=False):
             t_data = time.time()
 
             iter_num += 1
-            # Update LR using scheduler (compiled optimizer pattern)
-            scheduler.step()
+            # Update LR using scheduler (correct order: optimizer before scheduler)
+            # Note: scheduler.step() should be called AFTER optimizer.step()
 
             if (batch_id % accum_steps) == 0:
                 optimizer.zero_grad()
@@ -663,6 +662,9 @@ def main(args=None, return_metrics=False):
                 nn.utils.clip_grad_norm_(model.parameters(), config.optimizer_config.max_norm)
                 scaler.step(optimizer)
                 scaler.update()
+
+                # Step the LR scheduler AFTER optimizer step (PyTorch best practice)
+                scheduler.step()
 
             torch.cuda.synchronize()
             t_optim = time.time()
