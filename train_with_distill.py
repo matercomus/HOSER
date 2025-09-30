@@ -564,6 +564,28 @@ def main(args=None, return_metrics=False):
                     batch_metric_dis = torch.gather(batch_metric_dis_gpu, -1, idx)
                     batch_metric_angle = torch.gather(batch_metric_angle.to(device, non_blocking=True), -1, idx)
                     batch_candidate_len = torch.clamp(batch_candidate_len.to(device, non_blocking=True), max=k)
+                    
+                    # Update road labels to match the filtered candidates
+                    # Create a mapping from old indices to new indices
+                    batch_road_label_device = batch_road_label.to(device, non_blocking=True)
+                    batch_size, trace_len = batch_road_label_device.shape
+                    
+                    # For each position in the trace, map the old label to the new position
+                    new_road_label = torch.zeros_like(batch_road_label_device)
+                    for b in range(batch_size):
+                        for t in range(trace_len):
+                            old_label = batch_road_label_device[b, t]
+                            # Find where the old label appears in the sorted indices
+                            # idx[b, t] contains the indices of the top-k candidates
+                            mask = idx[b, t] == old_label
+                            if mask.any():
+                                # Get the position of the old label in the new sorted order
+                                new_road_label[b, t] = mask.nonzero(as_tuple=True)[0][0]
+                            else:
+                                # If the true next road was filtered out, this is a problem
+                                # Set to 0 (first candidate) as a fallback
+                                new_road_label[b, t] = 0
+                    batch_road_label = new_road_label
 
             batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
             batch_metric_dis = batch_metric_dis.to(device, non_blocking=True)
@@ -757,6 +779,28 @@ def main(args=None, return_metrics=False):
                         batch_metric_dis = torch.gather(batch_metric_dis_gpu, -1, idx)
                         batch_metric_angle = torch.gather(batch_metric_angle.to(device, non_blocking=True), -1, idx)
                         batch_candidate_len = torch.clamp(batch_candidate_len.to(device, non_blocking=True), max=k)
+                        
+                        # Update road labels to match the filtered candidates
+                        # Create a mapping from old indices to new indices
+                        batch_road_label_device = batch_road_label.to(device, non_blocking=True)
+                        batch_size, trace_len = batch_road_label_device.shape
+                        
+                        # For each position in the trace, map the old label to the new position
+                        new_road_label = torch.zeros_like(batch_road_label_device)
+                        for b in range(batch_size):
+                            for t in range(trace_len):
+                                old_label = batch_road_label_device[b, t]
+                                # Find where the old label appears in the sorted indices
+                                # idx[b, t] contains the indices of the top-k candidates
+                                mask = idx[b, t] == old_label
+                                if mask.any():
+                                    # Get the position of the old label in the new sorted order
+                                    new_road_label[b, t] = mask.nonzero(as_tuple=True)[0][0]
+                                else:
+                                    # If the true next road was filtered out, this is a problem
+                                    # Set to 0 (first candidate) as a fallback
+                                    new_road_label[b, t] = 0
+                        batch_road_label = new_road_label
 
                 batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
                 batch_metric_dis = batch_metric_dis.to(device, non_blocking=True)
