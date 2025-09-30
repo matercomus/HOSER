@@ -436,20 +436,12 @@ def main(args=None, return_metrics=False):
     disable_cudagraphs = bool(getattr(getattr(config, 'training', {}), 'disable_cudagraphs', False))
     if compile_flag:
         try:
-            # Enable compile-time caching for faster subsequent runs
-            cache_dir = os.path.join(os.getcwd(), '.torch_compile_cache')
-            os.makedirs(cache_dir, exist_ok=True)
-
-            # Use torch.compile with caching enabled
-            # Set cache directory for torch.compile (global setting)
-            torch._dynamo.config.cache_dir = cache_dir
-
             model = torch.compile(
                 model,
                 mode="reduce-overhead",
                 disable=disable_cudagraphs
             )
-            logger.info(f'[perf] torch.compile enabled (reduce-overhead) with caching at {cache_dir}')
+            logger.info(f'[perf] torch.compile enabled (reduce-overhead)')
         except Exception as e:
             logger.info(f'[perf] torch.compile failed: {e}')
 
