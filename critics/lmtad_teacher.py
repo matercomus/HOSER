@@ -152,10 +152,27 @@ class LMTADTeacher:
 
         self.dataset_config = checkpoint.get("dataset_config", None)
 
-        # Optional: build dataset to access dictionary (SOT/EOT/PAD)
-        self.dictionary = None
-        # Dictionary is not required for distillation (SOT optional)
-        self.dictionary = None
+        # Load or infer SOT token ID
+        try:
+            # Try to load dictionary from checkpoint first
+            if "dictionary" in checkpoint:
+                self.dictionary = checkpoint["dictionary"]
+            else:
+                # Infer SOT token ID from model embeddings
+                # LM-TAD typically puts SOT as the last token (highest ID)
+                state_dict = checkpoint["state_dict"]
+                if "transformer.wte.weight" in state_dict:
+                    vocab_size = state_dict["transformer.wte.weight"].shape[0]
+                    self.sot_id = vocab_size - 1  # SOT is typically the last token
+                    print(f"[distill] Inferred SOT token ID: {self.sot_id} (vocab_size: {vocab_size})")
+                else:
+                    # Fallback: assume SOT is token 0
+                    self.sot_id = 0
+                    print(f"[distill] Using fallback SOT token ID: {self.sot_id}")
+        except Exception as e:
+            print(f"Warning: Could not determine SOT token: {e}")
+            self.sot_id = None
+            self.dictionary = None
 
         # AMP/autocast context used for teacher forward
         if self.device.startswith("cuda"):
@@ -181,22 +198,8 @@ class LMTADTeacher:
         return None
 
     def sot_token(self) -> Optional[int]:
-        """Return SOT token id if dictionary is available."""
-        if self.dictionary is None:
-            return None
-        # Try multiple access patterns for robustness
-        for name in ("sot_token", "SOT"):
-            tok = getattr(self.dictionary, name, None)
-            if callable(tok):
-                try:
-                    return int(tok())  # type: ignore[arg-type]
-                except Exception:
-                    pass
-        # Named lookup
-        try:
-            return int(self.dictionary["SOT"])  # type: ignore[index]
-        except Exception:
-            return None
+        """Return SOT token id."""
+        return self.sot_id
 
     @torch.no_grad()
     def predict_next_distribution(self, history_tokens: torch.LongTensor) -> torch.Tensor:
