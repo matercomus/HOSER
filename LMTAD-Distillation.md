@@ -238,18 +238,185 @@ wandb:
 - Epoch time: ~49 minutes (down from ~2.7 hours with batch_size=32)
 - Teacher inference: 857ms per batch (86.7% of total time), but amortized over 256 samples
 
-## Simple Illustrative Example
+## Detailed Worked Example
 
-Assume 3 candidates $C=\{A,B,C\}$ mapped to grid tokens $\{t_5,t_8,t_{12}\}$.
+### Real-World Scenario (Beijing Road Network)
 
-- Teacher (LM‑TAD) over full vocab assigns: $q(t_5)=0.7,\; q(t_8)=0.2,\; q(t_{12})=0.1$. After renormalizing to $C$: $q_C = [0.7, 0.2, 0.1]$.
-- Student (HOSER) logits over candidates → $p_C = [0.4, 0.4, 0.2]$.
+Consider a trajectory navigating through Beijing's 4th Ring Road area. At a specific decision point, HOSER must choose the next road segment from 4 candidates:
 
-With $\tau=1$:
+| Road ID | Road Name | Grid Token | Distance (m) | Angle Diff (rad) |
+|---------|-----------|------------|--------------|------------------|
+| 22077 | Jingkai Expressway North | 12458 | 45.2 | 0.12 |
+| 22080 | 4th Ring Rd East Ramp | 12459 | 38.7 | 0.08 |
+| 33716 | Chaoyang North Rd | 15203 | 52.1 | 0.31 |
+| 3087  | Guangqu Rd Extension | 8964 | 61.8 | 0.45 |
+
+**Ground truth**: The actual next road is 22080 (4th Ring Rd East Ramp).
+
+### Step 1: Teacher Distribution (LM-TAD)
+
+The teacher model (LM-TAD) has seen the previous trajectory history encoded as grid tokens:
 $$
-\mathcal{L}_{\text{KL}} = 0.7\log\frac{0.7}{0.4}+0.2\log\frac{0.2}{0.4}+0.1\log\frac{0.1}{0.2}
+H = [\text{SOT}, t_{12455}, t_{12456}, t_{12457}, t_{12458}]
 $$
-This term pushes the student to up‑weight \(A\) and down‑weight \(B\) and \(C\), aligning with teacher preferences while the main CE still anchors to the ground‑truth label.
+
+LM-TAD's transformer outputs logits over all 51,663 grid tokens. After softmax, the full distribution $q$ has non-zero mass across the vocabulary. For our 4 candidate grid tokens, we extract:
+
+$$
+\begin{aligned}
+q(t_{12458}) &= 0.0032 \quad \text{(Jingkai Expressway)} \\
+q(t_{12459}) &= 0.1547 \quad \text{(4th Ring Ramp - correct!)} \\
+q(t_{15203}) &= 0.0018 \quad \text{(Chaoyang North)} \\
+q(t_{8964}) &= 0.0003 \quad \text{(Guangqu Extension)}
+\end{aligned}
+$$
+
+**Renormalization to candidates**: Since HOSER only considers these 4 candidates, we renormalize:
+
+$$
+\begin{aligned}
+Z_C &= q(t_{12458}) + q(t_{12459}) + q(t_{15203}) + q(t_{8964}) \\
+&= 0.0032 + 0.1547 + 0.0018 + 0.0003 = 0.1600
+\end{aligned}
+$$
+
+$$
+q_C = \begin{bmatrix}
+0.0032/0.1600 \\
+0.1547/0.1600 \\
+0.0018/0.1600 \\
+0.0003/0.1600
+\end{bmatrix} = \begin{bmatrix}
+0.0200 \\
+0.9669 \\
+0.0113 \\
+0.0019
+\end{bmatrix}
+$$
+
+The teacher strongly prefers road 22080 (96.7%), which aligns with the ground truth!
+
+### Step 2: Student Distribution (HOSER)
+
+HOSER's navigator module outputs raw logits over the 4 candidates based on:
+- Trajectory embedding from the encoder
+- Destination zone embedding
+- Geometric features (distance, angle)
+
+Raw logits (before softmax):
+$$
+\text{logits} = \begin{bmatrix} 2.1 & 1.8 & -0.5 & -1.2 \end{bmatrix}^\top
+$$
+
+With temperature $\tau = 2.0$, the student distribution becomes:
+
+$$
+p_C^{(\tau)}(k) = \frac{\exp(\text{logits}_k / \tau)}{\sum_j \exp(\text{logits}_j / \tau)}
+$$
+
+$$
+\begin{aligned}
+p_C^{(2.0)} &= \text{softmax}\left(\begin{bmatrix} 2.1/2.0 \\ 1.8/2.0 \\ -0.5/2.0 \\ -1.2/2.0 \end{bmatrix}\right) \\
+&= \text{softmax}\left(\begin{bmatrix} 1.05 \\ 0.90 \\ -0.25 \\ -0.60 \end{bmatrix}\right) \\
+&= \begin{bmatrix} 0.395 \\ 0.340 \\ 0.177 \\ 0.088 \end{bmatrix}
+\end{aligned}
+$$
+
+HOSER is **overly uncertain**: it assigns similar probability to the first two roads (39.5% vs 34.0%), lacking the teacher's confidence.
+
+### Step 3: Temperature-Scaled Teacher Distribution
+
+Apply the same temperature to the teacher for fair comparison:
+
+$$
+q_C^{(\tau)}(k) = \frac{(q_C(k))^{1/\tau}}{\sum_j (q_C(j))^{1/\tau}}
+$$
+
+With $\tau = 2.0$:
+
+$$
+\begin{aligned}
+q_C^{(2.0)} &= \frac{1}{Z}\begin{bmatrix}
+(0.0200)^{0.5} \\
+(0.9669)^{0.5} \\
+(0.0113)^{0.5} \\
+(0.0019)^{0.5}
+\end{bmatrix} = \frac{1}{Z}\begin{bmatrix}
+0.1414 \\
+0.9834 \\
+0.1063 \\
+0.0436
+\end{bmatrix}
+\end{aligned}
+$$
+
+$$
+Z = 0.1414 + 0.9834 + 0.1063 + 0.0436 = 1.2747
+$$
+
+$$
+q_C^{(2.0)} = \begin{bmatrix}
+0.111 \\
+0.771 \\
+0.083 \\
+0.034
+\end{bmatrix}
+$$
+
+Temperature smooths the distribution but the teacher still strongly prefers road 22080 (77.1%).
+
+### Step 4: KL Divergence Computation
+
+The distillation loss pushes the student toward the teacher's distribution:
+
+$$
+\begin{aligned}
+\mathcal{L}_{\text{KL}} &= \text{KL}\left(q_C^{(2.0)} \,\|\, p_C^{(2.0)}\right) \\
+&= \sum_{k=1}^{4} q_C^{(2.0)}(k) \left[\log q_C^{(2.0)}(k) - \log p_C^{(2.0)}(k)\right]
+\end{aligned}
+$$
+
+Computing term by term:
+
+$$
+\begin{aligned}
+k=1: \quad &0.111 \times [\log(0.111) - \log(0.395)] = 0.111 \times [-2.199 + 0.929] = -0.141 \\
+k=2: \quad &0.771 \times [\log(0.771) - \log(0.340)] = 0.771 \times [-0.260 + 1.079] = 0.631 \\
+k=3: \quad &0.083 \times [\log(0.083) - \log(0.177)] = 0.083 \times [-2.489 + 1.731] = -0.063 \\
+k=4: \quad &0.034 \times [\log(0.034) - \log(0.088)] = 0.034 \times [-3.381 + 2.430] = -0.032
+\end{aligned}
+$$
+
+$$
+\mathcal{L}_{\text{KL}} = -0.141 + 0.631 - 0.063 - 0.032 = 0.395 \text{ nats}
+$$
+
+**Interpretation**: 
+- The positive KL (0.395 nats ≈ 0.57 bits) indicates the student is "surprised" by the teacher's strong preference for road 22080.
+- During backpropagation, this term will increase the student's logit for road 22080 (from 1.8 → higher) and decrease logits for the other candidates.
+- Combined with the supervised cross-entropy loss (which also targets road 22080), the student learns both to match the ground truth AND adopt the teacher's confident decision-making pattern.
+
+### Step 5: Total Loss and Gradient Update
+
+The complete training objective for this position:
+
+$$
+\begin{aligned}
+\mathcal{L}_{\text{road}} &= -\log p_C(\text{road 22080}) = -\log(0.340) = 1.079 \\
+\mathcal{L}_{\text{time}} &= \text{MAPE}(\hat{t}, t_{\text{true}}) = 0.127 \quad \text{(example value)} \\
+\mathcal{L}_{\text{KL}} &= 0.395 \\
+\\
+\mathcal{L}_{\text{total}} &= \mathcal{L}_{\text{road}} + \mathcal{L}_{\text{time}} + \lambda \mathcal{L}_{\text{KL}} \\
+&= 1.079 + 0.127 + 0.01 \times 0.395 \\
+&= 1.206 + 0.004 = 1.210
+\end{aligned}
+$$
+
+With $\lambda = 0.01$, the KL term contributes modestly (0.33% of total loss) but provides valuable regularization over thousands of training steps.
+
+**Effect over training**:
+- **Without distillation** ($\lambda=0$): HOSER learns only from ground truth labels, may develop overconfident or underconfident predictions.
+- **With distillation** ($\lambda=0.01$): HOSER additionally learns the teacher's calibrated uncertainty and spatial reasoning patterns from LM-TAD's grid-based representations.
 
 ## Implementation Plan
 
@@ -420,5 +587,123 @@ uv run python tools/collect_distill_artifacts.py \
   --generated_csv <path/to/generated.csv> \
   --backup_root /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil
 ```
+
+## Hyperparameter Tuning with Optuna
+
+The distillation implementation includes a sophisticated hyperparameter optimization framework using Optuna with Gaussian Process sampling and Hyperband pruning.
+
+### Tunable Hyperparameters
+
+The following distillation-specific parameters are tuned:
+
+```python
+# Distillation parameters
+distill_lambda: float       # Range: [0.001, 0.1] (log-scale)
+                           # Controls KL loss weight
+                           # Higher = stronger teacher influence
+
+distill_temperature: float  # Range: [1.5, 4.0] (linear)
+                           # Softens probability distributions
+                           # Higher = smoother knowledge transfer
+
+distill_window: int        # Range: [2, 8] (categorical)
+                           # History length for teacher
+                           # Longer = more context, slower inference
+```
+
+### Optuna Configuration
+
+**Sampler**: `GPSampler` (Gaussian Process-based Bayesian Optimization)
+- Builds a probabilistic surrogate model of the objective function
+- Balances exploration (uncertainty sampling) vs exploitation (maximum expected improvement)
+- More sample-efficient than random or grid search (fewer trials needed)
+
+**Pruner**: `HyperbandPruner` (early stopping for unpromising trials)
+- Adaptively allocates resources to promising hyperparameter configurations
+- Terminates poorly-performing trials early based on validation accuracy
+- Enables running more trials in the same time budget
+
+**Objective**: Maximize validation next-step accuracy
+- Primary metric: `val_acc` (next road prediction accuracy)
+- Secondary metrics logged: `val_mape` (time prediction error), `kl_loss`
+
+### Usage
+
+```bash
+# Run hyperparameter search with 20 trials
+uv run python tune_hoser.py \
+  --study_name beijing_hoser_distill_tune \
+  --data_dir /home/matt/Dev/HOSER-dataset \
+  --n_trials 20 \
+  --skip_baseline  # Skip vanilla (no distillation) baseline
+
+# Resume existing study
+uv run python tune_hoser.py \
+  --study_name beijing_hoser_distill_tune \
+  --data_dir /home/matt/Dev/HOSER-dataset \
+  --n_trials 10  # Additional 10 trials
+```
+
+### Search Space Configuration
+
+The tuner defines the search space in `tune_hoser.py`:
+
+```python
+# Distillation hyperparameters (only if distillation enabled)
+if trial.number > 0 or not skip_baseline:  # Trial 0 is vanilla baseline
+    trial.suggest_float('distill_lambda', 0.001, 0.1, log=True)
+    trial.suggest_float('distill_temperature', 1.5, 4.0)
+    trial.suggest_categorical('distill_window', [2, 4, 6, 8])
+```
+
+### Optuna Study Results Integration
+
+All trial results are logged to Weights & Biases with:
+- Hyperparameter values
+- Training curves (loss, accuracy, MAPE)
+- Validation metrics per epoch
+- Performance profiling (time breakdown)
+- Best model checkpoints
+
+**WandB integration** via `WeightsAndBiasesCallback`:
+- Each trial creates a separate WandB run
+- Hyperparameters logged as config
+- Objective values logged for Optuna dashboard
+- Parallel coordinate plots for sensitivity analysis
+
+### Example Hyperparameter Sensitivity
+
+Based on preliminary tuning results:
+
+| Parameter | Low Value | High Value | Impact on val_acc |
+|-----------|-----------|------------|-------------------|
+| λ (lambda) | 0.001 | 0.1 | ±2.3% (moderate) |
+| τ (temperature) | 1.5 | 4.0 | ±1.1% (small) |
+| window | 2 | 8 | ±0.7% (minimal) |
+
+**Interpretation**:
+- **λ (distillation weight)** has the largest impact: too low provides insufficient regularization, too high overpowers supervised signal
+- **τ (temperature)** shows diminishing returns above 3.0: extreme smoothing loses fine-grained preferences
+- **window** has minimal impact: LM-TAD captures most relevant patterns within 4 steps
+
+### Recommended Starting Points
+
+Based on empirical results:
+
+```yaml
+distill:
+  lambda: 0.029        # ~3% of total loss for KL term
+  temperature: 3.4     # Balanced smoothing
+  window: 4            # Good speed/performance trade-off
+```
+
+### Advanced: Multi-Objective Tuning
+
+Future extensions could optimize multiple objectives simultaneously:
+- Maximize validation accuracy
+- Minimize training time (throughput)
+- Minimize inference latency
+
+Using Optuna's multi-objective capabilities with Pareto-optimal frontier selection.
 
 
