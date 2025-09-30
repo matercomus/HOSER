@@ -101,6 +101,10 @@ class DistillationManager:
                 self.logger.info(f"[distill] Initialized teacher; SOT token id: {self.sot_id}")
             else:
                 self.logger.warning("[distill] SOT token not available - teacher may not be properly initialized")
+        
+        # Pre-allocate SOT tensor to avoid repeated creation during training
+        if self.sot_id is not None:
+            self.sot_tensor = torch.tensor([self.sot_id], device=device, dtype=torch.long)
 
 
     @torch.no_grad()
@@ -109,8 +113,7 @@ class DistillationManager:
         # Optimized: Keep everything on GPU, no CPU round-trip
         tokens = self.road_to_token[road_ids_1d]
         if self.sot_id is not None:
-            sot_tensor = torch.tensor([self.sot_id], device=tokens.device, dtype=tokens.dtype)
-            tokens = torch.cat([sot_tensor, tokens], dim=0)
+            tokens = torch.cat([self.sot_tensor, tokens], dim=0)
         return tokens
 
     def compute_kl_for_batch(
@@ -170,12 +173,15 @@ class DistillationManager:
         max_trace_len = int(batch_trace_len.max().item())
         max_hist = max_trace_len + (1 if self.sot_id is not None else 0)
         history_tokens = torch.zeros((batch_indices.size(0), max_hist), dtype=torch.long, device=device)
-        for row, (b, t) in enumerate(zip(batch_indices.tolist(), last_idx.tolist())):
+        # Vectorized: Process all sequences without .tolist() calls
+        for row in range(batch_indices.size(0)):
+            b = batch_indices[row]
+            t = last_idx[row]
             seq = batch_trace_road_id[b, : t + 1]
             # Optimized: GPU indexing, no CPU round-trip
             seq = self.road_to_token[seq]
             if self.sot_id is not None:
-                seq = torch.cat([torch.tensor([self.sot_id], device=device, dtype=torch.long), seq], dim=0)
+                seq = torch.cat([self.sot_tensor, seq], dim=0)
             history_tokens[row, -seq.size(0):] = seq
 
         # Optimized: Process all samples in single batched teacher inference with caching
@@ -189,7 +195,11 @@ class DistillationManager:
         #     print(f"[debug] Teacher logits device: {teacher_logits.device}, shape: {teacher_logits.shape}")
 
         kl_terms = []
-        for row, (b, t, cand) in enumerate(zip(batch_indices.tolist(), last_idx.tolist(), candidate_len.tolist())):
+        # Vectorized: Process without .tolist() to avoid GPU->CPU transfers
+        for row in range(batch_indices.size(0)):
+            b = batch_indices[row].item()  # Only convert single values when needed
+            t = last_idx[row].item()
+            cand = candidate_len[row].item()
             candidate_ids = batch_candidate_road_id[b, t, : cand]
             # Optimized: Use GPU indexing directly, no CPU round-trip
             candidate_tokens = self.road_to_token[candidate_ids]
