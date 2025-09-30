@@ -464,10 +464,10 @@ def main(args=None, return_metrics=False):
     # This enables better compilation and caching of optimizer + scheduler
     base_lr = config.optimizer_config.learning_rate
 
-    # Create optimizer with tensor LR for better torch.compile compatibility
+    # Create optimizer
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=torch.tensor(base_lr, device=device),
+        lr=base_lr,
         weight_decay=config.optimizer_config.weight_decay
     )
 
