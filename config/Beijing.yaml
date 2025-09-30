@@ -74,7 +74,7 @@ training:
   allow_tf32: true
   cudnn_benchmark: true
   torch_compile: true
-  torch_compile_mode: default  # Options: default, reduce-overhead, max-autotune
+  torch_compile_mode: max-autotune  # Options: default, reduce-overhead, max-autotune
   disable_cudagraphs: true
 
 # Weights & Biases logging
