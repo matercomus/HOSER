@@ -155,8 +155,7 @@ class HOSERObjective:
             # Import and run training with validation tracking
             validation_metrics = []
             
-            # We'll need to modify train_with_distill.py to return validation metrics
-            # For now, we'll use a placeholder approach
+            # Run training with validation metrics collection and Optuna pruning
             result_metric = self._run_training_with_pruning(trial, train_args, validation_metrics)
             
             return result_metric

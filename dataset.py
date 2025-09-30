@@ -165,8 +165,6 @@ class Dataset(torch.utils.data.Dataset):
             data['candidate_len'],
             data['road_label'],
             data['timestamp_label'],
-            data.get('trace_grid_token'),
-            data.get('candidate_grid_token'),
         )
 
     def get_stats(self):
