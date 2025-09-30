@@ -433,14 +433,21 @@ def main():
     if args.wandb_project is None:
         args.wandb_project = wandb_metadata['project']
 
+    # Check for hoser_format subdirectory (new format) or use run_dir directly (legacy)
     hoser_format_path = os.path.join(args.run_dir, 'hoser_format')
-    if not os.path.isdir(hoser_format_path):
-        print(f"❌ Error: 'hoser_format' directory not found in {args.run_dir}")
+    if os.path.isdir(hoser_format_path):
+        data_dir = hoser_format_path
+        print(f"📂 Using hoser_format directory: {hoser_format_path}")
+    elif os.path.exists(os.path.join(args.run_dir, 'test.csv')):
+        data_dir = args.run_dir
+        print(f"📂 Using data directory directly: {args.run_dir}")
+    else:
+        print(f"❌ Error: Neither 'hoser_format' subdirectory nor dataset files found in {args.run_dir}")
         return
 
-    # Define paths based on the hoser_format directory
-    real_path = os.path.join(hoser_format_path, 'test.csv')
-    geo_path = os.path.join(hoser_format_path, 'roadmap.geo')
+    # Define paths based on the data directory
+    real_path = os.path.join(data_dir, 'test.csv')
+    geo_path = os.path.join(data_dir, 'roadmap.geo')
     
     # Use provided generated file or search for one
     if args.generated_file:
@@ -450,9 +457,9 @@ def main():
             return
         print(f"📂 Using provided generated file: {generated_path}")
     else:
-        generated_path = find_generated_file(hoser_format_path)
+        generated_path = find_generated_file(data_dir)
         if not generated_path:
-            print(f"❌ Error: No generated trajectory CSV file found in {hoser_format_path}")
+            print(f"❌ Error: No generated trajectory CSV file found in {data_dir}")
             return
         print(f"📂 Found generated file: {os.path.basename(generated_path)}")
 
