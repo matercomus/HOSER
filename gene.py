@@ -939,7 +939,7 @@ def load_and_preprocess_data(dataset):
     zone_trans_mat_file = f'./data/{dataset}/zone_trans_mat.npy'
 
     print("📂 Loading road network data...")
-    geo = pl.read_csv(geo_file)
+    geo = pl.read_csv(geo_file, schema_overrides={"lanes": pl.Utf8, "oneway": pl.Utf8})
     rel = pl.read_csv(rel_file)
     num_roads = geo.height
     print(f"✅ Loaded {num_roads} road segments.")
