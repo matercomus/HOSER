@@ -17,12 +17,71 @@ import torch.nn.functional as F
 import pickle
 import sys
 import json
+import wandb
 
 from utils import set_seed, create_nested_namespace, get_angle
 from models.hoser import HOSER
 import networkx as nx
 
 sys.setrecursionlimit(2000) # Set recursion limit for deep data structures
+
+
+def extract_wandb_project_from_model_path(model_path: str) -> str:
+    """
+    Extract WandB project name from model path if it's in a wandb run directory.
+    
+    Args:
+        model_path: Path to model checkpoint (e.g., 'wandb/run-XXX/files/save/.../best.pth')
+    
+    Returns:
+        WandB project name if found, otherwise 'hoser-generation'
+    """
+    default_project = 'hoser-generation'
+    
+    # Check if model path is in a wandb directory
+    if 'wandb' not in model_path or 'run-' not in model_path:
+        return default_project
+    
+    try:
+        # Extract wandb run directory (e.g., 'wandb/run-20250929_191519-0vw2ywd9')
+        parts = model_path.split(os.sep)
+        wandb_idx = None
+        run_idx = None
+        
+        for i, part in enumerate(parts):
+            if part == 'wandb':
+                wandb_idx = i
+            elif part.startswith('run-'):
+                run_idx = i
+                break
+        
+        if wandb_idx is None or run_idx is None:
+            return default_project
+        
+        # Reconstruct wandb run directory path
+        wandb_run_dir = os.path.join(*parts[:run_idx+1])
+        config_path = os.path.join(wandb_run_dir, 'files', 'config.yaml')
+        
+        if not os.path.exists(config_path):
+            print(f"⚠️  WandB config not found at {config_path}, using default project")
+            return default_project
+        
+        # Parse config.yaml to extract project name
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # Navigate the nested structure: wandb.value.project
+        if 'wandb' in config and 'value' in config['wandb']:
+            project = config['wandb']['value'].get('project')
+            if project:
+                print(f"📊 Detected WandB project from model: {project}")
+                return project
+        
+        return default_project
+        
+    except Exception as e:
+        print(f"⚠️  Could not extract WandB project from model path: {e}")
+        return default_project
 
 
 def process_trajectory_mp(args_tuple):
@@ -1081,7 +1140,19 @@ if __name__ == '__main__':
     parser.add_argument('--vectorized', action='store_true', help='Use vectorized GPU-parallel search')
     parser.add_argument('--nx_astar', action='store_true', help='Use NetworkX A* for routing with ML timing')
     parser.add_argument('--model_path', type=str, default='', help='Path to trained HOSER checkpoint (.pth). Overrides default save/<dataset>/seed<seed>/best.pth')
+    parser.add_argument('--wandb', action='store_true', help='Log generation run to Weights & Biases')
+    parser.add_argument('--wandb_project', type=str, default=None, help='WandB project name (auto-detected from model if not specified)')
+    parser.add_argument('--wandb_run_name', type=str, default='', help='WandB run name (optional)')
+    parser.add_argument('--wandb_tags', type=str, nargs='*', default=['generation'], help='WandB tags')
     args = parser.parse_args()
+    
+    # Auto-detect WandB project from model path if not manually specified
+    if args.wandb and args.wandb_project is None:
+        # Determine model path
+        model_path = args.model_path if args.model_path else f'save/{args.dataset}/seed{args.seed}/best.pth'
+        args.wandb_project = extract_wandb_project_from_model_path(model_path)
+    elif args.wandb_project is None:
+        args.wandb_project = 'hoser-generation'
 
     set_seed(args.seed)
     device = f'cuda:{args.cuda}'
@@ -1089,6 +1160,32 @@ if __name__ == '__main__':
     # Set PyTorch threading for optimal single-process performance
     torch.set_num_threads(torch.get_num_threads())  # Use all available threads
     torch.backends.cudnn.benchmark = True  # Enable cuDNN autotuner
+
+    # Initialize wandb if requested
+    if args.wandb:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        run_name = args.wandb_run_name or f"gene-{args.dataset}-seed{args.seed}-{timestamp}"
+        
+        # Determine search method for tags
+        search_method = 'nx_astar' if args.nx_astar else ('beam_search' if args.beam_search else ('vectorized' if args.vectorized else 'astar'))
+        tags = args.wandb_tags + [args.dataset, f'seed{args.seed}', search_method]
+        
+        wandb.init(
+            project=args.wandb_project,
+            name=run_name,
+            tags=tags,
+            config={
+                'dataset': args.dataset,
+                'seed': args.seed,
+                'num_gene': args.num_gene,
+                'processes': args.processes,
+                'search_method': search_method,
+                'beam_width': args.beam_width if args.beam_search else None,
+                'model_path': args.model_path or f'save/{args.dataset}/seed{args.seed}/best.pth',
+                'cuda': args.cuda,
+            }
+        )
+        print(f"📊 Logging to WandB: {wandb.run.url}")
 
     data = load_and_preprocess_data(args.dataset)
     num_roads = data['num_roads']
@@ -1293,3 +1390,13 @@ if __name__ == '__main__':
     output_path = os.path.join(gene_dir, f'{now.strftime("%Y-%m-%d_%H-%M-%S")}.csv')
     res_df.write_csv(output_path)
     print(f"🎉 Trajectory generation complete. Saved to {output_path}")
+    
+    # Log to wandb if enabled
+    if args.wandb:
+        wandb.log({
+            'num_trajectories_generated': len(res_df),
+            'output_file': output_path,
+        })
+        wandb.save(output_path, base_path='./')
+        print(f"📊 Results logged to WandB")
+        wandb.finish()
