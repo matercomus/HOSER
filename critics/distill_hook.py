@@ -9,11 +9,10 @@ Kept separate from the original training code to minimize invasiveness.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 from .lmtad_teacher import LMTADTeacher
 from .grid_mapper import GridMapper, GridConfig
@@ -182,14 +181,39 @@ class DistillationManager:
             candidate_ids = batch_candidate_road_id[b, t, : cand]
             candidate_tokens = torch.from_numpy(self.road_to_token[candidate_ids.cpu().numpy()]).to(device)
             q_c = teacher_logits[row, candidate_tokens]
-            q_c = q_c / torch.clamp(q_c.sum(), min=1e-9)
+
+            # Handle invalid teacher probabilities
+            q_c_sum = q_c.sum()
+            if q_c_sum <= 0 or torch.isnan(q_c_sum) or torch.isinf(q_c_sum):
+                continue  # Skip this sample if teacher gives invalid probabilities
+
+            q_c = q_c / torch.clamp(q_c_sum, min=1e-9)
 
             s_logits = logits[b, t, : cand]
             T = float(self.cfg.temperature)
             p_tau = torch.softmax(s_logits / T, dim=-1)
+
+            # Ensure student probabilities are valid
+            if torch.isnan(p_tau).any() or torch.isinf(p_tau).any():
+                continue  # Skip this sample if student gives invalid probabilities
+
             q_tau = torch.clamp(q_c, min=1e-9).pow(1.0 / T)
-            q_tau = q_tau / torch.clamp(q_tau.sum(), min=1e-9)
-            kl = torch.sum(q_tau * (torch.log(q_tau) - torch.log(torch.clamp(p_tau, min=1e-9))))
+            q_tau_sum = q_tau.sum()
+            if q_tau_sum <= 0 or torch.isnan(q_tau_sum) or torch.isinf(q_tau_sum):
+                continue  # Skip if temperature scaling gives invalid probabilities
+
+            q_tau = q_tau / q_tau_sum
+
+            # Compute KL divergence with proper NaN handling
+            log_q_tau = torch.log(torch.clamp(q_tau, min=1e-9))
+            log_p_tau = torch.log(torch.clamp(p_tau, min=1e-9))
+
+            kl = torch.sum(q_tau * (log_q_tau - log_p_tau))
+
+            # Skip if KL is NaN or infinite
+            if torch.isnan(kl) or torch.isinf(kl):
+                continue
+
             kl_terms.append(kl)
 
         if not kl_terms:

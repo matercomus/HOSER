@@ -2,11 +2,20 @@
 """
 Optuna hyperparameter tuning for HOSER with WandB integration.
 
-This script runs hyperparameter optimization for both vanilla HOSER and 
+This script runs hyperparameter optimization for both vanilla HOSER and
 distilled HOSER variants, logging all trials to WandB for comprehensive tracking.
 
+Tuned parameters for distillation:
+- lambda: KL divergence weight (0.001-0.1, log scale)
+- temperature: Softmax temperature (1.0-4.0)
+- window: Context window size (16, 24, 32, 48, 64)
+
+Fixed parameters (architectural choices):
+- grid_size: 0.001 (from base config)
+- downsample: 1 (from base config)
+
 Usage:
-  uv run python tune_hoser.py --n_trials 20 --dataset Beijing --data_dir /home/matt/Dev/HOSER-dataset
+  uv run python tune_hoser.py --n_trials 25 --dataset Beijing --data_dir /home/matt/Dev/HOSER-dataset
 """
 
 import os
@@ -15,6 +24,7 @@ import argparse
 import tempfile
 import shutil
 import gc
+import math
 import torch
 import optuna
 from optuna.integration.wandb import WeightsAndBiasesCallback
@@ -83,7 +93,7 @@ class HOSERObjective:
         # Configure distillation or vanilla mode
         if trial_type == 'distilled':
             config['distill']['enable'] = True
-            # Only tune distillation-specific parameters
+            # Tune key distillation parameters
             config['distill']['lambda'] = trial.suggest_float(
                 'distill_lambda', 0.001, 0.1, log=True
             )
@@ -93,12 +103,8 @@ class HOSERObjective:
             config['distill']['window'] = trial.suggest_categorical(
                 'distill_window', [16, 24, 32, 48, 64]
             )
-            config['distill']['grid_size'] = trial.suggest_categorical(
-                'distill_grid_size', [0.0005, 0.001, 0.002]
-            )
-            config['distill']['downsample'] = trial.suggest_categorical(
-                'distill_downsample', [2, 4, 8]
-            )
+            # Keep grid_size and downsample fixed (not tuned)
+            # These are architectural choices rather than hyperparameters
         else:
             config['distill']['enable'] = False
         
@@ -152,35 +158,48 @@ class HOSERObjective:
     
     def _run_training_with_pruning(self, trial: optuna.Trial, train_args: argparse.Namespace, validation_metrics: list) -> float:
         """Run training with intermediate pruning based on validation metrics."""
-        
+
         try:
             # Import and run the modified training function
             from train_with_distill import main as train_main
-            
+
             # Run training and get validation metrics
             result = train_main(args=train_args, return_metrics=True)
-            
+
             if result is None:
                 raise optuna.TrialPruned("Training returned no metrics")
-            
+
+            # Validate that metrics are reasonable (not NaN or infinite)
+            if (math.isnan(result['best_val_acc']) or math.isinf(result['best_val_acc']) or
+                math.isnan(result['final_val_acc']) or math.isinf(result['final_val_acc'])):
+                print(f"Trial {trial.number}: Invalid validation metrics detected, pruning")
+                raise optuna.TrialPruned("Invalid validation metrics (NaN/inf)")
+
             # Report intermediate values for pruning
             for epoch_metrics in result['validation_history']:
-                trial.report(epoch_metrics['val_acc'], epoch_metrics['epoch'])
-                
+                val_acc = epoch_metrics['val_acc']
+
+                # Skip NaN/inf validation metrics
+                if math.isnan(val_acc) or math.isinf(val_acc):
+                    print(f"Trial {trial.number} epoch {epoch_metrics['epoch']}: NaN/inf val_acc, skipping report")
+                    continue
+
+                trial.report(val_acc, epoch_metrics['epoch'])
+
                 # Check if trial should be pruned
                 if trial.should_prune():
                     raise optuna.TrialPruned()
-            
+
             # Return final metric to maximize (validation accuracy)
             final_metric = result['best_val_acc']
-            
+
             # Log additional metrics to trial
             trial.set_user_attr('final_val_acc', result['final_val_acc'])
             trial.set_user_attr('final_val_mape', result['final_val_mape'])
             trial.set_user_attr('best_val_acc', result['best_val_acc'])
-            
+
             return final_metric
-            
+
         except Exception as e:
             print(f"Trial {trial.number} failed: {e}")
             raise optuna.TrialPruned()
@@ -208,38 +227,59 @@ class HOSERObjective:
 
 def create_study_with_wandb(project_name: str, study_name: str) -> tuple:
     """Create Optuna study with WandB integration."""
-    
+
     # WandB callback configuration
     wandb_kwargs = {
         "project": project_name,
         "group": study_name,
         "job_type": "optuna-optimization"
     }
-    
+
     wandbc = WeightsAndBiasesCallback(
         wandb_kwargs=wandb_kwargs,
         as_multirun=True,
         metric_name="validation_accuracy"
     )
-    
-    # Create Optuna study
+
+    # Use GP sampler for better modeling of expensive objective function
+    # GP sampler is particularly good for:
+    # - Expensive objective functions (model training)
+    # - Mixed continuous/categorical search spaces
+    # - Better sample efficiency
+    try:
+        sampler = optuna.samplers.GPSampler(
+            seed=42,
+            n_startup_trials=12,  # More initial random trials for GP fitting
+            deterministic_objective=False,  # Training has noise/stochasticity
+            independent_sampler=optuna.samplers.TPESampler(seed=42)  # Use TPE for initial sampling
+        )
+        print("🔬 Using GP Sampler for sophisticated Bayesian optimization")
+    except ImportError as e:
+        print(f"⚠️  GP Sampler not available ({e}), falling back to TPE")
+        sampler = optuna.samplers.TPESampler(seed=42)
+
+    # Create Optuna study with GP-optimized pruning
+    # GP sampler benefits from:
+    # - More startup trials to build good surrogate model
+    # - Less aggressive pruning since GP handles uncertainty well
+    # - Hyperband pruner can work well with GP for early stopping
     study = optuna.create_study(
         direction='maximize',
         study_name=study_name,
-        pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=5,
-            n_warmup_steps=3,
-            interval_steps=1
+        pruner=optuna.pruners.HyperbandPruner(
+            min_resource=1,
+            max_resource=25,
+            reduction_factor=3
         ),
-        sampler=optuna.samplers.TPESampler(seed=42)
+        sampler=sampler
     )
-    
+
     return study, wandbc
 
 
 def main():
     parser = argparse.ArgumentParser(description='Hyperparameter tuning for HOSER with Optuna')
-    parser.add_argument('--n_trials', type=int, default=20, help='Number of trials to run')
+    parser.add_argument('--n_trials', type=int, default=25, help='Number of trials to run (GP sampler benefits from more trials)')
     parser.add_argument('--dataset', type=str, default='Beijing', help='Dataset name')
     parser.add_argument('--data_dir', type=str, required=True, help='Path to HOSER dataset')
     parser.add_argument('--config', type=str, default='config/Beijing.yaml', help='Base config file')
