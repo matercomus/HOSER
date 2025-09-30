@@ -10,7 +10,7 @@ with two additional keys:
 Precomputing these tokens allows the training loop to avoid expensive
 per-batch CPU work when preparing inputs for the LM-TAD teacher.
 
-Uses multiprocessing for efficient parallel processing like dataset.py.
+Uses multiprocessing for efficient parallel processing like dataset.py (all available CPU cores).
 """
 
 import argparse
@@ -131,14 +131,14 @@ def augment_cache(cache_dir: Path, road_to_token: np.ndarray) -> None:
         print(f"No cache files found in {cache_dir}")
         return
 
-    print(f"🔄 Processing {len(pt_files)} files in {cache_dir} using {min(multiprocessing.cpu_count(), 8)} processes...")
+    print(f"🔄 Processing {len(pt_files)} files in {cache_dir} using {multiprocessing.cpu_count()} processes...")
 
     # Prepare tasks for multiprocessing
     tasks = [(str(file_path), str(cache_dir)) for file_path in pt_files]
 
-    # Use multiprocessing for efficient parallel processing
+    # Use multiprocessing for efficient parallel processing (use all available cores like dataset.py)
     with multiprocessing.Pool(
-        processes=min(multiprocessing.cpu_count(), 8),  # Limit to 8 processes max
+        processes=multiprocessing.cpu_count(),  # Use all available cores like vanilla HOSER
         initializer=init_worker,
         initargs=(road_to_token,)
     ) as pool:
