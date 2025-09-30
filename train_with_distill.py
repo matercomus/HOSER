@@ -566,25 +566,26 @@ def main(args=None, return_metrics=False):
                     batch_candidate_len = torch.clamp(batch_candidate_len.to(device, non_blocking=True), max=k)
                     
                     # Update road labels to match the filtered candidates
-                    # Create a mapping from old indices to new indices
+                    # Vectorized approach for efficiency
                     batch_road_label_device = batch_road_label.to(device, non_blocking=True)
-                    batch_size, trace_len = batch_road_label_device.shape
                     
-                    # For each position in the trace, map the old label to the new position
-                    new_road_label = torch.zeros_like(batch_road_label_device)
-                    for b in range(batch_size):
-                        for t in range(trace_len):
-                            old_label = batch_road_label_device[b, t]
-                            # Find where the old label appears in the sorted indices
-                            # idx[b, t] contains the indices of the top-k candidates
-                            mask = idx[b, t] == old_label
-                            if mask.any():
-                                # Get the position of the old label in the new sorted order
-                                new_road_label[b, t] = mask.nonzero(as_tuple=True)[0][0]
-                            else:
-                                # If the true next road was filtered out, this is a problem
-                                # Set to 0 (first candidate) as a fallback
-                                new_road_label[b, t] = 0
+                    # Create a reverse mapping: for each position, find where the original label ended up
+                    # idx contains the original indices that were selected
+                    # We need to find where batch_road_label appears in idx
+                    
+                    # Expand dimensions for broadcasting
+                    labels_expanded = batch_road_label_device.unsqueeze(-1)  # [B, T, 1]
+                    idx_expanded = idx  # [B, T, k]
+                    
+                    # Find matches: where does each label appear in the sorted indices?
+                    matches = (idx_expanded == labels_expanded).float()  # [B, T, k]
+                    
+                    # Get the position of the match (if any)
+                    has_match = matches.sum(dim=-1) > 0  # [B, T]
+                    match_positions = torch.argmax(matches, dim=-1)  # [B, T]
+                    
+                    # Set labels: use match position if found, otherwise -100 (ignored by cross_entropy)
+                    new_road_label = torch.where(has_match, match_positions, torch.tensor(-100, device=device))
                     batch_road_label = new_road_label
 
             batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
@@ -781,25 +782,26 @@ def main(args=None, return_metrics=False):
                         batch_candidate_len = torch.clamp(batch_candidate_len.to(device, non_blocking=True), max=k)
                         
                         # Update road labels to match the filtered candidates
-                        # Create a mapping from old indices to new indices
+                        # Vectorized approach for efficiency
                         batch_road_label_device = batch_road_label.to(device, non_blocking=True)
-                        batch_size, trace_len = batch_road_label_device.shape
                         
-                        # For each position in the trace, map the old label to the new position
-                        new_road_label = torch.zeros_like(batch_road_label_device)
-                        for b in range(batch_size):
-                            for t in range(trace_len):
-                                old_label = batch_road_label_device[b, t]
-                                # Find where the old label appears in the sorted indices
-                                # idx[b, t] contains the indices of the top-k candidates
-                                mask = idx[b, t] == old_label
-                                if mask.any():
-                                    # Get the position of the old label in the new sorted order
-                                    new_road_label[b, t] = mask.nonzero(as_tuple=True)[0][0]
-                                else:
-                                    # If the true next road was filtered out, this is a problem
-                                    # Set to 0 (first candidate) as a fallback
-                                    new_road_label[b, t] = 0
+                        # Create a reverse mapping: for each position, find where the original label ended up
+                        # idx contains the original indices that were selected
+                        # We need to find where batch_road_label appears in idx
+                        
+                        # Expand dimensions for broadcasting
+                        labels_expanded = batch_road_label_device.unsqueeze(-1)  # [B, T, 1]
+                        idx_expanded = idx  # [B, T, k]
+                        
+                        # Find matches: where does each label appear in the sorted indices?
+                        matches = (idx_expanded == labels_expanded).float()  # [B, T, k]
+                        
+                        # Get the position of the match (if any)
+                        has_match = matches.sum(dim=-1) > 0  # [B, T]
+                        match_positions = torch.argmax(matches, dim=-1)  # [B, T]
+                        
+                        # Set labels: use match position if found, otherwise -100 (ignored by cross_entropy)
+                        new_road_label = torch.where(has_match, match_positions, torch.tensor(-100, device=device))
                         batch_road_label = new_road_label
 
                 batch_candidate_road_id = batch_candidate_road_id.to(device, non_blocking=True)
