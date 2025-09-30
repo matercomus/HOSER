@@ -665,7 +665,7 @@ def main(args=None, return_metrics=False):
             t_optim = time.time()
 
             # --- Profiling Report ---
-            if not profiler_ran and batch_id == 20: # After 20 warmup steps
+            if not profiler_ran and batch_id == 100: # After 100 warmup steps
                 logger.info("--- Performance Profile (ms/batch) ---")
                 total_time = (t_optim - t_start) * 1000
                 profile_data = {

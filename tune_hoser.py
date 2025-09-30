@@ -109,7 +109,7 @@ class HOSERObjective:
                 'distill_temperature', 1.0, 4.0
             )
             config['distill']['window'] = trial.suggest_categorical(
-                'distill_window', [16, 24, 32, 48, 64]
+                'distill_window', [2, 4, 8, 16]
             )
             # Keep grid_size and downsample fixed (not tuned)
             # These are architectural choices rather than hyperparameters
