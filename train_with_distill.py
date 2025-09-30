@@ -442,12 +442,12 @@ def main(args=None, return_metrics=False):
             # Use torch.compile with caching enabled
             model = torch.compile(
                 model,
-                mode="reduce-overhead",
-                disable=disable_cudagraphs,
                 # Enable caching for faster subsequent compilations
                 options={
                     "cache_dir": cache_dir,
                     "cache_limit": "1GB",  # Reasonable cache size
+                    "mode": "reduce-overhead",
+                    "disable": disable_cudagraphs,
                 }
             )
             logger.info(f'[perf] torch.compile enabled (reduce-overhead) with caching at {cache_dir}')
