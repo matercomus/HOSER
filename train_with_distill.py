@@ -436,12 +436,15 @@ def main(args=None, return_metrics=False):
     disable_cudagraphs = bool(getattr(getattr(config, 'training', {}), 'disable_cudagraphs', False))
     if compile_flag:
         try:
+            # Get compile mode from config, default to "default" for faster compilation
+            # Options: "default" (fast compile), "reduce-overhead" (balanced), "max-autotune" (best runtime)
+            compile_mode = getattr(getattr(config, 'training', {}), 'torch_compile_mode', 'default')
             model = torch.compile(
                 model,
-                mode="reduce-overhead",
+                mode=compile_mode,
                 disable=disable_cudagraphs
             )
-            logger.info(f'[perf] torch.compile enabled (reduce-overhead)')
+            logger.info(f'[perf] torch.compile enabled ({compile_mode} mode)')
         except Exception as e:
             logger.info(f'[perf] torch.compile failed: {e}')
 
