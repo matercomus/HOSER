@@ -11,6 +11,135 @@ from scipy.spatial.distance import jensenshannon
 from fastdtw import fastdtw
 from haversine import haversine, haversine_vector
 import wandb
+import yaml
+
+
+def extract_wandb_metadata_from_path(path: str) -> dict:
+    """
+    Extract WandB project and run ID from a path that may contain wandb run metadata.
+    
+    Args:
+        path: Path that may be in or reference a wandb run directory
+    
+    Returns:
+        Dict with 'project' and 'run_id' keys, or None values if not found
+    """
+    result = {'project': None, 'run_id': None, 'run_name': None}
+    
+    if not path or 'wandb' not in path:
+        return result
+    
+    try:
+        # Find the wandb run directory in the path
+        parts = path.split(os.sep)
+        wandb_idx = None
+        run_idx = None
+        
+        for i, part in enumerate(parts):
+            if part == 'wandb':
+                wandb_idx = i
+            elif part.startswith('run-'):
+                run_idx = i
+                # Extract run ID from directory name (e.g., "run-20250929_191519-0vw2ywd9")
+                run_dir_name = part
+                if '-' in run_dir_name:
+                    # Format: run-<timestamp>-<run_id>
+                    result['run_id'] = run_dir_name.split('-')[-1]
+                break
+        
+        if wandb_idx is None or run_idx is None:
+            return result
+        
+        # Reconstruct wandb run directory path
+        wandb_run_dir = os.path.join(*parts[:run_idx+1])
+        config_path = os.path.join(wandb_run_dir, 'files', 'config.yaml')
+        
+        if not os.path.exists(config_path):
+            return result
+        
+        # Parse config.yaml to extract project name and run name
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # Navigate the nested structure: wandb.value.project
+        if 'wandb' in config and 'value' in config['wandb']:
+            wandb_config = config['wandb']['value']
+            result['project'] = wandb_config.get('project')
+            result['run_name'] = wandb_config.get('run_name')
+        
+        return result
+        
+    except Exception as e:
+        return result
+
+
+def detect_wandb_metadata(run_dir: str, generated_file: str = None) -> dict:
+    """
+    Auto-detect WandB metadata from run directory and generated file path.
+    
+    Returns dict with:
+    - project: WandB project name
+    - training_run_id: Run ID of training run (if detected)
+    - training_run_name: Run name of training run (if detected)
+    - generation_run_id: Run ID of generation run (if detected)
+    - generation_run_name: Run name of generation run (if detected)
+    """
+    default_project = 'hoser-eval'
+    metadata = {
+        'project': default_project,
+        'training_run_id': None,
+        'training_run_name': None,
+        'generation_run_id': None,
+        'generation_run_name': None,
+    }
+    
+    # Extract from generated file path (generation run)
+    if generated_file:
+        gen_meta = extract_wandb_metadata_from_path(generated_file)
+        if gen_meta['run_id']:
+            metadata['generation_run_id'] = gen_meta['run_id']
+            metadata['generation_run_name'] = gen_meta['run_name']
+            if gen_meta['project']:
+                metadata['project'] = gen_meta['project']
+                print(f"📊 Detected generation run: {gen_meta['run_name']} (ID: {gen_meta['run_id']})")
+    
+    # Extract from run_dir (training run or generation run)
+    train_meta = extract_wandb_metadata_from_path(run_dir)
+    if train_meta['run_id']:
+        # If we didn't get generation metadata, this might be the generation run
+        if metadata['generation_run_id'] is None:
+            metadata['generation_run_id'] = train_meta['run_id']
+            metadata['generation_run_name'] = train_meta['run_name']
+        else:
+            # Otherwise it's likely the training run
+            metadata['training_run_id'] = train_meta['run_id']
+            metadata['training_run_name'] = train_meta['run_name']
+        
+        if train_meta['project'] and metadata['project'] == default_project:
+            metadata['project'] = train_meta['project']
+            print(f"📊 Detected project from run directory: {train_meta['project']}")
+    
+    # Check if run_dir contains wandb subdirectories (training outputs)
+    if os.path.isdir(run_dir):
+        wandb_dir = os.path.join(run_dir, 'wandb')
+        if os.path.exists(wandb_dir):
+            for item in os.listdir(wandb_dir):
+                if item.startswith('run-'):
+                    run_path = os.path.join(wandb_dir, item)
+                    meta = extract_wandb_metadata_from_path(run_path)
+                    if meta['run_id'] and metadata['training_run_id'] is None:
+                        metadata['training_run_id'] = meta['run_id']
+                        metadata['training_run_name'] = meta['run_name']
+                        if meta['project']:
+                            metadata['project'] = meta['project']
+                            print(f"📊 Detected training run: {meta['run_name']} (ID: {meta['run_id']})")
+                        break
+    
+    if metadata['project'] == default_project:
+        print(f"ℹ️  No WandB metadata found, using default project: {default_project}")
+    
+    return metadata
+
 
 # --- Data Loading ---
 
@@ -292,10 +421,17 @@ def main():
     parser.add_argument('--run_dir', type=str, required=True, help='Path to the run directory containing hoser_format folder.')
     parser.add_argument('--generated_file', type=str, help='Path to specific generated CSV file. If not provided, will search for generated files in run_dir/hoser_format/')
     parser.add_argument('--wandb', action='store_true', help='Log results to Weights & Biases')
-    parser.add_argument('--wandb_project', type=str, default='hoser-eval', help='WandB project name')
+    parser.add_argument('--wandb_project', type=str, default=None, help='WandB project name (auto-detected from run metadata if not specified)')
     parser.add_argument('--wandb_run_name', type=str, default='', help='WandB run name (optional)')
     parser.add_argument('--wandb_tags', type=str, nargs='*', default=['eval'], help='WandB tags')
     args = parser.parse_args()
+    
+    # Detect WandB metadata early (we'll use it even if --wandb is not set, for reference)
+    wandb_metadata = detect_wandb_metadata(args.run_dir, args.generated_file)
+    
+    # Auto-detect WandB project if not manually specified
+    if args.wandb_project is None:
+        args.wandb_project = wandb_metadata['project']
 
     hoser_format_path = os.path.join(args.run_dir, 'hoser_format')
     if not os.path.isdir(hoser_format_path):
@@ -337,7 +473,7 @@ def main():
     # Combine and display results
     all_results = {**global_metrics, **local_metrics}
     
-    # Add metadata about the evaluation
+    # Add metadata about the evaluation including WandB run traceability
     all_results["metadata"] = {
         "run_directory": args.run_dir,
         "generated_file": generated_path,
@@ -345,7 +481,11 @@ def main():
         "road_network_file": geo_path,
         "evaluation_timestamp": datetime.now().isoformat(),
         "real_trajectories_count": len(real_trajectories),
-        "generated_trajectories_count": len(generated_trajectories)
+        "generated_trajectories_count": len(generated_trajectories),
+        "training_run_id": wandb_metadata['training_run_id'],
+        "training_run_name": wandb_metadata['training_run_name'],
+        "generation_run_id": wandb_metadata['generation_run_id'],
+        "generation_run_name": wandb_metadata['generation_run_name'],
     }
 
     print("\n--- Evaluation Results ---")
@@ -368,7 +508,9 @@ def main():
     # Optional: log to Weights & Biases
     if args.wandb:
         run_name = args.wandb_run_name or f"eval-{os.path.basename(args.run_dir)}-{timestamp}"
-        wandb.init(project=args.wandb_project, name=run_name, tags=args.wandb_tags, config={
+        
+        # Build config with run traceability
+        wandb_config = {
             'run_directory': args.run_dir,
             'generated_file': generated_path,
             'real_data_file': real_path,
@@ -376,12 +518,28 @@ def main():
             'evaluation_timestamp': timestamp,
             'real_trajectories_count': len(real_trajectories),
             'generated_trajectories_count': len(generated_trajectories),
-        })
+            # Add traceability to source runs
+            'training_run_id': wandb_metadata['training_run_id'],
+            'training_run_name': wandb_metadata['training_run_name'],
+            'generation_run_id': wandb_metadata['generation_run_id'],
+            'generation_run_name': wandb_metadata['generation_run_name'],
+        }
+        
+        wandb.init(project=args.wandb_project, name=run_name, tags=args.wandb_tags, config=wandb_config)
+        
         # Log scalar metrics
         log_payload = {k: v for k, v in all_results.items() if k != 'metadata' and isinstance(v, float)}
         wandb.log(log_payload)
+        
         # Save the results file as an artifact
         wandb.save(results_file)
+        
+        # Log summary with run IDs for easy reference
+        if wandb_metadata['training_run_id']:
+            print(f"🔗 Training run: {wandb_metadata['training_run_name']} (ID: {wandb_metadata['training_run_id']})")
+        if wandb_metadata['generation_run_id']:
+            print(f"🔗 Generation run: {wandb_metadata['generation_run_name']} (ID: {wandb_metadata['generation_run_id']})")
+        
         wandb.finish()
 
 if __name__ == '__main__':
