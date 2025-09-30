@@ -181,6 +181,11 @@ class LMTADTeacher:
         else:
             self._ctx = nullcontext()
 
+        # Teacher output cache for repeated inputs
+        self._teacher_cache = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
+
     # ---------------------------------------------------------------------
     # Public API
     # ---------------------------------------------------------------------
@@ -233,5 +238,21 @@ class LMTADTeacher:
         if probs.size(0) == 1:
             return probs[0]
         return probs
+
+    def predict_next_distribution_cached(self, history_tokens: torch.LongTensor) -> torch.Tensor:
+        """Cached version of predict_next_distribution for repeated queries."""
+        # Create cache key from tensor (convert to tuple for hashing)
+        cache_key = tuple(history_tokens.flatten().tolist())
+
+        if cache_key in self._teacher_cache:
+            self._cache_hits += 1
+            return self._teacher_cache[cache_key]
+        else:
+            self._cache_misses += 1
+            result = self.predict_next_distribution(history_tokens)
+            # Only cache if not too large (limit cache size)
+            if len(self._teacher_cache) < 1000:  # Reasonable cache size
+                self._teacher_cache[cache_key] = result
+            return result
 
 

@@ -102,6 +102,7 @@ class DistillationManager:
             else:
                 self.logger.warning("[distill] SOT token not available - teacher may not be properly initialized")
 
+
     @torch.no_grad()
     def _make_history_tokens(self, road_ids_1d: torch.Tensor) -> torch.LongTensor:
         """Map a 1D tensor of road IDs to grid tokens; prepend SOT if available."""
@@ -177,9 +178,15 @@ class DistillationManager:
                 seq = torch.cat([torch.tensor([self.sot_id], device=device, dtype=torch.long), seq], dim=0)
             history_tokens[row, -seq.size(0):] = seq
 
-        teacher_logits = self.teacher.predict_next_distribution(history_tokens)
+        # Optimized: Process all samples in single batched teacher inference with caching
+        # Use cached version for better performance on repeated inputs
+        teacher_logits = self.teacher.predict_next_distribution_cached(history_tokens)
         if teacher_logits.dim() == 1:
             teacher_logits = teacher_logits.unsqueeze(0)
+
+        # Debug: Check if teacher model is using GPU efficiently
+        if hasattr(teacher_logits, 'device'):
+            print(f"[debug] Teacher logits device: {teacher_logits.device}, shape: {teacher_logits.shape}")
 
         kl_terms = []
         for row, (b, t, cand) in enumerate(zip(batch_indices.tolist(), last_idx.tolist(), candidate_len.tolist())):
