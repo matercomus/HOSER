@@ -15,7 +15,11 @@ Fixed parameters (architectural choices):
 - downsample: 1 (from base config)
 
 Usage:
+  # Run with baseline (default behavior)
   uv run python tune_hoser.py --n_trials 25 --dataset Beijing --data_dir /home/matt/Dev/HOSER-dataset
+
+  # Skip baseline and run only distillation trials
+  uv run python tune_hoser.py --n_trials 25 --dataset Beijing --data_dir /home/matt/Dev/HOSER-dataset --skip_baseline
 """
 
 import os
@@ -38,11 +42,12 @@ from datetime import datetime
 
 class HOSERObjective:
     """Objective function for Optuna optimization of HOSER models."""
-    
-    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 25):
+
+    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 25, skip_baseline: bool = False):
         self.base_config_path = base_config_path
         self.data_dir = data_dir
         self.max_epochs = max_epochs
+        self.skip_baseline = skip_baseline
         self.trial_counter = 0
         
         # Load base config
@@ -53,12 +58,15 @@ class HOSERObjective:
         """Objective function called by Optuna for each trial."""
         self.trial_counter += 1
 
-        # For trial 0, force vanilla (baseline) - don't use suggest_categorical
-        if trial.number == 0:
+        # For trial 0, force vanilla (baseline) unless skip_baseline is enabled
+        if trial.number == 0 and not self.skip_baseline:
             trial_type = 'vanilla'
+            print(f"🔬 Running vanilla baseline (trial {trial.number})")
         else:
             # Suggest trial type: vanilla HOSER or distilled HOSER
             trial_type = trial.suggest_categorical('trial_type', ['vanilla', 'distilled'])
+            trial_mode = "distilled" if trial_type == 'distilled' else "vanilla"
+            print(f"🔬 Running {trial_mode} trial (trial {trial.number})")
 
         # Create trial-specific config
         config = self._create_trial_config(trial, trial_type)
@@ -285,6 +293,7 @@ def main():
     parser.add_argument('--config', type=str, default='config/Beijing.yaml', help='Base config file')
     parser.add_argument('--max_epochs', type=int, default=25, help='Max epochs per trial')
     parser.add_argument('--study_name', type=str, default=None, help='Optuna study name')
+    parser.add_argument('--skip_baseline', action='store_true', help='Skip vanilla baseline (trial 0) and start directly with distillation trials')
     args = parser.parse_args()
     
     # Validate inputs
@@ -302,7 +311,11 @@ def main():
     print(f"📊 Trials: {args.n_trials}")
     print(f"📁 Dataset: {args.data_dir}")
     print(f"⚙️  Base config: {args.config}")
-    
+    if args.skip_baseline:
+        print("🚫 Skipping vanilla baseline (trial 0) - starting directly with distillation")
+    else:
+        print("✅ Including vanilla baseline (trial 0) for comparison")
+
     # Create study and WandB callback
     study, wandbc = create_study_with_wandb("hoser-optuna-tuning", study_name)
     
@@ -310,7 +323,8 @@ def main():
     objective = HOSERObjective(
         base_config_path=args.config,
         data_dir=args.data_dir,
-        max_epochs=args.max_epochs
+        max_epochs=args.max_epochs,
+        skip_baseline=args.skip_baseline
     )
     
     # Run optimization
@@ -353,25 +367,36 @@ def main():
                 shutil.copytree(src, dst, dirs_exist_ok=True)
                 print(f"🔒 Preserved best trial artifacts: {dst}")
         
-        # Copy vanilla baseline (trial 0) artifacts
-        vanilla_seed = 42
-        vanilla_dirs = {
-            f"./save/Beijing/seed{vanilla_seed}_distill": f"{preserved_dir}/vanilla_trial_0_model",
-            f"./tensorboard_log/Beijing/seed{vanilla_seed}_distill": f"{preserved_dir}/vanilla_trial_0_tensorboard",
-            f"./log/Beijing/seed{vanilla_seed}_distill": f"{preserved_dir}/vanilla_trial_0_logs"
-        }
-        
-        for src, dst in vanilla_dirs.items():
-            if os.path.exists(src):
-                shutil.copytree(src, dst, dirs_exist_ok=True)
-                print(f"🔒 Preserved vanilla baseline artifacts: {dst}")
-        
+        # Copy vanilla baseline (trial 0) artifacts if it exists (unless skipped)
+        if not args.skip_baseline:
+            vanilla_seed = 42
+            vanilla_dirs = {
+                f"./save/Beijing/seed{vanilla_seed}_distill": f"{preserved_dir}/vanilla_trial_0_model",
+                f"./tensorboard_log/Beijing/seed{vanilla_seed}_distill": f"{preserved_dir}/vanilla_trial_0_tensorboard",
+                f"./log/Beijing/seed{vanilla_seed}_distill": f"{preserved_dir}/vanilla_trial_0_logs"
+            }
+
+            for src, dst in vanilla_dirs.items():
+                if os.path.exists(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                    print(f"🔒 Preserved vanilla baseline artifacts: {dst}")
+
         # Save study results
         results_dir = f"./optuna_results/{study_name}"
-        
+
         with open(f"{results_dir}/best_params.json", 'w') as f:
             json.dump(study.best_params, f, indent=2)
-        
+
+        # Determine vanilla trial number (0 if not skipped, -1 if skipped)
+        vanilla_trial_num = 0 if not args.skip_baseline else -1
+
+        preserved_models = {
+            "best_trial": f"{preserved_dir}/best_trial_{best_trial_num}_model/best.pth"
+        }
+
+        if not args.skip_baseline:
+            preserved_models["vanilla_baseline"] = f"{preserved_dir}/vanilla_trial_0_model/best.pth"
+
         with open(f"{results_dir}/study_summary.json", 'w') as f:
             json.dump({
                 "study_name": study_name,
@@ -379,17 +404,18 @@ def main():
                 "best_value": study.best_value,
                 "best_trial": study.best_trial.number,
                 "best_params": study.best_params,
-                "vanilla_trial": 0,
-                "preserved_models": {
-                    "best_trial": f"{preserved_dir}/best_trial_{best_trial_num}_model/best.pth",
-                    "vanilla_baseline": f"{preserved_dir}/vanilla_trial_0_model/best.pth"
-                }
+                "vanilla_trial": vanilla_trial_num,
+                "skip_baseline": args.skip_baseline,
+                "preserved_models": preserved_models
             }, f, indent=2)
         
         print(f"💾 Results saved to: {results_dir}")
         print("🔒 Preserved models:")
         print(f"   Best trial ({best_trial_num}): {preserved_dir}/best_trial_{best_trial_num}_model/best.pth")
-        print(f"   Vanilla baseline (0): {preserved_dir}/vanilla_trial_0_model/best.pth")
+        if not args.skip_baseline:
+            print(f"   Vanilla baseline (0): {preserved_dir}/vanilla_trial_0_model/best.pth")
+        else:
+            print("   Vanilla baseline: Skipped (--skip_baseline was used)")
         
     except KeyboardInterrupt:
         print("\n⚠️  Optimization interrupted by user")
