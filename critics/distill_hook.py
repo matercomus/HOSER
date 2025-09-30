@@ -92,23 +92,25 @@ class DistillationManager:
 
         # Mapper
         self.mapper = GridMapper(grid_cfg, road_centroids, verify_hw=verify_hw)
-        self.road_to_token = self.mapper.map_all()  # np.int64 of shape (N,)
+        self.road_to_token = torch.from_numpy(self.mapper.map_all()).to(device)  # Move to GPU immediately
 
         # Pre-resolve SOT token id if available
         self.sot_id = self.teacher.sot_token()
         if self.logger:
-            self.logger.info(
-                f"[distill] Initialized teacher; SOT token id: {self.sot_id if self.sot_id is not None else 'None'}"
-            )
+            if self.sot_id is not None:
+                self.logger.info(f"[distill] Initialized teacher; SOT token id: {self.sot_id}")
+            else:
+                self.logger.warning("[distill] SOT token not available - teacher may not be properly initialized")
 
     @torch.no_grad()
     def _make_history_tokens(self, road_ids_1d: torch.Tensor) -> torch.LongTensor:
         """Map a 1D tensor of road IDs to grid tokens; prepend SOT if available."""
-        roads_np = road_ids_1d.detach().cpu().numpy().astype(np.int64, copy=False)
-        tokens_np = self.road_to_token[roads_np]
+        # Optimized: Keep everything on GPU, no CPU round-trip
+        tokens = self.road_to_token[road_ids_1d]
         if self.sot_id is not None:
-            tokens_np = np.concatenate([[int(self.sot_id)], tokens_np], axis=0)
-        return torch.from_numpy(tokens_np.astype(np.int64))
+            sot_tensor = torch.tensor([self.sot_id], device=tokens.device, dtype=tokens.dtype)
+            tokens = torch.cat([sot_tensor, tokens], dim=0)
+        return tokens
 
     def compute_kl_for_batch(
         self,
@@ -163,11 +165,14 @@ class DistillationManager:
         last_idx = last_idx[sorted_indices]
         candidate_len = candidate_len[sorted_indices]
 
-        max_hist = int(batch_trace_len.max().item())
+        # Account for SOT token when calculating max history length
+        max_trace_len = int(batch_trace_len.max().item())
+        max_hist = max_trace_len + (1 if self.sot_id is not None else 0)
         history_tokens = torch.zeros((batch_indices.size(0), max_hist), dtype=torch.long, device=device)
         for row, (b, t) in enumerate(zip(batch_indices.tolist(), last_idx.tolist())):
             seq = batch_trace_road_id[b, : t + 1]
-            seq = torch.from_numpy(self.road_to_token[seq.cpu().numpy()]).to(device)
+            # Optimized: GPU indexing, no CPU round-trip
+            seq = self.road_to_token[seq]
             if self.sot_id is not None:
                 seq = torch.cat([torch.tensor([self.sot_id], device=device, dtype=torch.long), seq], dim=0)
             history_tokens[row, -seq.size(0):] = seq
@@ -179,7 +184,8 @@ class DistillationManager:
         kl_terms = []
         for row, (b, t, cand) in enumerate(zip(batch_indices.tolist(), last_idx.tolist(), candidate_len.tolist())):
             candidate_ids = batch_candidate_road_id[b, t, : cand]
-            candidate_tokens = torch.from_numpy(self.road_to_token[candidate_ids.cpu().numpy()]).to(device)
+            # Optimized: Use GPU indexing directly, no CPU round-trip
+            candidate_tokens = self.road_to_token[candidate_ids]
             q_c = teacher_logits[row, candidate_tokens]
 
             # Handle invalid teacher probabilities
