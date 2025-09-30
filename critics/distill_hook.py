@@ -184,9 +184,9 @@ class DistillationManager:
         if teacher_logits.dim() == 1:
             teacher_logits = teacher_logits.unsqueeze(0)
 
-        # Debug: Check if teacher model is using GPU efficiently
-        if hasattr(teacher_logits, 'device'):
-            print(f"[debug] Teacher logits device: {teacher_logits.device}, shape: {teacher_logits.shape}")
+        # Debug: Check if teacher model is using GPU efficiently (disabled for cleaner output)
+        # if hasattr(teacher_logits, 'device'):
+        #     print(f"[debug] Teacher logits device: {teacher_logits.device}, shape: {teacher_logits.shape}")
 
         kl_terms = []
         for row, (b, t, cand) in enumerate(zip(batch_indices.tolist(), last_idx.tolist(), candidate_len.tolist())):
