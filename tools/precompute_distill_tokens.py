@@ -9,18 +9,22 @@ with two additional keys:
 
 Precomputing these tokens allows the training loop to avoid expensive
 per-batch CPU work when preparing inputs for the LM-TAD teacher.
+
+Uses multiprocessing for efficient parallel processing like dataset.py.
 """
 
 import argparse
+import multiprocessing
 import os
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
 import yaml
+from tqdm import tqdm
 
 # Allow importing GridMapper without relative path issues
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,22 +80,31 @@ def build_road_to_token_mapping(config: dict) -> np.ndarray:
     return road_to_token.astype(np.int64)
 
 
-def augment_cache(cache_dir: Path, road_to_token: np.ndarray) -> None:
-    pt_files = sorted(cache_dir.glob("data_*.pt"), key=lambda p: int(p.stem.split("_")[1]))
-    if not pt_files:
-        print(f"No cache files found in {cache_dir}")
-        return
+# Global variable for multiprocessing
+_road_to_token_global = None
 
-    for idx, file_path in enumerate(pt_files, start=1):
+
+def init_worker(road_to_token: np.ndarray):
+    """Initialize worker process with shared road_to_token mapping."""
+    global _road_to_token_global
+    _road_to_token_global = road_to_token
+
+
+def process_single_file(args: Tuple[str, str]) -> None:
+    """Process a single cache file to add grid tokens."""
+    file_path, cache_dir = args
+
+    try:
         data = torch.load(file_path, weights_only=False)
 
         if "trace_grid_token" in data and "candidate_grid_token" in data:
-            continue  # Already processed
+            return  # Already processed
 
         trace_ids = np.asarray(data["trace_road_id"], dtype=np.int64)
         candidate_ids = data["candidate_road_id"]  # object array
 
-        trace_tokens = road_to_token[trace_ids]
+        # Use shared mapping for efficiency
+        trace_tokens = _road_to_token_global[trace_ids]
 
         candidate_tokens = np.empty_like(candidate_ids)
         for i, cand_array in enumerate(candidate_ids):
@@ -99,15 +112,41 @@ def augment_cache(cache_dir: Path, road_to_token: np.ndarray) -> None:
             if cand_array.size == 0:
                 candidate_tokens[i] = np.array([], dtype=np.int64)
             else:
-                candidate_tokens[i] = road_to_token[cand_array]
+                candidate_tokens[i] = _road_to_token_global[cand_array]
 
         data["trace_grid_token"] = trace_tokens
         data["candidate_grid_token"] = candidate_tokens
 
         torch.save(data, file_path)
 
-        if idx % 500 == 0 or idx == len(pt_files):
-            print(f"Processed {idx}/{len(pt_files)} files in {cache_dir}")
+    except Exception as e:
+        print(f"Error processing {file_path}: {e}")
+
+
+def augment_cache(cache_dir: Path, road_to_token: np.ndarray) -> None:
+    """Process all cache files using multiprocessing for efficiency."""
+
+    pt_files = sorted(cache_dir.glob("data_*.pt"), key=lambda p: int(p.stem.split("_")[1]))
+    if not pt_files:
+        print(f"No cache files found in {cache_dir}")
+        return
+
+    print(f"🔄 Processing {len(pt_files)} files in {cache_dir} using {min(multiprocessing.cpu_count(), 8)} processes...")
+
+    # Prepare tasks for multiprocessing
+    tasks = [(str(file_path), str(cache_dir)) for file_path in pt_files]
+
+    # Use multiprocessing for efficient parallel processing
+    with multiprocessing.Pool(
+        processes=min(multiprocessing.cpu_count(), 8),  # Limit to 8 processes max
+        initializer=init_worker,
+        initargs=(road_to_token,)
+    ) as pool:
+        # Process files in parallel with progress tracking
+        for _ in tqdm(pool.imap_unordered(process_single_file, tasks), total=len(tasks), desc=f'Precomputing grid tokens'):
+            pass
+
+    print(f"✅ Completed processing {len(pt_files)} files in {cache_dir}")
 
 
 def main() -> None:
