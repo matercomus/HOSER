@@ -204,6 +204,7 @@ class HOSERObjective:
             trial.set_user_attr('final_val_acc', result['final_val_acc'])
             trial.set_user_attr('final_val_mape', result['final_val_mape'])
             trial.set_user_attr('best_val_acc', result['best_val_acc'])
+            trial.set_user_attr('final_lr', result.get('final_lr', 0.0))
 
             return final_metric
 

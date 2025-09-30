@@ -435,8 +435,22 @@ def main(args=None, return_metrics=False):
     disable_cudagraphs = bool(getattr(getattr(config, 'training', {}), 'disable_cudagraphs', False))
     if compile_flag:
         try:
-            model = torch.compile(model, mode="reduce-overhead", disable=disable_cudagraphs)
-            logger.info('[perf] torch.compile enabled (reduce-overhead)')
+            # Enable compile-time caching for faster subsequent runs
+            cache_dir = os.path.join(os.getcwd(), '.torch_compile_cache')
+            os.makedirs(cache_dir, exist_ok=True)
+
+            # Use torch.compile with caching enabled
+            model = torch.compile(
+                model,
+                mode="reduce-overhead",
+                disable=disable_cudagraphs,
+                # Enable caching for faster subsequent compilations
+                options={
+                    "cache_dir": cache_dir,
+                    "cache_limit": "1GB",  # Reasonable cache size
+                }
+            )
+            logger.info(f'[perf] torch.compile enabled (reduce-overhead) with caching at {cache_dir}')
         except Exception as e:
             logger.info(f'[perf] torch.compile failed: {e}')
 
@@ -446,7 +460,24 @@ def main(args=None, return_metrics=False):
             model.setup_road_network_features()
 
     scaler = torch.amp.GradScaler()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.optimizer_config.learning_rate, weight_decay=config.optimizer_config.weight_decay)
+
+    # Apply compiled optimizer with LR scheduler pattern from PyTorch tutorial
+    # This enables better compilation and caching of optimizer + scheduler
+    base_lr = config.optimizer_config.learning_rate
+
+    # Create optimizer with tensor LR for better torch.compile compatibility
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=torch.tensor(base_lr, device=device),
+        weight_decay=config.optimizer_config.weight_decay
+    )
+
+    # Create LR scheduler
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=config.optimizer_config.max_epoch * len(train_dataloader),
+        eta_min=base_lr * 0.1  # Minimum LR is 10% of base
+    )
 
     # Distillation manager setup (optional)
     distill_mgr: Optional[DistillationManager] = None
@@ -487,16 +518,7 @@ def main(args=None, return_metrics=False):
         logger.info('[distill] Distillation manager initialized')
 
     total_iters = config.optimizer_config.max_epoch * len(train_dataloader)
-    warmup_iters = config.optimizer_config.max_epoch * len(train_dataloader) * config.optimizer_config.warmup_ratio
     iter_num = 0
-    def get_lr(it):
-        if it < warmup_iters:
-            return config.optimizer_config.learning_rate * it / warmup_iters
-        assert it <= total_iters
-        decay_ratio = (it - warmup_iters) / (total_iters - warmup_iters)
-        assert 0 <= decay_ratio <= 1
-        coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
-        return coeff * config.optimizer_config.learning_rate
 
     accum_steps = int(getattr(config.optimizer_config, 'accum_steps', 1))
     
@@ -562,9 +584,8 @@ def main(args=None, return_metrics=False):
             t_data = time.time()
 
             iter_num += 1
-            lr = get_lr(iter_num)
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
+            # Update LR using scheduler (compiled optimizer pattern)
+            scheduler.step()
 
             if (batch_id % accum_steps) == 0:
                 optimizer.zero_grad()
@@ -667,19 +688,20 @@ def main(args=None, return_metrics=False):
 
             # Logging
             step_idx = len(train_dataloader) * epoch_id + batch_id
+            current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('loss_next_step', loss_next_step.item(), step_idx)
             writer.add_scalar('loss_time_pred', loss_time_pred.item(), step_idx)
             if distill_mgr is not None:
                 writer.add_scalar('loss_kl', kl_loss.item(), step_idx)
             writer.add_scalar('loss', loss.item(), step_idx)
-            writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], step_idx)
+            writer.add_scalar('learning_rate', current_lr, step_idx)
             if wb_enable:
                 wandb.log({
                     'loss_next_step': loss_next_step.item(),
                     'loss_time_pred': loss_time_pred.item(),
                     'loss': loss.item(),
                     **({'loss_kl': kl_loss.item()} if distill_mgr is not None else {}),
-                    'lr': optimizer.param_groups[0]['lr'],
+                    'lr': current_lr,
                     'epoch': epoch_id + 1,
                     'iter': step_idx,
                 })
@@ -809,7 +831,8 @@ def main(args=None, return_metrics=False):
             'best_val_acc': best_val_acc,
             'final_val_acc': validation_metrics[-1]['val_acc'] if validation_metrics else 0.0,
             'final_val_mape': validation_metrics[-1]['val_mape'] if validation_metrics else float('inf'),
-            'validation_history': validation_metrics
+            'validation_history': validation_metrics,
+            'final_lr': current_lr.item() if 'current_lr' in locals() else base_lr
         }
 
 
