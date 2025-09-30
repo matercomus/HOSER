@@ -67,7 +67,7 @@ dataloader:
 
 # Data-specific knobs
 data:
-  candidate_top_k: 4  # Even more aggressive - 8x original size
+  candidate_top_k: 0  # Disabled for now - causes issues with distillation label remapping
 
 # Training performance knobs
 training:
