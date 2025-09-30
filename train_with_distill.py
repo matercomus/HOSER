@@ -605,6 +605,15 @@ def main(args=None, return_metrics=False):
                 candidate_mask = torch.arange(selected_logits.size(1), dtype=torch.int64, device=device).unsqueeze(0) < selected_candidate_len.unsqueeze(1)
                 masked_selected_logits = selected_logits.masked_fill(~candidate_mask, float('-inf'))
 
+                # Debug check for out-of-bounds labels
+                if torch.any(selected_road_label >= selected_logits.size(1)):
+                    print(f"ERROR: Road labels out of bounds!")
+                    print(f"  selected_logits.shape: {selected_logits.shape}")
+                    print(f"  selected_road_label max: {selected_road_label.max().item()}")
+                    print(f"  selected_road_label: {selected_road_label}")
+                    print(f"  selected_candidate_len: {selected_candidate_len}")
+                    raise ValueError("Road label exceeds logits dimension")
+
                 loss_next_step = F.cross_entropy(masked_selected_logits, selected_road_label)
 
                 selected_time_pred = time_pred[logits_mask][torch.arange(time_pred[logits_mask].size(0)), selected_road_label]
