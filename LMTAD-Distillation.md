@@ -27,9 +27,85 @@ We propose a training‑time distillation approach where a frozen LM‑TAD model
 - Student: HOSER’s `Navigator` outputs logits over next‑road candidates at each step. We align to the teacher by mapping candidate roads to the teacher’s grid tokens and comparing distributions on the candidate subset.
 - Distillation signal: add a KL divergence term between teacher and student next‑step distributions (temperature‑scaled) to HOSER’s original loss.
 
-## Token Alignment (Road → Grid)
+## HOSER's Zone-Based Architecture
 
-LM‑TAD tokens are grid cells produced from the road geometry’s centroid using the same grid config used during LM‑TAD preprocessing. Reuse LM‑TAD’s dataset_config (from the checkpoint) for:
+Before explaining token alignment, it's important to understand HOSER's hierarchical spatial representation using **zones**.
+
+### Zone Partitioning
+
+HOSER partitions the road network into 300 zones using the KaHIP graph partitioner:
+
+1. **Graph construction** (`data/preprocess/partition_road_network.py`):
+   - Builds undirected graph from `roadmap.rel` (road connectivity)
+   - Each road is a node, edges represent physical connections
+   - 40,060 roads → 300 balanced partitions using KaHIP's multilevel k-way algorithm
+
+2. **Zone transition matrix** (`data/preprocess/get_zone_trans_mat.py`):
+   - Computes 300×300 matrix of zone-to-zone transition frequencies from training trajectories
+   - Used to construct zone-level graph with weighted edges
+   - Captures macro-level spatial flow patterns (e.g., from residential zones to commercial zones)
+
+### Zone Embeddings in HOSER
+
+Zones provide a **coarse-grained spatial context** that complements fine-grained road embeddings:
+
+```python
+# Road Network Encoder (models/road_network_encoder.py)
+zone_id_emb: Embedding(300, 128)  # Learnable zone embeddings
+zone_gcn: GCN(...)                # Zone-level graph neural network
+
+# Zone GCN processes zone transition graph
+zone_embedding_after_gnn = zone_gcn(
+    zone_id_emb.weight,           # Initial embeddings
+    zone_edge_index,              # Edges from transition matrix
+    zone_edge_weight              # Transition frequencies
+)
+```
+
+### Zone Usage in Forward Pass
+
+Zones are used at **three critical points**:
+
+1. **Trajectory encoding** (lines 26, 42 in `hoser.py`):
+   ```python
+   zone_embedding = all_zone_embedding_after_gnn[road2zone[trace_road_id]]
+   ```
+   Each road in trajectory gets its zone embedding, providing spatial cluster context.
+
+2. **Road-zone fusion** (lines 165-172 in `trajectory_encoder.py`):
+   ```python
+   spatial_embedding = (
+       road_embedding 
+       + sigmoid(fusion_mlp(concat(road_embedding, zone_embedding))) 
+       * zone_embedding
+   )
+   ```
+   Gated fusion: the model learns how much zone context to incorporate per road.
+
+3. **Destination context** (lines 30, 46 in `hoser.py`):
+   ```python
+   destination_zone_embedding = all_zone_embedding_after_gnn[road2zone[destination_road_id]]
+   ```
+   Navigator receives the destination's zone embedding to guide routing decisions.
+
+### Navigator's Attention Mechanism
+
+The navigator uses zone context when scoring candidates (line 36-43 in `navigator.py`):
+
+```python
+q = concat(trajectory_embedding, destination_zone_embedding)  # Query
+k = concat(candidate_road_embedding, distance, angle)         # Key
+
+logits = attention(q, k)  # Scores each candidate
+```
+
+The destination zone embedding helps the model reason about **which candidates lead toward the goal region**, not just geometrically close roads.
+
+## Token Alignment (Road → Grid) 
+
+**Key difference**: While HOSER uses hierarchical zones (300 semantic clusters), LM-TAD uses a **uniform spatial grid** (51,663 cells).
+
+LM‑TAD tokens are grid cells produced from the road geometry's centroid using the same grid config used during LM‑TAD preprocessing. Reuse LM‑TAD's dataset_config (from the checkpoint) for:
 
 - grid_size (degrees) and optional downsample_factor
 - geographic boundaries (min/max lat/lng) used to compute indices
@@ -45,6 +121,21 @@ g_j = \left\lfloor \frac{\text{lng} - \text{min\_lng}}{\text{grid\_size}} \right
 $$
 
 Precompute a vectorized `road_id -> grid_token` array once at startup to make training‑time mapping O(1).
+
+### Zones vs Grid Tokens: Complementary Representations
+
+| Aspect | HOSER Zones (300) | LM-TAD Grid Tokens (51,663) |
+|--------|-------------------|----------------------------|
+| **Granularity** | Coarse (133 roads/zone avg) | Fine (~0.8 roads/cell avg) |
+| **Semantics** | Graph-based clusters | Uniform spatial grid |
+| **Purpose** | Hierarchical routing context | Precise location encoding |
+| **Learning** | GCN with transition weights | Transformer over sequences |
+| **Distillation role** | HOSER's internal feature | Teacher's vocabulary |
+
+During distillation:
+- HOSER continues to use its learned zone embeddings internally
+- Grid tokens are used **only** to query the LM-TAD teacher
+- The student learns to leverage both: zone context for structure + teacher's grid-based priors
 
 ## Loss Design
 
