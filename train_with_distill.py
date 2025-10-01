@@ -20,6 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 from loguru import logger
 import wandb
 import optuna
+from functools import lru_cache
 
 # Import math (already imported above, but making sure it's available)
 
@@ -210,6 +211,7 @@ def main(
     data_dir: str = '',
     return_metrics: bool = False,
     optuna_trial = None,  # Pass Optuna trial for intermediate reporting
+    profile_max_batches: int = 0,
 ):
     """
     Main training function that can be called programmatically or from CLI.
@@ -235,6 +237,7 @@ def main(
         parser.add_argument('--cuda', type=int, default=0)
         parser.add_argument('--data_dir', type=str, default='', help='Path to HOSER-format data directory (overrides YAML)')
         parser.add_argument('--return_metrics', action='store_true', help='Return validation metrics (for Optuna)')
+        parser.add_argument('--profile_max_batches', type=int, default=0, help='Stop after N training batches (profiling)')
         args = parser.parse_args()
         
         dataset = args.dataset
@@ -243,6 +246,7 @@ def main(
         cuda = args.cuda
         data_dir = args.data_dir
         return_metrics = args.return_metrics
+        profile_max_batches = args.profile_max_batches
 
     set_seed(seed)
     device = f'cuda:{cuda}'
@@ -772,6 +776,10 @@ def main(
                 logger.info("----------------------------------------")
                 profiler_ran = True
 
+            if profile_max_batches and (batch_id + 1) >= profile_max_batches:
+                logger.info(f'[profile] Reached {profile_max_batches} batches, stopping early')
+                break
+
 
             # Logging
             step_idx = len(train_dataloader) * epoch_id + batch_id
@@ -794,6 +802,10 @@ def main(
                 })
 
         logger.info(f'[training+distill] epoch{epoch_id+1}, loss_next_step {loss_next_step.item():.3f}, loss_time_pred {loss_time_pred.item():.3f}' + (f', loss_kl {kl_loss.item():.3f}' if distill_mgr is not None else ''))
+
+        if profile_max_batches:
+            logger.info('[profile] Validation skipped due to profiling limit')
+            break
 
         # -----------------------------
         # Validation (per-epoch)
