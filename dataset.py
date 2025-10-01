@@ -3,6 +3,7 @@ import multiprocessing
 import os
 import json
 from datetime import datetime
+from typing import Iterable, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,7 @@ from utils import get_angle
 
 META_FILENAME = 'metadata.json'
 AGGREGATE_FILENAME = 'aggregate.pt'
+_PACK_META: dict = {}
 
 
 def init_shared_variables(reachable_road_id_dict, geo, road_center_gps):
@@ -96,6 +98,116 @@ def process_and_save_row(args):
         'trace_len': trace_len,
         'max_candidate_len': max_candidate_len,
     }
+
+
+def _chunk_list(lst: List[str], chunk_size: int) -> Iterable[List[str]]:
+    for i in range(0, len(lst), chunk_size):
+        yield lst[i:i + chunk_size]
+
+
+def _scan_sample_for_metadata(path: str) -> Tuple[int, int, bool, bool]:
+    sample = torch.load(path, weights_only=False)
+    trace_len = int(sample['trace_len'])
+    cand_len_arr = sample['candidate_len']
+    max_cand = int(cand_len_arr.max()) if cand_len_arr.size > 0 else 0
+    has_trace = sample.get('trace_grid_token') is not None
+    has_candidate = sample.get('candidate_grid_token') is not None
+    return trace_len, max_cand, has_trace, has_candidate
+
+
+def _init_pack_worker(max_trace_len: int, max_candidate_len: int, has_trace: bool, has_candidate: bool):
+    _PACK_META['max_trace_len'] = max_trace_len
+    _PACK_META['max_candidate_len'] = max_candidate_len
+    _PACK_META['has_trace_grid_token'] = has_trace
+    _PACK_META['has_candidate_grid_token'] = has_candidate
+
+
+def _pack_chunk(paths: List[str]) -> dict:
+    T = _PACK_META['max_trace_len']
+    C = max(_PACK_META['max_candidate_len'], 1)
+    has_trace = _PACK_META['has_trace_grid_token']
+    has_candidate = _PACK_META['has_candidate_grid_token']
+
+    n = len(paths)
+    trace_road_id = torch.zeros((n, T), dtype=torch.long)
+    temporal_info = torch.zeros((n, T), dtype=torch.float32)
+    trace_distance_mat = torch.zeros((n, T, T), dtype=torch.float32)
+    trace_time_interval_mat = torch.zeros((n, T, T), dtype=torch.float32)
+    trace_len_tensor = torch.zeros(n, dtype=torch.long)
+    destination_road_id = torch.zeros(n, dtype=torch.long)
+    candidate_road_id = torch.zeros((n, T, C), dtype=torch.long)
+    metric_dis = torch.zeros((n, T, C), dtype=torch.float32)
+    metric_angle = torch.zeros((n, T, C), dtype=torch.float32)
+    candidate_len_tensor = torch.zeros((n, T), dtype=torch.long)
+    road_label = torch.full((n, T), -100, dtype=torch.long)
+    timestamp_label = torch.zeros((n, T), dtype=torch.float32)
+
+    trace_grid_token_tensor = torch.zeros((n, T), dtype=torch.long) if has_trace else None
+    candidate_grid_token_tensor = torch.zeros((n, T, C), dtype=torch.long) if has_candidate else None
+
+    for idx, path in enumerate(paths):
+        sample = torch.load(path, weights_only=False)
+        trace_len = int(sample['trace_len'])
+        trace_len_tensor[idx] = trace_len
+        destination_road_id[idx] = int(sample['destination_road_id'])
+
+        trace_road_id[idx, :trace_len] = torch.as_tensor(sample['trace_road_id'], dtype=torch.long)
+        temporal_info[idx, :trace_len] = torch.as_tensor(sample['temporal_info'], dtype=torch.float32)
+        trace_distance_mat[idx, :trace_len, :trace_len] = torch.as_tensor(sample['trace_distance_mat'], dtype=torch.float32)
+        trace_time_interval_mat[idx, :trace_len, :trace_len] = torch.as_tensor(sample['trace_time_interval_mat'], dtype=torch.float32)
+        road_label[idx, :trace_len] = torch.as_tensor(sample['road_label'], dtype=torch.long)
+        timestamp_label[idx, :trace_len] = torch.as_tensor(sample['timestamp_label'], dtype=torch.float32)
+
+        cand_len_arr = sample['candidate_len']
+        if cand_len_arr.size > 0:
+            candidate_len_tensor[idx, :trace_len] = torch.as_tensor(cand_len_arr, dtype=torch.long)
+
+        cand_ids = sample['candidate_road_id']
+        dis_vals = sample['metric_dis']
+        angle_vals = sample['metric_angle']
+        for step in range(trace_len):
+            cand = cand_ids[step]
+            cand_len = len(cand)
+            if cand_len == 0:
+                continue
+            candidate_road_id[idx, step, :cand_len] = torch.as_tensor(cand, dtype=torch.long)
+            metric_dis[idx, step, :cand_len] = torch.as_tensor(dis_vals[step], dtype=torch.float32)
+            metric_angle[idx, step, :cand_len] = torch.as_tensor(angle_vals[step], dtype=torch.float32)
+
+        if trace_grid_token_tensor is not None:
+            trace_grid = sample.get('trace_grid_token')
+            if trace_grid is not None:
+                trace_grid_token_tensor[idx, :trace_len] = torch.as_tensor(trace_grid, dtype=torch.long)
+
+        if candidate_grid_token_tensor is not None:
+            candidate_grid = sample.get('candidate_grid_token')
+            if candidate_grid is not None:
+                for step in range(trace_len):
+                    cand_grid = candidate_grid[step]
+                    cand_len = len(cand_grid)
+                    if cand_len == 0:
+                        continue
+                    candidate_grid_token_tensor[idx, step, :cand_len] = torch.as_tensor(cand_grid, dtype=torch.long)
+
+    result = {
+        'trace_road_id': trace_road_id,
+        'temporal_info': temporal_info,
+        'trace_distance_mat': trace_distance_mat,
+        'trace_time_interval_mat': trace_time_interval_mat,
+        'trace_len': trace_len_tensor,
+        'destination_road_id': destination_road_id,
+        'candidate_road_id': candidate_road_id,
+        'metric_dis': metric_dis,
+        'metric_angle': metric_angle,
+        'candidate_len': candidate_len_tensor,
+        'road_label': road_label,
+        'timestamp_label': timestamp_label,
+    }
+    if trace_grid_token_tensor is not None:
+        result['trace_grid_token'] = trace_grid_token_tensor
+    if candidate_grid_token_tensor is not None:
+        result['candidate_grid_token'] = candidate_grid_token_tensor
+    return result
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -199,17 +311,16 @@ class Dataset(torch.utils.data.Dataset):
             max_candidate_len = 0
             has_trace_grid_token = False
             has_candidate_grid_token = False
-            for path in tqdm(file_paths, desc='Scanning cached samples'):
-                sample = torch.load(path, weights_only=False)
-                trace_len = int(sample['trace_len'])
-                max_trace_len = max(max_trace_len, trace_len)
-                cand_len_arr = sample['candidate_len']
-                if cand_len_arr.size > 0:
-                    max_candidate_len = max(max_candidate_len, int(cand_len_arr.max()))
-                if sample.get('trace_grid_token') is not None:
-                    has_trace_grid_token = True
-                if sample.get('candidate_grid_token') is not None:
-                    has_candidate_grid_token = True
+            with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+                for trace_len, cand_len, has_trace, has_candidate in tqdm(
+                    pool.imap_unordered(_scan_sample_for_metadata, file_paths, chunksize=512),
+                    total=len(file_paths),
+                    desc='Scanning cached samples',
+                ):
+                    max_trace_len = max(max_trace_len, trace_len)
+                    max_candidate_len = max(max_candidate_len, cand_len)
+                    has_trace_grid_token = has_trace_grid_token or has_trace
+                    has_candidate_grid_token = has_candidate_grid_token or has_candidate
             metadata = {
                 'max_trace_len': int(max_trace_len),
                 'max_candidate_len': int(max_candidate_len),
@@ -239,49 +350,42 @@ class Dataset(torch.utils.data.Dataset):
         self.trace_grid_token = torch.zeros((N, T), dtype=torch.long) if has_trace_grid_token else None
         self.candidate_grid_token = torch.zeros((N, T, C), dtype=torch.long) if has_candidate_grid_token else None
 
-        for idx, path in enumerate(tqdm(file_paths, desc='Packing cached tensors')):
-            sample = torch.load(path, weights_only=False)
-            trace_len = int(sample['trace_len'])
-            self.trace_len[idx] = trace_len
-            self.destination_road_id[idx] = int(sample['destination_road_id'])
+        chunk_size = 2048
+        tensors = []
+        with multiprocessing.Pool(
+            processes=multiprocessing.cpu_count(),
+            initializer=_init_pack_worker,
+            initargs=(max_trace_len, max_candidate_len, has_trace_grid_token, has_candidate_grid_token),
+        ) as pool:
+            for packed in tqdm(
+                pool.imap_unordered(_pack_chunk, list(_chunk_list(file_paths, chunk_size))),
+                total=int(np.ceil(len(file_paths) / chunk_size)),
+                desc='Packing cached tensors',
+            ):
+                tensors.append(packed)
 
-            self.trace_road_id[idx, :trace_len] = torch.as_tensor(sample['trace_road_id'], dtype=torch.long)
-            self.temporal_info[idx, :trace_len] = torch.as_tensor(sample['temporal_info'], dtype=torch.float32)
-            self.trace_distance_mat[idx, :trace_len, :trace_len] = torch.as_tensor(sample['trace_distance_mat'], dtype=torch.float32)
-            self.trace_time_interval_mat[idx, :trace_len, :trace_len] = torch.as_tensor(sample['trace_time_interval_mat'], dtype=torch.float32)
-            self.road_label[idx, :trace_len] = torch.as_tensor(sample['road_label'], dtype=torch.long)
-            self.timestamp_label[idx, :trace_len] = torch.as_tensor(sample['timestamp_label'], dtype=torch.float32)
+        self.trace_road_id = torch.cat([t['trace_road_id'] for t in tensors], dim=0)
+        self.temporal_info = torch.cat([t['temporal_info'] for t in tensors], dim=0)
+        self.trace_distance_mat = torch.cat([t['trace_distance_mat'] for t in tensors], dim=0)
+        self.trace_time_interval_mat = torch.cat([t['trace_time_interval_mat'] for t in tensors], dim=0)
+        self.trace_len = torch.cat([t['trace_len'] for t in tensors], dim=0)
+        self.destination_road_id = torch.cat([t['destination_road_id'] for t in tensors], dim=0)
+        self.candidate_road_id = torch.cat([t['candidate_road_id'] for t in tensors], dim=0)
+        self.metric_dis = torch.cat([t['metric_dis'] for t in tensors], dim=0)
+        self.metric_angle = torch.cat([t['metric_angle'] for t in tensors], dim=0)
+        self.candidate_len = torch.cat([t['candidate_len'] for t in tensors], dim=0)
+        self.road_label = torch.cat([t['road_label'] for t in tensors], dim=0)
+        self.timestamp_label = torch.cat([t['timestamp_label'] for t in tensors], dim=0)
 
-            cand_len_arr = sample['candidate_len']
-            if cand_len_arr.size > 0:
-                self.candidate_len[idx, :trace_len] = torch.as_tensor(cand_len_arr, dtype=torch.long)
+        if has_trace_grid_token:
+            self.trace_grid_token = torch.cat([t['trace_grid_token'] for t in tensors], dim=0)
+        else:
+            self.trace_grid_token = None
 
-            cand_ids = sample['candidate_road_id']
-            dis_vals = sample['metric_dis']
-            angle_vals = sample['metric_angle']
-            for step in range(trace_len):
-                cand = cand_ids[step]
-                cand_len = len(cand)
-                if cand_len == 0:
-                    continue
-                self.candidate_road_id[idx, step, :cand_len] = torch.as_tensor(cand, dtype=torch.long)
-                self.metric_dis[idx, step, :cand_len] = torch.as_tensor(dis_vals[step], dtype=torch.float32)
-                self.metric_angle[idx, step, :cand_len] = torch.as_tensor(angle_vals[step], dtype=torch.float32)
-
-            if self.trace_grid_token is not None:
-                trace_grid = sample.get('trace_grid_token')
-                if trace_grid is not None:
-                    self.trace_grid_token[idx, :trace_len] = torch.as_tensor(trace_grid, dtype=torch.long)
-
-            if self.candidate_grid_token is not None:
-                candidate_grid = sample.get('candidate_grid_token')
-                if candidate_grid is not None:
-                    for step in range(trace_len):
-                        cand_grid = candidate_grid[step]
-                        cand_len = len(cand_grid)
-                        if cand_len == 0:
-                            continue
-                        self.candidate_grid_token[idx, step, :cand_len] = torch.as_tensor(cand_grid, dtype=torch.long)
+        if has_candidate_grid_token:
+            self.candidate_grid_token = torch.cat([t['candidate_grid_token'] for t in tensors], dim=0)
+        else:
+            self.candidate_grid_token = None
 
         self.max_trace_len = T
         self.max_candidate_len = C
