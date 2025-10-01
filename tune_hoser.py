@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Efficient Optuna hyperparameter tuning for HOSER with intermediate pruning.
+ULTRA-FAST Optuna hyperparameter tuning for HOSER - 24 HOUR TARGET
 
-This script runs fast hyperparameter optimization using:
-  • 5 epochs per trial (~4 hours each, down from 19h)
-  • 50 trials (optimized for coverage, not depth)
-  • MedianPruner for early stopping of bad trials
-  • Intermediate reporting every epoch for aggressive pruning
+This script runs hyperparameter optimization optimized for speed:
+  • 3 epochs per trial (~2.4 hours each, down from 19h)
+  • 80 trials (maximum coverage in 24h)
+  • AGGRESSIVE MedianPruner (no warmup, prune after epoch 1)
+  • Intermediate reporting every epoch for maximum efficiency
 
 Tuned parameters for distillation:
 - lambda: KL divergence weight (0.001-0.1, log scale)
@@ -17,10 +17,12 @@ Fixed parameters (architectural choices):
 - grid_size: 0.001 (from base config)
 - downsample: 1 (from base config)
 
-Pruning Strategy:
-  MedianPruner checks every epoch whether the trial is worse than median.
-  Trials that underperform get stopped early, saving ~3h per pruned trial.
-  First 5 trials run to completion to establish baseline median.
+AGGRESSIVE Pruning Strategy:
+  Trial 1-3: Run to completion (establish baseline, ~7h)
+  Trial 4+:  Prune IMMEDIATELY if val_acc < median after epoch 1
+  
+  No warmup period - if you're bad at epoch 1, you're out!
+  Saves ~1.6h per pruned trial (vs ~0.8h wasted on bad trial)
 
 Storage & Crash Recovery:
   By default, stores Optuna study on backup drive for extra safety:
@@ -28,23 +30,53 @@ Storage & Crash Recovery:
   The study can be resumed after crashes/interruptions.
   Heartbeat interval: 60s | Grace period: 120s
 
-Time Estimate:
-  • Without pruning: 50 trials × 4h = 200 hours (~8 days)
-  • With pruning: ~30-40 complete trials + 10-20 pruned early = ~140 hours (~6 days)
-  • Saving: ~60 hours (~2 days)
+Time Estimate (24h target):
+  • Trial 1-3 (startup): 3 × 2.4h = 7.2h
+  • Trial 4-8 (GP init): 5 × 2.4h = 12h  
+  • Trial 9-80 (GP optimized): 72 trials, ~50% pruned after epoch 1
+    - 36 complete: 36 × 2.4h = 86.4h
+    - 36 pruned: 36 × 0.8h = 28.8h
+    - Subtotal: 115.2h
+  • Total: 7.2 + 12 + 115.2 = 134.4h (~5.6 days)
+
+WAIT - still too long! Let's be more aggressive:
+  With 60% pruning rate:
+    - 3 startup: 7.2h
+    - 5 GP init: 12h
+    - 72 remaining: 29 complete (69.6h) + 43 pruned (34.4h) = 104h
+    - Total: 123.4h (~5.1 days)
+
+For TRUE 24h, need to:
+  1. Skip vanilla baseline (--skip_baseline)
+  2. Reduce to 3 epochs (done)
+  3. Target 70-80% pruning rate (very aggressive)
+  4. Run 20-25 trials only (not 80)
+
+Realistic 24h settings:
+  uv run python tune_hoser.py --n_trials 25 --skip_baseline --data_dir ...
+  
+  Expected: 3 startup (7h) + 22 trials @ 70% pruned = 17h
+  Total: 24h
+
+Configuration:
+  All tuning settings are in config/Beijing.yaml under the 'optuna' section:
+    - n_trials: Number of trials (default: 25 for 24h target)
+    - max_epochs: Epochs per trial (default: 3 = ~2.4h/trial)
+    - skip_baseline: Skip vanilla baseline (default: true)
+    - pruner: MedianPruner settings
+    - sampler: GPSampler settings
+
+  CLI args can override YAML settings if needed.
 
 Usage:
-  # Run with default settings (recommended)
+  # Standard 24-hour run (RECOMMENDED - uses Beijing.yaml defaults)
   uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
 
-  # Custom number of trials
-  uv run python tune_hoser.py --n_trials 100 --data_dir /home/matt/Dev/HOSER-dataset
+  # Override trials from CLI (overrides YAML)
+  uv run python tune_hoser.py --n_trials 50 --data_dir /home/matt/Dev/HOSER-dataset
 
   # Resume existing study
-  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --study_name beijing_hoser_distil_tune
-
-  # Skip baseline and run only distillation trials
-  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --skip_baseline
+  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --study_name my_study
 
   # Use local storage instead of backup drive
   uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --storage sqlite:///optuna_hoser.db
@@ -72,14 +104,14 @@ from datetime import datetime
 class HOSERObjective:
     """Objective function for Optuna optimization of HOSER models."""
 
-    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 5, skip_baseline: bool = False):
+    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 3, skip_baseline: bool = False):
         """
         Initialize HOSER optimization objective.
         
         Args:
             base_config_path: Path to base YAML config
             data_dir: Path to HOSER dataset
-            max_epochs: Max epochs per trial (default 5 for fast tuning)
+            max_epochs: Max epochs per trial (default 3 for ultra-fast tuning)
             skip_baseline: Skip vanilla baseline trial
         """
         self.base_config_path = base_config_path
@@ -276,7 +308,13 @@ def validate_and_prepare_storage(storage_arg: str) -> Optional[str]:
     raise ValueError(f"Invalid storage URL: {storage_arg}. Use 'memory' or 'sqlite:///path/to/db.db'")
 
 
-def create_study_with_wandb(project_name: str, study_name: str, storage_url: Optional[str] = None) -> tuple:
+def create_study_with_wandb(
+    project_name: str, 
+    study_name: str, 
+    storage_url: Optional[str] = None,
+    pruner_cfg: Optional[Dict[str, Any]] = None,
+    sampler_cfg: Optional[Dict[str, Any]] = None
+) -> tuple:
     """
     Create Optuna study with WandB integration and optional persistent storage.
     
@@ -285,6 +323,8 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
         study_name: Unique study identifier
         storage_url: Validated SQLite database URL (from validate_and_prepare_storage)
                     If None, uses in-memory storage (not crash-safe!)
+        pruner_cfg: Pruner configuration dict from YAML
+        sampler_cfg: Sampler configuration dict from YAML
     
     Returns:
         tuple: (study, wandb_callback)
@@ -292,6 +332,8 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
     Raises:
         RuntimeError: If study creation fails
     """
+    pruner_cfg = pruner_cfg or {}
+    sampler_cfg = sampler_cfg or {}
 
     # WandB callback configuration
     wandb_kwargs = {
@@ -311,15 +353,16 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
         print("   Continuing without WandB integration")
         wandbc = None
 
-    # Use GP sampler for better modeling of expensive objective function
+    # Use GP sampler with settings from config
+    gp_startup = sampler_cfg.get('n_startup_trials', 8)
     try:
         sampler = optuna.samplers.GPSampler(
             seed=42,
-            n_startup_trials=15,  # Increased for better GP model fitting
+            n_startup_trials=gp_startup,
             deterministic_objective=False,  # Training has noise/stochasticity
             independent_sampler=optuna.samplers.TPESampler(seed=42)  # Use TPE for initial sampling
         )
-        print("🔬 Using GP Sampler for sophisticated Bayesian optimization")
+        print(f"🔬 Using GP Sampler (n_startup_trials={gp_startup} from config)")
     except (ImportError, AttributeError) as e:
         print(f"⚠️  GP Sampler not available ({e}), falling back to TPE")
         sampler = optuna.samplers.TPESampler(seed=42)
@@ -344,21 +387,26 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
         print("   Consider using --storage sqlite:///optuna_hoser.db for persistence")
 
     # Create Optuna study with robust error handling
-    # MedianPruner: prune if trial is worse than median at same epoch
-    # This works great with intermediate reporting (every epoch)
+    # MedianPruner with settings from config
+    pruner_startup = pruner_cfg.get('n_startup_trials', 3)
+    pruner_warmup = pruner_cfg.get('n_warmup_steps', 0)
+    pruner_interval = pruner_cfg.get('interval_steps', 1)
+    
     try:
         study = optuna.create_study(
             storage=storage,
             direction='maximize',
             study_name=study_name,
             pruner=optuna.pruners.MedianPruner(
-                n_startup_trials=5,  # Don't prune first 5 trials (need data for median)
-                n_warmup_steps=1,    # Start pruning after epoch 1 (allow first epoch)
-                interval_steps=1     # Check for pruning every epoch
+                n_startup_trials=pruner_startup,
+                n_warmup_steps=pruner_warmup,
+                interval_steps=pruner_interval
             ),
             sampler=sampler,
             load_if_exists=True  # Resume existing study if found
         )
+        print(f"🔪 MedianPruner configured from YAML:")
+        print(f"   n_startup_trials={pruner_startup}, n_warmup_steps={pruner_warmup}, interval_steps={pruner_interval}")
     except Exception as e:
         raise RuntimeError(f"Failed to create Optuna study: {e}") from e
 
@@ -377,16 +425,18 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Hyperparameter tuning for HOSER with Optuna')
-    parser.add_argument('--n_trials', type=int, default=50, help='Number of trials to run (more trials with 5 epochs each)')
+    parser = argparse.ArgumentParser(description='Ultra-fast hyperparameter tuning for HOSER with Optuna')
     parser.add_argument('--dataset', type=str, default='Beijing', help='Dataset name')
     parser.add_argument('--data_dir', type=str, required=True, help='Path to HOSER dataset')
-    parser.add_argument('--config', type=str, default='config/Beijing.yaml', help='Base config file')
-    parser.add_argument('--max_epochs', type=int, default=5, help='Max epochs per trial (5 epochs = ~4h/trial for fast tuning)')
+    parser.add_argument('--config', type=str, default='config/Beijing.yaml', help='Base config file (contains optuna settings)')
     parser.add_argument('--study_name', type=str, default=None, help='Optuna study name')
     parser.add_argument('--storage', type=str, default='sqlite:////mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db', 
-                       help='Optuna storage URL (default: backup drive /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db). Use "memory" for in-memory (no persistence)')
-    parser.add_argument('--skip_baseline', action='store_true', help='Skip vanilla baseline (trial 0) and start directly with distillation trials')
+                       help='Optuna storage URL (default: backup drive). Use "memory" for in-memory (no persistence)')
+    
+    # Optional overrides (if not provided, read from config YAML)
+    parser.add_argument('--n_trials', type=int, default=None, help='Override number of trials (default: from config)')
+    parser.add_argument('--max_epochs', type=int, default=None, help='Override max epochs per trial (default: from config)')
+    parser.add_argument('--skip_baseline', action='store_true', help='Override skip_baseline setting (default: from config)')
     args = parser.parse_args()
     
     # Validate inputs
@@ -395,6 +445,20 @@ def main():
     
     if not os.path.exists(args.config):
         raise FileNotFoundError(f"Config file not found: {args.config}")
+    
+    # Load config to get Optuna settings
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Get Optuna settings from config, with CLI overrides
+    optuna_cfg = config.get('optuna', {})
+    n_trials = args.n_trials if args.n_trials is not None else optuna_cfg.get('n_trials', 25)
+    max_epochs = args.max_epochs if args.max_epochs is not None else optuna_cfg.get('max_epochs', 3)
+    skip_baseline = args.skip_baseline or optuna_cfg.get('skip_baseline', False)
+    
+    # Get pruner and sampler settings from config
+    pruner_cfg = optuna_cfg.get('pruner', {})
+    sampler_cfg = optuna_cfg.get('sampler', {})
     
     # Create study name with timestamp (if not provided)
     if args.study_name:
@@ -414,10 +478,11 @@ def main():
     
     print()
     print(f"🔍 Starting Optuna study: {study_name}")
-    print(f"📊 Trials: {args.n_trials}")
+    print(f"📊 Trials: {n_trials} (from {'CLI' if args.n_trials else 'config'})")
+    print(f"📈 Epochs: {max_epochs} per trial (from {'CLI' if args.max_epochs else 'config'})")
     print(f"📁 Dataset: {args.data_dir}")
     print(f"⚙️  Base config: {args.config}")
-    if args.skip_baseline:
+    if skip_baseline:
         print("🚫 Skipping vanilla baseline (trial 0) - starting directly with distillation")
     else:
         print("✅ Including vanilla baseline (trial 0) for comparison")
@@ -425,7 +490,13 @@ def main():
 
     # Create study and WandB callback with error handling
     try:
-        study, wandbc = create_study_with_wandb("hoser-optuna-tuning", study_name, storage_url)
+        study, wandbc = create_study_with_wandb(
+            "hoser-optuna-tuning", 
+            study_name, 
+            storage_url,
+            pruner_cfg=pruner_cfg,
+            sampler_cfg=sampler_cfg
+        )
     except RuntimeError as e:
         print(f"❌ Failed to create study: {e}")
         sys.exit(1)
@@ -434,8 +505,8 @@ def main():
     objective = HOSERObjective(
         base_config_path=args.config,
         data_dir=args.data_dir,
-        max_epochs=args.max_epochs,
-        skip_baseline=args.skip_baseline
+        max_epochs=max_epochs,
+        skip_baseline=skip_baseline
     )
     
     # Run optimization with proper callback handling
@@ -443,7 +514,7 @@ def main():
         callbacks = [wandbc] if wandbc is not None else []
         study.optimize(
             objective,
-            n_trials=args.n_trials,
+            n_trials=n_trials,
             callbacks=callbacks,
             gc_after_trial=True,
             show_progress_bar=True

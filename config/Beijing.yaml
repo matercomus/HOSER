@@ -83,3 +83,20 @@ wandb:
   project: hoser-distill
   run_name: ''
   tags: [beijing, lmtad, distillation]
+
+# Optuna hyperparameter tuning configuration
+optuna:
+  n_trials: 25  # 24h target: 3 startup + 22 trials @ 70% pruning
+  max_epochs: 3  # 3 epochs = ~2.4h per trial (vs 19h for 25 epochs)
+  skip_baseline: true  # Skip vanilla baseline for faster tuning
+  
+  # Pruner configuration (MedianPruner for aggressive early stopping)
+  pruner:
+    n_startup_trials: 3  # First 3 trials establish baseline (~7h)
+    n_warmup_steps: 0    # NO warmup - prune immediately after epoch 1
+    interval_steps: 1    # Check every epoch
+  
+  # Sampler configuration (GPSampler for Bayesian optimization)
+  sampler:
+    n_startup_trials: 8  # GP model starts after 8 trials (~19h)
+
