@@ -1,3 +1,4 @@
+/mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil
 #!/usr/bin/env python3
 """
 Optuna hyperparameter tuning for HOSER with WandB integration and crash recovery.
@@ -15,12 +16,13 @@ Fixed parameters (architectural choices):
 - downsample: 1 (from base config)
 
 Storage & Crash Recovery:
-  By default, uses SQLite storage (optuna_hoser.db) for crash recovery.
+  By default, stores Optuna study on backup drive for extra safety:
+    /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db
   The study can be resumed after crashes/interruptions by running the same command.
   Heartbeat interval: 60s | Grace period: 120s
 
 Usage:
-  # Run with baseline and persistent storage (recommended)
+  # Run with baseline and persistent storage on backup drive (recommended)
   uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset
 
   # Resume existing study (same study_name required)
@@ -28,6 +30,9 @@ Usage:
 
   # Skip baseline and run only distillation trials
   uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --skip_baseline
+
+  # Use local storage instead of backup drive
+  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --storage sqlite:///optuna_hoser.db
 
   # Use in-memory storage (no crash recovery, not recommended for long runs)
   uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --storage memory
@@ -402,8 +407,8 @@ def main():
     parser.add_argument('--config', type=str, default='config/Beijing.yaml', help='Base config file')
     parser.add_argument('--max_epochs', type=int, default=25, help='Max epochs per trial')
     parser.add_argument('--study_name', type=str, default=None, help='Optuna study name')
-    parser.add_argument('--storage', type=str, default='sqlite:///optuna_hoser.db', 
-                       help='Optuna storage URL (default: sqlite:///optuna_hoser.db). Use "memory" for in-memory (no persistence)')
+    parser.add_argument('--storage', type=str, default='sqlite:////mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db', 
+                       help='Optuna storage URL (default: backup drive /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db). Use "memory" for in-memory (no persistence)')
     parser.add_argument('--skip_baseline', action='store_true', help='Skip vanilla baseline (trial 0) and start directly with distillation trials')
     args = parser.parse_args()
     
