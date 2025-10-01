@@ -1,25 +1,39 @@
 #!/usr/bin/env python3
 """
-Optuna hyperparameter tuning for HOSER with WandB integration.
+Optuna hyperparameter tuning for HOSER with WandB integration and crash recovery.
 
 This script runs hyperparameter optimization for both vanilla HOSER and
 distilled HOSER variants, logging all trials to WandB for comprehensive tracking.
 
 Tuned parameters for distillation:
 - lambda: KL divergence weight (0.001-0.1, log scale)
-- temperature: Softmax temperature (1.0-4.0)
-- window: Context window size (16, 24, 32, 48, 64)
+- temperature: Softmax temperature (1.0-5.0)
+- window: Context window size (2, 4)
 
 Fixed parameters (architectural choices):
 - grid_size: 0.001 (from base config)
 - downsample: 1 (from base config)
 
+Storage & Crash Recovery:
+  By default, uses SQLite storage (optuna_hoser.db) for crash recovery.
+  The study can be resumed after crashes/interruptions by running the same command.
+  Heartbeat interval: 60s | Grace period: 120s
+
 Usage:
-  # Run with baseline (default behavior)
-  uv run python tune_hoser.py --n_trials 25 --dataset Beijing --data_dir /home/matt/Dev/HOSER-dataset
+  # Run with baseline and persistent storage (recommended)
+  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset
+
+  # Resume existing study (same study_name required)
+  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --study_name beijing_hoser_distil_tune
 
   # Skip baseline and run only distillation trials
-  uv run python tune_hoser.py --n_trials 25 --dataset Beijing --data_dir /home/matt/Dev/HOSER-dataset --skip_baseline
+  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --skip_baseline
+
+  # Use in-memory storage (no crash recovery, not recommended for long runs)
+  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --storage memory
+
+  # Use custom SQLite database location
+  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --storage sqlite:////abs/path/to/study.db
 """
 
 import os
@@ -32,7 +46,8 @@ import math
 import torch
 import optuna
 from optuna.integration.wandb import WeightsAndBiasesCallback
-from typing import Dict, Any
+from optuna.storages import RDBStorage, RetryFailedTrialCallback
+from typing import Dict, Any, Optional
 import yaml
 import json
 from datetime import datetime
@@ -233,8 +248,19 @@ class HOSERObjective:
                 shutil.rmtree(dir_path, ignore_errors=True)
 
 
-def create_study_with_wandb(project_name: str, study_name: str) -> tuple:
-    """Create Optuna study with WandB integration."""
+def create_study_with_wandb(project_name: str, study_name: str, storage_url: Optional[str] = None) -> tuple:
+    """
+    Create Optuna study with WandB integration and optional persistent storage.
+    
+    Args:
+        project_name: WandB project name
+        study_name: Unique study identifier
+        storage_url: SQLite database URL (e.g., 'sqlite:///optuna_hoser.db')
+                    If None, uses in-memory storage (not crash-safe!)
+    
+    Returns:
+        tuple: (study, wandb_callback)
+    """
 
     # WandB callback configuration
     wandb_kwargs = {
@@ -257,7 +283,7 @@ def create_study_with_wandb(project_name: str, study_name: str) -> tuple:
     try:
         sampler = optuna.samplers.GPSampler(
             seed=42,
-            n_startup_trials=12,  # More initial random trials for GP fitting
+            n_startup_trials=15,  # Increased for better GP model fitting
             deterministic_objective=False,  # Training has noise/stochasticity
             independent_sampler=optuna.samplers.TPESampler(seed=42)  # Use TPE for initial sampling
         )
@@ -266,12 +292,29 @@ def create_study_with_wandb(project_name: str, study_name: str) -> tuple:
         print(f"⚠️  GP Sampler not available ({e}), falling back to TPE")
         sampler = optuna.samplers.TPESampler(seed=42)
 
+    # Configure storage with crash recovery
+    storage = None
+    if storage_url:
+        storage = RDBStorage(
+            url=storage_url,
+            heartbeat_interval=60,  # Update heartbeat every 60 seconds
+            grace_period=120,  # Allow 120 seconds before marking trial as failed
+            failed_trial_callback=RetryFailedTrialCallback(max_retry=0)  # Don't auto-retry failed trials
+        )
+        print(f"💾 Using persistent storage: {storage_url}")
+        print("   Heartbeat interval: 60s | Grace period: 120s")
+        print("   ✅ Study will survive crashes and can be resumed")
+    else:
+        print("⚠️  WARNING: Using in-memory storage (no crash recovery)")
+        print("   Consider using --storage sqlite:///optuna_hoser.db for persistence")
+
     # Create Optuna study with GP-optimized pruning
     # GP sampler benefits from:
     # - More startup trials to build good surrogate model
     # - Less aggressive pruning since GP handles uncertainty well
     # - Hyperband pruner can work well with GP for early stopping
     study = optuna.create_study(
+        storage=storage,
         direction='maximize',
         study_name=study_name,
         pruner=optuna.pruners.HyperbandPruner(
@@ -279,8 +322,17 @@ def create_study_with_wandb(project_name: str, study_name: str) -> tuple:
             max_resource=25,
             reduction_factor=3
         ),
-        sampler=sampler
+        sampler=sampler,
+        load_if_exists=True  # Resume existing study if found
     )
+
+    # Log study info
+    if storage:
+        existing_trials = len(study.trials)
+        if existing_trials > 0:
+            print(f"📊 Resuming existing study with {existing_trials} completed trials")
+        else:
+            print("📊 Starting new study")
 
     return study, wandbc
 
@@ -293,6 +345,8 @@ def main():
     parser.add_argument('--config', type=str, default='config/Beijing.yaml', help='Base config file')
     parser.add_argument('--max_epochs', type=int, default=25, help='Max epochs per trial')
     parser.add_argument('--study_name', type=str, default=None, help='Optuna study name')
+    parser.add_argument('--storage', type=str, default='sqlite:///optuna_hoser.db', 
+                       help='Optuna storage URL (default: sqlite:///optuna_hoser.db). Use "memory" for in-memory (no persistence)')
     parser.add_argument('--skip_baseline', action='store_true', help='Skip vanilla baseline (trial 0) and start directly with distillation trials')
     args = parser.parse_args()
     
@@ -307,6 +361,9 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     study_name = args.study_name or f"hoser_tuning_{timestamp}"
     
+    # Handle storage URL
+    storage_url = None if args.storage.lower() == 'memory' else args.storage
+    
     print(f"🔍 Starting Optuna study: {study_name}")
     print(f"📊 Trials: {args.n_trials}")
     print(f"📁 Dataset: {args.data_dir}")
@@ -317,7 +374,7 @@ def main():
         print("✅ Including vanilla baseline (trial 0) for comparison")
 
     # Create study and WandB callback
-    study, wandbc = create_study_with_wandb("hoser-optuna-tuning", study_name)
+    study, wandbc = create_study_with_wandb("hoser-optuna-tuning", study_name, storage_url)
     
     # Create objective function
     objective = HOSERObjective(
