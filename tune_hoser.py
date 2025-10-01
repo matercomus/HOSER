@@ -248,6 +248,54 @@ class HOSERObjective:
                 shutil.rmtree(dir_path, ignore_errors=True)
 
 
+def validate_and_prepare_storage(storage_arg: str) -> Optional[str]:
+    """
+    Validate and prepare storage URL, ensuring paths are properly handled.
+    
+    Args:
+        storage_arg: Storage argument from CLI (can be 'memory' or SQLite URL)
+    
+    Returns:
+        Validated storage URL or None for in-memory
+        
+    Raises:
+        ValueError: If storage URL is invalid
+    """
+    if storage_arg.lower() == 'memory':
+        return None
+    
+    # Handle SQLite URLs
+    if storage_arg.startswith('sqlite:///'):
+        # Extract path after sqlite:///
+        db_path = storage_arg[10:]  # Remove 'sqlite:///'
+        
+        if not db_path:
+            raise ValueError("SQLite database path cannot be empty")
+        
+        # Convert to absolute path if relative
+        if not os.path.isabs(db_path):
+            db_path = os.path.abspath(db_path)
+            
+        # Ensure parent directory exists
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+                print(f"📁 Created directory for database: {db_dir}")
+            except OSError as e:
+                raise ValueError(f"Cannot create directory for database: {e}")
+        
+        # Reconstruct URL with absolute path
+        storage_url = f"sqlite:///{db_path}"
+        return storage_url
+    
+    # If it's another DB type (postgresql, mysql, etc.), pass through
+    if '://' in storage_arg:
+        return storage_arg
+    
+    raise ValueError(f"Invalid storage URL: {storage_arg}. Use 'memory' or 'sqlite:///path/to/db.db'")
+
+
 def create_study_with_wandb(project_name: str, study_name: str, storage_url: Optional[str] = None) -> tuple:
     """
     Create Optuna study with WandB integration and optional persistent storage.
@@ -255,11 +303,14 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
     Args:
         project_name: WandB project name
         study_name: Unique study identifier
-        storage_url: SQLite database URL (e.g., 'sqlite:///optuna_hoser.db')
+        storage_url: Validated SQLite database URL (from validate_and_prepare_storage)
                     If None, uses in-memory storage (not crash-safe!)
     
     Returns:
         tuple: (study, wandb_callback)
+        
+    Raises:
+        RuntimeError: If study creation fails
     """
 
     # WandB callback configuration
@@ -269,17 +320,18 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
         "job_type": "optuna-optimization"
     }
 
-    wandbc = WeightsAndBiasesCallback(
-        wandb_kwargs=wandb_kwargs,
-        as_multirun=True,
-        metric_name="validation_accuracy"
-    )
+    try:
+        wandbc = WeightsAndBiasesCallback(
+            wandb_kwargs=wandb_kwargs,
+            as_multirun=True,
+            metric_name="validation_accuracy"
+        )
+    except Exception as e:
+        print(f"⚠️  Warning: WandB callback creation failed: {e}")
+        print("   Continuing without WandB integration")
+        wandbc = None
 
     # Use GP sampler for better modeling of expensive objective function
-    # GP sampler is particularly good for:
-    # - Expensive objective functions (model training)
-    # - Mixed continuous/categorical search spaces
-    # - Better sample efficiency
     try:
         sampler = optuna.samplers.GPSampler(
             seed=42,
@@ -288,49 +340,54 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
             independent_sampler=optuna.samplers.TPESampler(seed=42)  # Use TPE for initial sampling
         )
         print("🔬 Using GP Sampler for sophisticated Bayesian optimization")
-    except ImportError as e:
+    except (ImportError, AttributeError) as e:
         print(f"⚠️  GP Sampler not available ({e}), falling back to TPE")
         sampler = optuna.samplers.TPESampler(seed=42)
 
     # Configure storage with crash recovery
     storage = None
     if storage_url:
-        storage = RDBStorage(
-            url=storage_url,
-            heartbeat_interval=60,  # Update heartbeat every 60 seconds
-            grace_period=120,  # Allow 120 seconds before marking trial as failed
-            failed_trial_callback=RetryFailedTrialCallback(max_retry=0)  # Don't auto-retry failed trials
-        )
-        print(f"💾 Using persistent storage: {storage_url}")
-        print("   Heartbeat interval: 60s | Grace period: 120s")
-        print("   ✅ Study will survive crashes and can be resumed")
+        try:
+            storage = RDBStorage(
+                url=storage_url,
+                heartbeat_interval=60,  # Update heartbeat every 60 seconds
+                grace_period=120,  # Allow 120 seconds before marking trial as failed
+                failed_trial_callback=RetryFailedTrialCallback(max_retry=0)  # Don't auto-retry failed trials
+            )
+            print(f"💾 Using persistent storage: {storage_url}")
+            print("   Heartbeat interval: 60s | Grace period: 120s")
+            print("   ✅ Study will survive crashes and can be resumed")
+        except Exception as e:
+            raise RuntimeError(f"Failed to create storage: {e}") from e
     else:
         print("⚠️  WARNING: Using in-memory storage (no crash recovery)")
         print("   Consider using --storage sqlite:///optuna_hoser.db for persistence")
 
-    # Create Optuna study with GP-optimized pruning
-    # GP sampler benefits from:
-    # - More startup trials to build good surrogate model
-    # - Less aggressive pruning since GP handles uncertainty well
-    # - Hyperband pruner can work well with GP for early stopping
-    study = optuna.create_study(
-        storage=storage,
-        direction='maximize',
-        study_name=study_name,
-        pruner=optuna.pruners.HyperbandPruner(
-            min_resource=1,
-            max_resource=25,
-            reduction_factor=3
-        ),
-        sampler=sampler,
-        load_if_exists=True  # Resume existing study if found
-    )
+    # Create Optuna study with robust error handling
+    try:
+        study = optuna.create_study(
+            storage=storage,
+            direction='maximize',
+            study_name=study_name,
+            pruner=optuna.pruners.HyperbandPruner(
+                min_resource=1,
+                max_resource=25,
+                reduction_factor=3
+            ),
+            sampler=sampler,
+            load_if_exists=True  # Resume existing study if found
+        )
+    except Exception as e:
+        raise RuntimeError(f"Failed to create Optuna study: {e}") from e
 
     # Log study info
     if storage:
         existing_trials = len(study.trials)
         if existing_trials > 0:
             print(f"📊 Resuming existing study with {existing_trials} completed trials")
+            # Validate resumed study has compatible sampler/pruner
+            if existing_trials >= 15:  # Past GP startup phase
+                print("   ℹ️  GP surrogate model will use existing trial data")
         else:
             print("📊 Starting new study")
 
@@ -357,13 +414,23 @@ def main():
     if not os.path.exists(args.config):
         raise FileNotFoundError(f"Config file not found: {args.config}")
     
-    # Create study name with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    study_name = args.study_name or f"hoser_tuning_{timestamp}"
+    # Create study name with timestamp (if not provided)
+    if args.study_name:
+        study_name = args.study_name
+        print(f"📌 Using specified study name: {study_name}")
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        study_name = f"hoser_tuning_{timestamp}"
+        print(f"📌 Generated study name: {study_name}")
     
-    # Handle storage URL
-    storage_url = None if args.storage.lower() == 'memory' else args.storage
+    # Validate and prepare storage URL with robust path handling
+    try:
+        storage_url = validate_and_prepare_storage(args.storage)
+    except ValueError as e:
+        print(f"❌ Storage validation error: {e}")
+        sys.exit(1)
     
+    print()
     print(f"🔍 Starting Optuna study: {study_name}")
     print(f"📊 Trials: {args.n_trials}")
     print(f"📁 Dataset: {args.data_dir}")
@@ -372,9 +439,14 @@ def main():
         print("🚫 Skipping vanilla baseline (trial 0) - starting directly with distillation")
     else:
         print("✅ Including vanilla baseline (trial 0) for comparison")
+    print()
 
-    # Create study and WandB callback
-    study, wandbc = create_study_with_wandb("hoser-optuna-tuning", study_name, storage_url)
+    # Create study and WandB callback with error handling
+    try:
+        study, wandbc = create_study_with_wandb("hoser-optuna-tuning", study_name, storage_url)
+    except RuntimeError as e:
+        print(f"❌ Failed to create study: {e}")
+        sys.exit(1)
     
     # Create objective function
     objective = HOSERObjective(
@@ -384,12 +456,13 @@ def main():
         skip_baseline=args.skip_baseline
     )
     
-    # Run optimization
+    # Run optimization with proper callback handling
     try:
+        callbacks = [wandbc] if wandbc is not None else []
         study.optimize(
             objective,
             n_trials=args.n_trials,
-            callbacks=[wandbc],
+            callbacks=callbacks,
             gc_after_trial=True,
             show_progress_bar=True
         )
@@ -408,69 +481,88 @@ def main():
         best_trial_num = study.best_trial.number
         best_seed = 42 + best_trial_num
         
-        # Create preserved directories
-        preserved_dir = f"./optuna_results/{study_name}/preserved_models"
+        # Create preserved directories with absolute paths
+        results_base = os.path.abspath(f"./optuna_results/{study_name}")
+        preserved_dir = os.path.join(results_base, "preserved_models")
         os.makedirs(preserved_dir, exist_ok=True)
+        print(f"📁 Creating preserved models directory: {preserved_dir}")
         
-        # Copy best trial artifacts
+        # Copy best trial artifacts with robust path handling
         best_trial_dirs = {
-            f"./save/Beijing/seed{best_seed}_distill": f"{preserved_dir}/best_trial_{best_trial_num}_model",
-            f"./tensorboard_log/Beijing/seed{best_seed}_distill": f"{preserved_dir}/best_trial_{best_trial_num}_tensorboard",
-            f"./log/Beijing/seed{best_seed}_distill": f"{preserved_dir}/best_trial_{best_trial_num}_logs"
+            os.path.abspath(f"./save/Beijing/seed{best_seed}_distill"): 
+                os.path.join(preserved_dir, f"best_trial_{best_trial_num}_model"),
+            os.path.abspath(f"./tensorboard_log/Beijing/seed{best_seed}_distill"): 
+                os.path.join(preserved_dir, f"best_trial_{best_trial_num}_tensorboard"),
+            os.path.abspath(f"./log/Beijing/seed{best_seed}_distill"): 
+                os.path.join(preserved_dir, f"best_trial_{best_trial_num}_logs")
         }
         
         for src, dst in best_trial_dirs.items():
             if os.path.exists(src):
-                shutil.copytree(src, dst, dirs_exist_ok=True)
-                print(f"🔒 Preserved best trial artifacts: {dst}")
+                try:
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                    print(f"🔒 Preserved best trial artifacts: {dst}")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not copy {src} to {dst}: {e}")
         
         # Copy vanilla baseline (trial 0) artifacts if it exists (unless skipped)
         if not args.skip_baseline:
             vanilla_seed = 42
             vanilla_dirs = {
-                f"./save/Beijing/seed{vanilla_seed}_distill": f"{preserved_dir}/vanilla_trial_0_model",
-                f"./tensorboard_log/Beijing/seed{vanilla_seed}_distill": f"{preserved_dir}/vanilla_trial_0_tensorboard",
-                f"./log/Beijing/seed{vanilla_seed}_distill": f"{preserved_dir}/vanilla_trial_0_logs"
+                os.path.abspath(f"./save/Beijing/seed{vanilla_seed}_distill"): 
+                    os.path.join(preserved_dir, "vanilla_trial_0_model"),
+                os.path.abspath(f"./tensorboard_log/Beijing/seed{vanilla_seed}_distill"): 
+                    os.path.join(preserved_dir, "vanilla_trial_0_tensorboard"),
+                os.path.abspath(f"./log/Beijing/seed{vanilla_seed}_distill"): 
+                    os.path.join(preserved_dir, "vanilla_trial_0_logs")
             }
 
             for src, dst in vanilla_dirs.items():
                 if os.path.exists(src):
-                    shutil.copytree(src, dst, dirs_exist_ok=True)
-                    print(f"🔒 Preserved vanilla baseline artifacts: {dst}")
+                    try:
+                        shutil.copytree(src, dst, dirs_exist_ok=True)
+                        print(f"🔒 Preserved vanilla baseline artifacts: {dst}")
+                    except Exception as e:
+                        print(f"⚠️  Warning: Could not copy {src} to {dst}: {e}")
 
-        # Save study results
-        results_dir = f"./optuna_results/{study_name}"
-
-        with open(f"{results_dir}/best_params.json", 'w') as f:
-            json.dump(study.best_params, f, indent=2)
+        # Save study results with robust file handling
+        try:
+            with open(os.path.join(results_base, "best_params.json"), 'w') as f:
+                json.dump(study.best_params, f, indent=2)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save best_params.json: {e}")
 
         # Determine vanilla trial number (0 if not skipped, -1 if skipped)
         vanilla_trial_num = 0 if not args.skip_baseline else -1
 
         preserved_models = {
-            "best_trial": f"{preserved_dir}/best_trial_{best_trial_num}_model/best.pth"
+            "best_trial": os.path.join(preserved_dir, f"best_trial_{best_trial_num}_model", "best.pth")
         }
 
         if not args.skip_baseline:
-            preserved_models["vanilla_baseline"] = f"{preserved_dir}/vanilla_trial_0_model/best.pth"
+            preserved_models["vanilla_baseline"] = os.path.join(preserved_dir, "vanilla_trial_0_model", "best.pth")
 
-        with open(f"{results_dir}/study_summary.json", 'w') as f:
-            json.dump({
-                "study_name": study_name,
-                "n_trials": len(study.trials),
-                "best_value": study.best_value,
-                "best_trial": study.best_trial.number,
-                "best_params": study.best_params,
-                "vanilla_trial": vanilla_trial_num,
-                "skip_baseline": args.skip_baseline,
-                "preserved_models": preserved_models
-            }, f, indent=2)
+        try:
+            with open(os.path.join(results_base, "study_summary.json"), 'w') as f:
+                json.dump({
+                    "study_name": study_name,
+                    "n_trials": len(study.trials),
+                    "best_value": study.best_value,
+                    "best_trial": study.best_trial.number,
+                    "best_params": study.best_params,
+                    "vanilla_trial": vanilla_trial_num,
+                    "skip_baseline": args.skip_baseline,
+                    "preserved_models": preserved_models,
+                    "storage_url": storage_url if storage_url else "in-memory"
+                }, f, indent=2)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save study_summary.json: {e}")
         
-        print(f"💾 Results saved to: {results_dir}")
+        print(f"\n💾 Results saved to: {results_base}")
         print("🔒 Preserved models:")
-        print(f"   Best trial ({best_trial_num}): {preserved_dir}/best_trial_{best_trial_num}_model/best.pth")
+        print(f"   Best trial ({best_trial_num}): {preserved_models['best_trial']}")
         if not args.skip_baseline:
-            print(f"   Vanilla baseline (0): {preserved_dir}/vanilla_trial_0_model/best.pth")
+            print(f"   Vanilla baseline (0): {preserved_models['vanilla_baseline']}")
         else:
             print("   Vanilla baseline: Skipped (--skip_baseline was used)")
         
