@@ -935,12 +935,18 @@ def main(args=None, return_metrics=False):
     
     # Return metrics for Optuna if requested
     if return_metrics:
+        # Extract final learning rate (handle both tensor and float)
+        if 'current_lr' in locals():
+            final_lr = current_lr.item() if torch.is_tensor(current_lr) else current_lr
+        else:
+            final_lr = base_lr
+            
         return {
             'best_val_acc': best_val_acc,
             'final_val_acc': validation_metrics[-1]['val_acc'] if validation_metrics else 0.0,
             'final_val_mape': validation_metrics[-1]['val_mape'] if validation_metrics else float('inf'),
             'validation_history': validation_metrics,
-            'final_lr': current_lr.item() if 'current_lr' in locals() else base_lr
+            'final_lr': final_lr
         }
 
 
