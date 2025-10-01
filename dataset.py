@@ -3,7 +3,6 @@ import multiprocessing
 import os
 import json
 from datetime import datetime
-from typing import List
 
 import numpy as np
 import pandas as pd
@@ -13,6 +12,9 @@ from shapely.geometry import LineString
 from tqdm import tqdm
 
 from utils import get_angle
+
+META_FILENAME = 'metadata.json'
+AGGREGATE_FILENAME = 'aggregate.pt'
 
 
 def init_shared_variables(reachable_road_id_dict, geo, road_center_gps):
@@ -66,6 +68,7 @@ def process_and_save_row(args):
             metric_angle[i] = angle
 
     candidate_len = np.array([len(candidate_road_id_list) for candidate_road_id_list in candidate_road_id])
+    max_candidate_len = int(candidate_len.max()) if candidate_len.size > 0 else 0
 
     road_label = np.array([global_reachable_road_id_dict[int(rid_list[i])].index(int(rid_list[i + 1])) for i in range(len(trace_road_id))])
     timestamp_label = np.array([(time_list[i+1] - time_list[i]).total_seconds() for i in range(len(trace_road_id))]).astype(np.float32)
@@ -88,13 +91,19 @@ def process_and_save_row(args):
     output_path = os.path.join(cache_dir, f'data_{index}.pt')
     torch.save(data_to_save, output_path)
 
-    return timestamp_label
+    return {
+        'timestamp_label': timestamp_label,
+        'trace_len': trace_len,
+        'max_candidate_len': max_candidate_len,
+    }
 
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, geo_file, rel_file, traj_file):
         cache_dir = os.path.splitext(traj_file)[0] + '_cache'
         stats_file = os.path.join(cache_dir, 'stats.json')
+        metadata_file = os.path.join(cache_dir, META_FILENAME)
+        aggregate_file = os.path.join(cache_dir, AGGREGATE_FILENAME)
 
         if not os.path.exists(cache_dir) or not os.listdir(cache_dir) or not os.path.exists(stats_file):
             print(f"Cache not found or incomplete for {traj_file}. Preprocessing...")
@@ -117,16 +126,29 @@ class Dataset(torch.utils.data.Dataset):
                 reachable_road_id_dict[int(row['origin_id'])].append(int(row['destination_id']))
 
             all_timestamp_labels = []
+            max_trace_len = 0
+            max_candidate_len = 0
             with multiprocessing.Pool(processes=multiprocessing.cpu_count(), initializer=init_shared_variables, initargs=(reachable_road_id_dict, geo, road_center_gps)) as pool:
                 tasks = [(index, row, cache_dir) for index, row in traj.iterrows()]
-                for labels in tqdm(pool.imap_unordered(process_and_save_row, tasks), total=len(traj), desc=f'Preprocessing {os.path.basename(traj_file)}'):
-                    all_timestamp_labels.extend(labels)
+                for result in tqdm(pool.imap_unordered(process_and_save_row, tasks), total=len(traj), desc=f'Preprocessing {os.path.basename(traj_file)}'):
+                    all_timestamp_labels.extend(result['timestamp_label'])
+                    max_trace_len = max(max_trace_len, result['trace_len'])
+                    max_candidate_len = max(max_candidate_len, result['max_candidate_len'])
 
             timestamp_label_array = np.array(all_timestamp_labels, dtype=np.float32)
             mean = np.log1p(timestamp_label_array).mean()
             std = np.log1p(timestamp_label_array).std()
             with open(stats_file, 'w') as f:
                 json.dump({'mean': mean.item(), 'std': std.item()}, f)
+
+            metadata = {
+                'max_trace_len': int(max_trace_len),
+                'max_candidate_len': int(max_candidate_len),
+                'has_trace_grid_token': False,
+                'has_candidate_grid_token': False,
+            }
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f)
 
             self.timestamp_label_log1p_mean = mean
             self.timestamp_label_log1p_std = std
@@ -137,36 +159,69 @@ class Dataset(torch.utils.data.Dataset):
             self.timestamp_label_log1p_mean = stats['mean']
             self.timestamp_label_log1p_std = stats['std']
 
+        if os.path.exists(aggregate_file):
+            data = torch.load(aggregate_file, map_location='cpu')
+            self.trace_road_id = data['trace_road_id']
+            self.temporal_info = data['temporal_info']
+            self.trace_distance_mat = data['trace_distance_mat']
+            self.trace_time_interval_mat = data['trace_time_interval_mat']
+            self.trace_len = data['trace_len']
+            self.destination_road_id = data['destination_road_id']
+            self.candidate_road_id = data['candidate_road_id']
+            self.metric_dis = data['metric_dis']
+            self.metric_angle = data['metric_angle']
+            self.candidate_len = data['candidate_len']
+            self.road_label = data['road_label']
+            self.timestamp_label = data['timestamp_label']
+            self.trace_grid_token = data.get('trace_grid_token')
+            self.candidate_grid_token = data.get('candidate_grid_token')
+            self.max_trace_len = self.trace_road_id.size(1)
+            self.max_candidate_len = self.candidate_road_id.size(2)
+            return
+
+        # Aggregate tensors from individual sample files
         file_paths = sorted(
             [os.path.join(cache_dir, f) for f in os.listdir(cache_dir) if f.endswith('.pt')],
             key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0])
         )
-
         if not file_paths:
             raise RuntimeError(f"No cached samples found in {cache_dir}")
 
-        raw_samples: List[dict] = []
-        self.max_trace_len = 0
-        self.max_candidate_len = 0
-        has_trace_grid_token = False
-        has_candidate_grid_token = False
+        if os.path.exists(metadata_file):
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+            max_trace_len = int(metadata.get('max_trace_len', 0))
+            max_candidate_len = int(metadata.get('max_candidate_len', 0))
+            has_trace_grid_token = bool(metadata.get('has_trace_grid_token', False))
+            has_candidate_grid_token = bool(metadata.get('has_candidate_grid_token', False))
+        else:
+            max_trace_len = 0
+            max_candidate_len = 0
+            has_trace_grid_token = False
+            has_candidate_grid_token = False
+            for path in tqdm(file_paths, desc='Scanning cached samples'):
+                sample = torch.load(path, weights_only=False)
+                trace_len = int(sample['trace_len'])
+                max_trace_len = max(max_trace_len, trace_len)
+                cand_len_arr = sample['candidate_len']
+                if cand_len_arr.size > 0:
+                    max_candidate_len = max(max_candidate_len, int(cand_len_arr.max()))
+                if sample.get('trace_grid_token') is not None:
+                    has_trace_grid_token = True
+                if sample.get('candidate_grid_token') is not None:
+                    has_candidate_grid_token = True
+            metadata = {
+                'max_trace_len': int(max_trace_len),
+                'max_candidate_len': int(max_candidate_len),
+                'has_trace_grid_token': has_trace_grid_token,
+                'has_candidate_grid_token': has_candidate_grid_token,
+            }
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f)
 
-        for path in tqdm(file_paths, desc='Loading cached samples'):
-            sample = torch.load(path, weights_only=False)
-            raw_samples.append(sample)
-            trace_len = int(sample['trace_len'])
-            self.max_trace_len = max(self.max_trace_len, trace_len)
-            cand_len_arr = sample['candidate_len']
-            if cand_len_arr.size > 0:
-                self.max_candidate_len = max(self.max_candidate_len, int(cand_len_arr.max()))
-            if sample.get('trace_grid_token') is not None:
-                has_trace_grid_token = True
-            if sample.get('candidate_grid_token') is not None:
-                has_candidate_grid_token = True
-
-        N = len(raw_samples)
-        T = self.max_trace_len
-        C = max(self.max_candidate_len, 1)
+        N = len(file_paths)
+        T = max_trace_len
+        C = max(max_candidate_len, 1)
 
         self.trace_road_id = torch.zeros((N, T), dtype=torch.long)
         self.temporal_info = torch.zeros((N, T), dtype=torch.float32)
@@ -184,7 +239,8 @@ class Dataset(torch.utils.data.Dataset):
         self.trace_grid_token = torch.zeros((N, T), dtype=torch.long) if has_trace_grid_token else None
         self.candidate_grid_token = torch.zeros((N, T, C), dtype=torch.long) if has_candidate_grid_token else None
 
-        for idx, sample in enumerate(raw_samples):
+        for idx, path in enumerate(tqdm(file_paths, desc='Packing cached tensors')):
+            sample = torch.load(path, weights_only=False)
             trace_len = int(sample['trace_len'])
             self.trace_len[idx] = trace_len
             self.destination_road_id[idx] = int(sample['destination_road_id'])
@@ -227,7 +283,28 @@ class Dataset(torch.utils.data.Dataset):
                             continue
                         self.candidate_grid_token[idx, step, :cand_len] = torch.as_tensor(cand_grid, dtype=torch.long)
 
-        del raw_samples
+        self.max_trace_len = T
+        self.max_candidate_len = C
+
+        torch.save(
+            {
+                'trace_road_id': self.trace_road_id,
+                'temporal_info': self.temporal_info,
+                'trace_distance_mat': self.trace_distance_mat,
+                'trace_time_interval_mat': self.trace_time_interval_mat,
+                'trace_len': self.trace_len,
+                'destination_road_id': self.destination_road_id,
+                'candidate_road_id': self.candidate_road_id,
+                'metric_dis': self.metric_dis,
+                'metric_angle': self.metric_angle,
+                'candidate_len': self.candidate_len,
+                'road_label': self.road_label,
+                'timestamp_label': self.timestamp_label,
+                'trace_grid_token': self.trace_grid_token,
+                'candidate_grid_token': self.candidate_grid_token,
+            },
+            aggregate_file,
+        )
 
     def __len__(self):
         return self.trace_road_id.size(0)
