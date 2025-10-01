@@ -186,11 +186,11 @@ class HOSERObjective:
         else:
             config['distill']['enable'] = False
         
-        # WandB config for trial
-        config['wandb']['enable'] = True
-        config['wandb']['project'] = 'hoser-distill-optuna'
+        # WandB config for trial (use settings from base config, just override run_name)
         config['wandb']['run_name'] = f"trial_{trial.number:03d}_{trial_type}"
-        config['wandb']['tags'] = ['optuna', 'distill-tuning', trial_type, 'beijing']
+        # Add trial-specific tags to existing tags
+        existing_tags = config['wandb'].get('tags', [])
+        config['wandb']['tags'] = existing_tags + ['distill-tuning', trial_type]
         
         return config
     
@@ -336,8 +336,9 @@ def create_study_with_wandb(
     sampler_cfg = sampler_cfg or {}
 
     # WandB callback configuration
+    # Note: Uses same project as individual trials for unified dashboard
     wandb_kwargs = {
-        "project": project_name,
+        "project": "hoser-distill-optuna",  # Match config/Beijing.yaml
         "group": study_name,
         "job_type": "optuna-optimization"
     }

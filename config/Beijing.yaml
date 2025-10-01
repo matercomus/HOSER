@@ -80,9 +80,9 @@ training:
 # Weights & Biases logging
 wandb:
   enable: true
-  project: hoser-distill
-  run_name: ''
-  tags: [beijing, lmtad, distillation]
+  project: hoser-distill-optuna  # Single project for both Optuna study and individual trials
+  run_name: ''  # Auto-generated per trial: trial_{N:03d}_{vanilla|distilled}
+  tags: [beijing, lmtad, distillation, optuna]
 
 # Optuna hyperparameter tuning configuration
 optuna:
