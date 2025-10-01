@@ -43,237 +43,141 @@ class MyCollateFn:
         self.max_len = int(max_len) if max_len else None
 
     def __call__(self, items):
-        batch_trace_road_id = []
-        batch_temporal_info = []
-        batch_trace_distance_mat = []
-        batch_trace_time_interval_mat = []
-        batch_trace_len = []
-        batch_destination_road_id = []
-        batch_candidate_road_id = []
-        batch_metric_dis = []
-        batch_metric_angle = []
-        batch_candidate_len = []
-        batch_road_label = []
-        batch_timestamp_label = []
-        batch_trace_grid_token = []
-        batch_candidate_grid_token = []
+        # Fast collate using PyTorch operations
+        batch_size = len(items)
+        
+        # Extract all components first for easier processing
+        components = list(zip(*items))
+        (
+            trace_road_ids,
+            temporal_infos,
+            trace_distance_mats,
+            trace_time_interval_mats,
+            trace_lens,
+            destination_road_ids,
+            candidate_road_ids,
+            metric_diss,
+            metric_angles,
+            candidate_lens,
+            road_labels,
+            timestamp_labels,
+            trace_grid_tokens,
+            candidate_grid_tokens,
+        ) = components
+        
+        # Convert trace_lens to tensor for efficient operations
+        trace_lens_tensor = torch.tensor(trace_lens, dtype=torch.long)
+        max_trace_len = int(trace_lens_tensor.max().item())
+        
+        # Apply max_len constraint if needed
+        if self.max_len is not None and max_trace_len > self.max_len:
+            max_trace_len = self.max_len
+        
+        # Find max candidate length efficiently
+        max_candidate_len = 1
+        for cand_len_array in candidate_lens:
+            if len(cand_len_array) > 0:
+                max_candidate_len = max(max_candidate_len, int(cand_len_array.max()))
+        
+        # Pre-allocate output tensors
+        batch_trace_road_id = torch.zeros((batch_size, max_trace_len), dtype=torch.long)
+        batch_temporal_info = torch.zeros((batch_size, max_trace_len), dtype=torch.float32)
+        batch_trace_distance_mat = torch.zeros((batch_size, max_trace_len, max_trace_len), dtype=torch.float32)
+        batch_trace_time_interval_mat = torch.zeros((batch_size, max_trace_len, max_trace_len), dtype=torch.float32)
+        batch_destination_road_id = torch.zeros(batch_size, dtype=torch.long)
+        batch_candidate_road_id = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.long)
+        batch_metric_dis = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.float32)
+        batch_metric_angle = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.float32)
+        batch_candidate_len = torch.zeros((batch_size, max_trace_len), dtype=torch.long)
+        batch_road_label = torch.zeros((batch_size, max_trace_len), dtype=torch.long)
+        batch_timestamp_label = torch.zeros((batch_size, max_trace_len), dtype=torch.float32)
+        batch_trace_grid_token = torch.zeros((batch_size, max_trace_len), dtype=torch.long)
+        batch_candidate_grid_token = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.long)
 
-        for (
-            trace_road_id,
-            temporal_info,
-            trace_distance_mat,
-            trace_time_interval_mat,
-            trace_len,
-            destination_road_id,
-            candidate_road_id,
-            metric_dis,
-            metric_angle,
-            candidate_len,
-            road_label,
-            timestamp_label,
-            trace_grid_token,
-            candidate_grid_token,
-        ) in items:
-            batch_trace_road_id.append(trace_road_id)
-            batch_temporal_info.append(temporal_info)
-            batch_trace_distance_mat.append(trace_distance_mat)
-            batch_trace_time_interval_mat.append(trace_time_interval_mat)
-            batch_trace_len.append(trace_len)
-            batch_destination_road_id.append(destination_road_id)
-            batch_candidate_road_id.append(candidate_road_id)
-            batch_metric_dis.append(metric_dis)
-            batch_metric_angle.append(metric_angle)
-            batch_candidate_len.append(candidate_len)
-            batch_road_label.append(road_label)
-            batch_timestamp_label.append(timestamp_label)
-            batch_trace_grid_token.append(trace_grid_token)
-            batch_candidate_grid_token.append(candidate_grid_token)
-
-        max_trace_len = max(batch_trace_len)
-        max_candidate_len = max(
-            [max(x) if len(x) > 0 else 0 for x in batch_candidate_len]
-        )
-
-        for i in range(len(batch_trace_road_id)):
-            trace_pad_len = max_trace_len - batch_trace_len[i]
-
-            if self.max_len is not None and batch_trace_len[i] > self.max_len:
-                crop = batch_trace_len[i] - self.max_len
-                batch_trace_road_id[i] = batch_trace_road_id[i][crop:]
-                batch_temporal_info[i] = batch_temporal_info[i][crop:]
-                batch_trace_distance_mat[i] = batch_trace_distance_mat[i][crop:, crop:]
-                batch_trace_time_interval_mat[i] = batch_trace_time_interval_mat[i][
-                    crop:, crop:
-                ]
-                batch_candidate_road_id[i] = batch_candidate_road_id[i][crop:]
-                batch_metric_dis[i] = batch_metric_dis[i][crop:]
-                batch_metric_angle[i] = batch_metric_angle[i][crop:]
-                batch_candidate_len[i] = batch_candidate_len[i][crop:]
-                batch_road_label[i] = batch_road_label[i][crop:]
-                batch_timestamp_label[i] = batch_timestamp_label[i][crop:]
-                if batch_trace_grid_token[i] is not None:
-                    batch_trace_grid_token[i] = batch_trace_grid_token[i][crop:]
-                if batch_candidate_grid_token[i] is not None:
-                    batch_candidate_grid_token[i] = batch_candidate_grid_token[i][crop:]
-                batch_trace_len[i] = self.max_len
-                trace_pad_len = max_trace_len - batch_trace_len[i]
-
-            batch_trace_road_id[i] = np.pad(
-                batch_trace_road_id[i],
-                (0, trace_pad_len),
-                "constant",
-                constant_values=0,
-            )
-            batch_temporal_info[i] = np.pad(
-                batch_temporal_info[i],
-                (0, trace_pad_len),
-                "constant",
-                constant_values=0.0,
-            )
-            batch_trace_distance_mat[i] = np.pad(
-                batch_trace_distance_mat[i],
-                ((0, trace_pad_len), (0, trace_pad_len)),
-                "constant",
-                constant_values=0.0,
-            )
-            batch_trace_time_interval_mat[i] = np.pad(
-                batch_trace_time_interval_mat[i],
-                ((0, trace_pad_len), (0, trace_pad_len)),
-                "constant",
-                constant_values=0.0,
-            )
-
-            metric_dis_pad_list = []
-            metric_angle_pad_list = []
-            candidate_pad_arrays = []
-
-            for j in range(len(batch_candidate_road_id[i])):
-                candidate_pad_len = max_candidate_len - batch_candidate_len[i][j]
-                candidate_pad_arrays.append(
-                    np.pad(
-                        batch_candidate_road_id[i][j],
-                        (0, candidate_pad_len),
-                        "constant",
-                        constant_values=0,
-                    )
-                )
-                metric_dis_pad_list.append(
-                    np.pad(
-                        batch_metric_dis[i][j],
-                        (0, candidate_pad_len),
-                        "constant",
-                        constant_values=0.0,
-                    )
-                )
-                metric_angle_pad_list.append(
-                    np.pad(
-                        batch_metric_angle[i][j],
-                        (0, candidate_pad_len),
-                        "constant",
-                        constant_values=0.0,
-                    )
-                )
-
-            pad_matrix_shape = (trace_pad_len, max_candidate_len)
-            batch_candidate_road_id[i] = np.concatenate(
-                (
-                    np.stack(candidate_pad_arrays),
-                    np.zeros(pad_matrix_shape, dtype=np.int64),
-                ),
-                axis=0,
-            )
-            batch_metric_dis[i] = np.concatenate(
-                (
-                    np.stack(metric_dis_pad_list),
-                    np.zeros(pad_matrix_shape, dtype=np.float32),
-                ),
-                axis=0,
-            )
-            batch_metric_angle[i] = np.concatenate(
-                (
-                    np.stack(metric_angle_pad_list),
-                    np.zeros(pad_matrix_shape, dtype=np.float32),
-                ),
-                axis=0,
-            )
-
-            batch_candidate_len[i] = np.pad(
-                batch_candidate_len[i],
-                (0, trace_pad_len),
-                "constant",
-                constant_values=0,
-            )
-            batch_road_label[i] = np.pad(
-                batch_road_label[i], (0, trace_pad_len), "constant", constant_values=0
-            )
-            batch_timestamp_label[i] = np.pad(
-                batch_timestamp_label[i],
-                (0, trace_pad_len),
-                "constant",
-                constant_values=0.0,
-            )
-
-            # Handle grid tokens padding
-            if batch_trace_grid_token[i] is not None:
-                batch_trace_grid_token[i] = np.pad(
-                    batch_trace_grid_token[i],
-                    (0, trace_pad_len),
-                    "constant",
-                    constant_values=0,
-                )
+        # Fill tensors efficiently
+        for i in range(batch_size):
+            trace_len = trace_lens[i]
+            
+            # Handle cropping if needed
+            if self.max_len is not None and trace_len > self.max_len:
+                crop_start = trace_len - self.max_len
+                trace_len = self.max_len
             else:
-                batch_trace_grid_token[i] = np.zeros(max_trace_len, dtype=np.int64)
+                crop_start = 0
+            
+            actual_len = min(trace_len, max_trace_len)
+            
+            # Convert numpy arrays to torch tensors and fill pre-allocated tensors
+            # 1D sequences
+            trace_road_id_tensor = torch.from_numpy(trace_road_ids[i][crop_start:crop_start+actual_len])
+            batch_trace_road_id[i, :actual_len] = trace_road_id_tensor
+            
+            temporal_info_tensor = torch.from_numpy(temporal_infos[i][crop_start:crop_start+actual_len])
+            batch_temporal_info[i, :actual_len] = temporal_info_tensor
+            
+            # 2D matrices
+            dist_mat = torch.from_numpy(trace_distance_mats[i][crop_start:crop_start+actual_len, crop_start:crop_start+actual_len])
+            batch_trace_distance_mat[i, :actual_len, :actual_len] = dist_mat
+            
+            time_mat = torch.from_numpy(trace_time_interval_mats[i][crop_start:crop_start+actual_len, crop_start:crop_start+actual_len])
+            batch_trace_time_interval_mat[i, :actual_len, :actual_len] = time_mat
+            
+            # Scalars
+            batch_destination_road_id[i] = destination_road_ids[i]
+            
+            # Labels and other 1D data
+            road_label_tensor = torch.from_numpy(road_labels[i][crop_start:crop_start+actual_len])
+            batch_road_label[i, :actual_len] = road_label_tensor
+            
+            timestamp_label_tensor = torch.from_numpy(timestamp_labels[i][crop_start:crop_start+actual_len])
+            batch_timestamp_label[i, :actual_len] = timestamp_label_tensor
+            
+            # Grid tokens (may be None)
+            if trace_grid_tokens[i] is not None:
+                grid_token_tensor = torch.from_numpy(trace_grid_tokens[i][crop_start:crop_start+actual_len])
+                batch_trace_grid_token[i, :actual_len] = grid_token_tensor
 
-            if batch_candidate_grid_token[i] is not None:
-                # Pad candidate grid tokens similar to other candidate data
-                candidate_grid_pad_list = []
-                for j in range(len(batch_candidate_grid_token[i])):
-                    candidate_pad_len = max_candidate_len - batch_candidate_len[i][j]
-                    candidate_grid_pad_list.append(
-                        np.pad(
-                            batch_candidate_grid_token[i][j],
-                            (0, candidate_pad_len),
-                            "constant",
-                            constant_values=0,
-                        )
-                    )
-                pad_matrix_shape = (trace_pad_len, max_candidate_len)
-                batch_candidate_grid_token[i] = np.concatenate(
-                    (
-                        np.stack(candidate_grid_pad_list),
-                        np.zeros(pad_matrix_shape, dtype=np.int64),
-                    ),
-                    axis=0,
-                )
-            else:
-                batch_candidate_grid_token[i] = np.zeros(
-                    (max_trace_len, max_candidate_len), dtype=np.int64
-                )
+            
+            # Handle candidate data (2D arrays)
+            cand_road_ids = candidate_road_ids[i][crop_start:crop_start+actual_len]
+            cand_lens = candidate_lens[i][crop_start:crop_start+actual_len]
+            cand_metric_dis = metric_diss[i][crop_start:crop_start+actual_len]
+            cand_metric_angle = metric_angles[i][crop_start:crop_start+actual_len]
+            
+            # Copy candidate lens
+            cand_len_tensor = torch.from_numpy(cand_lens)
+            batch_candidate_len[i, :actual_len] = cand_len_tensor
+            
+            # Process each time step's candidates
+            for j in range(actual_len):
+                cand_len = int(cand_lens[j])
+                if cand_len > 0:
+                    actual_cand_len = min(cand_len, max_candidate_len)
+                    
+                    # Candidate road IDs
+                    cand_roads = torch.from_numpy(cand_road_ids[j][:actual_cand_len])
+                    batch_candidate_road_id[i, j, :actual_cand_len] = cand_roads
+                    
+                    # Metrics
+                    metric_dis = torch.from_numpy(cand_metric_dis[j][:actual_cand_len])
+                    batch_metric_dis[i, j, :actual_cand_len] = metric_dis
+                    
+                    metric_angle = torch.from_numpy(cand_metric_angle[j][:actual_cand_len])
+                    batch_metric_angle[i, j, :actual_cand_len] = metric_angle
+                    
+                    # Grid tokens for candidates (if available)
+                    if candidate_grid_tokens[i] is not None:
+                        cand_grid_tokens = candidate_grid_tokens[i][crop_start+j]
+                        if cand_grid_tokens is not None:
+                            cand_grid_tensor = torch.from_numpy(cand_grid_tokens[:actual_cand_len])
+                            batch_candidate_grid_token[i, j, :actual_cand_len] = cand_grid_tensor
 
-        batch_timestamp_label = (
-            np.log1p(batch_timestamp_label) - self.timestamp_label_log1p_mean
-        ) / self.timestamp_label_log1p_std
-
-        batch_trace_road_id = torch.from_numpy(np.array(batch_trace_road_id))
-        batch_temporal_info = torch.from_numpy(np.array(batch_temporal_info))
-        batch_trace_distance_mat = torch.from_numpy(np.array(batch_trace_distance_mat))
-        batch_trace_time_interval_mat = torch.from_numpy(
-            np.array(batch_trace_time_interval_mat)
-        )
-        batch_trace_len = torch.from_numpy(np.array(batch_trace_len))
-        batch_destination_road_id = torch.from_numpy(
-            np.array(batch_destination_road_id)
-        )
-        batch_candidate_road_id = torch.from_numpy(np.array(batch_candidate_road_id))
-        batch_metric_dis = torch.from_numpy(np.array(batch_metric_dis))
-        batch_metric_angle = torch.from_numpy(np.array(batch_metric_angle))
-        batch_candidate_len = torch.from_numpy(np.array(batch_candidate_len))
-        batch_road_label = torch.from_numpy(np.array(batch_road_label))
-        batch_timestamp_label = torch.from_numpy(np.array(batch_timestamp_label))
-        batch_trace_grid_token = torch.from_numpy(np.array(batch_trace_grid_token))
-        batch_candidate_grid_token = torch.from_numpy(
-            np.array(batch_candidate_grid_token)
-        )
+        
+        # Normalize timestamp labels using PyTorch operations
+        batch_timestamp_label = (torch.log1p(batch_timestamp_label) - self.timestamp_label_log1p_mean) / self.timestamp_label_log1p_std
+        
+        # Return trace lens as tensor
+        batch_trace_len = trace_lens_tensor.clone()
 
         return (
             batch_trace_road_id,
