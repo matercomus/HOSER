@@ -350,7 +350,7 @@ class Dataset(torch.utils.data.Dataset):
         self.trace_grid_token = torch.zeros((N, T), dtype=torch.long) if has_trace_grid_token else None
         self.candidate_grid_token = torch.zeros((N, T, C), dtype=torch.long) if has_candidate_grid_token else None
 
-        chunk_size = 2048
+        chunk_size = 512
         tensors = []
         with multiprocessing.Pool(
             processes=multiprocessing.cpu_count(),
