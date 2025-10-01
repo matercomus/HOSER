@@ -692,7 +692,7 @@ def main(
 
                 # Debug check for out-of-bounds labels
                 if torch.any(selected_road_label >= selected_logits.size(1)):
-                    print(f"ERROR: Road labels out of bounds!")
+                    print("ERROR: Road labels out of bounds!")
                     print(f"  selected_logits.shape: {selected_logits.shape}")
                     print(f"  selected_road_label max: {selected_road_label.max().item()}")
                     print(f"  selected_road_label: {selected_road_label}")

@@ -3,12 +3,14 @@ import multiprocessing
 import os
 import json
 from datetime import datetime
-from tqdm import tqdm
+from typing import List
+
 import numpy as np
 import pandas as pd
+import torch
 from haversine import haversine_vector
 from shapely.geometry import LineString
-import torch
+from tqdm import tqdm
 
 from utils import get_angle
 
@@ -19,6 +21,7 @@ def init_shared_variables(reachable_road_id_dict, geo, road_center_gps):
     global_geo = geo
     global_road_center_gps = road_center_gps
 
+
 def process_and_save_row(args):
     index, row, cache_dir = args
 
@@ -26,7 +29,6 @@ def process_and_save_row(args):
     time_list = row['time_list'].split(',')
     time_list = [datetime.strptime(t, '%Y-%m-%dT%H:%M:%SZ') for t in time_list]
 
-    # Ensure all road IDs are integers
     trace_road_id = np.array([int(rid) for rid in rid_list[:-1]], dtype=np.int64)
     temporal_info = np.array([(t.hour * 60.0 + t.minute + t.second / 60.0) / 1440.0 for t in time_list[:-1]]).astype(np.float32)
 
@@ -47,7 +49,6 @@ def process_and_save_row(args):
     metric_dis = np.empty(len(trace_road_id), dtype=object)
     for i, candidate_road_id_list in enumerate(candidate_road_id):
         if len(candidate_road_id_list) == 0:
-            # Handle roads with no reachable destinations
             metric_dis[i] = np.array([], dtype=np.float32)
         else:
             metric_dis[i] = haversine_vector(global_road_center_gps[candidate_road_id_list], global_road_center_gps[destination_road_id].reshape(1, -1), 'm', comb=True).reshape(-1).astype(np.float32)
@@ -56,7 +57,6 @@ def process_and_save_row(args):
     metric_angle = np.empty(len(trace_road_id), dtype=object)
     for i, (road_id, candidate_road_id_list) in enumerate(zip(trace_road_id, candidate_road_id)):
         if len(candidate_road_id_list) == 0:
-            # Handle roads with no reachable destinations
             metric_angle[i] = np.array([], dtype=np.float32)
         else:
             angle1 = np.vectorize(lambda candidate: get_angle(*(eval(global_geo.loc[road_id, 'coordinates'])[-1]), *(eval(global_geo.loc[candidate, 'coordinates'])[-1])))(candidate_road_id_list)
@@ -84,7 +84,7 @@ def process_and_save_row(args):
         'road_label': road_label,
         'timestamp_label': timestamp_label,
     }
-    
+
     output_path = os.path.join(cache_dir, f'data_{index}.pt')
     torch.save(data_to_save, output_path)
 
@@ -99,7 +99,7 @@ class Dataset(torch.utils.data.Dataset):
         if not os.path.exists(cache_dir) or not os.listdir(cache_dir) or not os.path.exists(stats_file):
             print(f"Cache not found or incomplete for {traj_file}. Preprocessing...")
             os.makedirs(cache_dir, exist_ok=True)
-            
+
             geo = pd.read_csv(geo_file)
             rel = pd.read_csv(rel_file)
             traj = pd.read_csv(traj_file)
@@ -112,14 +112,9 @@ class Dataset(torch.utils.data.Dataset):
                 road_center_gps.append((center_coord.y, center_coord.x))
             road_center_gps = np.array(road_center_gps)
 
-            reachable_road_id_dict = dict()
-            num_roads = len(geo)
-            for i in range(num_roads):
-                reachable_road_id_dict[i] = []
+            reachable_road_id_dict = {i: [] for i in range(len(geo))}
             for _, row in rel.iterrows():
-                origin_id = int(row['origin_id'])
-                destination_id = int(row['destination_id'])
-                reachable_road_id_dict[origin_id].append(destination_id)
+                reachable_road_id_dict[int(row['origin_id'])].append(int(row['destination_id']))
 
             all_timestamp_labels = []
             with multiprocessing.Pool(processes=multiprocessing.cpu_count(), initializer=init_shared_variables, initargs=(reachable_road_id_dict, geo, road_center_gps)) as pool:
@@ -142,36 +137,120 @@ class Dataset(torch.utils.data.Dataset):
             self.timestamp_label_log1p_mean = stats['mean']
             self.timestamp_label_log1p_std = stats['std']
 
-        self.file_paths = sorted(
+        file_paths = sorted(
             [os.path.join(cache_dir, f) for f in os.listdir(cache_dir) if f.endswith('.pt')],
             key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0])
         )
 
-    def __len__(self):
-        return len(self.file_paths)
-    
-    def __getitem__(self, i):
-        data = torch.load(self.file_paths[i], weights_only=False)
+        if not file_paths:
+            raise RuntimeError(f"No cached samples found in {cache_dir}")
 
-        # Handle missing grid tokens (for backward compatibility)
-        trace_grid_token = data.get('trace_grid_token', None)
-        candidate_grid_token = data.get('candidate_grid_token', None)
+        raw_samples: List[dict] = []
+        self.max_trace_len = 0
+        self.max_candidate_len = 0
+        has_trace_grid_token = False
+        has_candidate_grid_token = False
+
+        for path in tqdm(file_paths, desc='Loading cached samples'):
+            sample = torch.load(path, weights_only=False)
+            raw_samples.append(sample)
+            trace_len = int(sample['trace_len'])
+            self.max_trace_len = max(self.max_trace_len, trace_len)
+            cand_len_arr = sample['candidate_len']
+            if cand_len_arr.size > 0:
+                self.max_candidate_len = max(self.max_candidate_len, int(cand_len_arr.max()))
+            if sample.get('trace_grid_token') is not None:
+                has_trace_grid_token = True
+            if sample.get('candidate_grid_token') is not None:
+                has_candidate_grid_token = True
+
+        N = len(raw_samples)
+        T = self.max_trace_len
+        C = max(self.max_candidate_len, 1)
+
+        self.trace_road_id = torch.zeros((N, T), dtype=torch.long)
+        self.temporal_info = torch.zeros((N, T), dtype=torch.float32)
+        self.trace_distance_mat = torch.zeros((N, T, T), dtype=torch.float32)
+        self.trace_time_interval_mat = torch.zeros((N, T, T), dtype=torch.float32)
+        self.trace_len = torch.zeros(N, dtype=torch.long)
+        self.destination_road_id = torch.zeros(N, dtype=torch.long)
+        self.candidate_road_id = torch.zeros((N, T, C), dtype=torch.long)
+        self.metric_dis = torch.zeros((N, T, C), dtype=torch.float32)
+        self.metric_angle = torch.zeros((N, T, C), dtype=torch.float32)
+        self.candidate_len = torch.zeros((N, T), dtype=torch.long)
+        self.road_label = torch.full((N, T), -100, dtype=torch.long)
+        self.timestamp_label = torch.zeros((N, T), dtype=torch.float32)
+
+        self.trace_grid_token = torch.zeros((N, T), dtype=torch.long) if has_trace_grid_token else None
+        self.candidate_grid_token = torch.zeros((N, T, C), dtype=torch.long) if has_candidate_grid_token else None
+
+        for idx, sample in enumerate(raw_samples):
+            trace_len = int(sample['trace_len'])
+            self.trace_len[idx] = trace_len
+            self.destination_road_id[idx] = int(sample['destination_road_id'])
+
+            self.trace_road_id[idx, :trace_len] = torch.as_tensor(sample['trace_road_id'], dtype=torch.long)
+            self.temporal_info[idx, :trace_len] = torch.as_tensor(sample['temporal_info'], dtype=torch.float32)
+            self.trace_distance_mat[idx, :trace_len, :trace_len] = torch.as_tensor(sample['trace_distance_mat'], dtype=torch.float32)
+            self.trace_time_interval_mat[idx, :trace_len, :trace_len] = torch.as_tensor(sample['trace_time_interval_mat'], dtype=torch.float32)
+            self.road_label[idx, :trace_len] = torch.as_tensor(sample['road_label'], dtype=torch.long)
+            self.timestamp_label[idx, :trace_len] = torch.as_tensor(sample['timestamp_label'], dtype=torch.float32)
+
+            cand_len_arr = sample['candidate_len']
+            if cand_len_arr.size > 0:
+                self.candidate_len[idx, :trace_len] = torch.as_tensor(cand_len_arr, dtype=torch.long)
+
+            cand_ids = sample['candidate_road_id']
+            dis_vals = sample['metric_dis']
+            angle_vals = sample['metric_angle']
+            for step in range(trace_len):
+                cand = cand_ids[step]
+                cand_len = len(cand)
+                if cand_len == 0:
+                    continue
+                self.candidate_road_id[idx, step, :cand_len] = torch.as_tensor(cand, dtype=torch.long)
+                self.metric_dis[idx, step, :cand_len] = torch.as_tensor(dis_vals[step], dtype=torch.float32)
+                self.metric_angle[idx, step, :cand_len] = torch.as_tensor(angle_vals[step], dtype=torch.float32)
+
+            if self.trace_grid_token is not None:
+                trace_grid = sample.get('trace_grid_token')
+                if trace_grid is not None:
+                    self.trace_grid_token[idx, :trace_len] = torch.as_tensor(trace_grid, dtype=torch.long)
+
+            if self.candidate_grid_token is not None:
+                candidate_grid = sample.get('candidate_grid_token')
+                if candidate_grid is not None:
+                    for step in range(trace_len):
+                        cand_grid = candidate_grid[step]
+                        cand_len = len(cand_grid)
+                        if cand_len == 0:
+                            continue
+                        self.candidate_grid_token[idx, step, :cand_len] = torch.as_tensor(cand_grid, dtype=torch.long)
+
+        del raw_samples
+
+    def __len__(self):
+        return self.trace_road_id.size(0)
+
+    def __getitem__(self, i):
+        trace_grid = None if self.trace_grid_token is None else self.trace_grid_token[i]
+        candidate_grid = None if self.candidate_grid_token is None else self.candidate_grid_token[i]
 
         return (
-            data['trace_road_id'],
-            data['temporal_info'],
-            data['trace_distance_mat'],
-            data['trace_time_interval_mat'],
-            data['trace_len'],
-            data['destination_road_id'],
-            data['candidate_road_id'],
-            data['metric_dis'],
-            data['metric_angle'],
-            data['candidate_len'],
-            data['road_label'],
-            data['timestamp_label'],
-            trace_grid_token,
-            candidate_grid_token,
+            self.trace_road_id[i],
+            self.temporal_info[i],
+            self.trace_distance_mat[i],
+            self.trace_time_interval_mat[i],
+            self.trace_len[i],
+            self.destination_road_id[i],
+            self.candidate_road_id[i],
+            self.metric_dis[i],
+            self.metric_angle[i],
+            self.candidate_len[i],
+            self.road_label[i],
+            self.timestamp_label[i],
+            trace_grid,
+            candidate_grid,
         )
 
     def get_stats(self):
