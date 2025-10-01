@@ -89,6 +89,7 @@ import tempfile
 import shutil
 import gc
 import math
+import copy
 import torch
 import optuna
 from optuna.integration.wandb import WeightsAndBiasesCallback
@@ -118,54 +119,54 @@ class HOSERObjective:
         self.data_dir = data_dir
         self.max_epochs = max_epochs
         self.skip_baseline = skip_baseline
-        self.trial_counter = 0
         
         # Load base config
         with open(base_config_path, 'r') as f:
             self.base_config = yaml.safe_load(f)
     
     def __call__(self, trial: optuna.Trial) -> float:
-        """Objective function called by Optuna for each trial."""
-        self.trial_counter += 1
-
-        # For trial 0, force vanilla (baseline) unless skip_baseline is enabled
-        if trial.number == 0 and not self.skip_baseline:
+        """
+        Objective function called by Optuna for each trial.
+        
+        IMPORTANT: All parameters must be suggested in every trial for Optuna to work properly.
+        """
+        # Always suggest the categorical parameter so the sampler can model it
+        trial_type = trial.suggest_categorical('trial_type', ['vanilla', 'distilled'])
+        forced_baseline = trial.number == 0 and not self.skip_baseline
+        if forced_baseline:
             trial_type = 'vanilla'
-            print(f"🔬 Running vanilla baseline (trial {trial.number})")
+            print(f"🔬 Running vanilla baseline (trial {trial.number}, forced)")
         else:
-            # Suggest trial type: vanilla HOSER or distilled HOSER
-            trial_type = trial.suggest_categorical('trial_type', ['vanilla', 'distilled'])
             trial_mode = "distilled" if trial_type == 'distilled' else "vanilla"
             print(f"🔬 Running {trial_mode} trial (trial {trial.number})")
 
-        # Create trial-specific config
+        trial.set_user_attr('trial_type', trial_type)
+        trial.set_user_attr('forced_baseline', forced_baseline)
+
+        # Create trial-specific config (deep copy to avoid mutation)
         config = self._create_trial_config(trial, trial_type)
 
-        # Create temporary config file for this trial
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-            yaml.dump(config, f)
-            temp_config_path = f.name
-
+        temp_config_path = None
         try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+                yaml.dump(config, f)
+                temp_config_path = f.name
+
             # Run training with trial config
             result = self._run_training_trial(trial, temp_config_path, trial_type)
             return result
         finally:
-            # Cleanup
-            os.unlink(temp_config_path)
+            if temp_config_path and os.path.exists(temp_config_path):
+                os.unlink(temp_config_path)
             self._cleanup_trial_artifacts(trial.number)
             gc.collect()
             torch.cuda.empty_cache()
-    
+
     def _create_trial_config(self, trial: optuna.Trial, trial_type: str) -> Dict[str, Any]:
-        """Create configuration for a specific trial."""
-        config = self.base_config.copy()
-        
+        """Create configuration for a specific trial using deep copy to avoid mutation."""
+        config = copy.deepcopy(self.base_config)
         # Keep all original HOSER parameters from base config - only tune distillation
-        # Set max_epoch for tuning (shorter than production)
         config['optimizer_config']['max_epoch'] = self.max_epochs
-        
-        # Set data directory
         config['data_dir'] = self.data_dir
         
         # Configure distillation or vanilla mode
