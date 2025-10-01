@@ -407,7 +407,7 @@ def create_study_with_wandb(
             sampler=sampler,
             load_if_exists=True  # Resume existing study if found
         )
-        print(f"🔪 MedianPruner configured from YAML:")
+        print("🔪 MedianPruner configured from YAML:")
         print(f"   n_startup_trials={pruner_startup}, n_warmup_steps={pruner_warmup}, interval_steps={pruner_interval}")
     except Exception as e:
         raise RuntimeError(f"Failed to create Optuna study: {e}") from e
