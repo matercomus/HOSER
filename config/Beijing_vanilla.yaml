@@ -73,7 +73,7 @@ data:
 training:
   allow_tf32: true
   cudnn_benchmark: true
-  torch_compile: false
+  torch_compile: true
   torch_compile_mode: max-autotune
   disable_cudagraphs: true
 
@@ -82,7 +82,7 @@ wandb:
   enable: true
   project: hoser-optuna-tuning
   run_name: ''
-  tags: [beijing, distillation, optuna]
+  tags: [beijing, vanilla, optuna]
 
 # Optuna hyperparameter tuning configuration
 optuna:
