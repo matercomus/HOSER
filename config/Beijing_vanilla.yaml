@@ -37,8 +37,8 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 256  # Increased now that candidate_top_k filtering is disabled
-  accum_steps: 4   # Gradient accumulation for effective batch of 128
+  batch_size: 64   # Smaller batch = faster collate, less stalls
+  accum_steps: 4   # Effective batch still 256
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -79,8 +79,8 @@ training:
 
 # Weights & Biases logging
 wandb:
-  enable: false
-  project: hoser-distill-optuna-2
+  enable: true
+  project: hoser-optuna-tuning
   run_name: ''
   tags: [beijing, distillation, optuna]
 
