@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from loguru import logger
 import wandb
+import optuna
 
 # Import math (already imported above, but making sure it's available)
 
@@ -201,9 +202,32 @@ class MyCollateFn:
         )
 
 
-def main(args=None, return_metrics=False):
-    """Main training function that can be called programmatically or from CLI."""
-    if args is None:
+def main(
+    dataset: str = None,
+    config_path: str = '',
+    seed: int = 0,
+    cuda: int = 0,
+    data_dir: str = '',
+    return_metrics: bool = False,
+    optuna_trial = None,  # Pass Optuna trial for intermediate reporting
+):
+    """
+    Main training function that can be called programmatically or from CLI.
+    
+    Args:
+        dataset: Dataset name (e.g., 'Beijing')
+        config_path: Path to YAML config file
+        seed: Random seed
+        cuda: CUDA device index
+        data_dir: Path to HOSER-format data directory
+        return_metrics: Whether to return validation metrics
+        optuna_trial: Optuna trial object for intermediate value reporting
+    
+    Returns:
+        dict: Training metrics if return_metrics=True, else None
+    """
+    # Handle CLI invocation
+    if dataset is None:
         parser = argparse.ArgumentParser()
         parser.add_argument('--dataset', type=str)
         parser.add_argument('--config', type=str, default='', help='Path to YAML config (overrides dataset default path)')
@@ -212,18 +236,24 @@ def main(args=None, return_metrics=False):
         parser.add_argument('--data_dir', type=str, default='', help='Path to HOSER-format data directory (overrides YAML)')
         parser.add_argument('--return_metrics', action='store_true', help='Return validation metrics (for Optuna)')
         args = parser.parse_args()
+        
+        dataset = args.dataset
+        config_path = args.config
+        seed = args.seed
+        cuda = args.cuda
+        data_dir = args.data_dir
         return_metrics = args.return_metrics
 
-    set_seed(args.seed)
-    device = f'cuda:{args.cuda}'
+    set_seed(seed)
+    device = f'cuda:{cuda}'
 
     # Prepare model config and related features (copied and generalized)
     # Prefer explicit --config; else fall back to dataset default; else Beijing
     _script_dir = os.path.dirname(os.path.abspath(__file__))
-    if args.config:
-        _config_path = args.config
+    if config_path:
+        _config_path = config_path
     else:
-        _default_ds = args.dataset if args.dataset else 'Beijing'
+        _default_ds = dataset if dataset else 'Beijing'
         _config_path = os.path.join(_script_dir, 'config', f'{_default_ds}.yaml')
     if not os.path.exists(_config_path):
         raise FileNotFoundError(f"Config not found at {_config_path}. Ensure the dataset YAML exists.")
@@ -232,10 +262,10 @@ def main(args=None, return_metrics=False):
     config = create_nested_namespace(raw_config)
 
     # Determine dataset name (for save/log dir names) from CLI or config filename
-    dataset_name = args.dataset if args.dataset else os.path.splitext(os.path.basename(_config_path))[0]
+    dataset_name = dataset if dataset else os.path.splitext(os.path.basename(_config_path))[0]
 
     cfg_data_dir = getattr(config, 'data_dir', None) if hasattr(config, 'data_dir') else None
-    base_data_dir = args.data_dir if args.data_dir else (cfg_data_dir if cfg_data_dir else f'./data/{dataset_name}')
+    base_data_dir = data_dir if data_dir else (cfg_data_dir if cfg_data_dir else f'./data/{dataset_name}')
     geo_file = os.path.join(base_data_dir, 'roadmap.geo')
     rel_file = os.path.join(base_data_dir, 'roadmap.rel')
     train_traj_file = os.path.join(base_data_dir, 'train.csv')
@@ -250,9 +280,9 @@ def main(args=None, return_metrics=False):
     if missing:
         raise FileNotFoundError(f"Missing required data files: {missing}. Set --data_dir to your HOSER-format directory.")
 
-    save_dir = f'./save/{dataset_name}/seed{args.seed}_distill'
-    tensorboard_log_dir = f'./tensorboard_log/{dataset_name}/seed{args.seed}_distill'
-    loguru_log_dir = f'./log/{dataset_name}/seed{args.seed}_distill'
+    save_dir = f'./save/{dataset_name}/seed{seed}_distill'
+    tensorboard_log_dir = f'./tensorboard_log/{dataset_name}/seed{seed}_distill'
+    loguru_log_dir = f'./log/{dataset_name}/seed{seed}_distill'
 
     # config already loaded above
 
@@ -689,7 +719,7 @@ def main(args=None, return_metrics=False):
 
                 # Check for NaN in KL loss
                 if torch.isnan(kl_loss) or torch.isinf(kl_loss):
-                    print("⚠️  Warning: NaN/inf KL loss detected, setting to 0")
+                    print("Warning: NaN/inf KL loss detected, setting to 0")
                     kl_loss = torch.tensor(0.0, device=device)
 
                 loss = loss_next_step + loss_time_pred + distill_mgr.cfg.lambda_kl * kl_loss
@@ -924,6 +954,14 @@ def main(args=None, return_metrics=False):
             'val_mape': val_mape
         })
         best_val_acc = max(best_val_acc, val_acc)
+        
+        # Report intermediate value to Optuna for pruning
+        if optuna_trial is not None:
+            optuna_trial.report(val_acc, epoch_id)
+            # Check if trial should be pruned
+            if optuna_trial.should_prune():
+                logger.info(f"🔪 Trial pruned at epoch {epoch_id + 1} (val_acc={val_acc:.4f})")
+                raise optuna.TrialPruned()
         
         model.train()
 

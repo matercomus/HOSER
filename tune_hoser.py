@@ -1,10 +1,12 @@
-/mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil
 #!/usr/bin/env python3
 """
-Optuna hyperparameter tuning for HOSER with WandB integration and crash recovery.
+Efficient Optuna hyperparameter tuning for HOSER with intermediate pruning.
 
-This script runs hyperparameter optimization for both vanilla HOSER and
-distilled HOSER variants, logging all trials to WandB for comprehensive tracking.
+This script runs fast hyperparameter optimization using:
+  • 5 epochs per trial (~4 hours each, down from 19h)
+  • 50 trials (optimized for coverage, not depth)
+  • MedianPruner for early stopping of bad trials
+  • Intermediate reporting every epoch for aggressive pruning
 
 Tuned parameters for distillation:
 - lambda: KL divergence weight (0.001-0.1, log scale)
@@ -15,30 +17,37 @@ Fixed parameters (architectural choices):
 - grid_size: 0.001 (from base config)
 - downsample: 1 (from base config)
 
+Pruning Strategy:
+  MedianPruner checks every epoch whether the trial is worse than median.
+  Trials that underperform get stopped early, saving ~3h per pruned trial.
+  First 5 trials run to completion to establish baseline median.
+
 Storage & Crash Recovery:
   By default, stores Optuna study on backup drive for extra safety:
     /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db
-  The study can be resumed after crashes/interruptions by running the same command.
+  The study can be resumed after crashes/interruptions.
   Heartbeat interval: 60s | Grace period: 120s
 
-Usage:
-  # Run with baseline and persistent storage on backup drive (recommended)
-  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset
+Time Estimate:
+  • Without pruning: 50 trials × 4h = 200 hours (~8 days)
+  • With pruning: ~30-40 complete trials + 10-20 pruned early = ~140 hours (~6 days)
+  • Saving: ~60 hours (~2 days)
 
-  # Resume existing study (same study_name required)
-  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --study_name beijing_hoser_distil_tune
+Usage:
+  # Run with default settings (recommended)
+  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
+
+  # Custom number of trials
+  uv run python tune_hoser.py --n_trials 100 --data_dir /home/matt/Dev/HOSER-dataset
+
+  # Resume existing study
+  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --study_name beijing_hoser_distil_tune
 
   # Skip baseline and run only distillation trials
-  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --skip_baseline
+  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --skip_baseline
 
   # Use local storage instead of backup drive
-  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --storage sqlite:///optuna_hoser.db
-
-  # Use in-memory storage (no crash recovery, not recommended for long runs)
-  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --storage memory
-
-  # Use custom SQLite database location
-  uv run python tune_hoser.py --n_trials 25 --data_dir /home/matt/Dev/HOSER-dataset --storage sqlite:////abs/path/to/study.db
+  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --storage sqlite:///optuna_hoser.db
 """
 
 import os
@@ -63,7 +72,16 @@ from datetime import datetime
 class HOSERObjective:
     """Objective function for Optuna optimization of HOSER models."""
 
-    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 25, skip_baseline: bool = False):
+    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 5, skip_baseline: bool = False):
+        """
+        Initialize HOSER optimization objective.
+        
+        Args:
+            base_config_path: Path to base YAML config
+            data_dir: Path to HOSER dataset
+            max_epochs: Max epochs per trial (default 5 for fast tuning)
+            skip_baseline: Skip vanilla baseline trial
+        """
         self.base_config_path = base_config_path
         self.data_dir = data_dir
         self.max_epochs = max_epochs
@@ -147,51 +165,20 @@ class HOSERObjective:
     def _run_training_trial(self, trial: optuna.Trial, config_path: str, trial_type: str) -> float:
         """Run a single training trial and return the metric to optimize."""
         
-        # Create trial-specific save directory
-        trial_save_dir = f"./optuna_trials/trial_{trial.number:03d}_{trial_type}"
-        os.makedirs(trial_save_dir, exist_ok=True)
-        
-        # Prepare arguments for training
-        train_args = argparse.Namespace(
-            dataset='Beijing',
-            config=config_path,
-            seed=42 + trial.number,  # Deterministic but different per trial
-            cuda=0,
-            data_dir=self.data_dir
-        )
-        
-        # Monkey-patch sys.argv for the training script
-        original_argv = sys.argv
-        sys.argv = [
-            'train_with_distill.py',
-            '--dataset', train_args.dataset,
-            '--config', train_args.config,
-            '--seed', str(train_args.seed),
-            '--cuda', str(train_args.cuda),
-            '--data_dir', train_args.data_dir
-        ]
+        # Import training function
+        from train_with_distill import main as train_main
         
         try:
-            # Import and run training with validation tracking
-            validation_metrics = []
-            
-            # Run training with validation metrics collection and Optuna pruning
-            result_metric = self._run_training_with_pruning(trial, train_args, validation_metrics)
-            
-            return result_metric
-            
-        finally:
-            sys.argv = original_argv
-    
-    def _run_training_with_pruning(self, trial: optuna.Trial, train_args: argparse.Namespace, validation_metrics: list) -> float:
-        """Run training with intermediate pruning based on validation metrics."""
-
-        try:
-            # Import and run the modified training function
-            from train_with_distill import main as train_main
-
-            # Run training and get validation metrics
-            result = train_main(args=train_args, return_metrics=True)
+            # Call training with clean API - no more sys.argv monkeypatching!
+            result = train_main(
+                dataset='Beijing',
+                config_path=config_path,
+                seed=42 + trial.number,  # Deterministic but different per trial
+                cuda=0,
+                data_dir=self.data_dir,
+                return_metrics=True,
+                optuna_trial=trial  # Pass trial for intermediate reporting
+            )
 
             if result is None:
                 raise optuna.TrialPruned("Training returned no metrics")
@@ -199,23 +186,8 @@ class HOSERObjective:
             # Validate that metrics are reasonable (not NaN or infinite)
             if (math.isnan(result['best_val_acc']) or math.isinf(result['best_val_acc']) or
                 math.isnan(result['final_val_acc']) or math.isinf(result['final_val_acc'])):
-                print(f"Trial {trial.number}: Invalid validation metrics detected, pruning")
+                print(f"⚠️  Trial {trial.number}: Invalid validation metrics detected, pruning")
                 raise optuna.TrialPruned("Invalid validation metrics (NaN/inf)")
-
-            # Report intermediate values for pruning
-            for epoch_metrics in result['validation_history']:
-                val_acc = epoch_metrics['val_acc']
-
-                # Skip NaN/inf validation metrics
-                if math.isnan(val_acc) or math.isinf(val_acc):
-                    print(f"Trial {trial.number} epoch {epoch_metrics['epoch']}: NaN/inf val_acc, skipping report")
-                    continue
-
-                trial.report(val_acc, epoch_metrics['epoch'])
-
-                # Check if trial should be pruned
-                if trial.should_prune():
-                    raise optuna.TrialPruned()
 
             # Return final metric to maximize (validation accuracy)
             final_metric = result['best_val_acc']
@@ -228,9 +200,12 @@ class HOSERObjective:
 
             return final_metric
 
+        except optuna.TrialPruned:
+            # Re-raise pruned exceptions
+            raise
         except Exception as e:
-            print(f"Trial {trial.number} failed: {e}")
-            raise optuna.TrialPruned()
+            print(f"❌ Trial {trial.number} failed: {e}")
+            raise optuna.TrialPruned(str(e))
     
     def _cleanup_trial_artifacts(self, trial_number: int):
         """Clean up artifacts from a completed trial, but preserve vanilla baseline (trial 0) and best trial."""
@@ -369,15 +344,17 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
         print("   Consider using --storage sqlite:///optuna_hoser.db for persistence")
 
     # Create Optuna study with robust error handling
+    # MedianPruner: prune if trial is worse than median at same epoch
+    # This works great with intermediate reporting (every epoch)
     try:
         study = optuna.create_study(
             storage=storage,
             direction='maximize',
             study_name=study_name,
-            pruner=optuna.pruners.HyperbandPruner(
-                min_resource=1,
-                max_resource=25,
-                reduction_factor=3
+            pruner=optuna.pruners.MedianPruner(
+                n_startup_trials=5,  # Don't prune first 5 trials (need data for median)
+                n_warmup_steps=1,    # Start pruning after epoch 1 (allow first epoch)
+                interval_steps=1     # Check for pruning every epoch
             ),
             sampler=sampler,
             load_if_exists=True  # Resume existing study if found
@@ -401,11 +378,11 @@ def create_study_with_wandb(project_name: str, study_name: str, storage_url: Opt
 
 def main():
     parser = argparse.ArgumentParser(description='Hyperparameter tuning for HOSER with Optuna')
-    parser.add_argument('--n_trials', type=int, default=25, help='Number of trials to run (GP sampler benefits from more trials)')
+    parser.add_argument('--n_trials', type=int, default=50, help='Number of trials to run (more trials with 5 epochs each)')
     parser.add_argument('--dataset', type=str, default='Beijing', help='Dataset name')
     parser.add_argument('--data_dir', type=str, required=True, help='Path to HOSER dataset')
     parser.add_argument('--config', type=str, default='config/Beijing.yaml', help='Base config file')
-    parser.add_argument('--max_epochs', type=int, default=25, help='Max epochs per trial')
+    parser.add_argument('--max_epochs', type=int, default=5, help='Max epochs per trial (5 epochs = ~4h/trial for fast tuning)')
     parser.add_argument('--study_name', type=str, default=None, help='Optuna study name')
     parser.add_argument('--storage', type=str, default='sqlite:////mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db', 
                        help='Optuna storage URL (default: backup drive /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db). Use "memory" for in-memory (no persistence)')
