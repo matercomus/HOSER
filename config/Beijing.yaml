@@ -37,8 +37,8 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 256  # Increased now that candidate_top_k filtering is disabled
-  accum_steps: 4   # Gradient accumulation for effective batch of 128
+  batch_size: 64   # Smaller batch = faster collate, less stalls
+  accum_steps: 4   # Effective batch still 256
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -60,10 +60,10 @@ data_dir: /home/matt/Dev/HOSER-dataset
 
 # Dataloader performance knobs - optimized for small dataset
 dataloader:
-  num_workers: 16   # Reduced from 16 - small dataset doesn't need many workers
+  num_workers: 8   # Moderate parallelism
   pin_memory: true # Enable for faster GPU transfer
-  prefetch_factor: 2  # Increased for better pipelining
-  persistent_workers: true
+  prefetch_factor: 4  # Higher prefetch to keep GPU fed
+  persistent_workers: true  # Reuse workers between epochs
 
 # Data-specific knobs
 data:
