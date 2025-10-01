@@ -60,10 +60,10 @@ data_dir: /home/matt/Dev/HOSER-dataset
 
 # Dataloader performance knobs - optimized for small dataset
 dataloader:
-  num_workers: 0
-  pin_memory: false
-  prefetch_factor: 2
-  persistent_workers: false
+  num_workers: 8  # Moderate parallelism
+  pin_memory: true  # Enable for GPU transfer
+  prefetch_factor: 4  # Higher prefetch to keep GPU fed
+  persistent_workers: true  # Reuse workers between epochs
 
 # Data-specific knobs
 data:
