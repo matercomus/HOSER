@@ -845,20 +845,16 @@ def main(
                     ~candidate_mask, float("-inf")
                 )
 
-                # Debug check for out-of-bounds labels
-                if torch.any(selected_road_label >= selected_logits.size(1)):
-                    print("ERROR: Road labels out of bounds!")
-                    print(f"  selected_logits.shape: {selected_logits.shape}")
-                    print(
-                        f"  selected_road_label max: {selected_road_label.max().item()}"
+                # Filter out positions where no valid candidates remain (all -inf)
+                valid_loss_mask = selected_candidate_len > 0
+                if torch.any(valid_loss_mask):
+                    loss_next_step = F.cross_entropy(
+                        masked_selected_logits[valid_loss_mask],
+                        selected_road_label[valid_loss_mask],
                     )
-                    print(f"  selected_road_label: {selected_road_label}")
-                    print(f"  selected_candidate_len: {selected_candidate_len}")
-                    raise ValueError("Road label exceeds logits dimension")
-
-                loss_next_step = F.cross_entropy(
-                    masked_selected_logits, selected_road_label
-                )
+                else:
+                    # No valid positions, set loss to zero to avoid inf
+                    loss_next_step = torch.tensor(0.0, device=device)
 
                 selected_time_pred = time_pred[logits_mask][
                     torch.arange(time_pred[logits_mask].size(0)), selected_road_label
