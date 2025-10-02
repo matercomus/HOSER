@@ -146,12 +146,19 @@ class Dataset(torch.utils.data.Dataset):
             [os.path.join(cache_dir, f) for f in os.listdir(cache_dir) if f.endswith('.pt')],
             key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0])
         )
+        
+        # Load all preprocessed data into memory to eliminate file I/O overhead
+        print(f"Loading {len(self.file_paths)} preprocessed samples into memory...")
+        self.cached_data = []
+        for file_path in tqdm(self.file_paths, desc="Caching dataset"):
+            self.cached_data.append(torch.load(file_path, weights_only=False))
+        print(f"✅ Cached {len(self.cached_data)} samples in memory")
 
     def __len__(self):
-        return len(self.file_paths)
+        return len(self.cached_data)
     
     def __getitem__(self, i):
-        data = torch.load(self.file_paths[i], weights_only=False)
+        data = self.cached_data[i]
 
         # Handle missing grid tokens (for backward compatibility)
         trace_grid_token = data.get('trace_grid_token', None)
