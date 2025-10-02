@@ -1200,11 +1200,11 @@ def main(
         writer.add_scalar("val/next_step_acc", val_acc, epoch_id)
         writer.add_scalar("val/time_pred_mape", val_mape, epoch_id)
         if wb_enable:
+            # Don't specify step - let WandB auto-increment to avoid monotonicity warnings
             wandb.log(
                 {
                     "val/next_step_acc": val_acc,
                     "val/time_pred_mape": val_mape,
-                    "epoch": epoch_id + 1,
                 }
             )
 

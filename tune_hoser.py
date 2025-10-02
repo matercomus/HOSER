@@ -1,85 +1,70 @@
 #!/usr/bin/env python3
 """
-ULTRA-FAST Optuna hyperparameter tuning for HOSER - 24 HOUR TARGET
+Distillation hyperparameter tuning for HOSER with Optuna - 24 HOUR TARGET
 
-This script runs hyperparameter optimization optimized for speed:
-  • 3 epochs per trial (~2.4 hours each, down from 19h)
-  • 80 trials (maximum coverage in 24h)
-  • AGGRESSIVE MedianPruner (no warmup, prune after epoch 1)
-  • Intermediate reporting every epoch for maximum efficiency
+This script optimizes distillation hyperparameters for HOSER using Optuna.
+All trials use distillation (no vanilla baseline trials).
 
-Tuned parameters for distillation:
+TUNED HYPERPARAMETERS:
 - lambda: KL divergence weight (0.001-0.1, log scale)
-- temperature: Softmax temperature (1.0-5.0)
-- window: Context window size (2, 4)
+         Controls balance between teacher guidance and student loss
+- temperature: Softmax temperature (1.0-5.0, linear)
+              Higher values create softer probability distributions
+- window: Context window size (2, 4, 8, categorical)
+         Number of neighboring road segments to consider
 
-Fixed parameters (architectural choices):
+FIXED PARAMETERS (architectural choices):
 - grid_size: 0.001 (from base config)
 - downsample: 1 (from base config)
+- All HOSER model architecture parameters
 
-AGGRESSIVE Pruning Strategy:
-  Trial 1-3: Run to completion (establish baseline, ~7h)
-  Trial 4+:  Prune IMMEDIATELY if val_acc < median after epoch 1
+PRUNING STRATEGY (MedianPruner):
+  Trial 1-5: Run to completion (establish stable baseline, ~12h)
+  Trial 6+:  Allow 2 epochs, then prune if val_acc < median
   
-  No warmup period - if you're bad at epoch 1, you're out!
-  Saves ~1.6h per pruned trial (vs ~0.8h wasted on bad trial)
+  This gives trials a fair chance (2 epochs) before pruning.
+  Comparison is fair: epoch 2 performance vs median at epoch 2.
+  Saves ~0.8h per pruned trial.
 
-Storage & Crash Recovery:
-  By default, stores Optuna study on backup drive for extra safety:
-    /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db
-  The study can be resumed after crashes/interruptions.
-  Heartbeat interval: 60s | Grace period: 120s
+SAMPLING STRATEGY (GPSampler):
+  Trial 1-10: Random/TPE sampling (exploration)
+  Trial 11+:  Gaussian Process Bayesian optimization (exploitation)
 
-Time Estimate (24h target):
-  • Trial 1-3 (startup): 3 × 2.4h = 7.2h
-  • Trial 4-8 (GP init): 5 × 2.4h = 12h  
-  • Trial 9-80 (GP optimized): 72 trials, ~50% pruned after epoch 1
-    - 36 complete: 36 × 2.4h = 86.4h
-    - 36 pruned: 36 × 0.8h = 28.8h
-    - Subtotal: 115.2h
-  • Total: 7.2 + 12 + 115.2 = 134.4h (~5.6 days)
+STORAGE & CRASH RECOVERY:
+  Default storage: /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db
+  Heartbeat: 60s | Grace period: 120s
+  Study can be resumed after crashes/interruptions.
 
-WAIT - still too long! Let's be more aggressive:
-  With 60% pruning rate:
-    - 3 startup: 7.2h
-    - 5 GP init: 12h
-    - 72 remaining: 29 complete (69.6h) + 43 pruned (34.4h) = 104h
-    - Total: 123.4h (~5.1 days)
+TIME ESTIMATE (24h target with 30 trials):
+  • Trial 1-5 (startup): 5 × 2.4h = 12h
+  • Trial 6-10 (GP init): 5 trials, ~20% pruned
+    - 4 complete: 4 × 2.4h = 9.6h
+    - 1 pruned: 1 × 1.6h = 1.6h
+    - Subtotal: 11.2h
+  • Trial 11-30 (GP optimized): 20 trials, ~50% pruned
+    - 10 complete: 10 × 2.4h = 24h
+    - 10 pruned: 10 × 1.6h = 16h
+    - Subtotal: 40h
+  • Total: 12 + 11.2 + 40 = 63.2h (~2.6 days)
 
-For TRUE 24h, need to:
-  1. Skip vanilla baseline (--skip_baseline)
-  2. Reduce to 3 epochs (done)
-  3. Target 70-80% pruning rate (very aggressive)
-  4. Run 20-25 trials only (not 80)
+For 24h runtime: expect ~10-15 trials to complete depending on pruning rate.
 
-Realistic 24h settings:
-  uv run python tune_hoser.py --n_trials 25 --skip_baseline --data_dir ...
-  
-  Expected: 3 startup (7h) + 22 trials @ 70% pruned = 17h
-  Total: 24h
+CONFIGURATION:
+  All settings in config/Beijing.yaml under 'optuna' section.
+  CLI args override YAML defaults.
 
-Configuration:
-  All tuning settings are in config/Beijing.yaml under the 'optuna' section:
-    - n_trials: Number of trials (default: 25 for 24h target)
-    - max_epochs: Epochs per trial (default: 3 = ~2.4h/trial)
-    - skip_baseline: Skip vanilla baseline (default: true)
-    - pruner: MedianPruner settings
-    - sampler: GPSampler settings
-
-  CLI args can override YAML settings if needed.
-
-Usage:
-  # Standard 24-hour run (RECOMMENDED - uses Beijing.yaml defaults)
+USAGE:
+  # Standard run (uses Beijing.yaml defaults)
   uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
 
-  # Override trials from CLI (overrides YAML)
+  # Override trials from CLI
   uv run python tune_hoser.py --n_trials 50 --data_dir /home/matt/Dev/HOSER-dataset
 
   # Resume existing study
-  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --study_name my_study
+  uv run python tune_hoser.py --study_name my_study --data_dir /home/matt/Dev/HOSER-dataset
 
-  # Use local storage instead of backup drive
-  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --storage sqlite:///optuna_hoser.db
+  # Use local storage
+  uv run python tune_hoser.py --storage sqlite:///optuna_hoser.db --data_dir /path/to/data
 """
 
 import os
@@ -99,26 +84,22 @@ import yaml
 import json
 from datetime import datetime
 
-# Training logic will be imported dynamically to avoid circular imports
-
 
 class HOSERObjective:
-    """Objective function for Optuna optimization of HOSER models."""
+    """Objective function for Optuna optimization of HOSER distillation hyperparameters."""
 
-    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 3, skip_baseline: bool = False):
+    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 3):
         """
-        Initialize HOSER optimization objective.
+        Initialize HOSER distillation optimization objective.
         
         Args:
             base_config_path: Path to base YAML config
             data_dir: Path to HOSER dataset
             max_epochs: Max epochs per trial (default 3 for ultra-fast tuning)
-            skip_baseline: Skip vanilla baseline trial
         """
         self.base_config_path = base_config_path
         self.data_dir = data_dir
         self.max_epochs = max_epochs
-        self.skip_baseline = skip_baseline
         
         # Load base config
         with open(base_config_path, 'r') as f:
@@ -128,32 +109,25 @@ class HOSERObjective:
         """
         Objective function called by Optuna for each trial.
         
-        IMPORTANT: All parameters must be suggested in every trial for Optuna to work properly.
+        All distillation hyperparameters are suggested and tuned.
+        Returns validation accuracy to maximize.
         """
-        # Always suggest the categorical parameter so the sampler can model it
-        trial_type = trial.suggest_categorical('trial_type', ['vanilla', 'distilled'])
-        forced_baseline = trial.number == 0 and not self.skip_baseline
-        if forced_baseline:
-            trial_type = 'vanilla'
-            print(f"🔬 Running vanilla baseline (trial {trial.number}, forced)")
-        else:
-            trial_mode = "distilled" if trial_type == 'distilled' else "vanilla"
-            print(f"🔬 Running {trial_mode} trial (trial {trial.number})")
+        print(f"🔬 Running distillation trial {trial.number}")
+        
+        # Step 1: Suggest all hyperparameters (defines search space)
+        hparams = self._suggest_hyperparameters(trial)
+        
+        # Step 2: Create trial config from hyperparameters
+        config = self._create_trial_config(trial, hparams)
 
-        trial.set_user_attr('trial_type', trial_type)
-        trial.set_user_attr('forced_baseline', forced_baseline)
-
-        # Create trial-specific config (deep copy to avoid mutation)
-        config = self._create_trial_config(trial, trial_type)
-
+        # Step 3: Run training and return metric
         temp_config_path = None
         try:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
                 yaml.dump(config, f)
                 temp_config_path = f.name
 
-            # Run training with trial config
-            result = self._run_training_trial(trial, temp_config_path, trial_type)
+            result = self._run_training_trial(trial, temp_config_path)
             return result
         finally:
             if temp_config_path and os.path.exists(temp_config_path):
@@ -161,48 +135,73 @@ class HOSERObjective:
             self._cleanup_trial_artifacts(trial.number)
             gc.collect()
             torch.cuda.empty_cache()
+    
+    def _suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
+        """
+        Define the hyperparameter search space - all tunable parameters in one place.
+        
+        Search space for distillation:
+        - lambda: KL divergence weight (log scale: 0.001 to 0.1)
+                 Controls how much to weight teacher guidance vs student loss
+        - temperature: Softmax temperature (linear: 1.0 to 5.0)
+                      Higher = softer distributions, more knowledge transfer
+        - window: Context window size (categorical: 2, 4, 8)
+                 Number of neighboring road segments to consider
+        
+        Returns:
+            Dict of hyperparameter names to suggested values
+        """
+        return {
+            'distill_lambda': trial.suggest_float('distill_lambda', 0.001, 0.1, log=True),
+            'distill_temperature': trial.suggest_float('distill_temperature', 1.0, 5.0),
+            'distill_window': trial.suggest_categorical('distill_window', [2, 4, 8]),
+        }
 
-    def _create_trial_config(self, trial: optuna.Trial, trial_type: str) -> Dict[str, Any]:
-        """Create configuration for a specific trial using deep copy to avoid mutation."""
+    def _create_trial_config(self, trial: optuna.Trial, hparams: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create trial configuration from suggested hyperparameters.
+        
+        Args:
+            trial: Optuna trial object
+            hparams: Dict of hyperparameter names to values from _suggest_hyperparameters
+        
+        Returns:
+            Complete config dict for this trial
+        """
         config = copy.deepcopy(self.base_config)
-        # Keep all original HOSER parameters from base config - only tune distillation
+        
+        # Set training parameters
         config['optimizer_config']['max_epoch'] = self.max_epochs
         config['data_dir'] = self.data_dir
         
-        # Configure distillation or vanilla mode
-        if trial_type == 'distilled':
-            config['distill']['enable'] = True
-            # Tune key distillation parameters
-            config['distill']['lambda'] = trial.suggest_float(
-                'distill_lambda', 0.001, 0.1, log=True
-            )
-            config['distill']['temperature'] = trial.suggest_float(
-                'distill_temperature', 1.0, 5.0
-            )
-            config['distill']['window'] = trial.suggest_categorical(
-                'distill_window', [2, 4]
-            )
-            # Keep grid_size and downsample fixed (not tuned)
-            # These are architectural choices rather than hyperparameters
-        else:
-            config['distill']['enable'] = False
+        # Enable distillation and apply hyperparameters
+        config['distill']['enable'] = True
+        config['distill']['lambda'] = hparams['distill_lambda']
+        config['distill']['temperature'] = hparams['distill_temperature']
+        config['distill']['window'] = hparams['distill_window']
+        # Keep grid_size and downsample fixed (architectural choices, not tuned)
         
-        # WandB config for trial (use settings from base config, just override run_name)
-        config['wandb']['run_name'] = f"trial_{trial.number:03d}_{trial_type}"
-        # Add trial-specific tags to existing tags
+        # WandB config for trial
+        config['wandb']['run_name'] = f"trial_{trial.number:03d}_distilled"
         existing_tags = config['wandb'].get('tags', [])
-        config['wandb']['tags'] = existing_tags + ['distill-tuning', trial_type]
+        config['wandb']['tags'] = existing_tags + ['distill-tuning']
         
         return config
     
-    def _run_training_trial(self, trial: optuna.Trial, config_path: str, trial_type: str) -> float:
-        """Run a single training trial and return the metric to optimize."""
+    def _run_training_trial(self, trial: optuna.Trial, config_path: str) -> float:
+        """
+        Run a single training trial and return the metric to optimize.
         
-        # Import training function
+        Args:
+            trial: Optuna trial object (for intermediate reporting)
+            config_path: Path to temporary config file for this trial
+        
+        Returns:
+            Validation accuracy (metric to maximize)
+        """
         from train_with_distill import main as train_main
         
         try:
-            # Call training with clean API - no more sys.argv monkeypatching!
             result = train_main(
                 dataset='Beijing',
                 config_path=config_path,
@@ -210,20 +209,17 @@ class HOSERObjective:
                 cuda=0,
                 data_dir=self.data_dir,
                 return_metrics=True,
-                optuna_trial=trial  # Pass trial for intermediate reporting
+                optuna_trial=trial  # Pass trial for intermediate reporting & pruning
             )
 
             if result is None:
                 raise optuna.TrialPruned("Training returned no metrics")
 
-            # Validate that metrics are reasonable (not NaN or infinite)
+            # Validate metrics (catch NaN/inf)
             if (math.isnan(result['best_val_acc']) or math.isinf(result['best_val_acc']) or
                 math.isnan(result['final_val_acc']) or math.isinf(result['final_val_acc'])):
                 print(f"⚠️  Trial {trial.number}: Invalid validation metrics detected, pruning")
                 raise optuna.TrialPruned("Invalid validation metrics (NaN/inf)")
-
-            # Return final metric to maximize (validation accuracy)
-            final_metric = result['best_val_acc']
 
             # Log additional metrics to trial
             trial.set_user_attr('final_val_acc', result['final_val_acc'])
@@ -231,28 +227,24 @@ class HOSERObjective:
             trial.set_user_attr('best_val_acc', result['best_val_acc'])
             trial.set_user_attr('final_lr', result.get('final_lr', 0.0))
 
-            return final_metric
+            # Return best validation accuracy (metric to maximize)
+            return result['best_val_acc']
 
         except optuna.TrialPruned:
-            # Re-raise pruned exceptions
             raise
         except Exception as e:
             print(f"❌ Trial {trial.number} failed: {e}")
             raise optuna.TrialPruned(str(e))
     
     def _cleanup_trial_artifacts(self, trial_number: int):
-        """Clean up artifacts from a completed trial, but preserve vanilla baseline (trial 0) and best trial."""
-        # Always preserve trial 0 (vanilla baseline)
-        if trial_number == 0:
-            print(f"🔒 Preserving vanilla baseline trial {trial_number}")
-            return
-        
-        # We'll preserve the best trial later in the main function
+        """
+        Clean up artifacts from a completed trial to save disk space.
+        Best trial will be preserved later in main().
+        """
         trial_dirs = [
             f"./save/Beijing/seed{42 + trial_number}_distill",
             f"./tensorboard_log/Beijing/seed{42 + trial_number}_distill",
             f"./log/Beijing/seed{42 + trial_number}_distill",
-            f"./optuna_trials/trial_{trial_number:03d}_vanilla",
             f"./optuna_trials/trial_{trial_number:03d}_distilled"
         ]
         
@@ -337,9 +329,8 @@ def create_study_with_wandb(
     sampler_cfg = sampler_cfg or {}
 
     # WandB callback configuration
-    # Note: Uses same project as individual trials for unified dashboard
     wandb_kwargs = {
-        "project": "hoser-distill-optuna",  # Match config/Beijing.yaml
+        "project": project_name,
         "group": study_name,
         "job_type": "optuna-optimization"
     }
@@ -356,7 +347,7 @@ def create_study_with_wandb(
         wandbc = None
 
     # Use GP sampler with settings from config
-    gp_startup = sampler_cfg.get('n_startup_trials', 8)
+    gp_startup = sampler_cfg.get('n_startup_trials', 10)
     try:
         sampler = optuna.samplers.GPSampler(
             seed=42,
@@ -390,8 +381,8 @@ def create_study_with_wandb(
 
     # Create Optuna study with robust error handling
     # MedianPruner with settings from config
-    pruner_startup = pruner_cfg.get('n_startup_trials', 3)
-    pruner_warmup = pruner_cfg.get('n_warmup_steps', 0)
+    pruner_startup = pruner_cfg.get('n_startup_trials', 5)
+    pruner_warmup = pruner_cfg.get('n_warmup_steps', 1)
     pruner_interval = pruner_cfg.get('interval_steps', 1)
     
     try:
@@ -417,7 +408,6 @@ def create_study_with_wandb(
         existing_trials = len(study.trials)
         if existing_trials > 0:
             print(f"📊 Resuming existing study with {existing_trials} completed trials")
-            # Validate resumed study has compatible sampler/pruner
             if existing_trials >= 15:  # Past GP startup phase
                 print("   ℹ️  GP surrogate model will use existing trial data")
         else:
@@ -427,7 +417,7 @@ def create_study_with_wandb(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Ultra-fast hyperparameter tuning for HOSER with Optuna')
+    parser = argparse.ArgumentParser(description='Distillation hyperparameter tuning for HOSER with Optuna')
     parser.add_argument('--dataset', type=str, default='Beijing', help='Dataset name')
     parser.add_argument('--data_dir', type=str, required=True, help='Path to HOSER dataset')
     parser.add_argument('--config', type=str, default='config/Beijing.yaml', help='Base config file (contains optuna settings)')
@@ -438,7 +428,6 @@ def main():
     # Optional overrides (if not provided, read from config YAML)
     parser.add_argument('--n_trials', type=int, default=None, help='Override number of trials (default: from config)')
     parser.add_argument('--max_epochs', type=int, default=None, help='Override max epochs per trial (default: from config)')
-    parser.add_argument('--skip_baseline', action='store_true', help='Override skip_baseline setting (default: from config)')
     args = parser.parse_args()
     
     # Validate inputs
@@ -454,9 +443,8 @@ def main():
     
     # Get Optuna settings from config, with CLI overrides
     optuna_cfg = config.get('optuna', {})
-    n_trials = args.n_trials if args.n_trials is not None else optuna_cfg.get('n_trials', 25)
+    n_trials = args.n_trials if args.n_trials is not None else optuna_cfg.get('n_trials', 30)
     max_epochs = args.max_epochs if args.max_epochs is not None else optuna_cfg.get('max_epochs', 3)
-    skip_baseline = args.skip_baseline or optuna_cfg.get('skip_baseline', False)
     
     # Get pruner and sampler settings from config
     pruner_cfg = optuna_cfg.get('pruner', {})
@@ -480,20 +468,17 @@ def main():
     
     print()
     print(f"🔍 Starting Optuna study: {study_name}")
+    print("🧪 Mode: Distillation-only (tuning lambda, temperature, window)")
     print(f"📊 Trials: {n_trials} (from {'CLI' if args.n_trials else 'config'})")
     print(f"📈 Epochs: {max_epochs} per trial (from {'CLI' if args.max_epochs else 'config'})")
     print(f"📁 Dataset: {args.data_dir}")
     print(f"⚙️  Base config: {args.config}")
-    if skip_baseline:
-        print("🚫 Skipping vanilla baseline (trial 0) - starting directly with distillation")
-    else:
-        print("✅ Including vanilla baseline (trial 0) for comparison")
     print()
 
     # Create study and WandB callback with error handling
     try:
         study, wandbc = create_study_with_wandb(
-            "hoser-optuna-tuning", 
+            config.get('wandb', {}).get('project', 'hoser-optuna-tuning'),
             study_name, 
             storage_url,
             pruner_cfg=pruner_cfg,
@@ -507,8 +492,7 @@ def main():
     objective = HOSERObjective(
         base_config_path=args.config,
         data_dir=args.data_dir,
-        max_epochs=max_epochs,
-        skip_baseline=skip_baseline
+        max_epochs=max_epochs
     )
     
     # Run optimization with proper callback handling
@@ -560,26 +544,6 @@ def main():
                 except Exception as e:
                     print(f"⚠️  Warning: Could not copy {src} to {dst}: {e}")
         
-        # Copy vanilla baseline (trial 0) artifacts if it exists (unless skipped)
-        if not args.skip_baseline:
-            vanilla_seed = 42
-            vanilla_dirs = {
-                os.path.abspath(f"./save/Beijing/seed{vanilla_seed}_distill"): 
-                    os.path.join(preserved_dir, "vanilla_trial_0_model"),
-                os.path.abspath(f"./tensorboard_log/Beijing/seed{vanilla_seed}_distill"): 
-                    os.path.join(preserved_dir, "vanilla_trial_0_tensorboard"),
-                os.path.abspath(f"./log/Beijing/seed{vanilla_seed}_distill"): 
-                    os.path.join(preserved_dir, "vanilla_trial_0_logs")
-            }
-
-            for src, dst in vanilla_dirs.items():
-                if os.path.exists(src):
-                    try:
-                        shutil.copytree(src, dst, dirs_exist_ok=True)
-                        print(f"🔒 Preserved vanilla baseline artifacts: {dst}")
-                    except Exception as e:
-                        print(f"⚠️  Warning: Could not copy {src} to {dst}: {e}")
-
         # Save study results with robust file handling
         try:
             with open(os.path.join(results_base, "best_params.json"), 'w') as f:
@@ -587,15 +551,9 @@ def main():
         except Exception as e:
             print(f"⚠️  Warning: Could not save best_params.json: {e}")
 
-        # Determine vanilla trial number (0 if not skipped, -1 if skipped)
-        vanilla_trial_num = 0 if not args.skip_baseline else -1
-
         preserved_models = {
             "best_trial": os.path.join(preserved_dir, f"best_trial_{best_trial_num}_model", "best.pth")
         }
-
-        if not args.skip_baseline:
-            preserved_models["vanilla_baseline"] = os.path.join(preserved_dir, "vanilla_trial_0_model", "best.pth")
 
         try:
             with open(os.path.join(results_base, "study_summary.json"), 'w') as f:
@@ -605,8 +563,7 @@ def main():
                     "best_value": study.best_value,
                     "best_trial": study.best_trial.number,
                     "best_params": study.best_params,
-                    "vanilla_trial": vanilla_trial_num,
-                    "skip_baseline": args.skip_baseline,
+                    "mode": "distillation_only",
                     "preserved_models": preserved_models,
                     "storage_url": storage_url if storage_url else "in-memory"
                 }, f, indent=2)
@@ -616,10 +573,6 @@ def main():
         print(f"\n💾 Results saved to: {results_base}")
         print("🔒 Preserved models:")
         print(f"   Best trial ({best_trial_num}): {preserved_models['best_trial']}")
-        if not args.skip_baseline:
-            print(f"   Vanilla baseline (0): {preserved_models['vanilla_baseline']}")
-        else:
-            print("   Vanilla baseline: Skipped (--skip_baseline was used)")
         
     except KeyboardInterrupt:
         print("\n⚠️  Optimization interrupted by user")
@@ -630,3 +583,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
