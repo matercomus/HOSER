@@ -37,8 +37,8 @@ navigator_config:
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 86   # Smaller batch = faster collate, less stalls
-  accum_steps: 4   # Effective batch still 256
+  batch_size: 64
+  accum_steps: 8
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -60,9 +60,9 @@ data_dir: /home/matt/Dev/HOSER-dataset
 
 # Dataloader performance knobs - optimized for small dataset
 dataloader:
-  num_workers: 8   # Moderate parallelism
-  pin_memory: true # Enable for faster GPU transfer
-  prefetch_factor: 4  # Higher prefetch to keep GPU fed
+  num_workers: 8
+  pin_memory: false # Disabled: Relieves CPU memory pressure, the bottleneck in this case
+  prefetch_factor: 8
   persistent_workers: true  # Reuse workers between epochs
 
 # Data-specific knobs
@@ -71,23 +71,28 @@ data:
 
 # Training performance knobs
 training:
-  seed: 42 # Base seed for reproducibility
+  seed: 43 # Base seed for reproducibility
   allow_tf32: true
   cudnn_benchmark: true
   torch_compile: true
   torch_compile_mode: max-autotune  # Options: default, reduce-overhead, max-autotune
   disable_cudagraphs: true
 
+# Performance profiling
+profiling:
+  enable: true        # Enable periodic performance logging
+  log_interval: 100   # Log performance stats every 200 batches
+
 # Weights & Biases logging
 wandb:
   enable: true
-  project: hoser-distill-optuna-3  # Single project for both Optuna study and individual trials
+  project: hoser-distill-optuna-5  # Single project for both Optuna study and individual trials
   run_name: ''  # Auto-generated per trial: trial_{N:03d}_{vanilla|distilled}
   tags: [beijing, distillation, optuna]
 
 # Optuna hyperparameter tuning configuration
 optuna:
-  n_trials: 50  # Extended trials with meaningful epochs
+  n_trials: 25  # Extended trials with meaningful epochs
   max_epochs: 10  # Full 10 epochs for meaningful results (~8h per trial)
   
   # Pruner configuration (HyperbandPruner with aggressive early-stopping)
@@ -97,8 +102,8 @@ optuna:
   
   # Sampler configuration (TPESampler for robust conditional search)
   sampler:
-    n_startup_trials: 10  # TPE model starts after 10 random trials
-    seed: 42              # Sampler seed for reproducibility
+    n_startup_trials: 5  # TPE model starts after 10 random trials
+    seed: 43              # Sampler seed for reproducibility
     multivariate: true    # Use multivariate TPE
     group: true           # Decompose search space for conditional params
 
