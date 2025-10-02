@@ -699,6 +699,9 @@ def main(
         ) in enumerate(
             tqdm(train_dataloader, desc=f"[training+distill] epoch{epoch_id + 1}")
         ):
+            # Define step_idx early for logging
+            step_idx = len(train_dataloader) * epoch_id + batch_id
+
             # --- Profiling: Mark start of data wait ---
             if profiling_enabled:
                 loop_start_time = time.time()
@@ -979,6 +982,13 @@ def main(
                     logger.info(f"{'Total Step Time':<25}: {total_time_ms:>8.2f} ms")
                     logger.info("--------------------------------------------------")
 
+                    # Log to Weights & Biases if enabled
+                    if wb_enable:
+                        perf_metrics = {f"perf/{k.lower().replace(' ', '_')}_ms": v for k, v in avg_timings.items()}
+                        perf_metrics["perf/total_step_time_ms"] = total_time_ms
+                        perf_metrics["perf/iter_per_sec"] = iter_per_sec
+                        wandb.log(perf_metrics, step=step_idx)
+
                     # Reset accumulator and timer
                     for key in timing_accumulator:
                         timing_accumulator[key] = 0.0
@@ -994,7 +1004,6 @@ def main(
                 break
 
             # Logging
-            step_idx = len(train_dataloader) * epoch_id + batch_id
             current_lr = optimizer.param_groups[0]["lr"]
             writer.add_scalar("loss_next_step", loss_next_step.item(), step_idx)
             writer.add_scalar("loss_time_pred", loss_time_pred.item(), step_idx)
@@ -1015,8 +1024,8 @@ def main(
                         ),
                         "lr": current_lr,
                         "epoch": epoch_id + 1,
-                        "iter": step_idx,
-                    }
+                    },
+                    step=step_idx,
                 )
 
         logger.info(
@@ -1244,6 +1253,7 @@ def main(
                 {
                     "val/next_step_acc": val_acc,
                     "val/time_pred_mape": val_mape,
+                    "epoch": epoch_id + 1,
                 }
             )
 
