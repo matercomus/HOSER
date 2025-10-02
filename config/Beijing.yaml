@@ -62,7 +62,7 @@ data_dir: /home/matt/Dev/HOSER-dataset
 dataloader:
   num_workers: 8
   pin_memory: false # Disabled: Relieves CPU memory pressure, the bottleneck in this case
-  prefetch_factor: 8
+  prefetch_factor: 32
   persistent_workers: true  # Reuse workers between epochs
 
 # Data-specific knobs
@@ -81,7 +81,7 @@ training:
 # Performance profiling
 profiling:
   enable: true        # Enable periodic performance logging
-  log_interval: 100   # Log performance stats every 200 batches
+  log_interval: 100
 
 # Weights & Biases logging
 wandb:

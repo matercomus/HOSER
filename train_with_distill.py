@@ -663,7 +663,21 @@ def main(
     # Track validation metrics for Optuna
     validation_metrics = []
     best_val_acc = 0.0
-    profiler_ran = False  # Ensure profiler runs only once
+
+    # Performance Profiling Setup
+    profiling_enabled = getattr(getattr(config, "profiling", {}), "enable", False)
+    if profiling_enabled:
+        log_interval = int(getattr(getattr(config, "profiling", {}), "log_interval", 200))
+        timing_accumulator = {
+            "Data Wait": 0.0,
+            "Data Transfer": 0.0,
+            "HOSER Forward": 0.0,
+            "Distill KL (Teacher)": 0.0,
+            "Backward Pass": 0.0,
+            "Optimizer Step": 0.0,
+        }
+        loop_end_time = time.time()
+
 
     for epoch_id in range(config.optimizer_config.max_epoch):
         model.train()
@@ -685,6 +699,11 @@ def main(
         ) in enumerate(
             tqdm(train_dataloader, desc=f"[training+distill] epoch{epoch_id + 1}")
         ):
+            # --- Profiling: Mark start of data wait ---
+            if profiling_enabled:
+                loop_start_time = time.time()
+                data_wait_time = loop_start_time - loop_end_time
+
             # --- Profiling Start ---
             torch.cuda.synchronize()
             t_start = time.time()
@@ -931,22 +950,42 @@ def main(
             t_optim = time.time()
 
             # --- Profiling Report ---
-            if not profiler_ran and batch_id == 100:  # After 100 warmup steps
-                logger.info("--- Performance Profile (ms/batch) ---")
-                total_time = (t_optim - t_start) * 1000
-                profile_data = {
-                    "Data Transfer": (t_data - t_start) * 1000,
-                    "HOSER Forward": (t_forward - t_data) * 1000,
-                    "Distill KL (Teacher)": (t_distill - t_forward) * 1000,
-                    "Backward Pass": (t_backward - t_distill) * 1000,
-                    "Optimizer Step": (t_optim - t_backward) * 1000,
-                }
-                for name, duration in profile_data.items():
-                    percentage = (duration / total_time) * 100 if total_time > 0 else 0
-                    logger.info(f"{name:<25}: {duration:>8.2f} ms ({percentage:.1f}%)")
-                logger.info(f"{'Total':<25}: {total_time:>8.2f} ms")
-                logger.info("----------------------------------------")
-                profiler_ran = True
+            if profiling_enabled:
+                # Accumulate timings for the current step
+                timing_accumulator["Data Wait"] += data_wait_time
+                timing_accumulator["Data Transfer"] += t_data - t_start
+                timing_accumulator["HOSER Forward"] += t_forward - t_data
+                timing_accumulator["Distill KL (Teacher)"] += t_distill - t_forward
+                timing_accumulator["Backward Pass"] += t_backward - t_distill
+                timing_accumulator["Optimizer Step"] += t_optim - t_backward
+
+                # Log performance if interval is reached
+                if (batch_id + 1) % log_interval == 0 and batch_id > 0:
+                    # Calculate averages in ms
+                    avg_timings = {k: (v / log_interval) * 1000 for k, v in timing_accumulator.items()}
+                    
+                    # Calculate total time from accumulated components for percentage calculation
+                    total_time_ms = sum(avg_timings.values())
+                    
+                    # Calculate it/s over the last interval
+                    interval_duration = time.time() - loop_end_time
+                    iter_per_sec = log_interval / (time.time() - (loop_end_time - sum(timing_accumulator.values())))
+                    
+                    
+                    logger.info(f"--- Performance Profile (Batches {batch_id + 1 - log_interval}-{batch_id + 1} | {iter_per_sec:.2f} it/s) ---")
+                    for name, duration in avg_timings.items():
+                        percentage = (duration / total_time_ms) * 100 if total_time_ms > 0 else 0
+                        logger.info(f"{name:<25}: {duration:>8.2f} ms ({percentage:.1f}%)")
+                    logger.info(f"{'Total Step Time':<25}: {total_time_ms:>8.2f} ms")
+                    logger.info("--------------------------------------------------")
+
+                    # Reset accumulator and timer
+                    for key in timing_accumulator:
+                        timing_accumulator[key] = 0.0
+                
+                # Mark end of loop for next iteration's data wait calculation
+                loop_end_time = time.time()
+
 
             if profile_max_batches and (batch_id + 1) >= profile_max_batches:
                 logger.info(
