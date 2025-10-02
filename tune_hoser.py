@@ -114,6 +114,7 @@ class HOSERObjective:
         # Load base config
         with open(base_config_path, 'r') as f:
             self.base_config = yaml.safe_load(f)
+        self.base_seed = self.base_config.get('training', {}).get('seed', 42)
     
     def __call__(self, trial: optuna.Trial) -> float:
         """
@@ -248,7 +249,7 @@ class HOSERObjective:
             result = train_main(
                 dataset='Beijing',
                 config_path=config_path,
-                seed=42 + trial.number,  # Deterministic but different per trial
+                seed=self.base_seed + trial.number,  # Deterministic but different per trial
                 cuda=0,
                 data_dir=self.data_dir,
                 return_metrics=True,
@@ -285,9 +286,9 @@ class HOSERObjective:
         Best trial will be preserved later in main().
         """
         trial_dirs = [
-            f"./save/Beijing/seed{42 + trial_number}_distill",
-            f"./tensorboard_log/Beijing/seed{42 + trial_number}_distill",
-            f"./log/Beijing/seed{42 + trial_number}_distill",
+            f"./save/Beijing/seed{self.base_seed + trial_number}_distill",
+            f"./tensorboard_log/Beijing/seed{self.base_seed + trial_number}_distill",
+            f"./log/Beijing/seed{self.base_seed + trial_number}_distill",
             f"./optuna_trials/trial_{trial_number:03d}_distilled"
         ]
         
@@ -347,6 +348,7 @@ def validate_and_prepare_storage(storage_arg: str) -> Optional[str]:
 def create_study_with_wandb(
     project_name: str, 
     study_name: str, 
+    max_epochs: int,
     storage_url: Optional[str] = None,
     pruner_cfg: Optional[Dict[str, Any]] = None,
     sampler_cfg: Optional[Dict[str, Any]] = None
@@ -357,6 +359,7 @@ def create_study_with_wandb(
     Args:
         project_name: WandB project name
         study_name: Unique study identifier
+        max_epochs: Max epochs per trial (used for HyperbandPruner)
         storage_url: Validated SQLite database URL (from validate_and_prepare_storage)
                     If None, uses in-memory storage (not crash-safe!)
         pruner_cfg: Pruner configuration dict from YAML
@@ -389,19 +392,25 @@ def create_study_with_wandb(
         print("   Continuing without WandB integration")
         wandbc = None
 
-    # Use GP sampler with settings from config
-    gp_startup = sampler_cfg.get('n_startup_trials', 10)
+    # Use TPE sampler with settings from config
+    tpe_startup = sampler_cfg.get('n_startup_trials', 10)
+    seed = sampler_cfg.get('seed', 42)
+    multivariate = sampler_cfg.get('multivariate', True)
+    group = sampler_cfg.get('group', True)
+
     try:
-        sampler = optuna.samplers.GPSampler(
-            seed=42,
-            n_startup_trials=gp_startup,
-            deterministic_objective=False,  # Training has noise/stochasticity
-            independent_sampler=optuna.samplers.TPESampler(seed=42)  # Use TPE for initial sampling
+        # TPESampler is efficient and supports pruning and conditional search spaces well.
+        # group=True and multivariate=True are recommended for conditional search spaces.
+        sampler = optuna.samplers.TPESampler(
+            seed=seed,
+            n_startup_trials=tpe_startup,
+            multivariate=multivariate,
+            group=group
         )
-        print(f"🔬 Using GP Sampler (n_startup_trials={gp_startup} from config)")
+        print(f"🔬 Using TPE Sampler (n_startup_trials={tpe_startup}, seed={seed}, multivariate={multivariate}, group={group} from config)")
     except (ImportError, AttributeError) as e:
-        print(f"⚠️  GP Sampler not available ({e}), falling back to TPE")
-        sampler = optuna.samplers.TPESampler(seed=42)
+        print(f"⚠️  TPESampler not available ({e}), falling back to RandomSampler")
+        sampler = optuna.samplers.RandomSampler(seed=seed)
 
     # Configure storage with crash recovery
     storage = None
@@ -423,26 +432,25 @@ def create_study_with_wandb(
         print("   Consider using --storage sqlite:///optuna_hoser.db for persistence")
 
     # Create Optuna study with robust error handling
-    # MedianPruner with settings from config
-    pruner_startup = pruner_cfg.get('n_startup_trials', 5)
-    pruner_warmup = pruner_cfg.get('n_warmup_steps', 1)
-    pruner_interval = pruner_cfg.get('interval_steps', 1)
+    # HyperbandPruner with settings from config
+    min_resource = pruner_cfg.get('min_resource', 1)
+    reduction_factor = pruner_cfg.get('reduction_factor', 3)
     
     try:
         study = optuna.create_study(
             storage=storage,
             direction='maximize',
             study_name=study_name,
-            pruner=optuna.pruners.MedianPruner(
-                n_startup_trials=pruner_startup,
-                n_warmup_steps=pruner_warmup,
-                interval_steps=pruner_interval
+            pruner=optuna.pruners.HyperbandPruner(
+                min_resource=min_resource,
+                max_resource=max_epochs,
+                reduction_factor=reduction_factor
             ),
             sampler=sampler,
             load_if_exists=True  # Resume existing study if found
         )
-        print("🔪 MedianPruner configured from YAML:")
-        print(f"   n_startup_trials={pruner_startup}, n_warmup_steps={pruner_warmup}, interval_steps={pruner_interval}")
+        print("🔪 HyperbandPruner configured from YAML:")
+        print(f"   min_resource={min_resource}, max_resource={max_epochs}, reduction_factor={reduction_factor}")
     except Exception as e:
         raise RuntimeError(f"Failed to create Optuna study: {e}") from e
 
@@ -522,7 +530,8 @@ def main():
     try:
         study, wandbc = create_study_with_wandb(
             config.get('wandb', {}).get('project', 'hoser-optuna-tuning'),
-            study_name, 
+            study_name,
+            max_epochs,
             storage_url,
             pruner_cfg=pruner_cfg,
             sampler_cfg=sampler_cfg
@@ -561,7 +570,8 @@ def main():
         
         # Preserve best trial artifacts
         best_trial_num = study.best_trial.number
-        best_seed = 42 + best_trial_num
+        base_seed = config.get('training', {}).get('seed', 42)
+        best_seed = base_seed + best_trial_num
         
         # Create preserved directories with absolute paths
         results_base = os.path.abspath(f"./optuna_results/{study_name}")
