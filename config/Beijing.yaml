@@ -67,7 +67,7 @@ dataloader:
 
 # Data-specific knobs
 data:
-  candidate_top_k: 0  # Disabled for now - causes issues with distillation label remapping
+  candidate_top_k: 64  # Cap candidates per timestep to prevent memory/collate explosion
 
 # Training performance knobs
 training:
