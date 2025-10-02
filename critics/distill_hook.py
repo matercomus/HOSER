@@ -169,11 +169,8 @@ class DistillationManager:
         last_idx = last_idx[sorted_indices]
         candidate_len = candidate_len[sorted_indices]
 
-        # Account for SOT token when calculating max history length
-        max_trace_len = int(batch_trace_len.max().item())
-        max_hist = max_trace_len + (1 if self.sot_id is not None else 0)
-        history_tokens = torch.zeros((batch_indices.size(0), max_hist), dtype=torch.long, device=device)
         # Vectorized: Process all sequences without .tolist() calls
+        history_sequences = []
         for row in range(batch_indices.size(0)):
             b = batch_indices[row]
             t = last_idx[row]
@@ -182,7 +179,18 @@ class DistillationManager:
             seq = self.road_to_token[seq]
             if self.sot_id is not None:
                 seq = torch.cat([self.sot_tensor, seq], dim=0)
-            history_tokens[row, -seq.size(0):] = seq
+            history_sequences.append(seq)
+
+        # Efficiently pad all sequences to the same length (left-padding)
+        # 1. Reverse all sequences
+        reversed_seqs = [s.flip(0) for s in history_sequences]
+        # 2. Pad the reversed sequences (torch's default is right-padding)
+        padded_reversed = torch.nn.utils.rnn.pad_sequence(
+            reversed_seqs, batch_first=True, padding_value=0
+        )
+        # 3. Reverse the padded sequences back to get left-padding
+        history_tokens = padded_reversed.flip(1)
+
 
         # Optimized: Process all samples in single batched teacher inference with caching
         # Use cached version for better performance on repeated inputs
