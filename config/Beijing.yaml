@@ -58,12 +58,12 @@ distill:
 # Point to the original HOSER dataset (beijing_hoser_reference is LM-TAD format only)
 data_dir: /home/matt/Dev/HOSER-dataset
 
-# Dataloader performance knobs - optimized for small dataset
+# Dataloader performance knobs - optimized for streaming large dataset
 dataloader:
-  num_workers: 8
-  pin_memory: false # Disabled: Relieves CPU memory pressure, the bottleneck in this case
-  prefetch_factor: 32
-  persistent_workers: true  # Reuse workers between epochs
+  num_workers: 6  # Reduced to avoid file descriptor exhaustion
+  pin_memory: false # Disabled: Relieves CPU memory pressure
+  prefetch_factor: 16  # Reduced since we're streaming from disk
+  persistent_workers: false  # Disabled: Avoid memory leaks with repeated torch.load
 
 # Data-specific knobs
 data:
