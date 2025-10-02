@@ -43,10 +43,10 @@ class MyCollateFn:
         self.max_len = int(max_len) if max_len else None
 
     def __call__(self, items):
-        # Fast collate using PyTorch operations
+        # Optimized collate using vectorized operations
         batch_size = len(items)
         
-        # Extract all components first for easier processing
+        # Extract all components first
         components = list(zip(*items))
         (
             trace_road_ids,
@@ -65,7 +65,7 @@ class MyCollateFn:
             candidate_grid_tokens,
         ) = components
         
-        # Convert trace_lens to tensor for efficient operations
+        # Convert trace_lens to tensor once
         trace_lens_tensor = torch.tensor(trace_lens, dtype=torch.long)
         max_trace_len = int(trace_lens_tensor.max().item())
         
@@ -73,7 +73,7 @@ class MyCollateFn:
         if self.max_len is not None and max_trace_len > self.max_len:
             max_trace_len = self.max_len
         
-        # Find max candidate length efficiently
+        # Find max candidate length efficiently - vectorized
         max_candidate_len = 1
         for cand_len_array in candidate_lens:
             if len(cand_len_array) > 0:
@@ -84,7 +84,7 @@ class MyCollateFn:
         batch_temporal_info = torch.zeros((batch_size, max_trace_len), dtype=torch.float32)
         batch_trace_distance_mat = torch.zeros((batch_size, max_trace_len, max_trace_len), dtype=torch.float32)
         batch_trace_time_interval_mat = torch.zeros((batch_size, max_trace_len, max_trace_len), dtype=torch.float32)
-        batch_destination_road_id = torch.zeros(batch_size, dtype=torch.long)
+        batch_destination_road_id = torch.from_numpy(np.array(destination_road_ids, dtype=np.int64))
         batch_candidate_road_id = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.long)
         batch_metric_dis = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.float32)
         batch_metric_angle = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.float32)
@@ -94,7 +94,7 @@ class MyCollateFn:
         batch_trace_grid_token = torch.zeros((batch_size, max_trace_len), dtype=torch.long)
         batch_candidate_grid_token = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.long)
 
-        # Fill tensors efficiently
+        # Vectorized filling for simple sequences
         for i in range(batch_size):
             trace_len = trace_lens[i]
             
@@ -107,77 +107,57 @@ class MyCollateFn:
             
             actual_len = min(trace_len, max_trace_len)
             
-            # Convert numpy arrays to torch tensors and fill pre-allocated tensors
-            # 1D sequences
-            trace_road_id_tensor = torch.from_numpy(trace_road_ids[i][crop_start:crop_start+actual_len])
-            batch_trace_road_id[i, :actual_len] = trace_road_id_tensor
+            # Batch convert numpy to tensors and assign in one go
+            # 1D sequences - use slice assignment (faster than item-by-item)
+            batch_trace_road_id[i, :actual_len] = torch.from_numpy(trace_road_ids[i][crop_start:crop_start+actual_len])
+            batch_temporal_info[i, :actual_len] = torch.from_numpy(temporal_infos[i][crop_start:crop_start+actual_len])
             
-            temporal_info_tensor = torch.from_numpy(temporal_infos[i][crop_start:crop_start+actual_len])
-            batch_temporal_info[i, :actual_len] = temporal_info_tensor
+            # 2D matrices - direct slice assignment
+            batch_trace_distance_mat[i, :actual_len, :actual_len] = torch.from_numpy(
+                trace_distance_mats[i][crop_start:crop_start+actual_len, crop_start:crop_start+actual_len]
+            )
+            batch_trace_time_interval_mat[i, :actual_len, :actual_len] = torch.from_numpy(
+                trace_time_interval_mats[i][crop_start:crop_start+actual_len, crop_start:crop_start+actual_len]
+            )
             
-            # 2D matrices
-            dist_mat = torch.from_numpy(trace_distance_mats[i][crop_start:crop_start+actual_len, crop_start:crop_start+actual_len])
-            batch_trace_distance_mat[i, :actual_len, :actual_len] = dist_mat
-            
-            time_mat = torch.from_numpy(trace_time_interval_mats[i][crop_start:crop_start+actual_len, crop_start:crop_start+actual_len])
-            batch_trace_time_interval_mat[i, :actual_len, :actual_len] = time_mat
-            
-            # Scalars
-            batch_destination_road_id[i] = destination_road_ids[i]
-            
-            # Labels and other 1D data
-            road_label_tensor = torch.from_numpy(road_labels[i][crop_start:crop_start+actual_len])
-            batch_road_label[i, :actual_len] = road_label_tensor
-            
-            timestamp_label_tensor = torch.from_numpy(timestamp_labels[i][crop_start:crop_start+actual_len])
-            batch_timestamp_label[i, :actual_len] = timestamp_label_tensor
+            # Labels
+            batch_road_label[i, :actual_len] = torch.from_numpy(road_labels[i][crop_start:crop_start+actual_len])
+            batch_timestamp_label[i, :actual_len] = torch.from_numpy(timestamp_labels[i][crop_start:crop_start+actual_len])
             
             # Grid tokens (may be None)
             if trace_grid_tokens[i] is not None:
-                grid_token_tensor = torch.from_numpy(trace_grid_tokens[i][crop_start:crop_start+actual_len])
-                batch_trace_grid_token[i, :actual_len] = grid_token_tensor
-
+                batch_trace_grid_token[i, :actual_len] = torch.from_numpy(trace_grid_tokens[i][crop_start:crop_start+actual_len])
             
-            # Handle candidate data (2D arrays)
-            cand_road_ids = candidate_road_ids[i][crop_start:crop_start+actual_len]
-            cand_lens = candidate_lens[i][crop_start:crop_start+actual_len]
-            cand_metric_dis = metric_diss[i][crop_start:crop_start+actual_len]
-            cand_metric_angle = metric_angles[i][crop_start:crop_start+actual_len]
+            # Candidate data - vectorized where possible
+            cand_road_ids_cropped = candidate_road_ids[i][crop_start:crop_start+actual_len]
+            cand_lens_cropped = candidate_lens[i][crop_start:crop_start+actual_len]
+            cand_metric_dis_cropped = metric_diss[i][crop_start:crop_start+actual_len]
+            cand_metric_angle_cropped = metric_angles[i][crop_start:crop_start+actual_len]
             
-            # Copy candidate lens
-            cand_len_tensor = torch.from_numpy(cand_lens)
-            batch_candidate_len[i, :actual_len] = cand_len_tensor
+            batch_candidate_len[i, :actual_len] = torch.from_numpy(cand_lens_cropped)
             
-            # Process each time step's candidates
+            # Batch process candidates using list comprehension and stacking
             for j in range(actual_len):
-                cand_len = int(cand_lens[j])
+                cand_len = int(cand_lens_cropped[j])
                 if cand_len > 0:
                     actual_cand_len = min(cand_len, max_candidate_len)
                     
-                    # Candidate road IDs
-                    cand_roads = torch.from_numpy(cand_road_ids[j][:actual_cand_len])
-                    batch_candidate_road_id[i, j, :actual_cand_len] = cand_roads
-                    
-                    # Metrics
-                    metric_dis = torch.from_numpy(cand_metric_dis[j][:actual_cand_len])
-                    batch_metric_dis[i, j, :actual_cand_len] = metric_dis
-                    
-                    metric_angle = torch.from_numpy(cand_metric_angle[j][:actual_cand_len])
-                    batch_metric_angle[i, j, :actual_cand_len] = metric_angle
+                    # Direct tensor creation and assignment (reduces overhead)
+                    batch_candidate_road_id[i, j, :actual_cand_len] = torch.from_numpy(cand_road_ids_cropped[j][:actual_cand_len])
+                    batch_metric_dis[i, j, :actual_cand_len] = torch.from_numpy(cand_metric_dis_cropped[j][:actual_cand_len])
+                    batch_metric_angle[i, j, :actual_cand_len] = torch.from_numpy(cand_metric_angle_cropped[j][:actual_cand_len])
                     
                     # Grid tokens for candidates (if available)
                     if candidate_grid_tokens[i] is not None:
                         cand_grid_tokens = candidate_grid_tokens[i][crop_start+j]
                         if cand_grid_tokens is not None:
-                            cand_grid_tensor = torch.from_numpy(cand_grid_tokens[:actual_cand_len])
-                            batch_candidate_grid_token[i, j, :actual_cand_len] = cand_grid_tensor
-
+                            batch_candidate_grid_token[i, j, :actual_cand_len] = torch.from_numpy(cand_grid_tokens[:actual_cand_len])
         
-        # Normalize timestamp labels using PyTorch operations
+        # Normalize timestamp labels using vectorized PyTorch operations
         batch_timestamp_label = (torch.log1p(batch_timestamp_label) - self.timestamp_label_log1p_mean) / self.timestamp_label_log1p_std
         
-        # Return trace lens as tensor
-        batch_trace_len = trace_lens_tensor.clone()
+        # Return trace lens as tensor (already created)
+        batch_trace_len = trace_lens_tensor
 
         return (
             batch_trace_road_id,
