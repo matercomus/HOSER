@@ -127,7 +127,7 @@ class HOSERObjective:
         hparams = self._suggest_hyperparameters(trial)
         
         # Show what mode we're running
-        mode = "distilled" if hparams['distill_enable'] else "vanilla"
+        mode = "distilled" if hparams['distill_enable'] else "vanilla baseline"
         print(f"🔬 Running trial {trial.number} ({mode})")
         
         # Step 2: Create trial config from hyperparameters
@@ -173,8 +173,12 @@ class HOSERObjective:
         Returns:
             Dict of hyperparameter names to suggested values
         """
-        # First, decide whether to use distillation
-        distill_enable = trial.suggest_categorical('distill_enable', [True, False])
+        # Trial 0: vanilla baseline (no distillation)
+        # Trials 1+: tune distillation hyperparameters
+        if trial.number == 0:
+            distill_enable = False
+        else:
+            distill_enable = True
         
         hparams = {'distill_enable': distill_enable}
         
@@ -519,7 +523,7 @@ def main():
     
     print()
     print(f"🔍 Starting Optuna study: {study_name}")
-    print("🧪 Mode: Distillation-only (tuning lambda, temperature, window)")
+    print("🧪 Mode: Distillation tuning (trial 0 = vanilla baseline, trials 1+ = distillation hyperparameters)")
     print(f"📊 Trials: {n_trials} (from {'CLI' if args.n_trials else 'config'})")
     print(f"📈 Epochs: {max_epochs} per trial (from {'CLI' if args.max_epochs else 'config'})")
     print(f"📁 Dataset: {args.data_dir}")
