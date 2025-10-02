@@ -849,8 +849,9 @@ def main(
                 valid_loss_mask = selected_candidate_len > 0
                 if torch.any(valid_loss_mask):
                     loss_next_step = F.cross_entropy(
-                        masked_selected_logits[valid_loss_mask],
-                        selected_road_label[valid_loss_mask],
+                        masked_selected_logits,
+                        selected_road_label,
+                        ignore_index=-100,
                     )
                 else:
                     # No valid positions, set loss to zero to avoid inf
