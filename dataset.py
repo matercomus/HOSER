@@ -170,8 +170,9 @@ class Dataset(torch.utils.data.Dataset):
         if self.cached_data is not None:
             data = self.cached_data[i]
         else:
-            # Stream from disk on demand
-            data = torch.load(self.file_paths[i], weights_only=False)
+            # Stream from disk with explicit file handle management
+            with open(self.file_paths[i], 'rb') as f:
+                data = torch.load(f, weights_only=False)
 
         # Handle missing grid tokens (for backward compatibility)
         trace_grid_token = data.get('trace_grid_token', None)
