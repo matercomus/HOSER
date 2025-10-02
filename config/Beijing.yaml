@@ -86,13 +86,13 @@ wandb:
 
 # Optuna hyperparameter tuning configuration
 optuna:
-  n_trials: 30  # 24h target with improved pruning
-  max_epochs: 3  # 3 epochs = ~2.4h per trial (vs 19h for 25 epochs)
+  n_trials: 50  # Extended trials with meaningful epochs
+  max_epochs: 10  # Full 10 epochs for meaningful results (~8h per trial)
   
-  # Pruner configuration (MedianPruner for intelligent early stopping)
+  # Pruner configuration (MedianPruner with late-stage pruning)
   pruner:
-    n_startup_trials: 5  # First 5 trials establish stable baseline (~12h)
-    n_warmup_steps: 1    # Allow 2 epochs before pruning (more stable signal)
+    n_startup_trials: 3  # First 3 trials run full 10 epochs (establish baseline, ~24h)
+    n_warmup_steps: 4    # Allow 5 epochs before pruning (more stable signal)
     interval_steps: 1    # Check after each epoch
   
   # Sampler configuration (GPSampler for Bayesian optimization)

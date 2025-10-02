@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
-Distillation hyperparameter tuning for HOSER with Optuna - 24 HOUR TARGET
+Comprehensive hyperparameter tuning for HOSER with Optuna
 
-This script optimizes distillation hyperparameters for HOSER using Optuna.
-All trials use distillation (no vanilla baseline trials).
+This script optimizes both vanilla HOSER and distillation configurations,
+allowing Optuna to discover whether distillation actually improves performance.
 
 TUNED HYPERPARAMETERS:
+- distill_enable: Whether to use distillation (categorical: True/False)
+                 Optuna will explore both vanilla and distilled variants
+
+If distillation is enabled:
 - lambda: KL divergence weight (0.001-0.1, log scale)
          Controls balance between teacher guidance and student loss
 - temperature: Softmax temperature (1.0-5.0, linear)
@@ -18,13 +22,18 @@ FIXED PARAMETERS (architectural choices):
 - downsample: 1 (from base config)
 - All HOSER model architecture parameters
 
-PRUNING STRATEGY (MedianPruner):
-  Trial 1-5: Run to completion (establish stable baseline, ~12h)
-  Trial 6+:  Allow 2 epochs, then prune if val_acc < median
+TRAINING STRATEGY (Meaningful Results):
+  • 10 epochs per trial for meaningful convergence (~8h per full trial)
+  • Minimum 5 epochs before any pruning decisions
+  • This ensures we see real learning patterns, not just initialization noise
+
+PRUNING STRATEGY (MedianPruner - Conservative):
+  Trial 1-3:  Run full 10 epochs (establish stable baseline, ~24h)
+  Trial 4+:   Allow 5 epochs before pruning, then prune if val_acc < median
   
-  This gives trials a fair chance (2 epochs) before pruning.
-  Comparison is fair: epoch 2 performance vs median at epoch 2.
-  Saves ~0.8h per pruned trial.
+  Conservative approach: Trials get 5 full epochs to show potential.
+  Comparison is fair: epoch 5+ performance vs median at same epoch.
+  Saves ~4h per pruned trial (vs ~8h wasted on bad trial).
 
 SAMPLING STRATEGY (GPSampler):
   Trial 1-10: Random/TPE sampling (exploration)
@@ -35,30 +44,31 @@ STORAGE & CRASH RECOVERY:
   Heartbeat: 60s | Grace period: 120s
   Study can be resumed after crashes/interruptions.
 
-TIME ESTIMATE (24h target with 30 trials):
-  • Trial 1-5 (startup): 5 × 2.4h = 12h
-  • Trial 6-10 (GP init): 5 trials, ~20% pruned
-    - 4 complete: 4 × 2.4h = 9.6h
-    - 1 pruned: 1 × 1.6h = 1.6h
-    - Subtotal: 11.2h
-  • Trial 11-30 (GP optimized): 20 trials, ~50% pruned
-    - 10 complete: 10 × 2.4h = 24h
-    - 10 pruned: 10 × 1.6h = 16h
-    - Subtotal: 40h
-  • Total: 12 + 11.2 + 40 = 63.2h (~2.6 days)
+TIME ESTIMATE (50 trials with meaningful epochs):
+  • Trial 1-3 (startup): 3 × 8h = 24h
+  • Trial 4-10 (GP init): 7 trials, ~20% pruned
+    - 6 complete: 6 × 8h = 48h
+    - 1 pruned: 1 × 4h = 4h
+    - Subtotal: 52h
+  • Trial 11-50 (GP optimized): 40 trials, ~50% pruned
+    - 20 complete: 20 × 8h = 160h
+    - 20 pruned: 20 × 4h = 80h
+    - Subtotal: 240h
+  • Total: 24 + 52 + 240 = 316h (~13 days for full 50 trials)
 
-For 24h runtime: expect ~10-15 trials to complete depending on pruning rate.
+For shorter runs, interrupt early once you see convergence.
+Expected: ~10-15 meaningful trials in 48-72h.
 
 CONFIGURATION:
   All settings in config/Beijing.yaml under 'optuna' section.
   CLI args override YAML defaults.
 
 USAGE:
-  # Standard run (uses Beijing.yaml defaults)
+  # Standard run (uses Beijing.yaml defaults: 50 trials, 10 epochs)
   uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
 
-  # Override trials from CLI
-  uv run python tune_hoser.py --n_trials 50 --data_dir /home/matt/Dev/HOSER-dataset
+  # Shorter exploration run (fewer trials)
+  uv run python tune_hoser.py --n_trials 20 --data_dir /home/matt/Dev/HOSER-dataset
 
   # Resume existing study
   uv run python tune_hoser.py --study_name my_study --data_dir /home/matt/Dev/HOSER-dataset
@@ -109,13 +119,15 @@ class HOSERObjective:
         """
         Objective function called by Optuna for each trial.
         
-        All distillation hyperparameters are suggested and tuned.
+        Suggests hyperparameters including whether to use distillation.
         Returns validation accuracy to maximize.
         """
-        print(f"🔬 Running distillation trial {trial.number}")
-        
         # Step 1: Suggest all hyperparameters (defines search space)
         hparams = self._suggest_hyperparameters(trial)
+        
+        # Show what mode we're running
+        mode = "distilled" if hparams['distill_enable'] else "vanilla"
+        print(f"🔬 Running trial {trial.number} ({mode})")
         
         # Step 2: Create trial config from hyperparameters
         config = self._create_trial_config(trial, hparams)
@@ -140,7 +152,11 @@ class HOSERObjective:
         """
         Define the hyperparameter search space - all tunable parameters in one place.
         
-        Search space for distillation:
+        Search space includes:
+        - distill_enable: Whether to use distillation (categorical: True/False)
+                         This allows Optuna to discover if distillation helps
+        
+        If distillation is enabled, additional parameters are suggested:
         - lambda: KL divergence weight (log scale: 0.001 to 0.1)
                  Controls how much to weight teacher guidance vs student loss
         - temperature: Softmax temperature (linear: 1.0 to 5.0)
@@ -148,14 +164,33 @@ class HOSERObjective:
         - window: Context window size (categorical: 2, 4, 8)
                  Number of neighboring road segments to consider
         
+        CONDITIONAL SEARCH SPACE PATTERN (Optuna best practice):
+        We only suggest distillation parameters when distill_enable=True.
+        This creates a hierarchical/conditional search space where certain parameters
+        only exist in specific branches of the configuration tree.
+        
         Returns:
             Dict of hyperparameter names to suggested values
         """
-        return {
-            'distill_lambda': trial.suggest_float('distill_lambda', 0.001, 0.1, log=True),
-            'distill_temperature': trial.suggest_float('distill_temperature', 1.0, 5.0),
-            'distill_window': trial.suggest_categorical('distill_window', [2, 4, 8]),
-        }
+        # First, decide whether to use distillation
+        distill_enable = trial.suggest_categorical('distill_enable', [True, False])
+        
+        hparams = {'distill_enable': distill_enable}
+        
+        if distill_enable:
+            # Only suggest distillation hyperparameters when distillation is enabled
+            # This is the correct way to handle conditional parameters in Optuna
+            hparams['distill_lambda'] = trial.suggest_float('distill_lambda', 0.001, 0.1, log=True)
+            hparams['distill_temperature'] = trial.suggest_float('distill_temperature', 1.0, 5.0)
+            hparams['distill_window'] = trial.suggest_categorical('distill_window', [2, 4, 8])
+        else:
+            # When distillation is disabled, don't suggest or set these params at all
+            # The sampler will understand this branch doesn't have these parameters
+            hparams['distill_lambda'] = None
+            hparams['distill_temperature'] = None
+            hparams['distill_window'] = None
+        
+        return hparams
 
     def _create_trial_config(self, trial: optuna.Trial, hparams: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -174,17 +209,25 @@ class HOSERObjective:
         config['optimizer_config']['max_epoch'] = self.max_epochs
         config['data_dir'] = self.data_dir
         
-        # Enable distillation and apply hyperparameters
-        config['distill']['enable'] = True
-        config['distill']['lambda'] = hparams['distill_lambda']
-        config['distill']['temperature'] = hparams['distill_temperature']
-        config['distill']['window'] = hparams['distill_window']
-        # Keep grid_size and downsample fixed (architectural choices, not tuned)
+        # Configure distillation based on hyperparameters
+        distill_enable = hparams['distill_enable']
+        config['distill']['enable'] = distill_enable
+        
+        if distill_enable:
+            # Apply distillation hyperparameters
+            config['distill']['lambda'] = hparams['distill_lambda']
+            config['distill']['temperature'] = hparams['distill_temperature']
+            config['distill']['window'] = hparams['distill_window']
+            # Keep grid_size and downsample fixed (architectural choices, not tuned)
+            trial_mode = "distilled"
+        else:
+            # Vanilla training - distillation params don't matter
+            trial_mode = "vanilla"
         
         # WandB config for trial
-        config['wandb']['run_name'] = f"trial_{trial.number:03d}_distilled"
+        config['wandb']['run_name'] = f"trial_{trial.number:03d}_{trial_mode}"
         existing_tags = config['wandb'].get('tags', [])
-        config['wandb']['tags'] = existing_tags + ['distill-tuning']
+        config['wandb']['tags'] = existing_tags + ['hoser-tuning', trial_mode]
         
         return config
     
