@@ -791,6 +791,12 @@ def main(
                     new_road_label = torch.where(
                         has_match, match_positions, torch.tensor(-100, device=device)
                     )
+                    # Ensure remapped labels are within effective candidate_len (after top-k/clamp)
+                    new_road_label = torch.where(
+                        new_road_label < batch_candidate_len_gpu,  # [B, T]
+                        new_road_label,
+                        torch.tensor(-100, device=device),
+                    )
                     batch_road_label = new_road_label
 
             batch_candidate_road_id = batch_candidate_road_id.to(
@@ -857,19 +863,27 @@ def main(
                     # No valid positions, set loss to zero to avoid inf
                     loss_next_step = torch.tensor(0.0, device=device)
 
-                selected_time_pred = time_pred[logits_mask][
-                    torch.arange(time_pred[logits_mask].size(0)), selected_road_label
-                ]
+                # Time loss: ignore invalid label positions (-100 or >= candidate_len)
+                flat_mask = logits_mask
+                flat_indices = torch.arange(time_pred[flat_mask].size(0), device=device)
+                valid_time = (selected_road_label >= 0) & (
+                    selected_road_label < selected_candidate_len
+                )
+                # Safe index by clamping, then mask in loss computation
+                safe_labels = torch.clamp(selected_road_label, min=0)
+                selected_time_pred = time_pred[flat_mask][flat_indices, safe_labels]
                 selected_time_pred = selected_time_pred * timestamp_std + timestamp_mean
-                selected_timestamp_label = batch_timestamp_label[logits_mask]
+                selected_timestamp_label = batch_timestamp_label[flat_mask]
                 selected_timestamp_label = (
                     selected_timestamp_label * timestamp_std + timestamp_mean
                 )
-
-                loss_time_pred = torch.mean(
-                    torch.abs(selected_time_pred - selected_timestamp_label)
-                    / torch.clamp(selected_timestamp_label, min=1.0)
-                )
+                # Compute masked mean absolute percentage error
+                if torch.any(valid_time):
+                    diff = torch.abs(selected_time_pred - selected_timestamp_label)
+                    mape = diff / torch.clamp(selected_timestamp_label, min=1.0)
+                    loss_time_pred = torch.mean(mape[valid_time])
+                else:
+                    loss_time_pred = torch.tensor(0.0, device=device)
 
             torch.cuda.synchronize()
             t_forward = time.time()
@@ -1143,6 +1157,12 @@ def main(
                             match_positions,
                             torch.tensor(-100, device=device),
                         )
+                        # Ensure remapped labels are within effective candidate_len (after top-k/clamp)
+                        new_road_label = torch.where(
+                            new_road_label < batch_candidate_len_gpu,  # [B, T]
+                            new_road_label,
+                            torch.tensor(-100, device=device),
+                        )
                         batch_road_label = new_road_label
 
                 batch_candidate_road_id = batch_candidate_road_id.to(
@@ -1194,19 +1214,24 @@ def main(
                 ).item()
                 val_next_step_total_cnt += torch.sum(batch_trace_len).item()
 
-                selected_time_pred = time_pred[logits_mask][
-                    torch.arange(time_pred[logits_mask].size(0)), selected_road_label
-                ]
+                # Time loss (validation): ignore invalid label positions
+                flat_mask = logits_mask
+                flat_indices = torch.arange(time_pred[flat_mask].size(0), device=device)
+                valid_time = (selected_road_label >= 0) & (
+                    selected_road_label < selected_candidate_len
+                )
+                safe_labels = torch.clamp(selected_road_label, min=0)
+                selected_time_pred = time_pred[flat_mask][flat_indices, safe_labels]
                 selected_time_pred = selected_time_pred * timestamp_std + timestamp_mean
-                selected_timestamp_label = batch_timestamp_label[logits_mask]
+                selected_timestamp_label = batch_timestamp_label[flat_mask]
                 selected_timestamp_label = (
                     selected_timestamp_label * timestamp_std + timestamp_mean
                 )
-                val_time_pred_mape_sum += torch.sum(
-                    torch.abs(selected_time_pred - selected_timestamp_label)
-                    / torch.clamp(selected_timestamp_label, min=1.0)
-                )
-                val_time_pred_total_cnt += torch.sum(batch_trace_len).item()
+                if torch.any(valid_time):
+                    diff = torch.abs(selected_time_pred - selected_timestamp_label)
+                    mape = diff / torch.clamp(selected_timestamp_label, min=1.0)
+                    val_time_pred_mape_sum += torch.sum(mape[valid_time])
+                    val_time_pred_total_cnt += torch.sum(valid_time).item()
 
         val_acc = val_next_step_correct_cnt / max(1, val_next_step_total_cnt)
         val_mape = (val_time_pred_mape_sum / max(1, val_time_pred_total_cnt)).item()
