@@ -354,7 +354,11 @@ if __name__ == '__main__':
                 candidate_mask = torch.arange(selected_logits.size(1), dtype=torch.int64, device=device).unsqueeze(0) < selected_candidate_len.unsqueeze(1)
                 masked_selected_logits = selected_logits.masked_fill(~candidate_mask, float('-inf'))
 
-                loss_next_step = F.cross_entropy(masked_selected_logits, selected_road_label)
+                loss_next_step = F.cross_entropy(
+                    masked_selected_logits,
+                    selected_road_label,
+                    ignore_index=-100,
+                )
 
                 selected_time_pred = time_pred[logits_mask][torch.arange(time_pred[logits_mask].size(0)), selected_road_label]
                 selected_time_pred = selected_time_pred * timestamp_label_array_log1p_std + timestamp_label_array_log1p_mean
