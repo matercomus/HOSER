@@ -147,18 +147,31 @@ class Dataset(torch.utils.data.Dataset):
             key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0])
         )
         
-        # Load all preprocessed data into memory to eliminate file I/O overhead
-        print(f"Loading {len(self.file_paths)} preprocessed samples into memory...")
-        self.cached_data = []
-        for file_path in tqdm(self.file_paths, desc="Caching dataset"):
-            self.cached_data.append(torch.load(file_path, weights_only=False))
-        print(f"✅ Cached {len(self.cached_data)} samples in memory")
+        # Heuristic: fully cache only if dataset is reasonably small (<200k samples)
+        CACHE_THRESHOLD = 200_000
+        self.cached_data = None
+        if len(self.file_paths) <= CACHE_THRESHOLD:
+            print(
+                f"Loading {len(self.file_paths)} preprocessed samples into RAM (<= {CACHE_THRESHOLD})."
+            )
+            self.cached_data = []
+            for file_path in tqdm(self.file_paths, desc="Caching dataset"):
+                self.cached_data.append(torch.load(file_path, weights_only=False))
+            print(f"✅ Cached {len(self.cached_data)} samples in memory")
+        else:
+            print(
+                f"📁 Dataset has {len(self.file_paths):,} samples — will stream from disk instead of full RAM cache."
+            )
 
     def __len__(self):
-        return len(self.cached_data)
+        return len(self.file_paths) if self.cached_data is None else len(self.cached_data)
     
     def __getitem__(self, i):
-        data = self.cached_data[i]
+        if self.cached_data is not None:
+            data = self.cached_data[i]
+        else:
+            # Stream from disk on demand
+            data = torch.load(self.file_paths[i], weights_only=False)
 
         # Handle missing grid tokens (for backward compatibility)
         trace_grid_token = data.get('trace_grid_token', None)
