@@ -8,18 +8,37 @@ We propose a training‑time distillation approach where a frozen LM‑TAD model
 - Minimal code changes: a teacher wrapper, a road→grid token mapping, and a KL term in `train.py`.
 - Tunable: temperature, KL weight, and sampling frequency control compute/quality trade‑offs.
 
-## What’s Implemented (Current Code)
+## What's Implemented (Current Code)
 
 - `critics/lmtad_teacher.py`: Loads LM‑TAD from a weights‑only export (`{'state_dict', 'model_config'}`) and provides vectorized next‑token distributions with sliding window and AMP.
 - `tools/export_lmtad_weights.py`: Utility to export LM‑TAD checkpoints into a pickle‑free, weights‑only format to avoid module import collisions.
 - `critics/grid_mapper.py`: Vectorized road‑centroid → grid‑token mapper; precomputes `road_id → grid_token` using dataset bounds and grid params.
 - `critics/distill_hook.py`: `DistillationManager` orchestrates teacher calls, mapping of candidates, renormalization on candidate set, and computes batched KL loss.
 - `train_with_distill.py`: Standalone training script that wires in distillation, gradient accumulation, AMP, `torch.compile` (with CUDA graphs disabled), gradient checkpointing, dataloader tuning, per‑epoch validation, and full‑config WandB logging.
-- `config/Beijing.yaml`: Single source of truth (config‑first). Contains `distill`, `training`, `dataloader`, `data`, `wandb`, and optimizer/model settings.
+- `config/Beijing.yaml`: Single source of truth (config‑first). Contains `distill`, `training`, `dataloader`, `data`, `profiling`, `wandb`, and optimizer/model settings.
+- `dataset.py`: Optimized Dataset class with conditional caching (≤200k samples in RAM, larger datasets stream from disk) and explicit file handle management.
 - Generation and evaluation:
   - `gene.py` supports `--model_path` to load the distilled checkpoint for generation.
   - `evaluation.py` computes global/local metrics (JSD, Hausdorff, DTW) and logs to WandB.
   - `tools/collect_distill_artifacts.py` converts generated trips to GeoJSON and bundles model/eval/WandB artifacts.
+
+## Recent Performance & Stability Improvements
+
+The implementation has been heavily optimized to handle large-scale training (629k samples) with stable throughput:
+
+**Performance gains**:
+- **4-5× speedup**: From 2-3 it/s (with catastrophic slowdowns) to sustained **11-13 it/s**
+- **Data loading cliff eliminated**: Was 280-360ms wait at batch 3600+, now consistent 35-45ms
+- **Epoch time**: ~45-50 minutes (down from 2+ hours with crashes)
+
+**Key optimizations**:
+1. **Candidate top-k filtering** (64): Prevents collate bottleneck from pathological traces with 1000+ candidates
+2. **Optimized collate function**: Vectorized operations, reduced allocations, pre-cropped arrays
+3. **Conditional caching**: Large datasets (>200k) stream from disk, small ones cached in RAM
+4. **Worker tuning**: 6 workers (down from 16) with disabled persistent_workers prevents crashes
+5. **Label remapping**: GPU-based vectorized remapping with `-100` masking for filtered positions
+6. **Loss masking**: Both cross_entropy and time loss properly handle invalid positions
+7. **File handle management**: Explicit context managers prevent descriptor exhaustion
 
 ## Overview
 
@@ -249,27 +268,35 @@ Notes:
 
 - **Training performance optimizations**:
   - **Mixed precision (AMP)**: `torch.amp.autocast` + `GradScaler` with correct accumulation semantics.
-  - **Gradient accumulation**: `accum_steps=4` for effective batch size of 1024 (256 × 4).
+  - **Gradient accumulation**: `accum_steps=8` for effective batch size of 512 (64 × 8).
   - **torch.compile**: Mode `max-autotune` for aggressive kernel fusion and optimization.
   - **CUDA graphs disabled**: `training.disable_cudagraphs: true` to avoid tensor reuse issues with dynamic shapes.
   - **Gradient checkpointing**: Optional in `TrajectoryEncoder` (disabled by default—sufficient VRAM available).
   - **TF32 tensor cores**: `allow_tf32: true` for ~2× matmul speedup on Ampere GPUs.
   - **cuDNN benchmarking**: `cudnn_benchmark: true` to select fastest convolution algorithms.
 
-- **Dataloader tuning** (optimized for large batch size):
-  - `num_workers: 16` for parallel data loading across 16 CPU cores.
-  - `pin_memory: true` for async CPU→GPU transfer.
-  - `prefetch_factor: 2` to keep 2 batches ready per worker.
-  - `persistent_workers: true` to avoid worker respawn overhead between epochs.
+- **Dataloader tuning** (optimized for large dataset streaming):
+  - `num_workers: 6` for parallel data loading (reduced from 16 to avoid file descriptor exhaustion).
+  - `pin_memory: false` to relieve CPU memory pressure (bottleneck for large datasets).
+  - `prefetch_factor: 16` to maintain prefetch buffer during disk streaming.
+  - `persistent_workers: false` to avoid memory leaks with repeated `torch.load` calls.
+  - **Conditional caching**: Datasets ≤200k samples cached in RAM; larger datasets stream from disk with explicit file handle management.
 
-- **Candidate filtering**:
-  - `data.candidate_top_k: 0` (currently disabled) — would reduce candidates to top-k closest by distance.
-  - When enabled, requires careful label remapping to handle filtered candidate indices.
-  - Currently using full candidate sets (average ~3-4 candidates per position).
+- **Candidate filtering** (enabled for stability):
+  - `data.candidate_top_k: 64` caps candidates per timestep to prevent memory explosion with pathological traces.
+  - **Vectorized label remapping**: When filtering candidates, labels are remapped on GPU to match filtered indices.
+  - Invalid positions (where ground truth is filtered out) are marked with `-100` and ignored via `F.cross_entropy(ignore_index=-100)`.
+  - Prevents inf/NaN losses from empty candidate sets.
+
+- **Stability improvements**:
+  - **Cross-entropy masking**: Uses `ignore_index=-100` to skip positions with no valid candidates.
+  - **Time loss masking**: Only computes MAPE where labels are valid (`label >= 0` and `label < candidate_len`).
+  - **Label validation**: Ensures remapped labels remain within effective `candidate_len` after top-k filtering.
 
 - **Performance profiling** (every 100 batches):
-  - Tracks time breakdown: data transfer (0.2%), HOSER forward (1.6%), teacher KL (86.7%), backward (11.5%).
+  - Tracks time breakdown: Data Wait (~48%), Data Transfer (~4%), HOSER Forward (~18%), Distill KL (~1.4%), Backward (~27%).
   - Logged to console and WandB for bottleneck identification.
+  - With optimizations: sustained **11-13 it/s** throughput (was 2-3 it/s before fixes).
 
 - **Logging & validation**:
   - Full YAML config logged to WandB at run start for reproducibility.
@@ -284,8 +311,8 @@ Notes:
 ```yaml
 optimizer_config:
   max_epoch: 25
-  batch_size: 256      # 8× increase from baseline (32), optimized for RTX 2080 Ti
-  accum_steps: 4       # Effective batch size: 1024
+  batch_size: 64       # Optimized for RTX 2080 Ti with large dataset
+  accum_steps: 8       # Effective batch size: 512
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -295,39 +322,44 @@ distill:
   enable: true
   repo: /home/matt/Dev/LMTAD
   ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/.../weights_only.pt
-  window: 4            # Reduced from 32 for faster teacher inference
-  lambda: 0.01         # Tunable via Optuna (0.001-0.1 range)
-  temperature: 2.0     # Tunable via Optuna (1.5-4.0 range)
+  window: 4            # History window for teacher (tunable: 2-8)
+  lambda: 0.01         # KL loss weight (tunable: 0.001-0.1 via Optuna)
+  temperature: 2.0     # Distribution softening (tunable: 1.5-4.0 via Optuna)
   grid_size: 0.001     # Matches LM-TAD training: 205×252 grid
   downsample: 1        # No downsampling (LM-TAD Beijing model)
 
 dataloader:
-  num_workers: 16      # Full CPU parallelism (64-core system)
-  pin_memory: true     # Async GPU transfer
-  prefetch_factor: 2   # Balanced for large batch size
-  persistent_workers: true
+  num_workers: 6       # Reduced to avoid file descriptor exhaustion
+  pin_memory: false    # Disabled to relieve CPU memory pressure
+  prefetch_factor: 16  # High prefetch for disk streaming workload
+  persistent_workers: false  # Disabled to prevent memory leaks
 
 data:
-  candidate_top_k: 0   # Disabled (label remapping complexity)
+  candidate_top_k: 64  # Cap candidates to prevent collate bottleneck
 
 training:
   allow_tf32: true
   cudnn_benchmark: true
   torch_compile: true
   torch_compile_mode: max-autotune  # Aggressive optimization
-  disable_cudagraphs: true          # Dynamic shapes require this
+  disable_cudagraphs: true          # Required for dynamic shapes
+
+profiling:
+  enable: true         # Log performance breakdown every 100 batches
+  log_interval: 100
 
 wandb:
   enable: true
-  project: hoser-distill-optuna
+  project: hoser-distill-optuna-5
   run_name: ''
-  tags: [optuna, distill-tuning, beijing]
+  tags: [beijing, distillation, optuna]
 ```
 
 **Performance impact**:
-- Batch size 256: 2.8× throughput improvement (77 → 218 samples/sec)
-- Epoch time: ~49 minutes (down from ~2.7 hours with batch_size=32)
-- Teacher inference: 857ms per batch (86.7% of total time), but amortized over 256 samples
+- Effective batch size 512: Good balance between throughput and memory
+- Epoch time: ~45-50 minutes with optimizations (629k samples)
+- Throughput: **11-13 it/s** sustained (was 2-3 it/s before data loading fixes)
+- Data loading optimized: Conditional caching + top-k filtering prevents bottlenecks
 
 ## Detailed Worked Example
 
@@ -544,24 +576,35 @@ With $\lambda = 0.01$, the KL term contributes modestly (0.33% of total loss) bu
 
 ### 7) Performance Characteristics
 
-**Measured timings** (batch_size=256, RTX 2080 Ti):
-- Data transfer: 2.29ms (0.2%)
-- HOSER forward: 15.64ms (1.6%)
-- Teacher KL (LM-TAD): 856.71ms (86.7%)
-- Backward pass: 113.91ms (11.5%)
-- **Total**: 988.63ms per batch
+**Measured timings** (batch_size=64, RTX 2080 Ti, after optimizations):
+- Data Wait: ~35ms (48%)
+- Data Transfer: ~4ms (5%)
+- HOSER forward: ~13ms (18%)
+- Teacher KL (LM-TAD): ~1ms (1.4%)
+- Backward pass: ~20ms (27%)
+- Optimizer step: ~0.5ms (0.7%)
+- **Total**: ~74ms per batch
 
-**Throughput**: 218 samples/sec (256 samples / 0.989s)
+**Throughput**: **11-13 it/s** sustained (was 2-3 it/s before fixes)
 
 **Bottleneck analysis**:
-- Teacher inference dominates (87% of time) due to large vocabulary (51,663 tokens).
-- Large batch size (256) amortizes this cost: 3.35ms per sample vs ~10ms with small batches.
-- Further optimization challenging: teacher already uses FP16, batched inference, and all positions in parallel.
+- **Data loading** is now the primary bottleneck (48%) for large datasets (629k samples):
+  - Streaming from disk dominates (no RAM cache for datasets >200k)
+  - Mitigated by high prefetch_factor (16) and 6 workers
+  - File handle management prevents descriptor leaks
+- **Teacher inference** is now highly optimized (~1.4% of time):
+  - Small history window (4 steps) reduces computation
+  - FP16 autocast, batched inference, GPU-only operations
+  - Top-k candidate filtering (64) reduces renormalization overhead
 
 **Scalability**:
-- Training set: 629,421 trajectories → 2,459 batches/epoch
-- Epoch time: ~49 minutes (2,459 batches × 1.2s/batch)
-- Full training (25 epochs): ~20 hours
+- Training set: 629,380 trajectories → 9,835 batches/epoch (batch_size=64)
+- Epoch time: ~45-50 minutes with optimizations
+- Full training (10-25 epochs): ~8-20 hours
+- **Performance improvements**:
+  - 4-5× faster than initial implementation (eliminated data loading cliff)
+  - No worker crashes due to file descriptor exhaustion
+  - Stable throughput throughout entire epoch (no batch 3600+ slowdown)
 
 ## Alignment with LMTAD Code (train.sh, train_LMTAD.py, eval_porto.py)
 
@@ -612,19 +655,42 @@ With $\lambda = 0.01$, the KL term contributes modestly (0.33% of total loss) bu
 - **Batched inference**: Process all positions simultaneously (no loops over samples).
 
 ### 4. Candidate Filtering and Label Remapping
-**Challenge**: HOSER can filter candidates to top-k by distance, but labels index the full candidate list.
+**Challenge**: HOSER can filter candidates to top-k by distance, but labels index the full candidate list. Without filtering, pathological traces with 1000+ candidates cause collate bottlenecks and memory explosion.
 
-**Solution**: 
-- Disabled `candidate_top_k` filtering (set to 0).
-- Alternative: Implement vectorized label remapping using broadcasting to find where original labels appear in filtered candidates.
-- Trade-off: Full candidate sets use more memory but avoid complex remapping logic.
+**Solution implemented**: 
+- **Enabled** `candidate_top_k: 64` to cap candidates per timestep.
+- **Vectorized GPU-based label remapping**:
+  - Find where original labels appear in sorted top-k indices via broadcasting
+  - Mark positions where label is filtered out as `-100` (ignored by cross_entropy)
+  - Ensure remapped labels remain within effective `candidate_len` after clamping
+- **Benefits**: Prevents data loading cliff (was 280-360ms wait at batch 3600+, now consistent 35ms)
 
-### 5. Numerical Stability
-**Solutions**:
-- Clamp denominators with epsilon (1e-9) to prevent division by zero.
-- Check for NaN/inf in teacher and student probabilities; skip invalid positions.
-- Use log-softmax where possible to avoid exp() overflow.
-- Temperature scaling (τ > 1) smooths distributions and reduces numerical issues.
+### 5. Numerical Stability and Loss Masking
+**Challenges**: 
+- Empty candidate sets after top-k filtering produce inf in cross_entropy
+- Invalid label positions cause indexing errors in time loss
+- NaN/inf gradients halt training
+
+**Solutions implemented**:
+- **Cross-entropy masking**: Use `F.cross_entropy(ignore_index=-100)` to skip invalid positions
+- **Time loss masking**: Only compute MAPE where `(label >= 0) & (label < candidate_len)`
+- **Label validation**: Ensure remapped labels are clamped and validated before indexing
+- **Gradient checking**: Log warnings for NaN/inf losses but continue training with fallback values
+- **Numerical safety**: Clamp denominators with epsilon (1e-9), use log-softmax where possible
+
+### 6. Data Loading Performance
+**Challenges**:
+- 629k training samples require streaming from disk (>25 min to cache in RAM)
+- Collate function with pathological traces (1000+ candidates) caused 300ms+ stalls
+- Worker processes crashed after ~5500 batches with "received 0 items of ancdata"
+
+**Solutions implemented**:
+- **Conditional caching**: Cache datasets ≤200k in RAM, stream larger ones from disk
+- **Explicit file handle management**: Use context manager to close files immediately after `torch.load`
+- **Optimized collate**: Vectorize operations, pre-crop candidate arrays, reduce allocations
+- **Worker tuning**: Reduce to 6 workers, disable persistent_workers to prevent memory leaks
+- **Prefetch optimization**: Increase prefetch_factor to 16 for streaming workload
+- **Result**: Sustained 11-13 it/s with no crashes, eliminated batch 3600+ cliff
 
 ## Practical Considerations
 
