@@ -1631,6 +1631,28 @@ uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
 uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --study_name <your_study_name>
 ```
 
+**Where to find results**:
+- **Individual trials**: `optuna_trials/trial_NNN_{vanilla|distilled}_{complete|pruned}/`
+  - `model/`: Model checkpoints (best validation accuracy)
+  - `tensorboard_log/`: TensorBoard training logs
+  - `log/`: Text logs with performance metrics
+- **Best trial**: `optuna_results/<study_name>/best_trial/` (symlink to best performing trial)
+- **Study summary**: `optuna_results/<study_name>/study_summary.json` (all hyperparameters, metrics, trial outcomes)
+- **Optuna database**: `optuna_hoser_distill.db` (SQLite database with full study history, query with Optuna dashboard)
+- **WandB**: All trials logged to WandB project `hoser-distill-optuna-6` for visualization and comparison
+
+**Viewing results**:
+```bash
+# Launch Optuna dashboard to visualize study
+optuna-dashboard sqlite:///optuna_hoser_distill.db
+
+# Launch TensorBoard for a specific trial
+tensorboard --logdir optuna_trials/trial_005_distilled_complete/tensorboard_log
+
+# View WandB results
+# Navigate to: https://wandb.ai/<your_entity>/hoser-distill-optuna-6
+```
+
 ### Optuna Study Results Integration
 
 All trial artifacts (models, logs) for successful and pruned trials are preserved in the `optuna_trials/` directory.
