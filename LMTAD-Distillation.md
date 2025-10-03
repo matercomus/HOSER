@@ -230,31 +230,132 @@ During distillation:
 
 ## Loss Design
 
-Let $C$ be the candidate set at a step, $z_k$ the teacher’s grid token for candidate $k$, $q$ the teacher’s distribution over the full grid vocab given history $H$, and $p$ the student’s candidate distribution from HOSER. With temperature $\tau>0$:
+This section defines the mathematical framework for distillation, showing how we align HOSER's predictions to LM-TAD's learned spatial patterns while preserving supervised learning objectives.
 
-- Teacher on candidates (renormalized):
+### Core Challenge: Vocabulary Mismatch
+
+**Problem**: The teacher (LM-TAD) and student (HOSER) operate on different representations:
+- **Teacher**: Outputs distribution over 51,663 grid tokens
+- **Student**: Outputs distribution over $|C|$ candidate roads (typically 64 after top-k filtering)
+
+**Solution**: We use the **candidate set** $C$ as a common ground. For each candidate road, we:
+1. Map it to its grid token via precomputed `road_to_token[road_id]`
+2. Extract the teacher's probability for that grid token
+3. Renormalize to make probabilities sum to 1.0 over just the candidates
+
+This makes the teacher's "opinion" directly comparable to the student's predictions.
+
+### Mathematical Formulation
+
+**Notation**:
+- $C$: Candidate set at current timestep (size $|C| \leq 64$)
+- $z_k$: Grid token corresponding to candidate road $k$
+- $H$: History sequence of grid tokens (window size = 2-8)
+- $q(z \mid H)$: Teacher's distribution over all grid tokens given history
+- $\text{logits}_k$: Student's raw score for candidate $k$
+- $\tau$: Temperature parameter for softening distributions
+
+**Step 1: Teacher distribution on candidates (renormalized)**
+
+Extract teacher probabilities for candidate grid tokens and renormalize:
+
 $$
-q_C^{(\tau)}(k) = \frac{\left(q(z_k)\right)^{1/\tau}}{\sum\limits_{j\in C} \left(q(z_j)\right)^{1/\tau}}
+q_C^{(\tau)}(k) = \frac{\left(q(z_k \mid H)\right)^{1/\tau}}{\sum\limits_{j\in C} \left(q(z_j \mid H)\right)^{1/\tau}}
 $$
 
-- Student on candidates:
+- $q(z_k \mid H)$: Teacher's raw probability for grid token $z_k$
+- $(...)^{1/\tau}$: Temperature scaling (raises probabilities to power $1/\tau$)
+- Denominator: Renormalization constant so $\sum_{k \in C} q_C^{(\tau)}(k) = 1$
+
+**Why this form?** Temperature scaling is applied in probability space for the teacher (not logit space) because we receive already-softmaxed outputs from LM-TAD.
+
+**Step 2: Student distribution on candidates**
+
+Temperature-scale the student's logits before softmax:
+
 $$
 p_C^{(\tau)}(k) = \frac{\exp\left(\frac{\text{logits}_k}{\tau}\right)}{\sum\limits_{j\in C} \exp\left(\frac{\text{logits}_j}{\tau}\right)}
 $$
 
-- Distillation term (teacher→student):
+- $\text{logits}_k$: HOSER's raw score from navigator attention
+- Division by $\tau$: Temperature scaling in logit space (equivalent to $(p)^{1/\tau}$ in probability space when $\tau \to 1$)
+
+**Why different formulas?** The student's logits are temperature-scaled *before* softmax, which is mathematically equivalent to the teacher's probability-space scaling but computationally more stable.
+
+**Step 3: KL divergence (distillation loss)**
+
+Measure how much the student's distribution diverges from the teacher's:
+
 $$
-\mathcal{L}_{\text{KL}} = \mathrm{KL}\left(q_C^{(\tau)}\;\Vert\; p_C^{(\tau)}\right) = \sum_{k\in C} q_C^{(\tau)}(k)\,\left[\log q_C^{(\tau)}(k) - \log p_C^{(\tau)}(k)\right]
+\mathcal{L}_{\text{KL}} = \text{KL}\left(q_C^{(\tau)}\;\Vert\; p_C^{(\tau)}\right) = \sum_{k\in C} q_C^{(\tau)}(k)\,\left[\log q_C^{(\tau)}(k) - \log p_C^{(\tau)}(k)\right]
 $$
 
-- Total training objective per step (unchanged supervised terms):
+**KL divergence properties**:
+- Always non-negative: $\mathcal{L}_{\text{KL}} \geq 0$
+- Zero if and only if $q_C = p_C$ (perfect match)
+- Asymmetric: $\text{KL}(q \| p) \neq \text{KL}(p \| q)$
+- Direction: $\text{KL}(q \| p)$ means "teacher → student" (we want student to match teacher)
+
+**Interpretation**: Each candidate $k$ contributes weighted "surprise":
+- Weight: $q_C^{(\tau)}(k)$ (teacher's confidence)
+- Surprise: $\log q_C^{(\tau)}(k) - \log p_C^{(\tau)}(k)$ (difference in log-probabilities)
+- Large positive contribution when: student under-predicts where teacher is confident
+- Large negative contribution when: student over-predicts where teacher is uncertain
+
+**Step 4: Total training objective**
+
+Combine distillation with existing supervised losses:
+
 $$
-\mathcal{L}_{\text{total}} = \underbrace{\mathcal{L}_{\text{road}}}_{\text{cross‑entropy to label}}\; +\; \underbrace{\mathcal{L}_{\text{time}}}_{\text{MAPE time}}\; +\; \lambda_{\text{KL}}\,\mathcal{L}_{\text{KL}}
+\mathcal{L}_{\text{total}} = \underbrace{\mathcal{L}_{\text{road}}}_{\text{cross-entropy}} \; + \; \underbrace{\mathcal{L}_{\text{time}}}_{\text{MAPE}} \; + \; \underbrace{\lambda \, \mathcal{L}_{\text{KL}}}_{\text{distillation}}
 $$
 
-Notes:
-- Renormalization on $C$ makes the teacher comparable to the student (which only scores candidates).
-- $\tau$ softens distributions; typical $\tau\in[1,3]$.
+Where:
+- $\mathcal{L}_{\text{road}} = -\log p_C(\text{label})$: Standard cross-entropy to ground truth road
+- $\mathcal{L}_{\text{time}}$: Mean Absolute Percentage Error for travel time prediction
+- $\lambda \in [0.001, 0.1]$: Distillation weight (tuned via Optuna)
+
+**Loss weighting rationale**:
+- $\lambda$ is small (0.01-0.03 typically) because:
+  - Supervised labels are the primary training signal
+  - KL loss acts as regularization, not a hard constraint
+  - Small $\lambda$ prevents overpowering the supervised objectives
+  - Accumulated effect over 629k samples × 8 epochs is still significant
+
+### Design Rationale
+
+**Why renormalize on $C$?**
+- HOSER never sees roads outside the candidate set, so comparing full vocabularies would be misleading
+- Renormalization focuses the teacher's guidance on decisions HOSER actually faces
+- Makes KL divergence magnitudes comparable across timesteps with varying $|C|$
+
+**Why use temperature $\tau > 1$?**
+- Softens both distributions, making them less "peaky"
+- Reveals relative preferences: with $\tau=1$, teacher might output [0.95, 0.03, 0.01, 0.01]; with $\tau=3$, becomes [0.77, 0.11, 0.08, 0.03]
+- Transfers "dark knowledge": the student learns not just *what* is correct, but *how much more likely* than alternatives
+- Gentler gradients help optimization: sharp distributions (high confidence) create large, unstable gradients
+- Typical range: $\tau \in [2.0, 4.0]$ balances smoothing vs preserving preference order
+
+**Why forward KL (teacher → student)?**
+- Forward KL: $\text{KL}(q \| p)$ penalizes student for being *too uncertain* where teacher is confident (mode-seeking)
+- Alternative (reverse KL): $\text{KL}(p \| q)$ penalizes student for being *too confident* where teacher is uncertain (mean-seeking)
+- Forward KL matches our goal: push student toward teacher's high-confidence predictions
+
+**Why preserve supervised losses?**
+- Distillation alone is insufficient: teacher may have learned biases or errors
+- Ground truth labels provide direct supervision on *what* to predict
+- Distillation adds *how confidently* and *how to rank alternatives*
+- Combined training gets best of both: label accuracy + calibrated uncertainty
+
+### Parameter Ranges and Effects
+
+| Parameter | Range | Effect when increased | Typical optimum |
+|-----------|-------|------------------------|-----------------|
+| $\lambda$ | [0.001, 0.1] | Stronger teacher influence, may degrade if too high | 0.01-0.03 |
+| $\tau$ | [1.0, 5.0] | Smoother distributions, less distinction between alternatives | 2.0-4.0 |
+| window | [2, 8] | More historical context for teacher, slower inference | 4 |
+
+**Tuning strategy**: Optuna searches the joint space to find the optimal combination for validation accuracy.
 
 ## Current Implementation Details
 
