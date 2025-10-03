@@ -51,70 +51,93 @@ The implementation has been heavily optimized to handle large-scale training (62
 ### Training & Distillation Data Flow
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#e8f5e9','primaryTextColor':'#1b5e20','primaryBorderColor':'#388e3c','lineColor':'#666','secondaryColor':'#e3f2fd','tertiaryColor':'#fff3e0'}}}%%
 flowchart TB
-  subgraph Data["📦 Data Preparation"]
-    A[HOSER Dataset<br/>629k trajectories] --> B{Fits in RAM?}
-    B -->|Yes| C[Parallel RAM cache<br/>~13GB all cores]
-    B -->|No| D[Stream from disk<br/>6 workers]
+  subgraph Data["📦 DATA PREPARATION"]
+    direction TB
+    A["🗂️ HOSER Dataset<br/><b>629,380 trajectories</b><br/>Beijing taxi GPS"]
+    A --> B{"💾 RAM Check<br/>~13GB needed"}
+    B -->|"✅ Sufficient"| C["⚡ Parallel Cache<br/><b>64 CPU cores</b><br/>~5 min load"]
+    B -->|"❌ Limited"| D["📁 Disk Stream<br/><b>6 workers</b><br/>prefetch=16"]
   end
 
-  subgraph Loader["🔧 Batch Assembly"]
-    C --> E[DataLoader<br/>batch_size=64]
+  subgraph Loader["🔧 BATCH ASSEMBLY & PREPROCESSING"]
+    direction TB
+    C --> E["📦 DataLoader<br/><b>batch_size = 64</b>"]
     D --> E
-    E --> F[MyCollateFn<br/>vectorized ops]
-    F --> G[Top-K filter<br/>k=64 candidates]
-    G --> H[Label remap<br/>GPU vectorized]
+    E --> F["🔀 MyCollateFn<br/>vectorized ops<br/>GPU-optimized"]
+    F --> G["✂️ Top-K Filter<br/><b>k = 64</b> candidates<br/>per timestep"]
+    G --> H["🎯 Label Remap<br/>GPU vectorized<br/>ignore_index=-100"]
   end
 
-  subgraph Student["🎓 Student Model - HOSER (trainable)"]
-    H --> I["HOSER Forward<br/>zones + GCN + attention"]
-    I --> J["Student Logits<br/>over k candidates"]
-    J --> K["Time Head<br/>travel time pred"]
+  subgraph Student["🎓 STUDENT MODEL (Trainable)"]
+    direction TB
+    H --> I["🧠 HOSER Forward<br/><b>300 zones + GCN</b><br/>attention navigator"]
+    I --> J["📊 Student Logits<br/>over k candidates<br/>temperature-scaled"]
+    J --> K["⏱️ Time Head<br/>travel time pred<br/>MAPE loss"]
   end
 
-  subgraph Teacher["❄️ Teacher Model - LM-TAD (FROZEN)"]
-    H --> L["Road → Grid Tokens<br/>precomputed mapping"]
-    L --> M["LM-TAD Inference<br/>FP16 batched<br/>🔒 no_grad"]
-    M --> N["Teacher Probs<br/>over 51663 grid cells"]
-    N --> O["Select & Renormalize<br/>to k candidates"]
+  subgraph Teacher["❄️ TEACHER MODEL (Frozen)"]
+    direction TB
+    H --> L["🗺️ Road → Grid<br/><b>40,060 → 51,663</b><br/>precomputed map"]
+    L --> M["🔒 LM-TAD Inference<br/><b>FP16 batched</b><br/>torch.no_grad()<br/>window=2-8"]
+    M --> N["📈 Teacher Probs<br/><b>51,663 grid cells</b><br/>softmax output"]
+    N --> O["🎯 Select & Renorm<br/>extract k candidates<br/>sum to 1.0"]
   end
 
-  subgraph Losses["📊 Loss Computation"]
-    J --> P["Cross-Entropy Loss<br/>to ground truth"]
-    K --> Q["Time Loss<br/>MAPE"]
-    O --> R["KL Divergence<br/>teacher → student"]
-    P --> S["Total Loss<br/>λ * KL + CE + MAPE"]
+  subgraph Losses["📊 LOSS COMPUTATION"]
+    direction TB
+    J --> P["📉 Cross-Entropy<br/><b>supervised</b><br/>to ground truth"]
+    K --> Q["⏰ Time Loss<br/><b>MAPE</b><br/>masked invalid"]
+    O --> R["🔄 KL Divergence<br/><b>distillation</b><br/>teacher → student"]
+    P --> S["💥 Total Loss<br/><b>λ·KL + CE + MAPE</b><br/>λ ∈ [0.001, 0.1]"]
     Q --> S
     R --> S
-    S --> T["⚡ Backprop<br/>GradScaler + Optimizer"]
+    S --> T["⚡ Backprop<br/><b>GradScaler</b><br/>AdamW optimizer"]
   end
 
-  subgraph Eval["📈 Logging & Validation"]
-    T --> U["TensorBoard + WandB<br/>metrics & config"]
-    T --> V["Per-Epoch Validation<br/>accuracy + MAPE"]
-    V --> W["💾 Save Best Model<br/>based on val_acc"]
+  subgraph Eval["📈 EVALUATION & LOGGING"]
+    direction TB
+    T --> U["📊 Metrics Logging<br/><b>TensorBoard + WandB</b><br/>loss, accuracy, MAPE"]
+    T --> V["✅ Validation<br/><b>per epoch</b><br/>89,912 samples"]
+    V --> W["💾 Save Checkpoint<br/><b>best val_acc</b><br/>model + config"]
   end
 
-  %% Styling for frozen teacher
-  style M fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,stroke-dasharray: 5 5
-  style N fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-  style O fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+  %% Styling for frozen teacher (blue with dashed border)
+  style L fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+  style M fill:#b3e5fc,stroke:#01579b,stroke-width:4px,stroke-dasharray: 8 4
+  style N fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+  style O fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
   
-  %% Styling for trainable student
-  style I fill:#e8f5e9,stroke:#388e3c,stroke-width:3px
+  %% Styling for trainable student (green)
+  style I fill:#c8e6c9,stroke:#2e7d32,stroke-width:4px
   style J fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
   style K fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
   
-  %% Styling for losses
-  style P fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-  style Q fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-  style R fill:#fce4ec,stroke:#c2185b,stroke-width:3px
-  style S fill:#ffebee,stroke:#d32f2f,stroke-width:3px
+  %% Styling for losses (orange → red gradient)
+  style P fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+  style Q fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+  style R fill:#f8bbd0,stroke:#ad1457,stroke-width:3px
+  style S fill:#ffcdd2,stroke:#c62828,stroke-width:4px
   
-  %% Styling for data flow
-  style C fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-  style D fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-  style H fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+  %% Styling for data flow (purple)
+  style A fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+  style C fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px
+  style D fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px
+  
+  %% Styling for preprocessing (yellow)
+  style E fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+  style F fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+  style G fill:#fff59d,stroke:#f57f17,stroke-width:2px
+  style H fill:#fff176,stroke:#f9a825,stroke-width:3px
+  
+  %% Styling for backprop (bright red)
+  style T fill:#ef5350,stroke:#b71c1c,stroke-width:4px,color:#fff
+  
+  %% Styling for eval (teal)
+  style U fill:#b2dfdb,stroke:#00695c,stroke-width:2px
+  style V fill:#b2dfdb,stroke:#00695c,stroke-width:2px
+  style W fill:#80cbc4,stroke:#00695c,stroke-width:3px
 ```
 
 **Legend**:
@@ -128,50 +151,60 @@ flowchart TB
 ### Optuna Tuning Loop (2‑Phase)
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#e8f5e9','primaryTextColor':'#1b5e20','primaryBorderColor':'#388e3c','lineColor':'#666'}}}%%
 flowchart TB
-  subgraph Search["🔬 Phase 1: Hyperparameter Search (3-4 days)"]
+  subgraph Search["🔬 PHASE 1: Hyperparameter Search<br/>⏱️ Duration: 3-4 days"]
     direction TB
-    A0["Trial 0<br/>🏁 Vanilla Baseline<br/>no distillation"] --> B0["Validate<br/>val_acc = 57.2%"]
+    A0["🏁 <b>Trial 0: Vanilla Baseline</b><br/>no distillation<br/>λ = 0<br/>8 epochs"]
+    A0 --> B0["📊 Baseline Result<br/><b>val_acc = 57.2%</b><br/>performance floor"]
     
-    A["CMA-ES Sampler<br/>λ ∈ [0.001,0.1] log<br/>τ ∈ [1.0,5.0]<br/>window ∈ [2,8]"] --> B["Create Trial Config<br/>seed=42 + trial_id"]
-    B --> C["Train w/ Distillation<br/>max 8 epochs<br/>~54 min/epoch"]
-    C --> D["Report val_acc<br/>after each epoch"]
-    D --> E{"⚡ Hyperband Pruner<br/>min_resource=5<br/>reduction_factor=3"}
-    E -->|"Underperforming<br/>(~33% trials)"| F["❌ Prune Early<br/>save artifacts"]
-    E -->|"Promising<br/>(~67% trials)"| G["✅ Complete 8 Epochs<br/>save artifacts"]
-    G --> H["Update Best Trial<br/>track best val_acc"]
+    A["🔬 <b>CMA-ES Sampler</b><br/>Continuous optimization<br/><b>λ</b> ∈ [0.001, 0.1] log<br/><b>τ</b> ∈ [1.0, 5.0]<br/><b>window</b> ∈ [2, 8] int"]
+    A --> B["⚙️ Create Config<br/>Trial N (N=1..12)<br/>seed = 42 + N"]
+    B --> C["🎓 Train Distilled<br/><b>max 8 epochs</b><br/>~54 min/epoch<br/>~7.2h max"]
+    C --> D["📈 Report Metrics<br/><b>val_acc per epoch</b><br/>to Optuna"]
+    D --> E{"⚡ <b>Hyperband Pruner</b><br/>Evaluate at epoch 5<br/>min_resource = 5<br/>reduction_factor = 3"}
+    E -->|"❌ Below median<br/>(~33% trials)"| F["🛑 <b>Prune Early</b><br/>stop training<br/>preserve artifacts<br/>save compute"]
+    E -->|"✅ Above median<br/>(~67% trials)"| G["🎯 <b>Run to Completion</b><br/>finish 8 epochs<br/>preserve artifacts<br/>track best"]
+    G --> H["🏆 Update Best<br/><b>best val_acc</b><br/>store hyperparams"]
     F --> H
-    H --> I{"More<br/>trials?"}
+    H --> I{"🔄 <b>Continue?</b><br/>trials completed"}
     I -->|"< 12 trials"| A
-    I -->|"12 done"| J
+    I -->|"✓ 12 done"| J
   end
 
-  subgraph Final["🚀 Phase 2: Final Evaluation (1 day)"]
-    J["Load Best Hyperparams<br/>from Phase 1"] --> K["Train 25 Epochs<br/>seeds: 42, 43, 44<br/>full convergence"]
-    K --> L["Aggregate Results<br/>mean ± std val_acc"]
-    L --> M["📊 Final Report<br/>compare vs baseline"]
+  subgraph Final["🚀 PHASE 2: Final Evaluation<br/>⏱️ Duration: ~1 day"]
+    direction TB
+    J["📋 <b>Load Best Config</b><br/>from Phase 1<br/>optimal λ, τ, window"]
+    J --> K["🎓 <b>Train 25 Epochs</b><br/>Multiple seeds<br/><b>42, 43, 44</b><br/>~23h each<br/>full convergence"]
+    K --> L["📊 <b>Aggregate Stats</b><br/>mean ± std<br/>val_acc, MAPE<br/>statistical test"]
+    L --> M["✅ <b>Final Report</b><br/>compare vs baseline<br/>improvement %<br/>significance p-value"]
   end
 
-  %% Styling for baseline
-  style A0 fill:#eeeeee,stroke:#424242,stroke-width:3px
-  style B0 fill:#eeeeee,stroke:#424242,stroke-width:2px
+  %% Styling for baseline (gray)
+  style A0 fill:#e0e0e0,stroke:#424242,stroke-width:4px
+  style B0 fill:#eeeeee,stroke:#616161,stroke-width:2px
   
-  %% Styling for hyperparameter search
-  style A fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px
-  style B fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
-  style C fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+  %% Styling for sampler (bright green)
+  style A fill:#a5d6a7,stroke:#2e7d32,stroke-width:4px
+  
+  %% Styling for trial process (yellow gradient)
+  style B fill:#fff59d,stroke:#f57f17,stroke-width:2px
+  style C fill:#ffee58,stroke:#f9a825,stroke-width:3px
   style D fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
   
-  %% Styling for pruner decision
-  style E fill:#fffde7,stroke:#f57f17,stroke-width:3px
-  style F fill:#ffebee,stroke:#c62828,stroke-width:2px
-  style G fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+  %% Styling for pruner (bright yellow, large)
+  style E fill:#fff176,stroke:#f57f17,stroke-width:4px
   
-  %% Styling for final evaluation
-  style J fill:#e3f2fd,stroke:#1565c0,stroke-width:3px
-  style K fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+  %% Styling for outcomes
+  style F fill:#ffcdd2,stroke:#c62828,stroke-width:3px
+  style G fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px
+  style H fill:#b2dfdb,stroke:#00695c,stroke-width:2px
+  
+  %% Styling for final evaluation (blue gradient)
+  style J fill:#bbdefb,stroke:#1565c0,stroke-width:4px
+  style K fill:#90caf9,stroke:#1976d2,stroke-width:3px
   style L fill:#e8eaf6,stroke:#3949ab,stroke-width:2px
-  style M fill:#f3e5f5,stroke:#6a1b9a,stroke-width:3px
+  style M fill:#ce93d8,stroke:#6a1b9a,stroke-width:4px
 ```
 
 **Legend**:
