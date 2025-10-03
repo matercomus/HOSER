@@ -212,10 +212,12 @@ Total Loss = CrossEntropy(next_step) + α·MAPE(time) + λ·KL(student || teache
 
 The implementation has been heavily optimized to handle large-scale training (629k samples) with stable throughput. The primary bottleneck—disk I/O from streaming hundreds of thousands of small files—has been eliminated.
 
-**Performance notes (current hardware, RTX 2080 Ti)**:
+**Performance notes** (example hardware: RTX 2080 Ti, 11GB VRAM, 64GB system RAM):
 - **Vanilla baseline**: ~10–12 it/s with disk streaming (Data Wait ~50 ms). With RAM caching, Data Wait becomes negligible.
 - **Distilled runs**: Dominated by teacher compute (~430 ms per step with window≈4), yielding ~1.6–1.8 it/s. RAM caching still helps, but teacher remains the bottleneck.
 - **Data Wait** with RAM cache: typically <5% (all samples in memory).
+
+> **Note**: These timings are hardware-dependent. Newer GPUs (RTX 30/40 series) with better FP16 performance will significantly speed up teacher inference. The smart RAM caching logic adapts to your available system memory automatically.
 
 **Key optimizations**:
 1. **Smart Parallel RAM Caching**: The ultimate fix. `dataset.py` now automatically detects if the dataset can fit into available system RAM. If so, it uses all available CPU cores to load the entire dataset into memory in parallel at startup, eliminating all disk I/O during training.
