@@ -86,7 +86,7 @@ profiling:
 # Weights & Biases logging
 wandb:
   enable: true
-  project: hoser-distill-optuna-5  # Single project for both Optuna study and individual trials
+  project: hoser-distill-optuna-6  # Single project for both Optuna study and individual trials
   run_name: ''  # Auto-generated per trial: trial_{N:03d}_{vanilla|distilled}
   tags: [beijing, distillation, optuna]
 
