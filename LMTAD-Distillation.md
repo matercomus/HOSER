@@ -1,5 +1,33 @@
 # Distilling LM‑TAD into HOSER at Training Time
 
+## Glossary of Key Terms
+
+**Knowledge Distillation**: A machine learning technique where a smaller "student" model learns to mimic a larger "teacher" model by matching the teacher's output probability distributions, not just hard labels.
+
+**Teacher Model (LM-TAD)**: Pre-trained, frozen model that provides "soft" probability distributions over possible next roads. Frozen means its weights never change during distillation.
+
+**Student Model (HOSER)**: The model being trained. It learns from both ground truth labels (hard targets) and teacher distributions (soft targets).
+
+**KL Divergence (Kullback-Leibler)**: A mathematical measure of how different two probability distributions are. Used as a loss term to make student distribution similar to teacher distribution.
+
+**Temperature (τ)**: A softmax parameter that "smooths" probability distributions. Higher τ → more uniform (flatter) distribution, emphasizing low-probability options. Lower τ → sharper (peakier) distribution.
+
+**Candidate Set**: For each timestep, HOSER considers only a subset of all possible roads (typically top-64 by spatial score). Distillation happens only over this candidate set.
+
+**Sliding Window**: Teacher only sees the last N road IDs in the trajectory (controlled by `distill_window` hyperparameter). This limits computation and focuses on recent context.
+
+**AMP (Automatic Mixed Precision)**: Uses float16 for most computations, float32 for critical operations. Reduces GPU memory usage by ~50% with minimal accuracy impact.
+
+**Optuna**: Hyperparameter optimization framework that intelligently explores parameter combinations using Bayesian methods (CmaEsSampler) and early stopping (HyperbandPruner).
+
+**WandB (Weights & Biases)**: Experiment tracking platform that logs metrics, hyperparameters, and model artifacts for comparison and visualization.
+
+**Road Network**: Graph of 40,060 road segments in Beijing. Each road has an ID, centroid coordinates, and connections to other roads.
+
+**Grid Cells**: LM-TAD's spatial representation. Beijing area is divided into 51,663 fine-grained grid cells. Each cell has a unique token ID.
+
+**Vocabulary Mismatch**: HOSER predicts road IDs (40k vocabulary), LM-TAD predicts grid cell tokens (51k vocabulary). We bridge this by mapping road centroids → grid cells.
+
 ## Introduction
 
 ### The Problem: Map-Matched Trajectory Prediction
