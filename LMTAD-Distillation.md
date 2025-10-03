@@ -226,13 +226,9 @@ The implementation has been heavily optimized to handle large-scale training (62
 6. **Loss masking**: Both cross_entropy and time loss properly handle invalid positions.
 7. **File handle management**: Explicit context managers prevent descriptor exhaustion in streaming mode.
 
-## Overview
-
-- Teacher: a trained LM‑TAD model over grid tokens (SOT/EOT/PAD + grid indices). It outputs a probability distribution over the grid vocabulary given a history of grid tokens.
-- Student: HOSER’s `Navigator` outputs logits over next‑road candidates at each step. We align to the teacher by mapping candidate roads to the teacher’s grid tokens and comparing distributions on the candidate subset.
-- Distillation signal: add a KL divergence term between teacher and student next‑step distributions (temperature‑scaled) to HOSER’s original loss.
-
 ## Visual Overview
+
+The diagrams below illustrate the complete distillation pipeline, from data loading through training to hyperparameter tuning. These provide a high-level view of how all components interact.
 
 ### Training & Distillation Data Flow
 
