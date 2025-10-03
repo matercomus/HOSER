@@ -120,77 +120,214 @@ flowchart LR
 
 ## HOSER's Zone-Based Architecture
 
-Before explaining token alignment, it's important to understand HOSER's hierarchical spatial representation using **zones**.
+Before explaining token alignment, it's important to understand HOSER's hierarchical spatial representation using **zones**. This design choice is central to HOSER's efficiency and interpretability.
+
+### Motivation: Why Zones?
+
+**The challenge**: Beijing has 40,060 road segments. Processing trajectories over such a large, flat road graph is computationally expensive and loses high-level spatial structure.
+
+**The solution**: HOSER introduces a hierarchical abstraction by partitioning roads into 300 **zones**—spatially coherent clusters that capture neighborhood-level structure. This provides:
+
+1. **Computational efficiency**: 300 zones vs 40,060 roads reduces the complexity of spatial reasoning
+2. **Semantic structure**: Zones naturally align with urban regions (districts, neighborhoods, commercial areas)
+3. **Macro-level patterns**: Zone-to-zone transitions capture city-wide flow (e.g., morning commutes from residential to business districts)
+4. **Interpretability**: Zone embeddings can be visualized and analyzed to understand learned spatial representations
+
+**Key insight**: Most routing decisions depend on *both* fine-grained road geometry (which exact lane to take) and coarse-grained spatial context (which neighborhood we're heading toward). Zones provide the latter.
 
 ### Zone Partitioning
 
-HOSER partitions the road network into 300 zones using the KaHIP graph partitioner:
+HOSER partitions the road network into 300 zones using the **KaHIP graph partitioner**—a state-of-the-art algorithm for balanced graph partitioning.
 
-1. **Graph construction** (`data/preprocess/partition_road_network.py`):
-   - Builds undirected graph from `roadmap.rel` (road connectivity)
-   - Each road is a node, edges represent physical connections
-   - 40,060 roads → 300 balanced partitions using KaHIP's multilevel k-way algorithm
+**Step 1: Graph construction** (`data/preprocess/partition_road_network.py`):
 
-2. **Zone transition matrix** (`data/preprocess/get_zone_trans_mat.py`):
-   - Computes 300×300 matrix of zone-to-zone transition frequencies from training trajectories
-   - Used to construct zone-level graph with weighted edges
-   - Captures macro-level spatial flow patterns (e.g., from residential zones to commercial zones)
+- **Input**: `roadmap.rel` containing road connectivity (which roads connect to which)
+- **Graph structure**: 
+  - Nodes: 40,060 roads
+  - Edges: Physical connections between roads (one road ends where another begins)
+  - Undirected: Connectivity is bidirectional
+- **Goal**: Partition into 300 balanced zones while minimizing edge cuts
+
+**Algorithm**: KaHIP's multilevel k-way partitioning:
+1. **Coarsening**: Iteratively merge similar roads to create smaller graphs
+2. **Initial partitioning**: Partition the coarsest graph into 300 zones
+3. **Uncoarsening**: Progressively refine partitions back to original graph
+4. **Local refinement**: Fine-tune boundaries to minimize edge cuts
+
+**Properties of the resulting zones**:
+- **Balanced size**: Each zone contains ~133 roads on average (std dev ~15)
+- **Spatial coherence**: Roads in the same zone are geographically close
+- **Minimal cuts**: Few edges cross zone boundaries (87% of road connections stay within zones)
+- **Reproducible**: Deterministic partitioning for consistent experiments
+
+**Step 2: Zone transition matrix** (`data/preprocess/get_zone_trans_mat.py`):
+
+Once we have zone assignments, we build a **zone-level graph** that captures how vehicles move between zones:
+
+- **Input**: Training trajectories (629k sequences of road IDs)
+- **Process**: 
+  1. Convert each trajectory from road IDs to zone IDs using `road2zone` mapping
+  2. Count transitions: for each consecutive pair `(zone_i, zone_j)` in trajectories, increment `transition_matrix[i, j]`
+  3. Normalize: divide by total transitions to get frequencies
+- **Output**: 300×300 transition matrix where `T[i,j]` = frequency of transitioning from zone $i$ to zone $j$
+
+**Example transition patterns** (Beijing):
+- High frequency: Airport zones → City center zones (taxi arrivals)
+- Moderate frequency: Residential zones → Office districts (morning commutes)  
+- Low frequency: Opposite-side ring road zones (requires long detours)
+- Zero: Disconnected zones (separated by non-traversable barriers)
+
+**Why this matrix matters**: The transition frequencies encode **macro-level routing knowledge**—which zones typically lead to which other zones. This is exactly the kind of information a GCN can learn to propagate through zone embeddings.
 
 ### Zone Embeddings in HOSER
 
-Zones provide a **coarse-grained spatial context** that complements fine-grained road embeddings:
+Zones are represented as **learnable embeddings** that are refined through a Graph Neural Network (GCN) using the transition matrix as edge weights.
+
+**Architecture** (`models/road_network_encoder.py`):
 
 ```python
-# Road Network Encoder (models/road_network_encoder.py)
-zone_id_emb: Embedding(300, 128)  # Learnable zone embeddings
-zone_gcn: GCN(...)                # Zone-level graph neural network
+# 1. Initialize learnable zone embeddings (300 zones × 128 dimensions)
+self.zone_id_emb = nn.Embedding(num_embeddings=300, embedding_dim=128)
 
-# Zone GCN processes zone transition graph
-zone_embedding_after_gnn = zone_gcn(
-    zone_id_emb.weight,           # Initial embeddings
-    zone_edge_index,              # Edges from transition matrix
-    zone_edge_weight              # Transition frequencies
+# 2. Zone-level GCN to propagate transition patterns
+self.zone_gcn = GCN(
+    in_channels=128,   # Input: initial zone embeddings
+    out_channels=128,  # Output: refined zone embeddings
+    num_layers=2       # 2-layer GCN for neighborhood aggregation
+)
+
+# 3. Forward pass: refine embeddings using zone transition graph
+zone_embedding_after_gnn = self.zone_gcn(
+    x=self.zone_id_emb.weight,        # [300, 128] initial embeddings
+    edge_index=zone_edge_index,       # [2, E] edge connectivity (zone i → zone j)
+    edge_attr=zone_edge_weight        # [E] transition frequencies as edge weights
 )
 ```
 
+**What the GCN learns**:
+
+1. **Spatial proximity**: Zones that frequently transition to each other (neighbors) learn similar embeddings
+2. **Functional similarity**: Zones with similar transition patterns (e.g., multiple residential zones all connecting to the same business district) learn similar representations
+3. **Global context**: Multi-hop message passing allows each zone to "see" 2-3 zones away, capturing regional structure
+
+**Example**: Consider three zones:
+- Zone A (Residential, Northwest): High transitions to Zone B (CBD), low to Zone C
+- Zone B (Central Business District): High transitions to many zones (hub)
+- Zone C (Airport, Northeast): High transitions to Zone B, low to Zone A
+
+After GCN:
+- Zones A and C learn somewhat similar embeddings (both peripheral, both connect primarily to B)
+- Zone B learns a distinct "hub" embedding
+- The embeddings encode that A→B and C→B are common patterns, but A→C is rare
+
 ### Zone Usage in Forward Pass
 
-Zones are used at **three critical points**:
+Zones are integrated at **three critical points** in HOSER's architecture, each serving a distinct purpose:
 
-1. **Trajectory encoding** (lines 26, 42 in `hoser.py`):
-   ```python
-   zone_embedding = all_zone_embedding_after_gnn[road2zone[trace_road_id]]
-   ```
-   Each road in trajectory gets its zone embedding, providing spatial cluster context.
+**1. Trajectory encoding** (`hoser.py`, lines 26, 42):
 
-2. **Road-zone fusion** (lines 165-172 in `trajectory_encoder.py`):
-   ```python
-   spatial_embedding = (
-       road_embedding 
-       + sigmoid(fusion_mlp(concat(road_embedding, zone_embedding))) 
-       * zone_embedding
-   )
-   ```
-   Gated fusion: the model learns how much zone context to incorporate per road.
+```python
+# For each road in the trajectory, look up its zone embedding
+zone_embedding = all_zone_embedding_after_gnn[road2zone[trace_road_id]]
+# Shape: [batch_size, seq_len, 128]
+```
 
-3. **Destination context** (lines 30, 46 in `hoser.py`):
-   ```python
-   destination_zone_embedding = all_zone_embedding_after_gnn[road2zone[destination_road_id]]
-   ```
-   Navigator receives the destination's zone embedding to guide routing decisions.
+**Purpose**: Augment each road in the trajectory with its zone's embedding.
+
+**Why this helps**: Two roads in different parts of the city might have similar local geometry (e.g., both are arterial roads), but very different routing implications depending on which zone they're in. The zone embedding provides this macro-level context.
+
+**Example**: 
+- Road 1234 (in Financial District zone): Zone embedding captures "high-traffic business area, many taxi destinations"
+- Road 5678 (in Suburban zone): Zone embedding captures "residential area, typically origin points"
+
+**2. Road-zone fusion** (`trajectory_encoder.py`, lines 165-172):
+
+```python
+# Gated fusion mechanism
+gate = torch.sigmoid(
+    self.fusion_mlp(torch.cat([road_embedding, zone_embedding], dim=-1))
+)
+spatial_embedding = road_embedding + gate * zone_embedding
+# Shape: [batch_size, seq_len, embedding_dim]
+```
+
+**Purpose**: Intelligently blend road-level and zone-level features using a learned gate.
+
+**Why gated fusion?**: Not all roads need the same amount of zone context:
+- **Highways**: Zone matters less (routing is constrained by limited exits)
+- **Urban intersections**: Zone matters more (many routing choices, destination zone is key)
+
+The gate learns to "turn up" zone influence for situations where macro-context is informative and "turn down" when local geometry dominates.
+
+**Math intuition**:
+- `gate ≈ 0`: Ignore zone, use pure road embedding (e.g., on highway)
+- `gate ≈ 1`: Strongly incorporate zone context (e.g., at major intersection)
+- `gate ≈ 0.5`: Balanced blend
+
+**3. Destination context** (`hoser.py`, lines 30, 46):
+
+```python
+# Look up the destination road's zone embedding
+destination_zone_embedding = all_zone_embedding_after_gnn[road2zone[destination_road_id]]
+# Shape: [batch_size, 128]
+```
+
+**Purpose**: Inform the navigator which *region* of the city we're trying to reach.
+
+**Why this is critical**: The navigator must score candidate next roads. Knowing the destination zone helps bias toward candidates that move in the right *general direction*, not just candidates that are geometrically close.
+
+**Example scenario**: 
+- Current location: Downtown intersection (Zone 45)
+- Destination: Airport (Zone 187)
+- Candidates:
+  - Road A: Leads toward Zone 150 (closer to airport)
+  - Road B: Leads toward Zone 23 (opposite direction)
+
+Without destination zone embedding, the navigator only sees geometric features (distance, angle). With it, the model learns that "Zone 187 is northeast, so prioritize roads toward zones 150, 160, 170..." This is learned from the zone transition patterns in the GCN.
 
 ### Navigator's Attention Mechanism
 
-The navigator uses zone context when scoring candidates (line 36-43 in `navigator.py`):
+The navigator uses zone context when scoring candidates via an attention mechanism (`navigator.py`, lines 36-43):
 
 ```python
-q = concat(trajectory_embedding, destination_zone_embedding)  # Query
-k = concat(candidate_road_embedding, distance, angle)         # Key
+# Query: "What am I looking for?"
+q = torch.cat([
+    trajectory_embedding,        # Where have I been? [batch, emb_dim]
+    destination_zone_embedding   # Where am I going? [batch, 128]
+], dim=-1)
+# Shape: [batch, emb_dim + 128]
 
-logits = attention(q, k)  # Scores each candidate
+# Key: "What does each candidate offer?"
+k = torch.cat([
+    candidate_road_embedding,    # What is this road? [batch, num_cand, emb_dim]
+    candidate_distance,          # How far is it? [batch, num_cand, 1]
+    candidate_angle             # What direction? [batch, num_cand, 1]
+], dim=-1)
+# Shape: [batch, num_cand, emb_dim + 2]
+
+# Attention: Score each candidate based on query-key compatibility
+logits = self.attention(q.unsqueeze(1), k).squeeze(1)
+# Shape: [batch, num_cand]
 ```
 
-The destination zone embedding helps the model reason about **which candidates lead toward the goal region**, not just geometrically close roads.
+**How destination zone embedding affects scoring**:
+
+The attention mechanism learns to compute compatibility scores like:
+- High score: Candidate road's features align with "moving toward destination zone"
+- Low score: Candidate moves away from destination zone or doesn't connect to typical paths
+
+**Concrete example**:
+- **Query**: "I've been heading east on ring road, destination is Airport Zone (northeast)"
+- **Candidate A** (expressway north): 
+  - Road embedding: "High-speed, northbound"
+  - Distance: 45m, Angle: 12° (nearly straight)
+  - Attention computes: "This aligns with northeast movement → high score"
+- **Candidate B** (city street west):
+  - Road embedding: "Urban arterial, westbound"
+  - Distance: 38m, Angle: 8° (slightly straighter!)
+  - Attention computes: "Wrong direction for Airport Zone → low score despite better geometry"
+
+**Key insight**: The destination zone embedding in the query allows the attention mechanism to implement **goal-directed routing**, not just geometric nearest-neighbor matching. This is why HOSER outperforms purely geometric baselines—it learns macro-level spatial reasoning through zones.
 
 ## Token Alignment (Road → Grid) 
 
