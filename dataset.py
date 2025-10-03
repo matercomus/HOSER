@@ -147,21 +147,39 @@ class Dataset(torch.utils.data.Dataset):
             key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0])
         )
         
-        # Heuristic: fully cache only if dataset is reasonably small (<200k samples)
-        CACHE_THRESHOLD = 200_000
+        # Smart caching: estimate RAM requirement and available memory
+        import psutil
+        
+        # Sample a few files to estimate average size
+        sample_size = min(100, len(self.file_paths))
+        sample_bytes = sum(os.path.getsize(f) for f in self.file_paths[:sample_size])
+        avg_file_size = sample_bytes / sample_size
+        estimated_ram_gb = (avg_file_size * len(self.file_paths)) / (1024**3)
+        available_ram_gb = psutil.virtual_memory().available / (1024**3)
+        
         self.cached_data = None
-        if len(self.file_paths) <= CACHE_THRESHOLD:
-            print(
-                f"Loading {len(self.file_paths)} preprocessed samples into RAM (<= {CACHE_THRESHOLD})."
-            )
-            self.cached_data = []
-            for file_path in tqdm(self.file_paths, desc="Caching dataset"):
-                self.cached_data.append(torch.load(file_path, weights_only=False))
-            print(f"✅ Cached {len(self.cached_data)} samples in memory")
+        # Cache if dataset fits in 60% of available RAM
+        if estimated_ram_gb < (available_ram_gb * 0.6):
+            print(f"📦 Caching {len(self.file_paths):,} samples to RAM (~{estimated_ram_gb:.1f}GB, {available_ram_gb:.1f}GB available)")
+            
+            # Parallel loading with all CPU cores
+            def load_single_file(file_path):
+                return torch.load(file_path, weights_only=False)
+            
+            num_workers = multiprocessing.cpu_count()
+            print(f"🚀 Using {num_workers} cores for parallel loading...")
+            
+            with multiprocessing.Pool(processes=num_workers) as pool:
+                self.cached_data = list(tqdm(
+                    pool.imap(load_single_file, self.file_paths),
+                    total=len(self.file_paths),
+                    desc="Loading cache"
+                ))
+            
+            print(f"✅ Cached {len(self.cached_data):,} samples in memory")
         else:
-            print(
-                f"📁 Dataset has {len(self.file_paths):,} samples — will stream from disk instead of full RAM cache."
-            )
+            print(f"📁 Dataset needs ~{estimated_ram_gb:.1f}GB but only {available_ram_gb:.1f}GB available — streaming from disk")
+            print(f"   To enable caching, free up more RAM or reduce dataset size")
 
     def __len__(self):
         return len(self.file_paths) if self.cached_data is None else len(self.cached_data)
