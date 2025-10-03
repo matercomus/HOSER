@@ -60,7 +60,7 @@ data_dir: /home/matt/Dev/HOSER-dataset
 
 # Dataloader performance knobs - optimized for streaming large dataset
 dataloader:
-  num_workers: 6  # Balanced for disk I/O without overwhelming system
+  num_workers: 2  # Minimize random I/O contention on large streaming dataset
   pin_memory: false # Disabled: Relieves CPU memory pressure
   prefetch_factor: 16  # Balanced buffer for disk streaming
   persistent_workers: false  # Disabled: Avoid memory leaks with repeated torch.load
