@@ -102,7 +102,7 @@ optuna:
   
   # Sampler configuration (TPESampler for robust conditional search)
   sampler:
-    n_startup_trials: 5  # TPE model starts after 10 random trials
+    n_startup_trials: 5  # TPE model starts after 5 random trials (failed trials count toward this)
     seed: 43              # Sampler seed for reproducibility
     multivariate: true    # Use multivariate TPE
     group: true           # Decompose search space for conditional params
