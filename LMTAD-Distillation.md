@@ -775,6 +775,10 @@ Where:
 
 **Tuning strategy**: Optuna searches the joint space to find the optimal combination for validation accuracy.
 
+---
+
+**Transitional note for readers**: The sections above provided the theoretical foundation (why distillation, what components exist, mathematical formulation). The sections below dive into concrete implementation details and a complete worked example with real numbers. If you prefer hands-on learning, you may want to jump to the "Detailed Worked Example" section now and return to implementation details later.
+
 ## Current Implementation Details
 
 ### 1) Teacher Wrapper (LM‑TAD)
@@ -905,7 +909,17 @@ Where:
 
 ## Detailed Worked Example
 
-This section walks through a complete distillation step with real numbers, showing exactly how the teacher's knowledge is transferred to the student model.
+**Purpose of this section**: The mathematical formulation above may feel abstract. This section brings those equations to life by walking through a *single real training step* with concrete numbers, showing exactly how the teacher's knowledge is transferred to the student model. By the end, you'll understand not just the "what" and "why" of distillation, but the precise mechanics of "how."
+
+**What you'll learn**:
+- How a real Beijing taxi trajectory decision looks (4th Ring Road exit ramp scenario)
+- What probabilities the teacher actually outputs (and why)
+- How HOSER's attention mechanism scores candidates (and where it struggles)
+- The exact KL divergence computation, term by term
+- How gradients flow to improve student predictions
+- Why small λ values (0.01) still have significant cumulative effects
+
+**Reading strategy**: Follow along with a calculator or Python/NumPy to verify the numbers. Understanding one concrete example deeply is more valuable than skimming many abstract explanations.
 
 ### Real-World Scenario (Beijing Road Network)
 
