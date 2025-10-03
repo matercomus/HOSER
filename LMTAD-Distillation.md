@@ -83,6 +83,55 @@ Transfer LM-TAD's learned spatial patterns to HOSER during training, then deploy
 
 **Key insight**: LM-TAD has learned spatial patterns that HOSER's architecture doesn't naturally capture. By matching distributions during training, HOSER can internalize these patterns without changing its architecture.
 
+## Quick Start
+
+**For impatient readers**: Want to run distillation training immediately? Here's the minimal path:
+
+1. **Prerequisites** (one-time setup):
+   ```bash
+   # Export LM-TAD teacher weights (if not already done)
+   uv run python tools/export_lmtad_weights.py \
+     --checkpoint /path/to/lmtad_checkpoint.pth \
+     --output teachers/lmtad_weights.pt
+   ```
+
+2. **Single training run** (vanilla baseline for comparison):
+   ```bash
+   uv run python train_with_distill.py \
+     --dataset Beijing \
+     --cuda 0 \
+     --config config/Beijing.yaml \
+     --data_dir /path/to/hoser_format
+   ```
+
+3. **Hyperparameter tuning** (recommended for best results):
+   ```bash
+   # Edit config/Beijing.yaml to set optuna.n_trials (12 recommended)
+   uv run python tune_hoser.py --data_dir /path/to/hoser_format
+   
+   # Results will be in: optuna_results/<study_name>/best_trial/
+   ```
+
+4. **View results**:
+   ```bash
+   # WandB dashboard (if configured)
+   # https://wandb.ai/<your_entity>/hoser-distill-optuna-6
+   
+   # Or TensorBoard locally
+   tensorboard --logdir optuna_trials/trial_001_distilled_complete/tensorboard_log
+   ```
+
+**Expected outcomes**:
+- Vanilla baseline: ~57.2% next-step accuracy (8 epochs, ~2 hours)
+- Distilled model: Target >58% accuracy (requires hyperparameter tuning)
+- Training speed: ~1.6-1.8 it/s (distilled), ~10-12 it/s (vanilla)
+
+**What to read next**:
+- Understand the approach → Read "Executive Summary" and "Loss Design"
+- Configure hyperparameters → Read "Hyperparameter Tuning with Optuna"
+- Debug performance → Read "Recent Performance & Stability Improvements"
+- Deep understanding → Read "Detailed Worked Example"
+
 ## Executive Summary
 
 We propose a training‑time distillation approach where a frozen (pre-trained, weights-locked) LM‑TAD model (teacher) provides learned spatial priors for next‑step decisions. HOSER (student) is trained to align its candidate road distribution to the teacher's distribution while keeping HOSER's original supervised objectives intact. This removes the need to co‑run LM‑TAD at inference time, keeping deployment simple and fast while capturing LM‑TAD's behavioral knowledge.
