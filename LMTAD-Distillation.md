@@ -65,17 +65,118 @@ We propose a training‑time distillation approach where a frozen (pre-trained, 
 
 ## What's Implemented (Current Code)
 
-- `critics/lmtad_teacher.py`: Loads LM‑TAD from a weights‑only export (`{'state_dict', 'model_config'}`) and provides vectorized next‑token distributions with sliding window and AMP.
-- `tools/export_lmtad_weights.py`: Utility to export LM‑TAD checkpoints into a pickle‑free, weights‑only format to avoid module import collisions.
-- `critics/grid_mapper.py`: Vectorized road‑centroid → grid‑token mapper; precomputes `road_id → grid_token` using dataset bounds and grid params.
-- `critics/distill_hook.py`: `DistillationManager` orchestrates teacher calls, mapping of candidates, renormalization on candidate set, and computes batched KL loss.
-- `train_with_distill.py`: Standalone training script that wires in distillation, gradient accumulation, AMP, `torch.compile` (with CUDA graphs disabled), gradient checkpointing, dataloader tuning, per‑epoch validation, and full‑config WandB logging.
-- `config/Beijing.yaml`: Single source of truth (config‑first). Contains `distill`, `training`, `dataloader`, `data`, `profiling`, `wandb`, and optimizer/model settings.
-- `dataset.py`: Smart, parallelized Dataset caching. It estimates the dataset's RAM footprint and available system RAM, then uses all CPU cores to load the entire dataset into memory if it fits. This eliminates disk I/O bottlenecks during training. If the dataset is too large, it falls back to the previous disk streaming mode.
-- Generation and evaluation:
-  - `gene.py` supports `--model_path` to load the distilled checkpoint for generation.
-  - `evaluation.py` computes global/local metrics (JSD, Hausdorff, DTW) and logs to WandB.
-  - `tools/collect_distill_artifacts.py` converts generated trips to GeoJSON and bundles model/eval/WandB artifacts.
+### Core Components
+
+#### `critics/lmtad_teacher.py` - Teacher Model Wrapper
+**Purpose**: Provides frozen LM-TAD predictions without polluting the training environment
+
+**What it does**:
+- Loads pre-trained LM-TAD from weights-only export (`{'state_dict', 'model_config'}`)
+- Provides vectorized next-token probability distributions (batched inference)
+- Implements sliding window over historical trajectory (controlled by `distill_window` hyperparameter)
+- Uses AMP (Automatic Mixed Precision) for GPU memory efficiency
+
+**Why separate wrapper**: Avoids module import collisions between LM-TAD's dependencies and HOSER's codebase
+
+#### `tools/export_lmtad_weights.py` - Model Export Utility
+**Purpose**: Prepare LM-TAD for safe loading in the training environment
+
+**What it does**:
+- Exports LM-TAD checkpoints to pickle-free, weights-only format
+- Strips out all code dependencies, keeping only state dict + model config
+- Creates a portable `.pt` file that can be loaded without the original LM-TAD codebase
+
+**Why needed**: LM-TAD and HOSER have conflicting dependencies; weights-only export avoids import errors
+
+#### `critics/grid_mapper.py` - Spatial Mapping Utility
+**Purpose**: Bridge the vocabulary gap between HOSER (roads) and LM-TAD (grid cells)
+
+**What it does**:
+- Vectorized road centroid → grid token mapper
+- Precomputes `road_id → grid_token` lookup table using dataset spatial bounds and LM-TAD's grid parameters
+- Enables efficient translation of teacher's grid-based predictions to HOSER's road-based candidates
+
+**Why needed**: The two models use different spatial representations; this mapping is the "Rosetta Stone" for distillation
+
+#### `critics/distill_hook.py` - Distillation Orchestrator
+**Purpose**: Manages the complete distillation workflow during training
+
+**What it does**:
+1. **Teacher calls**: Invokes teacher model for each training sample
+2. **Candidate mapping**: Maps teacher's grid-based logits to student's candidate road IDs
+3. **Renormalization**: Ensures teacher probabilities sum to 1.0 over candidate set
+4. **KL computation**: Computes batched KL divergence loss between student and teacher distributions
+
+**Key design**: Handles variable-length trajectories and variable-size candidate sets per timestep
+
+#### `train_with_distill.py` - Main Training Script
+**Purpose**: Complete training pipeline with distillation, optimization, and logging
+
+**What it includes**:
+- **Distillation integration**: Wires `DistillationManager` into training loop
+- **Performance optimizations**: 
+  - AMP (Automatic Mixed Precision) for memory efficiency
+  - `torch.compile` with max-autotune (CUDA graphs disabled for compatibility)
+  - Gradient checkpointing to reduce memory footprint
+  - Tuned DataLoader settings (workers, prefetch, pin_memory)
+- **Training features**:
+  - Per-epoch validation with accuracy and MAPE metrics
+  - Combined loss: CrossEntropy + MAPE + λ·KL
+  - Performance profiling (per-component timing breakdown)
+  - Full WandB logging (hyperparameters, metrics, model artifacts)
+
+**Combined loss formula**:
+```
+Total Loss = CrossEntropy(next_step) + α·MAPE(time) + λ·KL(student || teacher)
+```
+
+#### `config/Beijing.yaml` - Configuration Hub
+**Purpose**: Single source of truth for all training settings (config-first design)
+
+**Sections**:
+- `distill`: Enable/disable, lambda, temperature, window
+- `training`: Epochs, learning rate, warmup, batch size
+- `dataloader`: Workers, prefetch factor, pin memory, persistent workers
+- `data`: Dataset paths, candidate filtering (top-k)
+- `profiling`: Performance logging intervals
+- `wandb`: Project name, entity, run tags
+- `optuna`: Hyperparameter search settings (sampler, pruner, trials)
+
+**Why centralized**: Ensures reproducibility and makes hyperparameter tuning tractable
+
+#### `dataset.py` - Smart Caching Data Loader
+**Purpose**: Eliminate disk I/O bottleneck for large-scale training
+
+**What it does**:
+1. **RAM estimation**: Samples 100 files to estimate total dataset RAM footprint
+2. **Availability check**: Queries available system RAM (using `psutil`)
+3. **Smart decision**:
+   - If dataset fits in 60% of available RAM → **parallel cache to RAM** using all CPU cores
+   - Otherwise → **stream from disk** using efficient file handle management
+4. **Parallel loading**: Uses `multiprocessing.Pool` to load hundreds of thousands of `.pt` files in parallel
+
+**Performance impact**:
+- Before: 50-400ms Data Wait (disk I/O bottleneck), performance cliffs mid-epoch
+- After: ~5ms Data Wait (RAM-cached), stable 10-12 it/s throughout training
+
+#### Generation and Evaluation Tools
+
+**`gene.py`** - Trajectory Generation
+- Loads distilled HOSER checkpoint via `--model_path`
+- Generates predicted trajectories for test set
+- Outputs predictions for evaluation
+
+**`evaluation.py`** - Metrics Computation
+- Computes global/local trajectory similarity metrics:
+  - JSD (Jensen-Shannon Divergence) - distribution similarity
+  - Hausdorff distance - spatial deviation
+  - DTW (Dynamic Time Warping) - temporal alignment
+- Logs all metrics to WandB for comparison
+
+**`tools/collect_distill_artifacts.py`** - Results Packaging
+- Converts generated trajectories to GeoJSON for visualization
+- Bundles model checkpoints, evaluation metrics, and WandB metadata
+- Creates shareable artifact package for thesis/publication
 
 ## Recent Performance & Stability Improvements
 
