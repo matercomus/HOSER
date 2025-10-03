@@ -22,59 +22,65 @@ FIXED PARAMETERS (architectural choices):
 - downsample: 1 (from base config)
 - All HOSER model architecture parameters
 
-TRAINING STRATEGY (Meaningful Results):
-  • 10 epochs per trial for meaningful convergence (~8h per full trial)
-  • Minimum 5 epochs before any pruning decisions
-  • This ensures we see real learning patterns, not just initialization noise
+TRAINING STRATEGY (Fast Iteration - Option B):
+  • 5 epochs per trial for rapid exploration (~4.5h per full trial @ 54min/epoch)
+  • Minimum 3 epochs before pruning (~2.7h minimum)
+  • Focus: Many trials to explore hyperparameter space quickly
+  • Trade-off: Less convergence per trial, but more comprehensive search
 
-PRUNING STRATEGY (MedianPruner - Conservative):
-  Trial 1-3:  Run full 10 epochs (establish stable baseline, ~24h)
-  Trial 4+:   Allow 5 epochs before pruning, then prune if val_acc < median
+PRUNING STRATEGY (HyperbandPruner - Moderate):
+  • min_resource=3: All trials run at least 3 epochs before pruning
+  • reduction_factor=3: Keeps top 1/3 of trials at each evaluation rung
+  • Adaptive: Allocates more resources to promising trials
   
-  Conservative approach: Trials get 5 full epochs to show potential.
-  Comparison is fair: epoch 5+ performance vs median at same epoch.
-  Saves ~4h per pruned trial (vs ~8h wasted on bad trial).
+  Expected pruning rate: ~50-60% of trials stopped at 3-4 epochs
+  This saves ~2h per pruned trial while gathering early performance data
 
-SAMPLING STRATEGY (GPSampler):
-  Trial 1-10: Random/TPE sampling (exploration)
-  Trial 11+:  Gaussian Process Bayesian optimization (exploitation)
+SAMPLING STRATEGY (TPESampler - Adaptive):
+  • Trials 0-4: Random/startup trials (exploration)
+  • Trial 5+: TPE algorithm active (Bayesian optimization)
+  • Note: Only SUCCESSFUL trials count toward n_startup_trials
+  • Conditional search space: distill_enable branches the parameter tree
 
 STORAGE & CRASH RECOVERY:
   Default storage: /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db
   Heartbeat: 60s | Grace period: 120s
   Study can be resumed after crashes/interruptions.
 
-TIME ESTIMATE (50 trials with meaningful epochs):
-  • Trial 1-3 (startup): 3 × 8h = 24h
-  • Trial 4-10 (GP init): 7 trials, ~20% pruned
-    - 6 complete: 6 × 8h = 48h
-    - 1 pruned: 1 × 4h = 4h
-    - Subtotal: 52h
-  • Trial 11-50 (GP optimized): 40 trials, ~50% pruned
-    - 20 complete: 20 × 8h = 160h
-    - 20 pruned: 20 × 4h = 80h
-    - Subtotal: 240h
-  • Total: 24 + 52 + 240 = 316h (~13 days for full 50 trials)
-
-For shorter runs, interrupt early once you see convergence.
-Expected: ~10-15 meaningful trials in 48-72h.
+TIME ESTIMATE (25 trials, Option B - Fast Iteration):
+  Baseline: 54 minutes/epoch (9835 batches @ 3 it/s)
+  
+  • Full trial (5 epochs): ~4.5 hours
+  • Pruned trial (3 epochs avg): ~2.7 hours
+  
+  Expected breakdown (assuming 50% pruned):
+  • 13 complete trials: 13 × 4.5h = 58.5h
+  • 12 pruned trials: 12 × 2.7h = 32.4h
+  • Total: ~91 hours (~3.8 days)
+  
+  REALISTIC 24-HOUR PLAN:
+  • ~6-7 trials (mix of complete and pruned)
+  • Enough for TPE to activate (need 5 successful)
+  • Run study for 3-4 days for full 25 trials
+  
+  For true 24h completion, reduce n_trials to 8-10 in config.
 
 CONFIGURATION:
   All settings in config/Beijing.yaml under 'optuna' section.
   CLI args override YAML defaults.
 
 USAGE:
-  # Standard run (uses Beijing.yaml defaults: 50 trials, 10 epochs)
+  # Standard run (uses Beijing.yaml defaults: 25 trials, 5 epochs)
   uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
-
-  # Shorter exploration run (fewer trials)
-  uv run python tune_hoser.py --n_trials 20 --data_dir /home/matt/Dev/HOSER-dataset
+  
+  # Quick 24-hour run (8-10 trials)
+  uv run python tune_hoser.py --n_trials 10 --data_dir /home/matt/Dev/HOSER-dataset
 
   # Resume existing study
   uv run python tune_hoser.py --study_name my_study --data_dir /home/matt/Dev/HOSER-dataset
 
-  # Use local storage
-  uv run python tune_hoser.py --storage sqlite:///optuna_hoser.db --data_dir /path/to/data
+  # Override epochs per trial
+  uv run python tune_hoser.py --max_epochs 8 --data_dir /home/matt/Dev/HOSER-dataset
 """
 
 import os
@@ -452,7 +458,7 @@ def create_study_with_wandb(
         wandbc = WeightsAndBiasesCallback(
             wandb_kwargs=wandb_kwargs,
             as_multirun=True,
-            metric_name="validation_accuracy"
+            metric_name="best_val_acc"  # Must match the value returned by objective function
         )
     except Exception as e:
         print(f"⚠️  Warning: WandB callback creation failed: {e}")

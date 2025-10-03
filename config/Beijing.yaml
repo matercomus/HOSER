@@ -92,18 +92,18 @@ wandb:
 
 # Optuna hyperparameter tuning configuration
 optuna:
-  n_trials: 25  # Extended trials with meaningful epochs
-  max_epochs: 10  # Full 10 epochs for meaningful results (~8h per trial)
+  n_trials: 25  # Optimized for 24-hour completion (~54 min/epoch baseline)
+  max_epochs: 5  # Reduced for fast iteration (5 epochs × 54min = ~4.5h per full trial)
   
-  # Pruner configuration (HyperbandPruner with aggressive early-stopping)
+  # Pruner configuration (HyperbandPruner with moderate early-stopping)
   pruner:
-    min_resource: 5      # Minimum epochs before a trial can be pruned
-    reduction_factor: 3  # Aggressiveness of pruning (e.g., keeps top 1/3 of trials)
+    min_resource: 3      # Minimum epochs before pruning (3 epochs = ~2.7h minimum)
+    reduction_factor: 3  # Keeps top 1/3 of trials at each rung
   
   # Sampler configuration (TPESampler for robust conditional search)
   sampler:
-    n_startup_trials: 5  # TPE model starts after 5 random trials (failed trials count toward this)
+    n_startup_trials: 5  # TPE starts after 5 SUCCESSFUL trials (failed/pruned don't count)
     seed: 43              # Sampler seed for reproducibility
-    multivariate: true    # Use multivariate TPE
-    group: true           # Decompose search space for conditional params
+    multivariate: true    # Use multivariate TPE for correlated parameters
+    group: true           # Decompose search space for conditional params (distill_enable)
 
