@@ -1,12 +1,67 @@
 # Distilling LM‑TAD into HOSER at Training Time
 
+## Introduction
+
+### The Problem: Map-Matched Trajectory Prediction
+
+**Task**: Given a partial GPS trajectory (sequence of roads traveled) and a destination, predict which road segment a vehicle will take next.
+
+- **Input**: Historical sequence of road IDs + destination road ID
+- **Output**: Probability distribution over candidate next roads
+- **Application**: Route prediction for navigation systems, autonomous vehicles, traffic forecasting, and taxi dispatch optimization
+
+**Dataset**: Beijing taxi GPS trajectories (629,380 training samples, 89,912 validation samples) covering 40,060 road segments in the road network.
+
+### The Models
+
+#### HOSER (Hierarchical One-Shot Embedding and Routing)
+**Our fast, production-ready model**
+
+- **Architecture**: Hierarchical spatial reasoning using 300 learned zones + Graph Neural Network (GCN) + attention-based navigator
+- **Speed**: ~10-12 it/s (iterations per second) = ~13ms per batch
+- **Baseline accuracy**: 57.2% (next-step prediction accuracy on validation set)
+- **Strength**: Fast enough for real-time deployment, hierarchical design captures macro-level spatial patterns
+- **Limitation**: Lower accuracy than state-of-the-art models
+
+#### LM-TAD (Language Model for Trajectory Anomaly Detection)
+**State-of-the-art model, but too slow for production**
+
+- **Architecture**: Transformer-based language model operating on 51,663 fine-grained grid cells
+- **Speed**: ~1.6-1.8 it/s = ~430ms per batch (teacher forward pass dominates)
+- **Accuracy**: Higher than HOSER baseline (learned rich spatial transition patterns from grid-based representation)
+- **Strength**: Excellent spatial reasoning, captures fine-grained location patterns
+- **Limitation**: 25-30× slower than HOSER, cannot be deployed in real-time systems
+
+### Why Distillation?
+
+**The dilemma**: We want LM-TAD's accuracy but need HOSER's speed.
+
+**Traditional solutions** (all bad):
+- ❌ Use LM-TAD directly → Too slow for production (430ms latency unacceptable)
+- ❌ Ensemble both models → Even slower, requires maintaining two models
+- ❌ Train HOSER harder → Already at baseline limit with supervised learning alone
+
+**Our solution: Knowledge Distillation at Training Time**
+
+Transfer LM-TAD's learned spatial patterns to HOSER during training, then deploy only HOSER at inference.
+
+**Benefits**:
+- ✅ **No inference overhead**: HOSER runs alone at inference (fast 13ms latency)
+- ✅ **Better accuracy**: HOSER learns from both ground truth labels AND teacher's spatial reasoning
+- ✅ **Simple deployment**: Single model, no teacher needed in production
+- ✅ **Calibrated uncertainty**: HOSER learns not just *what* to predict, but *how confident* to be
+
+**Key insight**: LM-TAD has learned spatial patterns that HOSER's architecture doesn't naturally capture. By matching distributions during training, HOSER can internalize these patterns without changing its architecture.
+
 ## Executive Summary
 
-We propose a training‑time distillation approach where a frozen LM‑TAD model (teacher) provides a “normality prior” for next‑step decisions, and HOSER (student) is trained to align its candidate distribution to the teacher while keeping HOSER’s original supervised objectives intact. This removes the need to co‑run LM‑TAD at inference time, keeping deployment simple and fast while capturing LM‑TAD’s behavioral knowledge.
+We propose a training‑time distillation approach where a frozen (pre-trained, weights-locked) LM‑TAD model (teacher) provides learned spatial priors for next‑step decisions. HOSER (student) is trained to align its candidate road distribution to the teacher's distribution while keeping HOSER's original supervised objectives intact. This removes the need to co‑run LM‑TAD at inference time, keeping deployment simple and fast while capturing LM‑TAD's behavioral knowledge.
 
-- No runtime overhead: HOSER remains a single model at inference.
-- Minimal code changes: a teacher wrapper, a road→grid token mapping, and a KL term in `train.py`.
-- Tunable: temperature, KL weight, and sampling frequency control compute/quality trade‑offs.
+**Key properties**:
+- **No runtime overhead**: HOSER remains a single model at inference (teacher only used during training)
+- **Frozen teacher**: LM-TAD weights are locked, never updated (ensures stable guidance signal)
+- **Minimal architecture changes**: Add a teacher wrapper, road→grid token mapping, and KL divergence term to training loss
+- **Tunable trade-offs**: Temperature (τ), KL weight (λ), and history window control compute/quality balance
 
 ## What's Implemented (Current Code)
 
