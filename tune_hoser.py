@@ -6,16 +6,16 @@ This script optimizes both vanilla HOSER and distillation configurations,
 allowing Optuna to discover whether distillation actually improves performance.
 
 TUNED HYPERPARAMETERS:
-- distill_enable: Whether to use distillation (categorical: True/False)
-                 Optuna will explore both vanilla and distilled variants
+- distill_enable: Whether to use distillation (conditional branching)
+                 Trial 0: vanilla baseline, Trials 1+: distilled
 
 If distillation is enabled:
 - lambda: KL divergence weight (0.001-0.1, log scale)
          Controls balance between teacher guidance and student loss
 - temperature: Softmax temperature (1.0-5.0, linear)
               Higher values create softer probability distributions
-- window: Context window size (2, 4, 8, categorical)
-         Number of neighboring road segments to consider
+- window: Context window size (2-8, integer)
+         Number of neighboring timesteps to consider for teacher guidance
 
 FIXED PARAMETERS (architectural choices):
 - grid_size: 0.001 (from base config)
@@ -36,34 +36,36 @@ PRUNING STRATEGY (HyperbandPruner - Moderate):
   Expected pruning rate: ~50-60% of trials stopped at 3-4 epochs
   This saves ~2h per pruned trial while gathering early performance data
 
-SAMPLING STRATEGY (TPESampler - Adaptive):
-  • Trials 0-4: Random/startup trials (exploration)
-  • Trial 5+: TPE algorithm active (Bayesian optimization)
-  • Note: Only SUCCESSFUL trials count toward n_startup_trials
-  • Conditional search space: distill_enable branches the parameter tree
+SAMPLING STRATEGY (CmaEsSampler - Evolution Strategy):
+  • All parameters continuous/integer (compatible with CMA-ES)
+  • Adaptive covariance matrix evolution from trial 0
+  • Optimal for 10-100 trials with continuous optimization
+  • No startup trials needed - begins optimization immediately
+  • Trial 0: vanilla baseline (establishes performance floor)
 
 STORAGE & CRASH RECOVERY:
   Default storage: /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db
   Heartbeat: 60s | Grace period: 120s
   Study can be resumed after crashes/interruptions.
 
-TIME ESTIMATE (25 trials, Option B - Fast Iteration):
+TIME ESTIMATE (12 trials + final eval, 2-Phase Approach):
   Baseline: 54 minutes/epoch (9835 batches @ 3 it/s)
   
-  • Full trial (5 epochs): ~4.5 hours
-  • Pruned trial (3 epochs avg): ~2.7 hours
+  PHASE 1: Hyperparameter Search (12 trials, 8 max epochs)
+  • Full trial (8 epochs): ~7.3 hours
+  • Pruned trial (5 epochs avg): ~4.6 hours
+  • Expected: 7 complete + 5 pruned
+  • Total Phase 1: ~74 hours (~3.1 days)
   
-  Expected breakdown (assuming 50% pruned):
-  • 13 complete trials: 13 × 4.5h = 58.5h
-  • 12 pruned trials: 12 × 2.7h = 32.4h
-  • Total: ~91 hours (~3.8 days)
+  PHASE 2: Final Evaluation (best config, 25 epochs)
+  • 3 runs with different seeds: 3 × 23h = 69h (~2.9 days)
+  • Or 1 run for quick results: 1 × 23h = 23h (~1 day)
   
-  REALISTIC 24-HOUR PLAN:
-  • ~6-7 trials (mix of complete and pruned)
-  • Enough for TPE to activate (need 5 successful)
-  • Run study for 3-4 days for full 25 trials
+  TOTAL TIMELINE:
+  • Phase 1 + Phase 2 (1 seed): ~97 hours (~4 days)
+  • Phase 1 + Phase 2 (3 seeds): ~143 hours (~6 days)
   
-  For true 24h completion, reduce n_trials to 8-10 in config.
+  CmaEsSampler optimizes from trial 0 - no warmup needed!
 
 CONFIGURATION:
   All settings in config/Beijing.yaml under 'optuna' section.
@@ -206,10 +208,10 @@ class HOSERObjective:
         
         if distill_enable:
             # Only suggest distillation hyperparameters when distillation is enabled
-            # This is the correct way to handle conditional parameters in Optuna
+            # All parameters are continuous/integer - compatible with CmaEsSampler
             hparams['distill_lambda'] = trial.suggest_float('distill_lambda', 0.001, 0.1, log=True)
             hparams['distill_temperature'] = trial.suggest_float('distill_temperature', 1.0, 5.0)
-            hparams['distill_window'] = trial.suggest_categorical('distill_window', [2, 4, 8])
+            hparams['distill_window'] = trial.suggest_int('distill_window', 2, 8)  # Integer: explore all window sizes 2-8
         else:
             # When distillation is disabled, don't suggest or set these params at all
             # The sampler will understand this branch doesn't have these parameters
@@ -465,24 +467,33 @@ def create_study_with_wandb(
         print("   Continuing without WandB integration")
         wandbc = None
 
-    # Use TPE sampler with settings from config
-    tpe_startup = sampler_cfg.get('n_startup_trials', 10)
+    # Configure sampler based on config
     seed = sampler_cfg.get('seed', 42)
-    multivariate = sampler_cfg.get('multivariate', True)
-    group = sampler_cfg.get('group', True)
+    sampler_type = sampler_cfg.get('sampler_type', 'tpe').lower()
 
     try:
-        # TPESampler is efficient and supports pruning and conditional search spaces well.
-        # group=True and multivariate=True are recommended for conditional search spaces.
-        sampler = optuna.samplers.TPESampler(
-            seed=seed,
-            n_startup_trials=tpe_startup,
-            multivariate=multivariate,
-            group=group
-        )
-        print(f"🔬 Using TPE Sampler (n_startup_trials={tpe_startup}, seed={seed}, multivariate={multivariate}, group={group} from config)")
+        if sampler_type == 'cmaes':
+            # CmaEsSampler: Best for continuous optimization with 10-100 trials
+            # No need for n_startup_trials, works from trial 0
+            sampler = optuna.samplers.CmaEsSampler(seed=seed)
+            print(f"🔬 Using CmaES Sampler (seed={seed})")
+            print("   Optimized for continuous hyperparameters with limited trial budget")
+        elif sampler_type == 'random':
+            sampler = optuna.samplers.RandomSampler(seed=seed)
+            print(f"🔬 Using Random Sampler (seed={seed})")
+        else:  # Default to TPE
+            tpe_startup = sampler_cfg.get('n_startup_trials', 10)
+            multivariate = sampler_cfg.get('multivariate', True)
+            group = sampler_cfg.get('group', True)
+            sampler = optuna.samplers.TPESampler(
+                seed=seed,
+                n_startup_trials=tpe_startup,
+                multivariate=multivariate,
+                group=group
+            )
+            print(f"🔬 Using TPE Sampler (n_startup_trials={tpe_startup}, seed={seed})")
     except (ImportError, AttributeError) as e:
-        print(f"⚠️  TPESampler not available ({e}), falling back to RandomSampler")
+        print(f"⚠️  Requested sampler not available ({e}), falling back to RandomSampler")
         sampler = optuna.samplers.RandomSampler(seed=seed)
 
     # Configure storage with crash recovery
@@ -538,6 +549,129 @@ def create_study_with_wandb(
             print("📊 Starting new study")
 
     return study, wandbc
+
+
+def _run_final_evaluation(study: optuna.Study, base_config: Dict[str, Any], data_dir: str, 
+                          final_run_cfg: Dict[str, Any], study_name: str):
+    """
+    Run final evaluation with best hyperparameters from the study.
+    
+    This runs a full training (e.g., 25 epochs) with the optimized hyperparameters
+    to get proper evaluation metrics for publication/reporting.
+    
+    Args:
+        study: Completed Optuna study with best trial
+        base_config: Base configuration dict
+        data_dir: Path to dataset
+        final_run_cfg: Configuration for final run (max_epochs, seeds, etc.)
+        study_name: Study name for organizing results
+    """
+    from train_with_distill import main as train_main
+    
+    max_epochs_final = final_run_cfg.get('max_epochs', 25)
+    seeds = final_run_cfg.get('seeds', [42])  # Default: single run with seed 42
+    
+    print("\n📊 Running final evaluation with best hyperparameters:")
+    print(f"   Best trial: {study.best_trial.number}")
+    print(f"   Best val_acc (from search): {study.best_value:.4f}")
+    print(f"   Hyperparameters: {study.best_params}")
+    print(f"   Final epochs: {max_epochs_final}")
+    print(f"   Seeds: {seeds}")
+    print()
+    
+    # Create config with best hyperparameters
+    final_config = copy.deepcopy(base_config)
+    final_config['optimizer_config']['max_epoch'] = max_epochs_final
+    final_config['data_dir'] = data_dir
+    
+    # Apply best hyperparameters
+    if study.best_params.get('distill_enable', True):
+        final_config['distill']['enable'] = True
+        final_config['distill']['lambda'] = study.best_params['distill_lambda']
+        final_config['distill']['temperature'] = study.best_params['distill_temperature']
+        final_config['distill']['window'] = study.best_params['distill_window']
+        mode = "distilled"
+    else:
+        final_config['distill']['enable'] = False
+        mode = "vanilla"
+    
+    # Run training for each seed
+    final_results = []
+    for seed_idx, seed in enumerate(seeds):
+        print(f"\n{'='*60}")
+        print(f"🎯 Final Run {seed_idx + 1}/{len(seeds)} (seed={seed})")
+        print(f"{'='*60}")
+        
+        # Update WandB config
+        final_config['wandb']['run_name'] = f"final_{mode}_seed{seed}"
+        final_config['wandb']['tags'] = ['beijing', 'distillation', 'final-eval', mode]
+        
+        # Save config
+        final_config_path = f"./optuna_results/{study_name}/final_config_seed{seed}.yaml"
+        os.makedirs(os.path.dirname(final_config_path), exist_ok=True)
+        with open(final_config_path, 'w') as f:
+            yaml.dump(final_config, f)
+        
+        try:
+            result = train_main(
+                dataset='Beijing',
+                config_path=final_config_path,
+                seed=seed,
+                cuda=0,
+                data_dir=data_dir,
+                return_metrics=True,
+                optuna_trial=None  # No pruning for final run
+            )
+            
+            final_results.append({
+                'seed': seed,
+                'best_val_acc': result['best_val_acc'],
+                'final_val_acc': result['final_val_acc'],
+                'final_val_mape': result['final_val_mape']
+            })
+            
+            print(f"\n✅ Final Run {seed_idx + 1} Complete:")
+            print(f"   Best val_acc: {result['best_val_acc']:.4f}")
+            print(f"   Final val_acc: {result['final_val_acc']:.4f}")
+            print(f"   Final val_mape: {result['final_val_mape']:.4f}")
+            
+        except Exception as e:
+            print(f"\n❌ Final run {seed_idx + 1} failed: {e}")
+            final_results.append({'seed': seed, 'error': str(e)})
+    
+    # Save final results summary
+    results_file = f"./optuna_results/{study_name}/final_evaluation_results.json"
+    try:
+        with open(results_file, 'w') as f:
+            json.dump({
+                'study_name': study_name,
+                'best_hyperparameters': study.best_params,
+                'search_phase_best_val_acc': study.best_value,
+                'final_evaluation_runs': final_results,
+                'final_config': {
+                    'max_epochs': max_epochs_final,
+                    'seeds': seeds
+                }
+            }, f, indent=2)
+        print(f"\n💾 Final evaluation results saved to: {results_file}")
+    except Exception as e:
+        print(f"\n⚠️  Warning: Could not save final results: {e}")
+    
+    # Print summary
+    successful_runs = [r for r in final_results if 'error' not in r]
+    if successful_runs:
+        avg_best_val_acc = sum(r['best_val_acc'] for r in successful_runs) / len(successful_runs)
+        avg_final_val_acc = sum(r['final_val_acc'] for r in successful_runs) / len(successful_runs)
+        avg_final_val_mape = sum(r['final_val_mape'] for r in successful_runs) / len(successful_runs)
+        
+        print("\n" + "="*60)
+        print("📊 FINAL EVALUATION SUMMARY")
+        print("="*60)
+        print(f"Successful runs: {len(successful_runs)}/{len(seeds)}")
+        print(f"Average best val_acc: {avg_best_val_acc:.4f}")
+        print(f"Average final val_acc: {avg_final_val_acc:.4f}")
+        print(f"Average final val_mape: {avg_final_val_mape:.4f}")
+        print("="*60)
 
 
 def main():
@@ -710,6 +844,14 @@ def main():
         print(f"\n💾 Results saved to: {results_base}")
         print(f"📁 Preserved trials: ./optuna_trials/ ({n_complete + n_pruned} successful trials)")
         print(f"🏆 Best trial: {best_trial_link}")
+        
+        # Phase 2: Run final evaluation with best hyperparameters
+        final_run_cfg = optuna_cfg.get('final_run', {})
+        if final_run_cfg.get('enabled', False):
+            print("\n" + "="*60)
+            print("🚀 PHASE 2: FINAL EVALUATION RUN")
+            print("="*60)
+            _run_final_evaluation(study, config, args.data_dir, final_run_cfg, study_name)
         
     except KeyboardInterrupt:
         print("\n⚠️  Optimization interrupted by user")

@@ -92,18 +92,24 @@ wandb:
 
 # Optuna hyperparameter tuning configuration
 optuna:
-  n_trials: 25  # Optimized for 24-hour completion (~54 min/epoch baseline)
-  max_epochs: 5  # Reduced for fast iteration (5 epochs × 54min = ~4.5h per full trial)
+  n_trials: 12  # Focused hyperparameter search (~3 days for Phase 1)
+  max_epochs: 8  # Enough to see convergence trends (8 epochs × 54min = ~7.3h per full trial)
   
   # Pruner configuration (HyperbandPruner with moderate early-stopping)
   pruner:
-    min_resource: 3      # Minimum epochs before pruning (3 epochs = ~2.7h minimum)
+    min_resource: 5      # Minimum epochs before pruning (5 epochs = ~4.6h minimum)
     reduction_factor: 3  # Keeps top 1/3 of trials at each rung
   
-  # Sampler configuration (TPESampler for robust conditional search)
+  # Sampler configuration (CmaEsSampler - optimal for continuous/integer params)
   sampler:
-    n_startup_trials: 5  # TPE starts after 5 SUCCESSFUL trials (failed/pruned don't count)
-    seed: 43              # Sampler seed for reproducibility
-    multivariate: true    # Use multivariate TPE for correlated parameters
-    group: true           # Decompose search space for conditional params (distill_enable)
+    sampler_type: "cmaes"  # CmaEsSampler: best for 10-100 trials, all continuous/integer params
+    seed: 43               # Sampler seed for reproducibility
+    # Note: CmaEsSampler doesn't need n_startup_trials - starts optimizing from trial 0
+    # All hyperparameters are now continuous/integer (no categorical)
+    
+  # Final evaluation run (after hyperparameter search completes)
+  final_run:
+    enabled: true        # Run final 25-epoch training with best hyperparameters
+    max_epochs: 25       # Full convergence for proper evaluation (25 × 54min = ~23h)
+    seeds: [42, 43, 44]  # Multiple seeds for statistical robustness (optional)
 
