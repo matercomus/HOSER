@@ -1,12 +1,12 @@
 # Distilling LM‑TAD into HOSER at Training Time
 
-> **TL;DR**: Transfer knowledge from a slow, accurate transformer model (LM-TAD) into a fast, deployable hierarchical model (HOSER) during training, achieving better accuracy without inference overhead.
+> **TL;DR**: Transfer spatial knowledge from a trajectory anomaly detection model (LM-TAD) into a fast trajectory prediction model (HOSER) during training. LM-TAD learned what "normal" trajectories look like; we repurpose those learned patterns to improve HOSER's predictions without any inference overhead.
 
 ## Glossary of Key Terms
 
 **Knowledge Distillation**: A machine learning technique where a smaller "student" model learns to mimic a larger "teacher" model by matching the teacher's output probability distributions, not just hard labels.
 
-**Teacher Model (LM-TAD)**: Pre-trained, frozen model that provides "soft" probability distributions over possible next roads. Frozen means its weights never change during distillation.
+**Teacher Model (LM-TAD)**: Pre-trained anomaly detection model (originally outputs perplexity scores) repurposed to provide "soft" probability distributions over possible next locations. Frozen means its weights never change during distillation.
 
 **Student Model (HOSER)**: The model being trained. It learns from both ground truth labels (hard targets) and teacher distributions (soft targets).
 
@@ -54,21 +54,23 @@
 - **Limitation**: Lower accuracy than state-of-the-art models
 
 #### LM-TAD (Language Model for Trajectory Anomaly Detection)
-**State-of-the-art model, but too slow for production**
+**State-of-the-art anomaly detection model repurposed as teacher**
 
-- **Architecture**: Transformer-based language model operating on 51,663 fine-grained grid cells
+- **Original purpose**: Trajectory anomaly detection via perplexity and surprisal metrics ([Mbuya et al., SIGSPATIAL 2024](https://arxiv.org/pdf/2409.15366))
+- **Architecture**: Transformer-based autoregressive causal-attention model operating on 51,663 fine-grained grid cells
+- **How we use it**: Repurpose the learned probability distributions for distillation (extract next-token probabilities instead of perplexity scores)
 - **Speed**: ~1.6-1.8 it/s = ~430ms per batch (teacher forward pass dominates)
-- **Accuracy**: Higher than HOSER baseline (learned rich spatial transition patterns from grid-based representation)
-- **Strength**: Excellent spatial reasoning, captures fine-grained location patterns
-- **Limitation**: 25-30× slower than HOSER, cannot be deployed in real-time systems
+- **Strength**: Learned rich spatial transition patterns from grid-based trajectory representation
+- **Limitation**: 25-30× slower than HOSER, designed for anomaly detection not real-time prediction
+- **Key insight**: A model trained to detect anomalies has learned what "normal" trajectories look like, making it an excellent teacher
 
 ### Why Distillation?
 
-**The dilemma**: We want LM-TAD's accuracy but need HOSER's speed.
+**The dilemma**: LM-TAD has learned excellent spatial patterns (for detecting anomalies), but it's too slow for real-time trajectory prediction.
 
 **Traditional solutions** (all bad):
-- ❌ Use LM-TAD directly → Too slow for production (430ms latency unacceptable)
-- ❌ Ensemble both models → Even slower, requires maintaining two models
+- ❌ Use LM-TAD directly → Wrong task (outputs perplexity, not predictions) and too slow (430ms latency)
+- ❌ Retrain LM-TAD for prediction → Loses anomaly detection capability, still too slow
 - ❌ Train HOSER harder → Already at baseline limit with supervised learning alone
 
 **Our solution: Knowledge Distillation at Training Time**
@@ -81,7 +83,7 @@ Transfer LM-TAD's learned spatial patterns to HOSER during training, then deploy
 - ✅ **Simple deployment**: Single model, no teacher needed in production
 - ✅ **Calibrated uncertainty**: HOSER learns not just *what* to predict, but *how confident* to be
 
-**Key insight**: LM-TAD has learned spatial patterns that HOSER's architecture doesn't naturally capture. By matching distributions during training, HOSER can internalize these patterns without changing its architecture.
+**Key insight**: LM-TAD was trained to detect trajectory anomalies by learning what "normal" spatial patterns look like. These learned distributions encode rich spatial knowledge that we can transfer to HOSER through distillation, even though LM-TAD was never trained for trajectory prediction.
 
 ## Quick Start
 
@@ -991,7 +993,7 @@ Where:
 
 ### Step 1: Teacher Distribution (LM-TAD)
 
-**What the teacher sees**: LM-TAD operates purely on grid tokens (spatial locations). It doesn't have access to road IDs, geometric features, or HOSER's zone embeddings. Instead, it learns spatial transition patterns from thousands of trajectories.
+**What the teacher sees**: LM-TAD operates purely on grid tokens (spatial locations). It doesn't have access to road IDs, geometric features, or HOSER's zone embeddings. Originally trained for anomaly detection, LM-TAD learned to model "normal" spatial transition patterns by computing perplexity scores. We now repurpose its internal probability distributions for distillation.
 
 **History window**: With `distill.window=4`, the teacher sees the last 4 grid tokens from the trajectory, plus the special SOT (Start-Of-Trajectory) token prepended:
 
@@ -1014,7 +1016,7 @@ q(t_{8964}) &= 0.0003 \quad \text{(Guangqu Extension - wrong direction)}
 \end{aligned}
 $$
 
-**Key insight**: The teacher strongly prefers grid token 12459 (15.47% of its full distribution), which corresponds to the correct exit ramp. This preference comes from LM-TAD having learned that vehicles on eastbound 4th Ring often take this exit to reach Chaoyang destinations.
+**Key insight**: The teacher strongly prefers grid token 12459 (15.47% of its full distribution), which corresponds to the correct exit ramp. This preference comes from LM-TAD's anomaly detection training: trajectories that *don't* take this exit from this location would have high perplexity (anomalous), meaning taking the exit is the "normal" behavior LM-TAD learned.
 
 **Renormalization to candidates**: Since HOSER only considers these 4 candidates (not all 51,663 grid cells), we need to renormalize the teacher's probabilities to sum to 1.0 over just these 4 options:
 
@@ -1042,10 +1044,10 @@ $$
 **Interpretation**: After renormalization, the teacher assigns **96.7% probability to road 22080** (the correct exit ramp). This is a very confident prediction! The teacher has learned from historical taxi trajectories that this specific movement pattern (eastbound on 4th Ring at this location) almost always leads to taking the exit ramp.
 
 **Why is the teacher so confident?**
-1. **Spatial context**: The history sequence shows consistent eastbound movement along the ring road
-2. **Destination inference**: LM-TAD implicitly learned that this trajectory pattern correlates with destinations in the Chaoyang district
-3. **Historical frequency**: In the training data, 96%+ of vehicles following this exact path took the exit ramp
-4. **Alternative rejection**: The other candidates are less plausible given the history (continuing straight would be more common from different approach angles)
+1. **Anomaly detection insight**: LM-TAD was trained to flag *unusual* trajectories. Taking the exit ramp from this location has low perplexity (normal), while not taking it would have high perplexity (anomalous)
+2. **Spatial context**: The history sequence (eastbound on 4th Ring) is a strong indicator
+3. **Historical frequency**: In the training data, 96%+ of vehicles following this exact path took the exit ramp—deviations were correctly flagged as anomalous
+4. **Learned normality**: What's "normal" for anomaly detection becomes "likely" for prediction when we repurpose the probability distributions
 
 ### Step 2: Student Distribution (HOSER)
 
