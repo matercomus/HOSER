@@ -1249,6 +1249,10 @@ def main(
 
         writer.add_scalar("val/next_step_acc", val_acc, epoch_id)
         writer.add_scalar("val/time_pred_mape", val_mape, epoch_id)
+        
+        # Log validation metrics to console for debugging
+        logger.info(f"[validation] epoch{epoch_id + 1}, val_acc {val_acc:.6f}, val_mape {val_mape:.4f}, best_val_acc {max(best_val_acc, val_acc):.6f}")
+        
         if wb_enable:
             # Don't specify step - let WandB auto-increment to avoid monotonicity warnings
             wandb.log(
