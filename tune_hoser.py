@@ -145,7 +145,8 @@ class HOSERObjective:
         finally:
             if temp_config_path and os.path.exists(temp_config_path):
                 os.unlink(temp_config_path)
-            self._cleanup_trial_artifacts(trial.number)
+            # NOTE: Don't cleanup yet - best trial needs to be preserved later
+            # Cleanup will happen in main() after preserving the best trial
             gc.collect()
             torch.cuda.empty_cache()
     
@@ -600,6 +601,14 @@ def main():
                     print(f"🔒 Preserved best trial artifacts: {dst}")
                 except Exception as e:
                     print(f"⚠️  Warning: Could not copy {src} to {dst}: {e}")
+            else:
+                print(f"⚠️  Warning: Best trial artifacts not found at {src}")
+        
+        # Now cleanup all trial artifacts (including best trial, since we've copied it)
+        print("\n🧹 Cleaning up trial artifacts...")
+        for trial_num in range(len(study.trials)):
+            objective._cleanup_trial_artifacts(trial_num)
+        print("✅ Cleanup complete")
         
         # Save study results with robust file handling
         try:
@@ -633,6 +642,24 @@ def main():
         
     except KeyboardInterrupt:
         print("\n⚠️  Optimization interrupted by user")
+        # Still try to preserve best trial if any completed
+        if study.best_trial is not None:
+            print("💾 Attempting to preserve best trial before exit...")
+            try:
+                best_trial_num = study.best_trial.number
+                base_seed = config.get('training', {}).get('seed', 42)
+                best_seed = base_seed + best_trial_num
+                results_base = os.path.abspath(f"./optuna_results/{study_name}")
+                preserved_dir = os.path.join(results_base, "preserved_models")
+                os.makedirs(preserved_dir, exist_ok=True)
+                
+                src = os.path.abspath(f"./save/Beijing/seed{best_seed}_distill")
+                dst = os.path.join(preserved_dir, f"best_trial_{best_trial_num}_model")
+                if os.path.exists(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                    print(f"✅ Preserved best trial: {dst}")
+            except Exception as e:
+                print(f"⚠️  Could not preserve best trial: {e}")
     except Exception as e:
         print(f"\n❌ Optimization failed: {e}")
         raise
