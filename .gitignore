@@ -15,3 +15,5 @@ EVAL_NOTES.md
 wandb/
 *.wandb
 
+optuna_trials/
+optuna_results/
