@@ -425,10 +425,10 @@ def create_study_with_wandb(
                 url=storage_url,
                 heartbeat_interval=60,  # Update heartbeat every 60 seconds
                 grace_period=120,  # Allow 120 seconds before marking trial as failed
-                failed_trial_callback=RetryFailedTrialCallback(max_retry=0)  # Don't auto-retry failed trials
+                failed_trial_callback=RetryFailedTrialCallback(max_retry=1)  # Retry failed trials once
             )
             print(f"💾 Using persistent storage: {storage_url}")
-            print("   Heartbeat interval: 60s | Grace period: 120s")
+            print("   Heartbeat interval: 60s | Grace period: 120s | Retries: 1")
             print("   ✅ Study will survive crashes and can be resumed")
         except Exception as e:
             raise RuntimeError(f"Failed to create storage: {e}") from e
