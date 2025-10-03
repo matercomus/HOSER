@@ -52,71 +52,135 @@ The implementation has been heavily optimized to handle large-scale training (62
 
 ```mermaid
 flowchart TB
-  subgraph Data[Data Preparation]
-    A[HOSER Dataset] --> B{Fits in RAM?}
-    B -- Yes --> C[Parallel RAM cache]
-    B -- No --> D[Stream from disk]
+  subgraph Data["📦 Data Preparation"]
+    A[HOSER Dataset<br/>629k trajectories] --> B{Fits in RAM?}
+    B -->|Yes| C[Parallel RAM cache<br/>~13GB all cores]
+    B -->|No| D[Stream from disk<br/>6 workers]
   end
 
-  subgraph Loader[Batch Assembly]
-    C --> E[DataLoader]
+  subgraph Loader["🔧 Batch Assembly"]
+    C --> E[DataLoader<br/>batch_size=64]
     D --> E
-    E --> F[MyCollateFn]
-    F --> G[Top-K candidates]
-    G --> H[Label remap]
+    E --> F[MyCollateFn<br/>vectorized ops]
+    F --> G[Top-K filter<br/>k=64 candidates]
+    G --> H[Label remap<br/>GPU vectorized]
   end
 
-  subgraph Model[Forward & Losses]
-    H --> I[HOSER forward]
-    I --> J[Student logits]
-    J --> K[Time head]
+  subgraph Student["🎓 Student Model - HOSER (trainable)"]
+    H --> I["HOSER Forward<br/>zones + GCN + attention"]
+    I --> J["Student Logits<br/>over k candidates"]
+    J --> K["Time Head<br/>travel time pred"]
   end
 
-  subgraph Teacher[Teacher Guidance]
-    H --> L[Road to Grid tokens]
-    L --> M[LM-TAD teacher FP16]
-    M --> N[Teacher probs]
-    N --> O[Select candidates and renorm]
+  subgraph Teacher["❄️ Teacher Model - LM-TAD (FROZEN)"]
+    H --> L["Road → Grid Tokens<br/>precomputed mapping"]
+    L --> M["LM-TAD Inference<br/>FP16 batched<br/>🔒 no_grad"]
+    M --> N["Teacher Probs<br/>over 51663 grid cells"]
+    N --> O["Select & Renormalize<br/>to k candidates"]
   end
 
-  subgraph Losses[Loss Computation]
-    J --> P[Cross-entropy]
-    K --> Q[Time loss]
-    O --> R[KL divergence]
-    P --> S[Total loss]
+  subgraph Losses["📊 Loss Computation"]
+    J --> P["Cross-Entropy Loss<br/>to ground truth"]
+    K --> Q["Time Loss<br/>MAPE"]
+    O --> R["KL Divergence<br/>teacher → student"]
+    P --> S["Total Loss<br/>λ * KL + CE + MAPE"]
     Q --> S
     R --> S
-    S --> T[GradScaler and Optimizer]
+    S --> T["⚡ Backprop<br/>GradScaler + Optimizer"]
   end
 
-  subgraph Eval[Logging & Eval]
-    T --> U[TensorBoard and WandB]
-    T --> V[Per-epoch validation]
-    V --> W[Save best model]
+  subgraph Eval["📈 Logging & Validation"]
+    T --> U["TensorBoard + WandB<br/>metrics & config"]
+    T --> V["Per-Epoch Validation<br/>accuracy + MAPE"]
+    V --> W["💾 Save Best Model<br/>based on val_acc"]
   end
+
+  %% Styling for frozen teacher
+  style M fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,stroke-dasharray: 5 5
+  style N fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+  style O fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+  
+  %% Styling for trainable student
+  style I fill:#e8f5e9,stroke:#388e3c,stroke-width:3px
+  style J fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+  style K fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+  
+  %% Styling for losses
+  style P fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+  style Q fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+  style R fill:#fce4ec,stroke:#c2185b,stroke-width:3px
+  style S fill:#ffebee,stroke:#d32f2f,stroke-width:3px
+  
+  %% Styling for data flow
+  style C fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+  style D fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+  style H fill:#fff9c4,stroke:#f9a825,stroke-width:2px
 ```
+
+**Legend**:
+- 🎓 **Green (Student)**: Trainable HOSER model — gradients flow, weights update
+- ❄️ **Blue dashed (Teacher)**: Frozen LM-TAD model — 🔒 `no_grad()`, no weight updates
+- 📦 **Purple (Data)**: Data loading and preprocessing pipeline
+- 🔧 **Yellow (Processing)**: Batch assembly and candidate filtering
+- 📊 **Orange/Red (Losses)**: Loss computation (supervised + distillation)
+- 📈 **Cyan (Eval)**: Validation and artifact saving
 
 ### Optuna Tuning Loop (2‑Phase)
 
 ```mermaid
-flowchart LR
-  subgraph Search[Phase 1: Hyperparameter Search]
-    A0[Trial 0 vanilla baseline] --> B0[Evaluate and validate]
-    A[CMA-ES sampler] --> B[Create trial config]
-    B --> C[Run training max 8 epochs]
-    C --> D[Report val_acc per epoch]
-    D --> E{Hyperband pruner}
-    E -- Prune --> F[Preserve artifacts pruned]
-    E -- Continue --> G[Finish trial]
-    G --> H[Preserve artifacts complete]
-    H --> I[Update best]
+flowchart TB
+  subgraph Search["🔬 Phase 1: Hyperparameter Search (3-4 days)"]
+    direction TB
+    A0["Trial 0<br/>🏁 Vanilla Baseline<br/>no distillation"] --> B0["Validate<br/>val_acc = 57.2%"]
+    
+    A["CMA-ES Sampler<br/>λ ∈ [0.001,0.1] log<br/>τ ∈ [1.0,5.0]<br/>window ∈ [2,8]"] --> B["Create Trial Config<br/>seed=42 + trial_id"]
+    B --> C["Train w/ Distillation<br/>max 8 epochs<br/>~54 min/epoch"]
+    C --> D["Report val_acc<br/>after each epoch"]
+    D --> E{"⚡ Hyperband Pruner<br/>min_resource=5<br/>reduction_factor=3"}
+    E -->|"Underperforming<br/>(~33% trials)"| F["❌ Prune Early<br/>save artifacts"]
+    E -->|"Promising<br/>(~67% trials)"| G["✅ Complete 8 Epochs<br/>save artifacts"]
+    G --> H["Update Best Trial<br/>track best val_acc"]
+    F --> H
+    H --> I{"More<br/>trials?"}
+    I -->|"< 12 trials"| A
+    I -->|"12 done"| J
   end
 
-  subgraph Final[Phase 2: Final Evaluation]
-    I --> J[25-epoch final runs]
-    J --> K[Aggregate and save results]
+  subgraph Final["🚀 Phase 2: Final Evaluation (1 day)"]
+    J["Load Best Hyperparams<br/>from Phase 1"] --> K["Train 25 Epochs<br/>seeds: 42, 43, 44<br/>full convergence"]
+    K --> L["Aggregate Results<br/>mean ± std val_acc"]
+    L --> M["📊 Final Report<br/>compare vs baseline"]
   end
+
+  %% Styling for baseline
+  style A0 fill:#eeeeee,stroke:#424242,stroke-width:3px
+  style B0 fill:#eeeeee,stroke:#424242,stroke-width:2px
+  
+  %% Styling for hyperparameter search
+  style A fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px
+  style B fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+  style C fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+  style D fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+  
+  %% Styling for pruner decision
+  style E fill:#fffde7,stroke:#f57f17,stroke-width:3px
+  style F fill:#ffebee,stroke:#c62828,stroke-width:2px
+  style G fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+  
+  %% Styling for final evaluation
+  style J fill:#e3f2fd,stroke:#1565c0,stroke-width:3px
+  style K fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+  style L fill:#e8eaf6,stroke:#3949ab,stroke-width:2px
+  style M fill:#f3e5f5,stroke:#6a1b9a,stroke-width:3px
 ```
+
+**Legend**:
+- 🏁 **Gray (Baseline)**: Vanilla HOSER without distillation — establishes performance floor
+- 🔬 **Green (Sampler)**: CMA-ES hyperparameter sampler — explores search space
+- ⚡ **Yellow (Pruner)**: Hyperband pruner — early stopping for unpromising trials
+- ❌ **Red (Pruned)**: Trials stopped early to save compute
+- ✅ **Green (Complete)**: Promising trials run to completion (8 epochs)
+- 🚀 **Blue (Final)**: Final evaluation phase with best hyperparameters (25 epochs)
 
 ## HOSER's Zone-Based Architecture
 
