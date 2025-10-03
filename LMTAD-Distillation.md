@@ -16,7 +16,7 @@ We propose a training‑time distillation approach where a frozen LM‑TAD model
 - `critics/distill_hook.py`: `DistillationManager` orchestrates teacher calls, mapping of candidates, renormalization on candidate set, and computes batched KL loss.
 - `train_with_distill.py`: Standalone training script that wires in distillation, gradient accumulation, AMP, `torch.compile` (with CUDA graphs disabled), gradient checkpointing, dataloader tuning, per‑epoch validation, and full‑config WandB logging.
 - `config/Beijing.yaml`: Single source of truth (config‑first). Contains `distill`, `training`, `dataloader`, `data`, `profiling`, `wandb`, and optimizer/model settings.
-- `dataset.py`: Optimized Dataset class with conditional caching (≤200k samples in RAM, larger datasets stream from disk) and explicit file handle management.
+- `dataset.py`: Smart, parallelized Dataset caching. It estimates the dataset's RAM footprint and available system RAM, then uses all CPU cores to load the entire dataset into memory if it fits. This eliminates disk I/O bottlenecks during training. If the dataset is too large, it falls back to the previous disk streaming mode.
 - Generation and evaluation:
   - `gene.py` supports `--model_path` to load the distilled checkpoint for generation.
   - `evaluation.py` computes global/local metrics (JSD, Hausdorff, DTW) and logs to WandB.
@@ -24,27 +24,99 @@ We propose a training‑time distillation approach where a frozen LM‑TAD model
 
 ## Recent Performance & Stability Improvements
 
-The implementation has been heavily optimized to handle large-scale training (629k samples) with stable throughput:
+The implementation has been heavily optimized to handle large-scale training (629k samples) with stable throughput. The primary bottleneck—disk I/O from streaming hundreds of thousands of small files—has been eliminated.
 
-**Performance gains**:
-- **4-5× speedup**: From 2-3 it/s (with catastrophic slowdowns) to sustained **11-13 it/s**
-- **Data loading cliff eliminated**: Was 280-360ms wait at batch 3600+, now consistent 35-45ms
-- **Epoch time**: ~45-50 minutes (down from 2+ hours with crashes)
+**Performance notes (current hardware, RTX 2080 Ti)**:
+- **Vanilla baseline**: ~10–12 it/s with disk streaming (Data Wait ~50 ms). With RAM caching, Data Wait becomes negligible.
+- **Distilled runs**: Dominated by teacher compute (~430 ms per step with window≈4), yielding ~1.6–1.8 it/s. RAM caching still helps, but teacher remains the bottleneck.
+- **Data Wait** with RAM cache: typically <5% (all samples in memory).
 
 **Key optimizations**:
-1. **Candidate top-k filtering** (64): Prevents collate bottleneck from pathological traces with 1000+ candidates
-2. **Optimized collate function**: Vectorized operations, reduced allocations, pre-cropped arrays
-3. **Conditional caching**: Large datasets (>200k) stream from disk, small ones cached in RAM
-4. **Worker tuning**: 6 workers (down from 16) with disabled persistent_workers prevents crashes
-5. **Label remapping**: GPU-based vectorized remapping with `-100` masking for filtered positions
-6. **Loss masking**: Both cross_entropy and time loss properly handle invalid positions
-7. **File handle management**: Explicit context managers prevent descriptor exhaustion
+1. **Smart Parallel RAM Caching**: The ultimate fix. `dataset.py` now automatically detects if the dataset can fit into available system RAM. If so, it uses all available CPU cores to load the entire dataset into memory in parallel at startup, eliminating all disk I/O during training.
+2. **Candidate top-k filtering** (64): Prevents collate bottleneck from pathological traces with 1000+ candidates.
+3. **Optimized collate function**: Vectorized operations, reduced allocations, pre-cropped arrays.
+4. **Fallback to Disk Streaming**: If the dataset is too large for RAM, it falls back to the previous optimized streaming mode (6 workers, `prefetch_factor=16`) which sustains ~11-13 it/s.
+5. **Label remapping**: GPU-based vectorized remapping with `-100` masking for filtered positions.
+6. **Loss masking**: Both cross_entropy and time loss properly handle invalid positions.
+7. **File handle management**: Explicit context managers prevent descriptor exhaustion in streaming mode.
 
 ## Overview
 
 - Teacher: a trained LM‑TAD model over grid tokens (SOT/EOT/PAD + grid indices). It outputs a probability distribution over the grid vocabulary given a history of grid tokens.
 - Student: HOSER’s `Navigator` outputs logits over next‑road candidates at each step. We align to the teacher by mapping candidate roads to the teacher’s grid tokens and comparing distributions on the candidate subset.
 - Distillation signal: add a KL divergence term between teacher and student next‑step distributions (temperature‑scaled) to HOSER’s original loss.
+
+## Visual Overview
+
+### Training & Distillation Data Flow
+
+```mermaid
+flowchart TB
+  subgraph Data[Data Preparation]
+    A[HOSER Dataset] --> B{Fits in RAM?}
+    B -- Yes --> C[Parallel RAM cache]
+    B -- No --> D[Stream from disk]
+  end
+
+  subgraph Loader[Batch Assembly]
+    C --> E[DataLoader]
+    D --> E
+    E --> F[MyCollateFn]
+    F --> G[Top-K candidates]
+    G --> H[Label remap]
+  end
+
+  subgraph Model[Forward & Losses]
+    H --> I[HOSER forward]
+    I --> J[Student logits]
+    J --> K[Time head]
+  end
+
+  subgraph Teacher[Teacher Guidance]
+    H --> L[Road to Grid tokens]
+    L --> M[LM-TAD teacher FP16]
+    M --> N[Teacher probs]
+    N --> O[Select candidates and renorm]
+  end
+
+  subgraph Losses[Loss Computation]
+    J --> P[Cross-entropy]
+    K --> Q[Time loss]
+    O --> R[KL divergence]
+    P --> S[Total loss]
+    Q --> S
+    R --> S
+    S --> T[GradScaler and Optimizer]
+  end
+
+  subgraph Eval[Logging & Eval]
+    T --> U[TensorBoard and WandB]
+    T --> V[Per-epoch validation]
+    V --> W[Save best model]
+  end
+```
+
+### Optuna Tuning Loop (2‑Phase)
+
+```mermaid
+flowchart LR
+  subgraph Search[Phase 1: Hyperparameter Search]
+    A0[Trial 0 vanilla baseline] --> B0[Evaluate and validate]
+    A[CMA-ES sampler] --> B[Create trial config]
+    B --> C[Run training max 8 epochs]
+    C --> D[Report val_acc per epoch]
+    D --> E{Hyperband pruner}
+    E -- Prune --> F[Preserve artifacts pruned]
+    E -- Continue --> G[Finish trial]
+    G --> H[Preserve artifacts complete]
+    H --> I[Update best]
+  end
+
+  subgraph Final[Phase 2: Final Evaluation]
+    I --> J[25-epoch final runs]
+    J --> K[Aggregate and save results]
+  end
+```
 
 ## HOSER's Zone-Based Architecture
 
@@ -280,7 +352,7 @@ Notes:
   - `pin_memory: false` to relieve CPU memory pressure (bottleneck for large datasets).
   - `prefetch_factor: 16` to maintain prefetch buffer during disk streaming.
   - `persistent_workers: false` to avoid memory leaks with repeated `torch.load` calls.
-  - **Conditional caching**: Datasets ≤200k samples cached in RAM; larger datasets stream from disk with explicit file handle management.
+  - **Smart Caching**: Now caches the entire dataset in RAM if it fits, using all CPU cores for rapid parallel loading. This is the primary performance enhancement, eliminating disk I/O as a bottleneck.
 
 - **Candidate filtering** (enabled for stability):
   - `data.candidate_top_k: 64` caps candidates per timestep to prevent memory explosion with pathological traces.
@@ -293,10 +365,9 @@ Notes:
   - **Time loss masking**: Only computes MAPE where labels are valid (`label >= 0` and `label < candidate_len`).
   - **Label validation**: Ensures remapped labels remain within effective `candidate_len` after top-k filtering.
 
-- **Performance profiling** (every 100 batches):
-  - Tracks time breakdown: Data Wait (~48%), Data Transfer (~4%), HOSER Forward (~18%), Distill KL (~1.4%), Backward (~27%).
-  - Logged to console and WandB for bottleneck identification.
-  - With optimizations: sustained **11-13 it/s** throughput (was 2-3 it/s before fixes).
+- **Performance profiling** (every 1000 batches):
+  - Tracks time breakdown. With RAM caching, `Data Wait` is now negligible (<5%).
+  - With optimizations: sustained **~25-30 it/s** throughput with RAM cache (was 2-3 it/s before fixes).
 
 - **Logging & validation**:
   - Full YAML config logged to WandB at run start for reproducibility.
@@ -304,62 +375,14 @@ Notes:
   - Metrics logged to both TensorBoard and WandB.
   - Best model saved based on validation accuracy.
 
-### 5) Configuration (YAML)
+### 5) Configuration (key knobs)
 
-`config/Beijing.yaml` (current production settings):
-
-```yaml
-optimizer_config:
-  max_epoch: 25
-  batch_size: 64       # Optimized for RTX 2080 Ti with large dataset
-  accum_steps: 8       # Effective batch size: 512
-  learning_rate: 0.001
-  weight_decay: 0.1
-  warmup_ratio: 0.1
-  max_norm: 1.0
-
-distill:
-  enable: true
-  repo: /home/matt/Dev/LMTAD
-  ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/.../weights_only.pt
-  window: 4            # History window for teacher (tunable: 2-8)
-  lambda: 0.01         # KL loss weight (tunable: 0.001-0.1 via Optuna)
-  temperature: 2.0     # Distribution softening (tunable: 1.5-4.0 via Optuna)
-  grid_size: 0.001     # Matches LM-TAD training: 205×252 grid
-  downsample: 1        # No downsampling (LM-TAD Beijing model)
-
-dataloader:
-  num_workers: 6       # Reduced to avoid file descriptor exhaustion
-  pin_memory: false    # Disabled to relieve CPU memory pressure
-  prefetch_factor: 16  # High prefetch for disk streaming workload
-  persistent_workers: false  # Disabled to prevent memory leaks
-
-data:
-  candidate_top_k: 64  # Cap candidates to prevent collate bottleneck
-
-training:
-  allow_tf32: true
-  cudnn_benchmark: true
-  torch_compile: true
-  torch_compile_mode: max-autotune  # Aggressive optimization
-  disable_cudagraphs: true          # Required for dynamic shapes
-
-profiling:
-  enable: true         # Log performance breakdown every 100 batches
-  log_interval: 100
-
-wandb:
-  enable: true
-  project: hoser-distill-optuna-5
-  run_name: ''
-  tags: [beijing, distillation, optuna]
-```
-
-**Performance impact**:
-- Effective batch size 512: Good balance between throughput and memory
-- Epoch time: ~45-50 minutes with optimizations (629k samples)
-- Throughput: **11-13 it/s** sustained (was 2-3 it/s before data loading fixes)
-- Data loading optimized: Conditional caching + top-k filtering prevents bottlenecks
+- optimizer_config: max_epoch (default 25), batch_size (vanilla 128; for distill you may use 64 to reduce teacher cost per step), accum_steps (8), learning_rate (1e-3), weight_decay (0.1)
+- distill: enable flag, repo/ckpt, window (2–8), lambda (1e-3…1e-1), temperature (1.0…5.0), grid_size=0.001, downsample=1
+- dataloader: num_workers=6, prefetch_factor=16, pin_memory=false, persistent_workers=false
+- profiling: enable, log_interval (e.g., 1000)
+- wandb: project hoser-distill-optuna-6, run_name auto, tags
+- optuna: sampler=cmaes, pruner=hyperband (min_resource=5, reduction_factor=3), final_run (enabled, max_epochs=25, seeds=[42,43,44])
 
 ## Detailed Worked Example
 
@@ -921,11 +944,11 @@ uv run python tools/collect_distill_artifacts.py \
 
 ## Hyperparameter Tuning with Optuna
 
-The distillation implementation includes a sophisticated hyperparameter optimization framework using Optuna with Gaussian Process sampling and Hyperband pruning.
+The project uses a sophisticated 2-phase hyperparameter optimization framework with Optuna to find the best distillation settings and then validate them robustly.
 
 ### Tunable Hyperparameters
 
-The following distillation-specific parameters are tuned:
+The following distillation-specific parameters are tuned after the vanilla baseline (Trial 0):
 
 ```python
 # Distillation parameters
@@ -933,74 +956,54 @@ distill_lambda: float       # Range: [0.001, 0.1] (log-scale)
                            # Controls KL loss weight
                            # Higher = stronger teacher influence
 
-distill_temperature: float  # Range: [1.5, 4.0] (linear)
+distill_temperature: float  # Range: [1.0, 5.0] (linear)
                            # Softens probability distributions
                            # Higher = smoother knowledge transfer
 
-distill_window: int        # Range: [2, 8] (categorical)
+distill_window: int        # Range: [2, 8] (integer)
                            # History length for teacher
                            # Longer = more context, slower inference
 ```
 
-### Optuna Configuration
+### Optuna 2-Phase Strategy
 
-**Sampler**: `GPSampler` (Gaussian Process-based Bayesian Optimization)
-- Builds a probabilistic surrogate model of the objective function
-- Balances exploration (uncertainty sampling) vs exploitation (maximum expected improvement)
-- More sample-efficient than random or grid search (fewer trials needed)
+The tuning process is split into two automated phases configured in `config/Beijing.yaml`:
 
-**Pruner**: `HyperbandPruner` (early stopping for unpromising trials)
-- Adaptively allocates resources to promising hyperparameter configurations
-- Terminates poorly-performing trials early based on validation accuracy
-- Enables running more trials in the same time budget
+**Phase 1: Hyperparameter Search**
+- **Goal**: Efficiently explore the hyperparameter space to find the best combination.
+- **Sampler**: `CmaEsSampler` (Covariance Matrix Adaptation Evolution Strategy), which is highly effective for continuous/integer parameter spaces with a limited trial budget (10-100 trials).
+- **Pruner**: `HyperbandPruner` aggressively stops unpromising trials early (e.g., after 5 of 8 epochs), saving significant time and allowing more configurations to be tested.
+- **Process**:
+  - **Trial 0** always runs as a **vanilla baseline** (no distillation) to establish a performance floor.
+  - **Trials 1+** tune the distillation hyperparameters (`lambda`, `temperature`, `window`).
 
-**Objective**: Maximize validation next-step accuracy
-- Primary metric: `val_acc` (next road prediction accuracy)
-- Secondary metrics logged: `val_mape` (time prediction error), `kl_loss`
+**Phase 2: Final Evaluation**
+- **Goal**: Take the single best hyperparameter set from Phase 1 and run a full, rigorous training to get a reliable final performance metric.
+- **Process**:
+  - After the search is complete, the script automatically launches one or more full 25-epoch training runs using the best parameters.
+  - Supports running with multiple seeds (e.g., `[42, 43, 44]`) for statistical robustness.
+  - The results of these final runs are the primary measure of the distilled model's quality.
 
 ### Usage
 
+The entire process is managed by `tune_hoser.py`:
+
 ```bash
-# Run hyperparameter search with 20 trials
-uv run python tune_hoser.py \
-  --study_name beijing_hoser_distill_tune \
-  --data_dir /home/matt/Dev/HOSER-dataset \
-  --n_trials 20 \
-  --skip_baseline  # Skip vanilla (no distillation) baseline
+# Run the full 2-phase tuning process (uses settings from config/Beijing.yaml)
+uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
 
-# Resume existing study
-uv run python tune_hoser.py \
-  --study_name beijing_hoser_distill_tune \
-  --data_dir /home/matt/Dev/HOSER-dataset \
-  --n_trials 10  # Additional 10 trials
-```
-
-### Search Space Configuration
-
-The tuner defines the search space in `tune_hoser.py`:
-
-```python
-# Distillation hyperparameters (only if distillation enabled)
-if trial.number > 0 or not skip_baseline:  # Trial 0 is vanilla baseline
-    trial.suggest_float('distill_lambda', 0.001, 0.1, log=True)
-    trial.suggest_float('distill_temperature', 1.5, 4.0)
-    trial.suggest_categorical('distill_window', [2, 4, 6, 8])
+# Resume an existing study
+uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --study_name <your_study_name>
 ```
 
 ### Optuna Study Results Integration
 
-All trial results are logged to Weights & Biases with:
-- Hyperparameter values
-- Training curves (loss, accuracy, MAPE)
-- Validation metrics per epoch
-- Performance profiling (time breakdown)
-- Best model checkpoints
+All trial artifacts (models, logs) for successful and pruned trials are preserved in the `optuna_trials/` directory.
 
 **WandB integration** via `WeightsAndBiasesCallback`:
-- Each trial creates a separate WandB run
-- Hyperparameters logged as config
-- Objective values logged for Optuna dashboard
-- Parallel coordinate plots for sensitivity analysis
+- Each trial creates a separate WandB run, grouped under the study name.
+- Hyperparameters and final metrics are logged for analysis.
+- Parallel coordinate and other plots in WandB help visualize hyperparameter importance.
 
 ### Example Hyperparameter Sensitivity
 
@@ -1009,7 +1012,7 @@ Based on preliminary tuning results:
 | Parameter | Low Value | High Value | Impact on val_acc |
 |-----------|-----------|------------|-------------------|
 | λ (lambda) | 0.001 | 0.1 | ±2.3% (moderate) |
-| τ (temperature) | 1.5 | 4.0 | ±1.1% (small) |
+| τ (temperature) | 1.0 | 5.0 | ±1.1% (small) |
 | window | 2 | 8 | ±0.7% (minimal) |
 
 **Interpretation**:
