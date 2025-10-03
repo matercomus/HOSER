@@ -19,6 +19,10 @@ def init_shared_variables(reachable_road_id_dict, geo, road_center_gps):
     global_geo = geo
     global_road_center_gps = road_center_gps
 
+def load_single_file(file_path):
+    """Load a single .pt file for parallel caching."""
+    return torch.load(file_path, weights_only=False)
+
 def process_and_save_row(args):
     index, row, cache_dir = args
 
@@ -163,9 +167,6 @@ class Dataset(torch.utils.data.Dataset):
             print(f"📦 Caching {len(self.file_paths):,} samples to RAM (~{estimated_ram_gb:.1f}GB, {available_ram_gb:.1f}GB available)")
             
             # Parallel loading with all CPU cores
-            def load_single_file(file_path):
-                return torch.load(file_path, weights_only=False)
-            
             num_workers = multiprocessing.cpu_count()
             print(f"🚀 Using {num_workers} cores for parallel loading...")
             
