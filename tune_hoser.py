@@ -135,18 +135,33 @@ class HOSERObjective:
 
         # Step 3: Run training and return metric
         temp_config_path = None
+        trial_succeeded = False
         try:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
                 yaml.dump(config, f)
                 temp_config_path = f.name
 
             result = self._run_training_trial(trial, temp_config_path)
+            trial_succeeded = True  # Mark trial as successful
+            
+            # ✅ PRESERVE MODEL IMMEDIATELY AFTER SUCCESSFUL TRIAL
+            self._preserve_trial_artifacts(trial.number, mode)
+            
             return result
+        except optuna.TrialPruned:
+            # Pruned trials are also successful (completed some epochs)
+            trial_succeeded = True
+            self._preserve_trial_artifacts(trial.number, mode, pruned=True)
+            raise
         finally:
             if temp_config_path and os.path.exists(temp_config_path):
                 os.unlink(temp_config_path)
-            # NOTE: Don't cleanup yet - best trial needs to be preserved later
-            # Cleanup will happen in main() after preserving the best trial
+            
+            # Only cleanup if trial failed (not succeeded or pruned)
+            if not trial_succeeded:
+                print(f"🧹 Trial {trial.number} failed - cleaning up artifacts")
+                self._cleanup_trial_artifacts(trial.number)
+            
             gc.collect()
             torch.cuda.empty_cache()
     
@@ -285,16 +300,63 @@ class HOSERObjective:
             print(f"❌ Trial {trial.number} failed: {e}")
             raise optuna.TrialPruned(str(e))
     
+    def _preserve_trial_artifacts(self, trial_number: int, mode: str, pruned: bool = False):
+        """
+        Preserve model artifacts immediately after a successful or pruned trial.
+        Creates a unique directory for each trial to avoid overwriting.
+        
+        Args:
+            trial_number: The trial number
+            mode: "vanilla baseline" or "distilled"
+            pruned: Whether this trial was pruned (still saved, just stopped early)
+        """
+        trial_seed = self.base_seed + trial_number
+        status = "pruned" if pruned else "complete"
+        mode_short = "vanilla" if "vanilla" in mode else "distilled"
+        
+        # Source directories (where training saves models)
+        src_dirs = {
+            "model": os.path.abspath(f"./save/Beijing/seed{trial_seed}_distill"),
+            "tensorboard": os.path.abspath(f"./tensorboard_log/Beijing/seed{trial_seed}_distill"),
+            "logs": os.path.abspath(f"./log/Beijing/seed{trial_seed}_distill")
+        }
+        
+        # Destination: optuna_trials/trial_NNN_{mode}_{status}/
+        trial_dir = os.path.abspath(f"./optuna_trials/trial_{trial_number:03d}_{mode_short}_{status}")
+        os.makedirs(trial_dir, exist_ok=True)
+        
+        print(f"💾 Preserving trial {trial_number} artifacts to {trial_dir}")
+        
+        preserved_count = 0
+        for artifact_type, src_path in src_dirs.items():
+            if os.path.exists(src_path):
+                dst_path = os.path.join(trial_dir, artifact_type)
+                try:
+                    shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
+                    preserved_count += 1
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not preserve {artifact_type}: {e}")
+        
+        if preserved_count > 0:
+            print(f"✅ Trial {trial_number}: Preserved {preserved_count} artifact type(s)")
+        else:
+            print(f"⚠️  Trial {trial_number}: No artifacts found to preserve")
+        
+        # After preserving, clean up original directories to save space
+        for src_path in src_dirs.values():
+            if os.path.exists(src_path):
+                shutil.rmtree(src_path, ignore_errors=True)
+    
     def _cleanup_trial_artifacts(self, trial_number: int):
         """
-        Clean up artifacts from a completed trial to save disk space.
-        Best trial will be preserved later in main().
+        Clean up artifacts from a FAILED trial only.
+        Successful/pruned trials are preserved via _preserve_trial_artifacts().
         """
+        trial_seed = self.base_seed + trial_number
         trial_dirs = [
-            f"./save/Beijing/seed{self.base_seed + trial_number}_distill",
-            f"./tensorboard_log/Beijing/seed{self.base_seed + trial_number}_distill",
-            f"./log/Beijing/seed{self.base_seed + trial_number}_distill",
-            f"./optuna_trials/trial_{trial_number:03d}_distilled"
+            os.path.abspath(f"./save/Beijing/seed{trial_seed}_distill"),
+            os.path.abspath(f"./tensorboard_log/Beijing/seed{trial_seed}_distill"),
+            os.path.abspath(f"./log/Beijing/seed{trial_seed}_distill")
         ]
         
         for dir_path in trial_dirs:
@@ -573,42 +635,41 @@ def main():
             print(f"   {key}: {value}")
         print("="*60)
         
-        # Preserve best trial artifacts
+        # All successful trials are already preserved in optuna_trials/ directory
+        # Create a summary directory with quick access to the best trial
         best_trial_num = study.best_trial.number
-        base_seed = config.get('training', {}).get('seed', 42)
-        best_seed = base_seed + best_trial_num
         
-        # Create preserved directories with absolute paths
+        # Create results summary directory
         results_base = os.path.abspath(f"./optuna_results/{study_name}")
-        preserved_dir = os.path.join(results_base, "preserved_models")
-        os.makedirs(preserved_dir, exist_ok=True)
-        print(f"📁 Creating preserved models directory: {preserved_dir}")
+        os.makedirs(results_base, exist_ok=True)
         
-        # Copy best trial artifacts with robust path handling
-        best_trial_dirs = {
-            os.path.abspath(f"./save/Beijing/seed{best_seed}_distill"): 
-                os.path.join(preserved_dir, f"best_trial_{best_trial_num}_model"),
-            os.path.abspath(f"./tensorboard_log/Beijing/seed{best_seed}_distill"): 
-                os.path.join(preserved_dir, f"best_trial_{best_trial_num}_tensorboard"),
-            os.path.abspath(f"./log/Beijing/seed{best_seed}_distill"): 
-                os.path.join(preserved_dir, f"best_trial_{best_trial_num}_logs")
-        }
+        # Find the preserved best trial directory
+        best_trial_mode = "vanilla" if not study.best_trial.params.get('distill_enable', True) else "distilled"
+        best_trial_status = "pruned" if study.best_trial.state == optuna.trial.TrialState.PRUNED else "complete"
+        best_trial_src = os.path.abspath(f"./optuna_trials/trial_{best_trial_num:03d}_{best_trial_mode}_{best_trial_status}")
+        best_trial_link = os.path.join(results_base, "best_trial")
         
-        for src, dst in best_trial_dirs.items():
-            if os.path.exists(src):
+        # Create symlink or copy to best trial for quick access
+        if os.path.exists(best_trial_src):
+            try:
+                # Try symlink first (more efficient)
+                if os.path.islink(best_trial_link) or os.path.exists(best_trial_link):
+                    if os.path.islink(best_trial_link):
+                        os.unlink(best_trial_link)
+                    else:
+                        shutil.rmtree(best_trial_link)
+                os.symlink(best_trial_src, best_trial_link, target_is_directory=True)
+                print(f"✅ Created symlink to best trial: {best_trial_link} → trial_{best_trial_num:03d}")
+            except (OSError, NotImplementedError) as e:
+                # Symlink failed (e.g., Windows without admin), fallback to copy
+                print(f"⚠️  Symlink not supported, copying instead: {e}")
                 try:
-                    shutil.copytree(src, dst, dirs_exist_ok=True)
-                    print(f"🔒 Preserved best trial artifacts: {dst}")
-                except Exception as e:
-                    print(f"⚠️  Warning: Could not copy {src} to {dst}: {e}")
-            else:
-                print(f"⚠️  Warning: Best trial artifacts not found at {src}")
-        
-        # Now cleanup all trial artifacts (including best trial, since we've copied it)
-        print("\n🧹 Cleaning up trial artifacts...")
-        for trial_num in range(len(study.trials)):
-            objective._cleanup_trial_artifacts(trial_num)
-        print("✅ Cleanup complete")
+                    shutil.copytree(best_trial_src, best_trial_link, dirs_exist_ok=True)
+                    print(f"✅ Copied best trial to: {best_trial_link}")
+                except Exception as e2:
+                    print(f"⚠️  Could not create best trial reference: {e2}")
+        else:
+            print(f"⚠️  Warning: Best trial artifacts not found at {best_trial_src}")
         
         # Save study results with robust file handling
         try:
@@ -617,49 +678,56 @@ def main():
         except Exception as e:
             print(f"⚠️  Warning: Could not save best_params.json: {e}")
 
-        preserved_models = {
-            "best_trial": os.path.join(preserved_dir, f"best_trial_{best_trial_num}_model", "best.pth")
-        }
+        # Count successful trials
+        n_complete = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+        n_pruned = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
+        n_failed = len([t for t in study.trials if t.state == optuna.trial.TrialState.FAIL])
 
         try:
             with open(os.path.join(results_base, "study_summary.json"), 'w') as f:
                 json.dump({
                     "study_name": study_name,
-                    "n_trials": len(study.trials),
+                    "n_trials_total": len(study.trials),
+                    "n_trials_complete": n_complete,
+                    "n_trials_pruned": n_pruned,
+                    "n_trials_failed": n_failed,
                     "best_value": study.best_value,
                     "best_trial": study.best_trial.number,
                     "best_params": study.best_params,
-                    "mode": "distillation_only",
-                    "preserved_models": preserved_models,
+                    "preserved_trials_dir": os.path.abspath("./optuna_trials"),
+                    "best_trial_link": best_trial_link,
                     "storage_url": storage_url if storage_url else "in-memory"
                 }, f, indent=2)
         except Exception as e:
             print(f"⚠️  Warning: Could not save study_summary.json: {e}")
         
         print(f"\n💾 Results saved to: {results_base}")
-        print("🔒 Preserved models:")
-        print(f"   Best trial ({best_trial_num}): {preserved_models['best_trial']}")
+        print(f"📁 Preserved trials: ./optuna_trials/ ({n_complete + n_pruned} successful trials)")
+        print(f"🏆 Best trial: {best_trial_link}")
         
     except KeyboardInterrupt:
         print("\n⚠️  Optimization interrupted by user")
-        # Still try to preserve best trial if any completed
+        # Successful trials are already preserved in optuna_trials/
+        # Just create a reference to the best trial
         if study.best_trial is not None:
-            print("💾 Attempting to preserve best trial before exit...")
+            print("💾 Creating reference to best trial...")
             try:
                 best_trial_num = study.best_trial.number
-                base_seed = config.get('training', {}).get('seed', 42)
-                best_seed = base_seed + best_trial_num
                 results_base = os.path.abspath(f"./optuna_results/{study_name}")
-                preserved_dir = os.path.join(results_base, "preserved_models")
-                os.makedirs(preserved_dir, exist_ok=True)
+                os.makedirs(results_base, exist_ok=True)
                 
-                src = os.path.abspath(f"./save/Beijing/seed{best_seed}_distill")
-                dst = os.path.join(preserved_dir, f"best_trial_{best_trial_num}_model")
-                if os.path.exists(src):
-                    shutil.copytree(src, dst, dirs_exist_ok=True)
-                    print(f"✅ Preserved best trial: {dst}")
+                best_trial_mode = "vanilla" if not study.best_trial.params.get('distill_enable', True) else "distilled"
+                best_trial_status = "pruned" if study.best_trial.state == optuna.trial.TrialState.PRUNED else "complete"
+                best_trial_src = os.path.abspath(f"./optuna_trials/trial_{best_trial_num:03d}_{best_trial_mode}_{best_trial_status}")
+                best_trial_link = os.path.join(results_base, "best_trial")
+                
+                if os.path.exists(best_trial_src):
+                    shutil.copytree(best_trial_src, best_trial_link, dirs_exist_ok=True)
+                    print(f"✅ Best trial preserved at: {best_trial_link}")
+                else:
+                    print(f"⚠️  Best trial artifacts not found at {best_trial_src}")
             except Exception as e:
-                print(f"⚠️  Could not preserve best trial: {e}")
+                print(f"⚠️  Could not create best trial reference: {e}")
     except Exception as e:
         print(f"\n❌ Optimization failed: {e}")
         raise
