@@ -1,5 +1,7 @@
 # Distilling LM‑TAD into HOSER at Training Time
 
+> **TL;DR**: Transfer knowledge from a slow, accurate transformer model (LM-TAD) into a fast, deployable hierarchical model (HOSER) during training, achieving better accuracy without inference overhead.
+
 ## Glossary of Key Terms
 
 **Knowledge Distillation**: A machine learning technique where a smaller "student" model learns to mimic a larger "teacher" model by matching the teacher's output probability distributions, not just hard labels.
