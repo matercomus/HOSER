@@ -432,6 +432,12 @@ def main():
     # Auto-detect WandB project if not manually specified
     if args.wandb_project is None:
         args.wandb_project = wandb_metadata['project']
+    elif wandb_metadata['project'] != 'hoser-eval':
+        # User specified project, but we detected one too - use user's
+        pass
+    else:
+        # User specified project explicitly, suppress auto-detection message
+        print(f"📊 Using specified WandB project: {args.wandb_project}")
 
     # Check for hoser_format subdirectory (new format) or use run_dir directly (legacy)
     hoser_format_path = os.path.join(args.run_dir, 'hoser_format')
