@@ -966,12 +966,52 @@ class Searcher:
 
 # Removed multiprocessing functions - no longer needed
 
-def load_and_preprocess_data(dataset):
+def load_and_preprocess_data(dataset, od_source='train'):
+    """Load and preprocess data for trajectory generation.
+    
+    Args:
+        dataset: Dataset name (e.g., 'Beijing')
+        od_source: 'train' or 'test' - which dataset to extract OD pairs from
+    """
     cache_path = f'./data/{dataset}/gene_preprocessed_cache.pkl'
     if os.path.exists(cache_path):
         print(f"✅ Loading preprocessed data from cache: {cache_path}")
         with open(cache_path, 'rb') as f:
             data = pickle.load(f)
+        
+        # If using test OD pairs, reload them (cache only has train ODs)
+        if od_source == 'test':
+            print(f"🔄 Loading test set OD pairs (od_source=test)...")
+            test_traj_file = f'./data/{dataset}/test.csv'
+            if not os.path.exists(test_traj_file):
+                raise FileNotFoundError(f"Test file not found: {test_traj_file}. Cannot use --od_source test")
+            
+            test_traj = pl.read_csv(test_traj_file)
+            print(f"✅ Loaded {len(test_traj)} test trajectories.")
+            
+            # Calculate test OD matrix
+            print("... Calculating test OD matrix...")
+            od_counts = Counter()
+            for rid_list_str in tqdm(test_traj.get_column('rid_list').to_list(), desc="Calculating test OD"):
+                rid_list = eval(rid_list_str)
+                if len(rid_list) >= 2:
+                    od_counts[(rid_list[0], rid_list[-1])] += 1.0
+            
+            # Build mapping from test OD pair → list of test row indices
+            print("... Building test OD→row mapping ...")
+            od_to_indices = {}
+            for idx, rid_list_str in enumerate(tqdm(test_traj.get_column('rid_list').to_list(), desc="Indexing test OD→rows")):
+                rid_list = eval(rid_list_str)
+                if len(rid_list) >= 2:
+                    od = (rid_list[0], rid_list[-1])
+                    od_to_indices.setdefault(od, []).append(idx)
+            
+            # Store test data (use train_traj for timestamp stats, but test ODs)
+            data['test_traj'] = test_traj
+            data['od_counts'] = od_counts  # Override with test ODs
+            data['od_to_test_indices'] = od_to_indices
+            print(f"✅ Test OD matrix: {len(od_counts)} unique OD pairs.")
+        
         # Backfill OD → train row mapping if missing in older caches
         if 'od_to_train_indices' not in data:
             print("ℹ️ Building OD→train row mapping (not found in cache)...")
@@ -1140,6 +1180,8 @@ if __name__ == '__main__':
     parser.add_argument('--vectorized', action='store_true', help='Use vectorized GPU-parallel search')
     parser.add_argument('--nx_astar', action='store_true', help='Use NetworkX A* for routing with ML timing')
     parser.add_argument('--model_path', type=str, default='', help='Path to trained HOSER checkpoint (.pth). Overrides default save/<dataset>/seed<seed>/best.pth')
+    parser.add_argument('--od_source', type=str, default='train', choices=['train', 'test'], 
+                        help='Source dataset for OD pairs: "train" (seen during training) or "test" (unseen, tests generalization). Default: train')
     parser.add_argument('--wandb', action='store_true', help='Log generation run to Weights & Biases')
     parser.add_argument('--wandb_project', type=str, default=None, help='WandB project name (auto-detected from model if not specified)')
     parser.add_argument('--wandb_run_name', type=str, default='', help='WandB run name (optional)')
@@ -1164,11 +1206,11 @@ if __name__ == '__main__':
     # Initialize wandb if requested
     if args.wandb:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        run_name = args.wandb_run_name or f"gene-{args.dataset}-seed{args.seed}-{timestamp}"
+        run_name = args.wandb_run_name or f"gene-{args.dataset}-seed{args.seed}-{args.od_source}od-{timestamp}"
         
         # Determine search method for tags
         search_method = 'nx_astar' if args.nx_astar else ('beam_search' if args.beam_search else ('vectorized' if args.vectorized else 'astar'))
-        tags = args.wandb_tags + [args.dataset, f'seed{args.seed}', search_method]
+        tags = args.wandb_tags + [args.dataset, f'seed{args.seed}', search_method, f'{args.od_source}_od']
         
         wandb.init(
             project=args.wandb_project,
@@ -1183,11 +1225,12 @@ if __name__ == '__main__':
                 'beam_width': args.beam_width if args.beam_search else None,
                 'model_path': args.model_path or f'save/{args.dataset}/seed{args.seed}/best.pth',
                 'cuda': args.cuda,
+                'od_source': args.od_source,
             }
         )
         print(f"📊 Logging to WandB: {wandb.run.url}")
 
-    data = load_and_preprocess_data(args.dataset)
+    data = load_and_preprocess_data(args.dataset, od_source=args.od_source)
     num_roads = data['num_roads']
 
     with open(f'./config/{args.dataset}.yaml', 'r') as file:
@@ -1214,28 +1257,38 @@ if __name__ == '__main__':
         raise ValueError("No valid origin-destination pairs found (all destinations are dead-ends)")
 
     od_probabilities = valid_od_counts / valid_od_counts.sum()
-    print(f"✅ Found {len(valid_od_pairs)} valid OD pairs.")
+    print(f"✅ Found {len(valid_od_pairs)} valid {args.od_source} OD pairs.")
 
-    print(f"🎲 Sampling {args.num_gene} OD pairs for generation...")
+    print(f"🎲 Sampling {args.num_gene} OD pairs from {args.od_source} set...")
     sampled_indices = np.random.choice(len(valid_od_pairs), size=args.num_gene, p=od_probabilities)
     od_coords = [valid_od_pairs[i] for i in sampled_indices]
-    # For each sampled OD, pick a concrete source training row and use its start time
-    source_train_indices = []
+    
+    # For each sampled OD, get start time from corresponding dataset
+    source_indices = []
     origin_datetime_list = []
-    train_traj_df = data['train_traj']
+    
+    # Use appropriate dataset for timestamps
+    if args.od_source == 'test':
+        source_traj_df = data.get('test_traj', data['train_traj'])  # Fallback to train if test not loaded
+        od_to_indices = data.get('od_to_test_indices', data['od_to_train_indices'])
+    else:
+        source_traj_df = data['train_traj']
+        od_to_indices = data['od_to_train_indices']
+    
     for od in od_coords:
-        candidates = data['od_to_train_indices'].get(od, [])
+        candidates = od_to_indices.get(od, [])
         if candidates:
             src_idx = random.choice(candidates)
             # Handle both Polars and Pandas cached DataFrames
-            if hasattr(train_traj_df, 'get_column'):
-                time_list_str = train_traj_df.get_column('time_list')[src_idx]
+            if hasattr(source_traj_df, 'get_column'):
+                time_list_str = source_traj_df.get_column('time_list')[src_idx]
             else:
-                time_list_str = train_traj_df['time_list'].iloc[src_idx] if hasattr(train_traj_df, 'iloc') else train_traj_df['time_list'][src_idx]
+                time_list_str = source_traj_df['time_list'].iloc[src_idx] if hasattr(source_traj_df, 'iloc') else source_traj_df['time_list'][src_idx]
             src_time_str = time_list_str.split(',')[0]
             origin_dt = datetime.strptime(src_time_str, '%Y-%m-%dT%H:%M:%SZ')
         else:
-            # Fallback: use a random start time if no exact source row found
+            # Fallback: use a random start time from train set (for timestamp stats)
+            train_traj_df = data['train_traj']
             time_values = (
                 train_traj_df.get_column('time_list').to_list()
                 if hasattr(train_traj_df, 'get_column')
@@ -1245,7 +1298,7 @@ if __name__ == '__main__':
             src_time_str = time_list_str.split(',')[0]
             origin_dt = datetime.strptime(src_time_str, '%Y-%m-%dT%H:%M:%SZ')
             src_idx = -1
-        source_train_indices.append(src_idx)
+        source_indices.append(src_idx)
         origin_datetime_list.append(origin_dt)
 
     print("🧠 Loading trained model...")
