@@ -13,12 +13,16 @@
 #                           Options: vanilla, distilled
 #   --skip-gene             Skip generation (use existing trajectories)
 #   --skip-eval             Skip evaluation
+#   --force                 Force re-run even if results exist (overrides caching)
 #   --cuda DEVICE           CUDA device (default: 0)
 #   --num-gene N            Number of trajectories (default: 5000)
 #
 # Examples:
-#   # Run both models with seed 42 (default)
+#   # Run both models with seed 42 (default, uses cache if available)
 #   ./run_gene_eval_pipeline.sh
+#
+#   # Force re-run everything even if results exist
+#   ./run_gene_eval_pipeline.sh --force
 #
 #   # Run only distilled model with seed 43
 #   ./run_gene_eval_pipeline.sh --seed 43 --models distilled
@@ -46,6 +50,7 @@ SEED=42
 MODELS="vanilla,distilled"
 SKIP_GENE=false
 SKIP_EVAL=false
+FORCE=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -66,6 +71,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_EVAL=true
             shift
             ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
         --cuda)
             CUDA_DEVICE="$2"
             shift 2
@@ -82,6 +91,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --models MODEL1,MODEL2   Models to run (default: vanilla,distilled)"
             echo "  --skip-gene             Skip generation"
             echo "  --skip-eval             Skip evaluation"
+            echo "  --force                 Force re-run even if results exist"
             echo "  --cuda DEVICE           CUDA device (default: 0)"
             echo "  --num-gene N            Number of trajectories (default: 5000)"
             exit 0
@@ -104,6 +114,7 @@ echo "Models: $MODELS"
 echo "Trajectories: $NUM_GENE"
 echo "Skip Gene: $SKIP_GENE"
 echo "Skip Eval: $SKIP_EVAL"
+echo "Force Re-run: $FORCE"
 echo "=========================================="
 echo ""
 
@@ -141,36 +152,48 @@ process_model() {
         
         mkdir -p "$GENE_DIR"
         
-        # Determine tag based on model type
-        if [ "$MODEL" = "vanilla" ]; then
-            TAGS="vanilla baseline 25epochs seed$SEED generation nx_astar"
+        # Check if generation already exists (caching)
+        EXISTING_GENE_FILE=$(ls -t "$GENE_DIR"/*.csv 2>/dev/null | head -1)
+        if [ -f "$EXISTING_GENE_FILE" ] && [ "$FORCE" = false ]; then
+            echo "✅ Found existing generated file: $(basename "$EXISTING_GENE_FILE")"
+            echo "⏭️  Skipping generation (use --force to regenerate)"
+            echo ""
         else
-            TAGS="distilled final 25epochs seed$SEED generation nx_astar"
+            if [ "$FORCE" = true ] && [ -f "$EXISTING_GENE_FILE" ]; then
+                echo "🔄 Force re-run: regenerating trajectories (existing file will be kept)"
+            fi
+            
+            # Determine tag based on model type
+            if [ "$MODEL" = "vanilla" ]; then
+                TAGS="vanilla baseline 25epochs seed$SEED generation nx_astar"
+            else
+                TAGS="distilled final 25epochs seed$SEED generation nx_astar"
+            fi
+            
+            uv run python gene.py \
+              --dataset "$DATASET" \
+              --seed "$SEED" \
+              --cuda "$CUDA_DEVICE" \
+              --num_gene "$NUM_GENE" \
+              --model_path "$MODEL_PATH" \
+              --nx_astar \
+              --wandb \
+              --wandb_project "$WANDB_PROJECT" \
+              --wandb_run_name "gene_${MODEL}_seed${SEED}_nx_astar" \
+              --wandb_tags $TAGS
+            
+            # Move generated file to organized directory
+            LATEST_GENE_FILE=$(ls -t gene/$DATASET/seed$SEED/*.csv 2>/dev/null | head -1)
+            if [ -f "$LATEST_GENE_FILE" ]; then
+                cp "$LATEST_GENE_FILE" "$GENE_DIR/"
+                echo "✅ Generated file copied to: $GENE_DIR/"
+            else
+                echo "❌ Error: No generated file found for $MODEL (seed $SEED)"
+                return
+            fi
+            
+            echo ""
         fi
-        
-        uv run python gene.py \
-          --dataset "$DATASET" \
-          --seed "$SEED" \
-          --cuda "$CUDA_DEVICE" \
-          --num_gene "$NUM_GENE" \
-          --model_path "$MODEL_PATH" \
-          --nx_astar \
-          --wandb \
-          --wandb_project "$WANDB_PROJECT" \
-          --wandb_run_name "gene_${MODEL}_seed${SEED}_nx_astar" \
-          --wandb_tags $TAGS
-        
-        # Move generated file to organized directory
-        LATEST_GENE_FILE=$(ls -t gene/$DATASET/seed$SEED/*.csv 2>/dev/null | head -1)
-        if [ -f "$LATEST_GENE_FILE" ]; then
-            cp "$LATEST_GENE_FILE" "$GENE_DIR/"
-            echo "✅ Generated file copied to: $GENE_DIR/"
-        else
-            echo "❌ Error: No generated file found for $MODEL (seed $SEED)"
-            return
-        fi
-        
-        echo ""
     else
         echo "⏭️  Skipping generation for $MODEL (seed $SEED) - using existing trajectories"
         echo ""
@@ -194,39 +217,51 @@ process_model() {
         
         mkdir -p "$EVAL_DIR"
         
-        # Create temporary directory with required structure for evaluation.py
-        TEMP_EVAL_DIR="$SCRIPT_DIR/eval/.temp_${MODEL}_seed${SEED}"
-        mkdir -p "$TEMP_EVAL_DIR"
-        ln -sf "$PROJECT_ROOT/data/$DATASET" "$TEMP_EVAL_DIR/hoser_format"
-        
-        # Copy generated file to temp eval dir
-        cp "$GENE_FILE" "$TEMP_EVAL_DIR/hoser_format/"
-        
-        # Determine tags based on model type
-        if [ "$MODEL" = "vanilla" ]; then
-            TAGS="vanilla baseline 25epochs seed$SEED evaluation"
+        # Check if evaluation already exists (caching)
+        EXISTING_EVAL_RESULT=$(ls -td "$EVAL_DIR/eval_"*/results.json 2>/dev/null | head -1)
+        if [ -f "$EXISTING_EVAL_RESULT" ] && [ "$FORCE" = false ]; then
+            echo "✅ Found existing evaluation: $(dirname "$EXISTING_EVAL_RESULT" | xargs basename)"
+            echo "⏭️  Skipping evaluation (use --force to re-evaluate)"
+            echo ""
         else
-            TAGS="distilled final 25epochs seed$SEED evaluation"
+            if [ "$FORCE" = true ] && [ -f "$EXISTING_EVAL_RESULT" ]; then
+                echo "🔄 Force re-run: re-evaluating trajectories (existing results will be kept)"
+            fi
+            
+            # Create temporary directory with required structure for evaluation.py
+            TEMP_EVAL_DIR="$SCRIPT_DIR/eval/.temp_${MODEL}_seed${SEED}"
+            mkdir -p "$TEMP_EVAL_DIR"
+            ln -sf "$PROJECT_ROOT/data/$DATASET" "$TEMP_EVAL_DIR/hoser_format"
+            
+            # Copy generated file to temp eval dir
+            cp "$GENE_FILE" "$TEMP_EVAL_DIR/hoser_format/"
+            
+            # Determine tags based on model type
+            if [ "$MODEL" = "vanilla" ]; then
+                TAGS="vanilla baseline 25epochs seed$SEED evaluation"
+            else
+                TAGS="distilled final 25epochs seed$SEED evaluation"
+            fi
+            
+            uv run python evaluation.py \
+              --run_dir "$TEMP_EVAL_DIR" \
+              --wandb \
+              --wandb_project "$WANDB_PROJECT" \
+              --wandb_run_name "eval_${MODEL}_seed${SEED}" \
+              --wandb_tags $TAGS
+            
+            # Move evaluation results to organized directory
+            EVAL_RESULT_DIR=$(ls -td "$TEMP_EVAL_DIR/eval_"* 2>/dev/null | head -1)
+            if [ -d "$EVAL_RESULT_DIR" ]; then
+                mv "$EVAL_RESULT_DIR" "$EVAL_DIR/"
+                echo "✅ Evaluation results saved to: $EVAL_DIR/"
+            fi
+            
+            # Cleanup temp directory
+            rm -rf "$TEMP_EVAL_DIR"
+            
+            echo ""
         fi
-        
-        uv run python evaluation.py \
-          --run_dir "$TEMP_EVAL_DIR" \
-          --wandb \
-          --wandb_project "$WANDB_PROJECT" \
-          --wandb_run_name "eval_${MODEL}_seed${SEED}" \
-          --wandb_tags $TAGS
-        
-        # Move evaluation results to organized directory
-        EVAL_RESULT_DIR=$(ls -td "$TEMP_EVAL_DIR/eval_"* 2>/dev/null | head -1)
-        if [ -d "$EVAL_RESULT_DIR" ]; then
-            mv "$EVAL_RESULT_DIR" "$EVAL_DIR/"
-            echo "✅ Evaluation results saved to: $EVAL_DIR/"
-        fi
-        
-        # Cleanup temp directory
-        rm -rf "$TEMP_EVAL_DIR"
-        
-        echo ""
     else
         echo "⏭️  Skipping evaluation for $MODEL (seed $SEED)"
         echo ""

@@ -9,6 +9,7 @@
 #   --models MODEL1,MODEL2  Models to run (default: vanilla,distilled)
 #   --skip-gene            Skip generation
 #   --skip-eval            Skip evaluation
+#   --force                Force re-run even if results exist
 #   --cuda DEVICE          CUDA device (default: 0)
 #   --num-gene N           Number of trajectories (default: 5000)
 #
@@ -31,6 +32,7 @@ SEEDS="42 43 44"
 MODELS="vanilla,distilled"
 SKIP_GENE=false
 SKIP_EVAL=false
+FORCE=false
 CUDA_DEVICE=0
 NUM_GENE=5000
 
@@ -53,6 +55,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_EVAL=true
             shift
             ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
         --cuda)
             CUDA_DEVICE="$2"
             shift 2
@@ -69,6 +75,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --models MODEL1,MODEL2  Models to run (default: vanilla,distilled)"
             echo "  --skip-gene            Skip generation"
             echo "  --skip-eval            Skip evaluation"
+            echo "  --force                Force re-run even if results exist"
             echo "  --cuda DEVICE          CUDA device (default: 0)"
             echo "  --num-gene N           Number of trajectories (default: 5000)"
             exit 0
@@ -113,6 +120,10 @@ for i in "${!SEED_ARRAY[@]}"; do
     
     if [ "$SKIP_EVAL" = true ]; then
         ARGS="$ARGS --skip-eval"
+    fi
+    
+    if [ "$FORCE" = true ]; then
+        ARGS="$ARGS --force"
     fi
     
     # Run pipeline for this seed
