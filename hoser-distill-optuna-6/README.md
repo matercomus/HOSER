@@ -22,11 +22,16 @@ hoser-distill-optuna-6/
 
 ## 🚀 Quick Start
 
-### Run Complete Pipeline
+### Run Complete Pipeline (Seed 42)
 
 ```bash
 cd /home/matt/Dev/HOSER/hoser-distill-optuna-6
+
+# Default: Both models, seed 42
 ./run_gene_eval_pipeline.sh
+
+# Or with explicit options
+./run_gene_eval_pipeline.sh --seed 42 --models vanilla,distilled
 ```
 
 This will:
@@ -36,6 +41,35 @@ This will:
 4. Evaluate distilled trajectories against test set
 
 All runs are logged to WandB project: `hoser-distill-optuna-6`
+
+### Run for Multiple Seeds (Batch Mode)
+
+```bash
+# Run all seeds (42, 43, 44) with both models
+./run_all_seeds.sh
+
+# Run specific seeds only
+./run_all_seeds.sh --seeds "43 44"
+
+# Run only distilled models for all seeds
+./run_all_seeds.sh --models distilled
+```
+
+### Run for Specific Seeds or Models
+
+```bash
+# Only seed 43, both models
+./run_gene_eval_pipeline.sh --seed 43
+
+# Only seed 44, distilled model
+./run_gene_eval_pipeline.sh --seed 44 --models distilled
+
+# Re-evaluate existing trajectories (skip generation)
+./run_gene_eval_pipeline.sh --seed 43 --skip-gene
+
+# Only generate (skip evaluation)
+./run_gene_eval_pipeline.sh --seed 42 --skip-eval
+```
 
 ### Run Individual Steps
 
@@ -178,12 +212,75 @@ jq '.' hoser-distill-optuna-6/eval/vanilla_seed42/eval_*/results.json \
 
 ## ⚙️ Configuration
 
-Edit `run_gene_eval_pipeline.sh` to change:
-- `WANDB_PROJECT`: WandB project name
-- `DATASET`: Dataset name (Beijing, San_Francisco, etc.)
-- `CUDA_DEVICE`: GPU device ID
-- `NUM_GENE`: Number of trajectories to generate
-- `SEED`: Random seed
+### Pipeline Options
+
+Both `run_gene_eval_pipeline.sh` and `run_all_seeds.sh` support:
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--seed SEED` | Random seed | 42 |
+| `--seeds "42 43 44"` | Multiple seeds (batch mode) | "42 43 44" |
+| `--models MODEL1,MODEL2` | Models to run (vanilla, distilled) | vanilla,distilled |
+| `--skip-gene` | Skip generation phase | false |
+| `--skip-eval` | Skip evaluation phase | false |
+| `--cuda DEVICE` | GPU device ID | 0 |
+| `--num-gene N` | Number of trajectories | 5000 |
+
+### When to Use Each Option
+
+**`--skip-gene`**: When you already have generated trajectories and just want to re-evaluate
+- Useful for trying different evaluation metrics
+- Faster iteration on evaluation code
+
+**`--skip-eval`**: When you only want to generate trajectories
+- Useful for generating all trajectories first, then evaluating later
+- Can evaluate multiple runs in batch
+
+**`--models distilled`**: When you only want to process distilled models
+- Useful after seed 43 and 44 training completes
+- Don't need to regenerate vanilla trajectories
+
+**`--seeds "43 44"`**: When you want to process specific seeds
+- After training for seeds 43 and 44 completes
+- Re-run failed seeds without touching completed ones
+
+### Typical Workflows
+
+#### Workflow 1: Initial Run (Seed 42)
+```bash
+# Generate and evaluate both models for seed 42
+./run_gene_eval_pipeline.sh --seed 42
+```
+
+#### Workflow 2: After Seeds 43 & 44 Complete Training
+```bash
+# Option A: Run each seed individually
+./run_gene_eval_pipeline.sh --seed 43 --models distilled
+./run_gene_eval_pipeline.sh --seed 44 --models distilled
+
+# Option B: Batch run all seeds at once
+./run_all_seeds.sh --seeds "43 44" --models distilled
+
+# Option C: Run all three seeds (if vanilla already done for 42)
+./run_all_seeds.sh --models distilled
+```
+
+#### Workflow 3: Re-evaluate All Without Regenerating
+```bash
+# Re-evaluate all existing trajectories (faster)
+./run_all_seeds.sh --skip-gene
+```
+
+#### Workflow 4: Two-Phase (Generate First, Evaluate Later)
+```bash
+# Phase 1: Generate all trajectories
+./run_all_seeds.sh --skip-eval
+
+# ... do other work ...
+
+# Phase 2: Evaluate all trajectories
+./run_all_seeds.sh --skip-gene
+```
 
 ## 🎯 Expected Outcomes
 
