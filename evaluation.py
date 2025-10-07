@@ -15,8 +15,6 @@ from geopy import distance  # type: ignore
 import wandb
 import yaml
 
-from map_manager import MapManager
-
 
 def js_divergence(p, q):
     """
@@ -361,42 +359,100 @@ class LocalMetrics:
     Calculate local (trajectory-level) metrics using the original author's method.
     
     Key changes:
-    - Uses MapManager for OD pair grouping (not simple lat/lon grid)
+    - Uses 200m grid for OD pair grouping (matches original author's grid_size)
+    - Computes grid bounds dynamically from actual road data
     - Adds EDR (Edit Distance on Real sequence) metric
     - Keeps vectorized Hausdorff from our version (faster)
     """
-    def __init__(self, real_trajs, generated_trajs, geo_df, city='BJ_Taxi'):
+    def __init__(self, real_trajs, generated_trajs, geo_df, grid_size=200):
         self.real_trajs = real_trajs
         self.generated_trajs = generated_trajs
         self.geo_df = geo_df.set_index('road_id')
-        
-        # Initialize MapManager for proper OD pair grouping
-        self.map_manager = MapManager(city)
+        self.grid_size = grid_size  # in meters
         
         # Pre-calculate road center GPS as (lon, lat)
         self.road_gps = [(row['center_gps'][1], row['center_gps'][0]) 
                          for _, row in self.geo_df.iterrows()]
+        
+        # Setup dynamic grid bounds from actual data
+        self._setup_grid()
+
+    def _setup_grid(self):
+        """
+        Setup grid system with bounds computed from actual road data.
+        Matches the original author's 200m grid approach.
+        """
+        # Get all road center coordinates
+        lons = [gps[0] for gps in self.road_gps]
+        lats = [gps[1] for gps in self.road_gps]
+        
+        self.min_lon = min(lons)
+        self.max_lon = max(lons)
+        self.min_lat = min(lats)
+        self.max_lat = max(lats)
+        
+        # Calculate grid dimensions using geopy distance
+        # Width: longitude distance at min_lat
+        lon_dist = distance.geodesic(
+            (self.min_lat, self.min_lon),
+            (self.min_lat, self.max_lon)
+        ).meters
+        
+        # Height: latitude distance
+        lat_dist = distance.geodesic(
+            (self.min_lat, self.min_lon),
+            (self.max_lat, self.min_lon)
+        ).meters
+        
+        self.img_width = math.ceil(lon_dist / self.grid_size) + 1
+        self.img_height = math.ceil(lat_dist / self.grid_size) + 1
+        
+        print(f"📐 Grid setup: {self.img_width} × {self.img_height} cells ({self.grid_size}m resolution)")
+        print(f"   Bounds: lon [{self.min_lon:.4f}, {self.max_lon:.4f}], lat [{self.min_lat:.4f}, {self.max_lat:.4f}]")
+
+    def gps2grid(self, lon, lat):
+        """
+        Convert GPS coordinates to grid cell indices.
+        Matches original author's MapManager.gps2grid logic.
+        """
+        # X: distance from min_lon
+        x = math.floor(distance.geodesic(
+            (lat, self.min_lon),
+            (lat, lon)
+        ).meters / self.grid_size)
+        
+        # Y: distance from min_lat
+        y = math.floor(distance.geodesic(
+            (self.min_lat, lon),
+            (lat, lon)
+        ).meters / self.grid_size)
+        
+        # Clamp to grid bounds (no assertions, just clamp)
+        x = max(0, min(x, self.img_width - 1))
+        y = max(0, min(y, self.img_height - 1))
+        
+        return x, y
 
     def _get_od_key(self, origin_rid, dest_rid):
         """
-        Get OD pair key using MapManager's grid system.
+        Get OD pair key using grid system.
         This matches the original author's approach.
         """
         o_lon, o_lat = self.road_gps[origin_rid]
         d_lon, d_lat = self.road_gps[dest_rid]
         
-        o_rid_x, o_rid_y = self.map_manager.gps2grid(o_lon, o_lat)
-        d_rid_x, d_rid_y = self.map_manager.gps2grid(d_lon, d_lat)
+        o_rid_x, o_rid_y = self.gps2grid(o_lon, o_lat)
+        d_rid_x, d_rid_y = self.gps2grid(d_lon, d_lat)
         
         # Key: (origin_grid_id, dest_grid_id)
         key = (
-            o_rid_x * self.map_manager.img_height + o_rid_y,
-            d_rid_x * self.map_manager.img_height + d_rid_y
+            o_rid_x * self.img_height + o_rid_y,
+            d_rid_x * self.img_height + d_rid_y
         )
         return key
 
     def _group_by_od(self, trajectories):
-        """Group trajectories by OD pair using MapManager."""
+        """Group trajectories by OD pair using grid system."""
         od_groups = {}
         for i, traj in enumerate(trajectories):
             if len(traj) < 2:
@@ -410,8 +466,8 @@ class LocalMetrics:
                 if key not in od_groups:
                     od_groups[key] = []
                 od_groups[key].append(i)
-            except (AssertionError, IndexError):
-                # Road outside MapManager bounds, skip
+            except (IndexError, KeyError):
+                # Road ID not in dataset, skip
                 continue
         
         return od_groups
@@ -489,7 +545,7 @@ class LocalMetrics:
     def evaluate(self):
         """
         Evaluate local metrics: Hausdorff, DTW, EDR.
-        Uses MapManager for OD pair matching (original author's method).
+        Uses grid-based OD pair matching (original author's method).
         """
         print("📊 Calculating local metrics...")
         real_od_groups = self._group_by_od(self.real_trajs)
@@ -585,8 +641,6 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate trajectory generation models.")
     parser.add_argument('--run_dir', type=str, required=True, help='Path to the run directory containing hoser_format folder.')
     parser.add_argument('--generated_file', type=str, help='Path to specific generated CSV file. If not provided, will search for generated files in run_dir/hoser_format/')
-    parser.add_argument('--city', type=str, default='BJ_Taxi', choices=['BJ_Taxi', 'Porto_Taxi', 'SF_Taxi'], 
-                        help='City name for MapManager (default: BJ_Taxi)')
     parser.add_argument('--wandb', action='store_true', help='Log results to Weights & Biases')
     parser.add_argument('--wandb_project', type=str, default=None, help='WandB project name (auto-detected from run metadata if not specified)')
     parser.add_argument('--wandb_run_name', type=str, default='', help='WandB run name (optional)')
@@ -648,7 +702,7 @@ def main():
     
     # Run evaluations
     global_metrics = GlobalMetrics(real_trajectories, generated_trajectories, geo_df).evaluate()
-    local_metrics = LocalMetrics(real_trajectories, generated_trajectories, geo_df, city=args.city).evaluate()
+    local_metrics = LocalMetrics(real_trajectories, generated_trajectories, geo_df).evaluate()
 
     # Combine and display results
     all_results = {**global_metrics, **local_metrics}
