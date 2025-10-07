@@ -2,16 +2,31 @@ import argparse
 import os
 import json
 import ast
+import math
 from datetime import datetime
 import pandas as pd
 import numpy as np
 from shapely.geometry import LineString
 from tqdm import tqdm
-from scipy.spatial.distance import jensenshannon
+from scipy.stats import entropy
 from fastdtw import fastdtw
 from haversine import haversine, haversine_vector
+from geopy import distance  # type: ignore
 import wandb
 import yaml
+
+from map_manager import MapManager
+
+
+def js_divergence(p, q):
+    """
+    Calculate Jensen-Shannon divergence between two distributions.
+    Uses the original author's implementation for consistency.
+    """
+    p = p / (np.sum(p) + 1e-14)
+    q = q / (np.sum(q) + 1e-14)
+    m = (p + q) / 2
+    return 0.5 * entropy(p, m) + 0.5 * entropy(q, m)
 
 
 def extract_wandb_metadata_from_path(path: str) -> dict:
@@ -69,7 +84,7 @@ def extract_wandb_metadata_from_path(path: str) -> dict:
         
         return result
         
-    except Exception as e:
+    except Exception:
         return result
 
 
@@ -209,116 +224,209 @@ def load_trajectories(traj_path, is_real_data):
 # --- Metric Calculation ---
 
 class GlobalMetrics:
+    """
+    Calculate global (distribution-level) metrics using the original author's method.
+    
+    Key differences from previous version:
+    - Distance: Uses Haversine between road centroids (not road length field)
+    - Duration: Per-segment durations (not total trip duration)
+    - Radius: Simple distance averaging (not RMS formula)
+    - JS Divergence: Uses original author's implementation
+    """
     def __init__(self, real_trajs, generated_trajs, geo_df):
         self.real_trajs = real_trajs
         self.generated_trajs = generated_trajs
         self.geo_df = geo_df.set_index('road_id')
+        
+        # Pre-calculate road center GPS as (lon, lat) for compatibility with original code
+        self.road_gps = [(row['center_gps'][1], row['center_gps'][0]) 
+                         for _, row in self.geo_df.iterrows()]
 
-    def _calculate_features(self, trajectories):
+    def _calculate_distance_distribution(self, trajectories):
+        """Calculate trip distances using Haversine between road centroids."""
         distances = []
-        durations = []
-        radii = []
-
-        for traj in tqdm(trajectories, desc="Calculating global features"):
+        for traj in tqdm(trajectories, desc="Calculating distances"):
             if len(traj) < 2:
                 continue
             
-            # Duration
-            duration = (traj[-1][1] - traj[0][1]).total_seconds() / 60.0  # in minutes
-            durations.append(duration)
-
-            # Distance
             road_ids = [p[0] for p in traj]
-            distance = self.geo_df.loc[road_ids]['length'].sum() / 1000.0 # in km
-            distances.append(distance)
+            travel_distance = 0
+            for i in range(1, len(road_ids)):
+                # Use Haversine distance between consecutive road centroids
+                gps_prev = self.road_gps[road_ids[i-1]]
+                gps_curr = self.road_gps[road_ids[i]]
+                travel_distance += distance.great_circle(
+                    (gps_prev[1], gps_prev[0]),  # (lat, lon)
+                    (gps_curr[1], gps_curr[0])
+                ).kilometers
+            distances.append(travel_distance)
+        
+        return distances
+
+    def _calculate_duration_distribution(self, trajectories):
+        """Calculate per-segment durations (not total trip duration)."""
+        durations = []
+        for traj in tqdm(trajectories, desc="Calculating durations"):
+            if len(traj) < 2:
+                continue
             
-            # Radius of Gyration
-            points = np.array([self.geo_df.loc[rid]['center_gps'] for rid in road_ids])
-            center_of_mass = np.mean(points, axis=0)
-            radius = np.sqrt(np.mean(np.sum((points - center_of_mass)**2, axis=1)))
-            radii.append(radius)
+            # Extract per-segment durations in minutes
+            for i in range(1, len(traj)):
+                time_duration = (traj[i][1] - traj[i-1][1]).total_seconds() / 60.0
+                durations.append(time_duration)
+        
+        return durations
+
+    def _calculate_radius_distribution(self, trajectories):
+        """Calculate radius of gyration using simple distance averaging."""
+        radii = []
+        for traj in tqdm(trajectories, desc="Calculating radii"):
+            if len(traj) < 1:
+                continue
             
-        return distances, durations, radii
+            road_ids = [p[0] for p in traj]
+            
+            # Calculate mean center
+            lons = [self.road_gps[rid][0] for rid in road_ids]
+            lats = [self.road_gps[rid][1] for rid in road_ids]
+            lon_mean = np.mean(lons)
+            lat_mean = np.mean(lats)
+            
+            # Calculate average distance from center (original author's method)
+            rad_list = []
+            for rid in road_ids:
+                lon = self.road_gps[rid][0]
+                lat = self.road_gps[rid][1]
+                dis = distance.great_circle((lat_mean, lon_mean), (lat, lon)).kilometers
+                rad_list.append(dis)
+            
+            rad = np.mean(rad_list)
+            radii.append(rad)
+        
+        return radii
 
     def evaluate(self):
+        """
+        Evaluate global metrics using JS divergence.
+        Returns dict with Distance/Duration/Radius JSD values.
+        """
         print("📊 Calculating global metrics...")
-        real_dist, real_dur, real_rad = self._calculate_features(self.real_trajs)
-        gen_dist, gen_dur, gen_rad = self._calculate_features(self.generated_trajs)
+        
+        # Calculate distributions for real and generated trajectories
+        real_dist = self._calculate_distance_distribution(self.real_trajs)
+        gen_dist = self._calculate_distance_distribution(self.generated_trajs)
+        
+        real_dur = self._calculate_duration_distribution(self.real_trajs)
+        gen_dur = self._calculate_duration_distribution(self.generated_trajs)
+        
+        real_rad = self._calculate_radius_distribution(self.real_trajs)
+        gen_rad = self._calculate_radius_distribution(self.generated_trajs)
         
         results = {}
         
-        for name, real_vals, gen_vals in [("Distance", real_dist, gen_dist), 
-                                          ("Duration", real_dur, gen_dur), 
-                                          ("Radius", real_rad, gen_rad)]:
+        # Calculate JS divergence for each metric
+        for name, real_vals, gen_vals in [
+            ("Distance", real_dist, gen_dist), 
+            ("Duration", real_dur, gen_dur), 
+            ("Radius", real_rad, gen_rad)
+        ]:
+            if not real_vals or not gen_vals:
+                print(f"⚠️ Warning: Empty {name} distribution, skipping")
+                continue
             
-            min_val = min(min(real_vals), min(gen_vals)) if real_vals and gen_vals else 0
-            max_val = max(max(real_vals), max(gen_vals)) if real_vals and gen_vals else 1
-            bins = np.linspace(min_val, max_val, 101)
+            # Create histogram bins
+            real_max = np.max(real_vals)
+            bins = np.linspace(0, real_max, 100).tolist()
+            bins.append(float('inf'))
+            bins = np.array(bins)
             
-            real_hist, _ = np.histogram(real_vals, bins=bins, density=True)
-            gen_hist, _ = np.histogram(gen_vals, bins=bins, density=True)
+            # Calculate histograms
+            real_hist, _ = np.histogram(real_vals, bins)
+            gen_hist, _ = np.histogram(gen_vals, bins)
             
-            # Add small constant to avoid division by zero in jensenshannon
-            real_hist += 1e-10
-            gen_hist += 1e-10
-
-            jsd = jensenshannon(real_hist, gen_hist, base=2.0)
-            results[f"{name} (JSD)"] = jsd
+            # Calculate JS divergence using original author's implementation
+            jsd = js_divergence(real_hist, gen_hist)
+            results[f"{name}_JSD"] = jsd
             
+            # Also store mean values for reference
+            results[f"{name}_real_mean"] = np.mean(real_vals)
+            results[f"{name}_gen_mean"] = np.mean(gen_vals)
+        
         print("✅ Global metrics calculated.")
         return results
 
 
 class LocalMetrics:
-    def __init__(self, real_trajs, generated_trajs, geo_df, grid_size=200):
+    """
+    Calculate local (trajectory-level) metrics using the original author's method.
+    
+    Key changes:
+    - Uses MapManager for OD pair grouping (not simple lat/lon grid)
+    - Adds EDR (Edit Distance on Real sequence) metric
+    - Keeps vectorized Hausdorff from our version (faster)
+    """
+    def __init__(self, real_trajs, generated_trajs, geo_df, city='BJ_Taxi'):
         self.real_trajs = real_trajs
         self.generated_trajs = generated_trajs
         self.geo_df = geo_df.set_index('road_id')
-        self.grid_size = grid_size # in meters
-        self._setup_grid()
-
-    def _setup_grid(self):
-        # Using a simple lat/lon grid. For more accuracy, projection would be needed.
-        centers = np.array(self.geo_df['center_gps'].tolist())
-        self.min_lat, self.min_lon = centers.min(axis=0)
-        self.max_lat, self.max_lon = centers.max(axis=0)
         
-        # Approximate conversion from meters to degrees
-        lat_degree_per_m = 1 / 111111
-        lon_degree_per_m = 1 / (111111 * np.cos(np.deg2rad(self.min_lat)))
+        # Initialize MapManager for proper OD pair grouping
+        self.map_manager = MapManager(city)
         
-        self.lat_step = self.grid_size * lat_degree_per_m
-        self.lon_step = self.grid_size * lon_degree_per_m
+        # Pre-calculate road center GPS as (lon, lat)
+        self.road_gps = [(row['center_gps'][1], row['center_gps'][0]) 
+                         for _, row in self.geo_df.iterrows()]
 
-        self.lat_bins = int(np.ceil((self.max_lat - self.min_lat) / self.lat_step))
-        self.lon_bins = int(np.ceil((self.max_lon - self.min_lon) / self.lon_step))
-
-    def _get_grid_id(self, road_id):
-        lat, lon = self.geo_df.loc[road_id]['center_gps']
-        lat_idx = int((lat - self.min_lat) / self.lat_step)
-        lon_idx = int((lon - self.min_lon) / self.lon_step)
-        return lat_idx * self.lon_bins + lon_idx
+    def _get_od_key(self, origin_rid, dest_rid):
+        """
+        Get OD pair key using MapManager's grid system.
+        This matches the original author's approach.
+        """
+        o_lon, o_lat = self.road_gps[origin_rid]
+        d_lon, d_lat = self.road_gps[dest_rid]
+        
+        o_rid_x, o_rid_y = self.map_manager.gps2grid(o_lon, o_lat)
+        d_rid_x, d_rid_y = self.map_manager.gps2grid(d_lon, d_lat)
+        
+        # Key: (origin_grid_id, dest_grid_id)
+        key = (
+            o_rid_x * self.map_manager.img_height + o_rid_y,
+            d_rid_x * self.map_manager.img_height + d_rid_y
+        )
+        return key
 
     def _group_by_od(self, trajectories):
+        """Group trajectories by OD pair using MapManager."""
         od_groups = {}
         for i, traj in enumerate(trajectories):
             if len(traj) < 2:
                 continue
-            origin_grid = self._get_grid_id(traj[0][0])
-            dest_grid = self._get_grid_id(traj[-1][0])
-            if (origin_grid, dest_grid) not in od_groups:
-                od_groups[(origin_grid, dest_grid)] = []
-            od_groups[(origin_grid, dest_grid)].append(i)
+            
+            try:
+                origin_rid = traj[0][0]
+                dest_rid = traj[-1][0]
+                key = self._get_od_key(origin_rid, dest_rid)
+                
+                if key not in od_groups:
+                    od_groups[key] = []
+                od_groups[key].append(i)
+            except (AssertionError, IndexError):
+                # Road outside MapManager bounds, skip
+                continue
+        
         return od_groups
 
     def _get_coord_traj(self, trajectory):
+        """Extract GPS coordinates from trajectory."""
         road_ids = [p[0] for p in trajectory]
-        return np.array([self.geo_df.loc[rid]['center_gps'] for rid in road_ids])
+        # Return as (lat, lon) for haversine compatibility
+        return np.array([(self.road_gps[rid][1], self.road_gps[rid][0]) 
+                         for rid in road_ids])
 
     def _calculate_hausdorff_haversine(self, u, v):
         """
         Calculates the Hausdorff distance between two trajectories u and v
-        using the Haversine distance. Vectorized implementation.
+        using the Haversine distance. Vectorized implementation (kept from our version).
         u and v are numpy arrays of shape (n, 2) and (m, 2) of (lat, lon) points.
         """
         # haversine_vector with comb=True creates a pairwise distance matrix
@@ -332,48 +440,105 @@ class LocalMetrics:
 
         return max(h_u_v, h_v_u)
 
+    def _calculate_edr(self, t0, t1, eps=100):
+        """
+        Calculate Edit Distance on Real sequence (EDR).
+        From original author's implementation.
+        
+        Args:
+            t0, t1: Trajectories as arrays of (lat, lon) points
+            eps: Distance threshold in meters (default 100m)
+        
+        Returns:
+            EDR normalized by max trajectory length
+        """
+        rad = math.pi / 180.0
+        R = 6378137.0  # Earth radius in meters
+        
+        def great_circle_distance(lon1, lat1, lon2, lat2):
+            dlat = rad * (lat2 - lat1)
+            dlon = rad * (lon2 - lon1)
+            a = (math.sin(dlat / 2.0) * math.sin(dlat / 2.0) +
+                 math.cos(rad * lat1) * math.cos(rad * lat2) *
+                 math.sin(dlon / 2.0) * math.sin(dlon / 2.0))
+            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            d = R * c
+            return d
+        
+        n0 = len(t0)
+        n1 = len(t1)
+        C = np.full((n0 + 1, n1 + 1), np.inf)
+        C[:, 0] = np.arange(n0 + 1)
+        C[0, :] = np.arange(n1 + 1)
+
+        for i in range(1, n0 + 1):
+            for j in range(1, n1 + 1):
+                # t0 and t1 are (lat, lon), need to pass (lon, lat) to distance function
+                if great_circle_distance(
+                    t0[i - 1][1], t0[i - 1][0],  # lon, lat from t0
+                    t1[j - 1][1], t1[j - 1][0]   # lon, lat from t1
+                ) < eps:
+                    subcost = 0
+                else:
+                    subcost = 1
+                C[i][j] = min(C[i][j - 1] + 1, C[i - 1][j] + 1, C[i - 1][j - 1] + subcost)
+        
+        edr = float(C[n0][n1]) / max([n0, n1])
+        return edr
+
     def evaluate(self):
+        """
+        Evaluate local metrics: Hausdorff, DTW, EDR.
+        Uses MapManager for OD pair matching (original author's method).
+        """
         print("📊 Calculating local metrics...")
         real_od_groups = self._group_by_od(self.real_trajs)
         gen_od_groups = self._group_by_od(self.generated_trajs)
 
         hausdorff_scores = []
         dtw_scores = []
+        edr_scores = []
+        
+        num_matched_od = 0
+        num_total_gen_od = len(gen_od_groups)
         
         for od_pair, gen_indices in tqdm(gen_od_groups.items(), desc="Comparing OD pairs"):
             if od_pair not in real_od_groups:
                 continue
-
+            
+            num_matched_od += 1
             real_indices = real_od_groups[od_pair]
             
-            for gen_idx in gen_indices:
+            # Compare each generated trajectory with real trajectories from same OD pair
+            # Use min(len(real), len(gen)) comparisons per OD pair (original author's method)
+            for i in range(min(len(real_indices), len(gen_indices))):
+                real_idx = real_indices[i]
+                gen_idx = gen_indices[i]
+                
+                real_traj_coords = self._get_coord_traj(self.real_trajs[real_idx])
                 gen_traj_coords = self._get_coord_traj(self.generated_trajs[gen_idx])
                 
-                h_dists = []
-                d_dists = []
+                # Hausdorff (km) - vectorized version
+                h_dist = self._calculate_hausdorff_haversine(gen_traj_coords, real_traj_coords)
+                hausdorff_scores.append(h_dist)
 
-                for real_idx in real_indices:
-                    real_traj_coords = self._get_coord_traj(self.real_trajs[real_idx])
-                    
-                    # Hausdorff (km)
-                    h_dist = self._calculate_hausdorff_haversine(gen_traj_coords, real_traj_coords)
-                    h_dists.append(h_dist)
-
-                    # DTW (km)
-                    dist, _ = fastdtw(gen_traj_coords, real_traj_coords, dist=haversine)
-                    d_dists.append(dist)
-
-                if h_dists:
-                    hausdorff_scores.append(np.mean(h_dists))
-                if d_dists:
-                    dtw_scores.append(np.mean(d_dists))
+                # DTW (km)
+                dist, _ = fastdtw(gen_traj_coords, real_traj_coords, dist=haversine)
+                dtw_scores.append(dist)
+                
+                # EDR (unitless, 0-1)
+                edr = self._calculate_edr(real_traj_coords, gen_traj_coords, eps=100)
+                edr_scores.append(edr)
 
         results = {
-            "Hausdorff (km)": np.mean(hausdorff_scores) if hausdorff_scores else 0,
-            "DTW (km)": np.mean(dtw_scores) if dtw_scores else 0
+            "Hausdorff_km": np.mean(hausdorff_scores) if hausdorff_scores else 0,
+            "DTW_km": np.mean(dtw_scores) if dtw_scores else 0,
+            "EDR": np.mean(edr_scores) if edr_scores else 0,
+            "matched_od_pairs": num_matched_od,
+            "total_generated_od_pairs": num_total_gen_od,
         }
         
-        print("✅ Local metrics calculated.")
+        print(f"✅ Local metrics calculated ({num_matched_od}/{num_total_gen_od} OD pairs matched).")
         return results
 
 # --- Main Execution ---
@@ -420,6 +585,8 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate trajectory generation models.")
     parser.add_argument('--run_dir', type=str, required=True, help='Path to the run directory containing hoser_format folder.')
     parser.add_argument('--generated_file', type=str, help='Path to specific generated CSV file. If not provided, will search for generated files in run_dir/hoser_format/')
+    parser.add_argument('--city', type=str, default='BJ_Taxi', choices=['BJ_Taxi', 'Porto_Taxi', 'SF_Taxi'], 
+                        help='City name for MapManager (default: BJ_Taxi)')
     parser.add_argument('--wandb', action='store_true', help='Log results to Weights & Biases')
     parser.add_argument('--wandb_project', type=str, default=None, help='WandB project name (auto-detected from run metadata if not specified)')
     parser.add_argument('--wandb_run_name', type=str, default='', help='WandB run name (optional)')
@@ -481,7 +648,7 @@ def main():
     
     # Run evaluations
     global_metrics = GlobalMetrics(real_trajectories, generated_trajectories, geo_df).evaluate()
-    local_metrics = LocalMetrics(real_trajectories, generated_trajectories, geo_df).evaluate()
+    local_metrics = LocalMetrics(real_trajectories, generated_trajectories, geo_df, city=args.city).evaluate()
 
     # Combine and display results
     all_results = {**global_metrics, **local_metrics}
