@@ -1834,6 +1834,7 @@ kl = (teacher_probs_renorm * (
 - The difference between validation accuracy and trajectory-level evaluation
 - How distillation's impact manifests in generation (not just training metrics)
 - What metrics truly measure whether distillation succeeded
+- How to run the complete evaluation pipeline with intelligent caching
 
 ### The Evaluation Pipeline
 
@@ -1841,11 +1842,15 @@ kl = (teacher_probs_renorm * (
 
 **Process**:
 1. **Training**: Train two models (vanilla baseline and distilled) for 25 epochs to full convergence
-2. **Generation**: Use each model to generate 5,000 complete trajectories from test set origin-destination pairs
+2. **Generation**: Use each model to generate 5,000 complete trajectories from both training and test set origin-destination pairs
 3. **Evaluation**: Compare generated trajectories against real taxi trajectories using multiple metrics
 4. **Analysis**: Determine if distillation provides statistically significant improvement
 
 **Key insight**: Training metrics (57.2% → 58.5% accuracy) might seem modest, but small per-step improvements compound over 10-20 step trajectories. A 1% better decision at each intersection can lead to 10-15% more realistic full paths.
+
+**New evaluation strategy**: We now evaluate on both **training OD pairs** (memorization test) and **test OD pairs** (generalization test) to distinguish between:
+- **Memorization**: How well the model reproduces patterns it saw during training
+- **Generalization**: How well the model handles unseen origin-destination combinations
 
 ### Trajectory Generation with Beam Search
 
@@ -1882,6 +1887,17 @@ HOSER supports three search modes, each with different characteristics:
 - Parallel exploration of multiple paths (batched GPU inference) ✅
 - 10-20× faster than full A* ✅
 - 95-99% correlation with optimal A* results ✅
+
+**Performance characteristics** (RTX 2080 Ti, 11GB VRAM):
+- **Beam width 4**: ~0.5-1 it/s (2-4 seconds per trajectory) - **Recommended for evaluation**
+- **Beam width 8**: ~0.3-0.5 it/s (4-7 seconds per trajectory) - **Exceeds VRAM on our GPU**
+- **Beam width 1**: ~2-3 it/s (greedy, too fast, misses distillation benefits)
+
+**Why beam width 4 is optimal for our evaluation**:
+- Fits comfortably in 11GB VRAM (4 paths × ~15 candidates = ~60 batch size)
+- Provides sufficient exploration to see distillation's improved rankings
+- Fast enough for practical evaluation (2-3 hours per model)
+- High correlation with optimal A* results (95-99%)
 
 ### Beam Search Algorithm Explained
 
@@ -2106,18 +2122,19 @@ Total time: 3.2 seconds
 
 ### Evaluation Metrics: Measuring Trajectory Quality
 
-After generating 5,000 trajectories from each model (vanilla and distilled), we compare them against real taxi trajectories using two categories of metrics:
+After generating 5,000 trajectories from each model (vanilla and distilled), we compare them against real taxi trajectories using two categories of metrics. Our evaluation script (`evaluation.py`) has been completely refactored to be "bulletproof" and align with the original HOSER author's evaluation methods for fair comparison.
 
 #### Global Metrics: Distribution-Level Similarity
 
 **Purpose**: Measure whether the *ensemble* of generated trajectories matches the *statistical patterns* of real taxi behavior.
 
-**Jensen-Shannon Divergence (JSD)** for three distributions:
+**Jensen-Shannon Divergence (JSD)** for three distributions (computed using original HOSER author's formulas):
 
 1. **Distance JSD**: Compare distribution of trip distances
    
    $$\text{JSD}_{\text{dist}} = \text{JS}\left(P_{\text{real}}(\text{distance}) \,\|\, P_{\text{gen}}(\text{distance})\right)$$
    
+   - **Calculation**: Haversine distance between consecutive road centroids
    - **Range**: [0, 1] where 0 = identical distributions
    - **Interpretation**: Measures if generated trips are too short, too long, or match real taxi patterns
    - **Example**: Real taxis: 60% short (<5km), 30% medium (5-15km), 10% long (>15km)
@@ -2128,6 +2145,7 @@ After generating 5,000 trajectories from each model (vanilla and distilled), we 
    
    $$\text{JSD}_{\text{dur}} = \text{JS}\left(P_{\text{real}}(\text{time}) \,\|\, P_{\text{gen}}(\text{time})\right)$$
    
+   - **Calculation**: Per-segment duration in minutes (matches original author's method)
    - Measures if generated trips are too fast, too slow, or realistic
    - Sensitive to traffic patterns and model's time prediction quality
 
@@ -2135,7 +2153,7 @@ After generating 5,000 trajectories from each model (vanilla and distilled), we 
    
    $$\text{JSD}_{\text{radius}} = \text{JS}\left(P_{\text{real}}(\text{RoG}) \,\|\, P_{\text{gen}}(\text{RoG})\right)$$
    
-   - **RoG**: Standard deviation of distances from trajectory's centroid
+   - **RoG**: Standard deviation of distances from trajectory's centroid (original author's simple averaging method)
    - Measures if trips stay localized vs traverse the city
    - Captures spatial exploration patterns
 
@@ -2149,7 +2167,7 @@ After generating 5,000 trajectories from each model (vanilla and distilled), we 
 
 $$H(T_{\text{real}}, T_{\text{gen}}) = \max\left\{\max_{p \in T_{\text{real}}} d(p, T_{\text{gen}}), \max_{q \in T_{\text{gen}}} d(q, T_{\text{real}})\right\}$$
 
-- **Unit**: Meters
+- **Unit**: Meters (Haversine distance)
 - **Interpretation**: "Worst-case" distance between paths
 - **Example**: Real path goes through downtown, generated path takes ring road → H = 850m (large detour)
 - **Typical values**: 
@@ -2162,6 +2180,7 @@ $$H(T_{\text{real}}, T_{\text{gen}}) = \max\left\{\max_{p \in T_{\text{real}}} d
 $$\text{DTW}(T_{\text{real}}, T_{\text{gen}}) = \min_{\text{alignment}} \sum_{(i,j) \in \text{alignment}} d(T_{\text{real}}[i], T_{\text{gen}}[j])$$
 
 - **Unit**: Meters (accumulated distance)
+- **Implementation**: Uses `polars-ts` for high-performance DTW with `fastdtw` fallback
 - **Interpretation**: Measures similarity allowing temporal stretching
 - **Key difference from Hausdorff**: DTW finds best alignment between paths, allowing one to be "faster" or "slower"
 - **Example**: 
@@ -2170,89 +2189,177 @@ $$\text{DTW}(T_{\text{real}}, T_{\text{gen}}) = \min_{\text{alignment}} \sum_{(i
   - Hausdorff: High (timing mismatch)
   - DTW: Low (same spatial path, just different speed)
 
+**Edit Distance on Real sequence (EDR)**: Sequence-level similarity
+
+$$\text{EDR}(T_{\text{real}}, T_{\text{gen}}) = \frac{\text{edit\_operations}}{\max(|T_{\text{real}}|, |T_{\text{gen}}|)}$$
+
+- **Unit**: Normalized count [0, 1] where 0 = identical sequences
+- **Threshold**: 100m (configurable via `--edr_eps`) for matching road segments
+- **Interpretation**: Measures how many road segments need to be inserted/deleted to match
+- **Example**: Real: [A, B, C, D], Generated: [A, X, C, D] → EDR = 0.25 (1 edit out of 4)
+
 **Why local metrics matter**: Global metrics can hide systematic errors. A model might have good overall statistics but fail on specific trip types (e.g., airport trips). Local metrics catch these failures.
+
+#### Evaluation Script Features
+
+**Bulletproof implementation**:
+- **Polars-first**: All data loading and manipulation uses Polars for performance
+- **Fail-fast validation**: Comprehensive data validation with clear error messages
+- **Road ID safety**: Dictionary-based road ID lookup prevents indexing errors
+- **Grid system**: Dynamic grid bounds calculation (0.001° from Beijing.yaml)
+- **Error recovery**: Graceful handling of invalid trajectories with warnings
+- **Performance**: Vectorized calculations with GPU acceleration where possible
+
+**OD pair matching**:
+- Groups trajectories by origin-destination pairs using configurable grid size
+- Handles both training and test OD sources for memorization vs generalization analysis
+- Robust coordinate system handling (lat/lon consistency across all distance calculations)
 
 ### Comparing Vanilla vs Distilled: What to Expect
 
-**Hypothesis**: Distillation improves spatial reasoning, which should manifest as:
+**Hypothesis**: Distillation improves spatial reasoning, which should manifest differently for memorization vs generalization:
 
-| Metric | Expected Change | Reasoning |
-|--------|-----------------|-----------|
-| **Distance JSD** | ↓ 10-25% | Better routing decisions → more realistic trip lengths |
-| **Duration JSD** | ↓ 5-15% | Improved time prediction + better routes |
-| **Radius JSD** | ↓ 15-30% | Learns to stay in appropriate spatial regions |
-| **Mean Hausdorff** | ↓ 15-40% | Fewer major detours, stays closer to real paths |
-| **Mean DTW** | ↓ 10-30% | Better alignment with real trajectories |
+#### Expected Results by OD Source
 
-**Statistical significance**: With 5,000 generated trajectories, we can detect improvements as small as 5-10% with high confidence (p < 0.01).
+**Training OD Pairs (Memorization Test)**:
+- Both models should perform well since they've seen these patterns during training
+- Distilled model may show modest improvements due to better calibrated confidence
+- Key insight: If both models perform similarly, it suggests they're both memorizing well
 
-**Null result scenarios** (why metrics might not improve):
+**Test OD Pairs (Generalization Test)**:
+- This is where distillation should show clear advantages
+- Distilled model should leverage learned spatial patterns to handle unseen OD combinations
+- Key insight: Distillation's true value is in generalization, not memorization
+
+#### Expected Metric Changes
+
+| Metric | Train OD Change | Test OD Change | Reasoning |
+|--------|-----------------|----------------|-----------|
+| **Distance JSD** | ↓ 5-15% | ↓ 15-30% | Better routing decisions → more realistic trip lengths |
+| **Duration JSD** | ↓ 3-10% | ↓ 10-20% | Improved time prediction + better routes |
+| **Radius JSD** | ↓ 8-20% | ↓ 20-40% | Learns to stay in appropriate spatial regions |
+| **Mean Hausdorff** | ↓ 10-25% | ↓ 25-50% | Fewer major detours, stays closer to real paths |
+| **Mean DTW** | ↓ 8-20% | ↓ 20-40% | Better alignment with real trajectories |
+| **Mean EDR** | ↓ 5-15% | ↓ 15-35% | Better sequence-level matching |
+
+**Statistical significance**: With 5,000 generated trajectories per model per OD source, we can detect improvements as small as 5-10% with high confidence (p < 0.01).
+
+#### Key Success Indicators
+
+**Strong distillation success**:
+- Test OD metrics show 20%+ improvement over vanilla
+- Train OD metrics show modest 5-10% improvement
+- Both models perform well on train OD (good memorization)
+- Distilled model significantly outperforms on test OD (better generalization)
+
+**Weak distillation success**:
+- Test OD metrics show 5-15% improvement
+- Train OD metrics show minimal difference
+- Suggests distillation helps but improvements are modest
+
+**Distillation failure**:
+- No significant difference between models on either OD source
+- Possible causes: λ too low, temperature too high, insufficient training
+
+#### Null Result Scenarios
 
 1. **Validation accuracy improvement too small**: If distillation only improved accuracy by 0.3%, compound effect over full trajectories may be negligible
 2. **Improvements in wrong areas**: Model might improve on rare edge cases that don't appear in evaluation set
 3. **Beam width too large**: B=8+ keeps so many alternatives that both models explore similar paths
 4. **Metric insensitivity**: Some metrics (e.g., Radius JSD) may not capture the specific improvements distillation provides
+5. **Data leakage**: If test OD pairs are too similar to training OD pairs, generalization test becomes memorization test
 
 ### Practical Evaluation Workflow
 
-**Step 1: Generate trajectories** (per model)
+**Automated Pipeline**: The complete evaluation is now orchestrated by `hoser-distill-optuna-6/run_gene_eval_pipeline.sh`, which handles both generation and evaluation with intelligent caching.
+
+**Step 1: Run the complete pipeline** (generates and evaluates both models)
 
 ```bash
-# Vanilla model (seed 42)
-uv run python gene.py \
-  --dataset Beijing \
-  --seed 42 \
-  --model_path models/vanilla_25epoch_seed42.pth \
-  --beam_search --beam_width 4 \
-  --num_gene 5000 \
-  --wandb --wandb_project hoser-distill-eval
+# Run both vanilla and distilled models on both train and test OD sources
+cd hoser-distill-optuna-6
+./run_gene_eval_pipeline.sh --seed 42
 
-# Runtime: ~2-4 hours
-# Output: gene/Beijing/seed42/2025-10-07_12-34-56.csv
+# This automatically:
+# 1. Generates 5000 trajectories for vanilla model (train OD)
+# 2. Generates 5000 trajectories for vanilla model (test OD) 
+# 3. Generates 5000 trajectories for distilled model (train OD)
+# 4. Generates 5000 trajectories for distilled model (test OD)
+# 5. Evaluates all 4 sets against real trajectories
+# 6. Logs everything to WandB project "hoser-distill-optuna-6"
+
+# Runtime: ~8-12 hours total (2-3 hours per model)
+# Output: Organized results in gene/ and eval/ directories
 ```
 
-**Step 2: Evaluate trajectories**
+**Step 2: Check results and force re-run if needed**
 
 ```bash
-# Compare against real test set
-uv run python evaluation.py \
-  --run_dir gene/Beijing/seed42/ \
-  --wandb --wandb_project hoser-distill-eval \
-  --wandb_run_name eval_vanilla_seed42
+# Check what was completed
+ls -la gene/ eval/
 
-# Runtime: ~15-20 minutes  
-# Output: results.json + WandB dashboard
+# Force re-run everything (overrides caching)
+./run_gene_eval_pipeline.sh --seed 42 --force
+
+# Run only test OD evaluation (generalization test)
+./run_gene_eval_pipeline.sh --seed 42 --od-source test
+
+# Run only distilled model
+./run_gene_eval_pipeline.sh --seed 42 --models distilled
+
+# Skip generation, only evaluate existing trajectories
+./run_gene_eval_pipeline.sh --seed 42 --skip-gene
 ```
 
-**Step 3: Statistical comparison**
+**Step 3: View results in WandB**
+
+```bash
+# All results are automatically logged to:
+# https://wandb.ai/matercomus/hoser-distill-optuna-6
+
+# Run names follow pattern:
+# - gene_vanilla_seed42_trainod_beam4
+# - gene_vanilla_seed42_testod_beam4  
+# - gene_distilled_seed42_trainod_beam4
+# - gene_distilled_seed42_testod_beam4
+# - eval_vanilla_seed42_trainod
+# - eval_vanilla_seed42_testod
+# - eval_distilled_seed42_trainod
+# - eval_distilled_seed42_testod
+```
+
+**Step 4: Statistical comparison**
 
 ```python
-# Load results from both models
-vanilla_metrics = json.load(open("vanilla_results.json"))
-distilled_metrics = json.load(open("distilled_results.json"))
+# Results are automatically organized by OD source and model
+# Compare memorization (train OD) vs generalization (test OD)
 
-# Compute improvements
-for metric in ["distance_jsd", "duration_jsd", "hausdorff_mean", "dtw_mean"]:
-    vanilla_val = vanilla_metrics[metric]
-    distilled_val = distilled_metrics[metric]
-    improvement_pct = (vanilla_val - distilled_val) / vanilla_val * 100
-    
-    print(f"{metric}: {improvement_pct:+.1f}% {'✅' if improvement_pct > 0 else '❌'}")
-
-# Example output:
-# distance_jsd: +18.3% ✅  (lower is better → distilled improved)
-# duration_jsd: +12.1% ✅
-# hausdorff_mean: +24.7% ✅
-# dtw_mean: +19.2% ✅
+# Example analysis:
+# - Train OD: Both models should perform well (memorization)
+# - Test OD: Distilled should show better generalization
+# - Key metrics: JSD (distance, duration, radius), Hausdorff, DTW, EDR
 ```
 
-**Step 4: Repeat for statistical robustness**
+**Step 5: Run multiple seeds for robustness**
 
 ```bash
-# Run for multiple seeds (42, 43, 44) from Phase 2 final evaluation
-# Compute mean ± std across seeds
-# Report: "Distilled HOSER improved Hausdorff distance by 22.3% ± 3.1% (p=0.003)"
+# Run all seeds from Phase 2 final evaluation
+for seed in 42 43 44; do
+    ./run_gene_eval_pipeline.sh --seed $seed
+done
+
+# Or use the batch script
+./run_all_seeds.sh
 ```
+
+**Pipeline Features**:
+
+- **Intelligent caching**: Skips generation/evaluation if results exist (unless `--force`)
+- **Flexible configuration**: Choose models, OD sources, seeds, beam width
+- **Organized output**: Results saved in structured directories
+- **WandB integration**: All runs logged with descriptive names and tags
+- **Error handling**: Continues if one model fails, reports what completed
+- **Progress tracking**: Shows current phase and estimated completion
 
 ### Connection to Training Metrics
 
