@@ -167,9 +167,9 @@ process_model() {
             
             # Determine tag based on model type
             if [ "$MODEL" = "vanilla" ]; then
-                TAGS="vanilla baseline 25epochs seed$SEED generation beam_search"
+                TAGS="vanilla baseline 25epochs seed$SEED generation model_astar"
             else
-                TAGS="distilled final 25epochs seed$SEED generation beam_search"
+                TAGS="distilled final 25epochs seed$SEED generation model_astar"
             fi
             
             uv run python gene.py \
@@ -178,11 +178,9 @@ process_model() {
               --cuda "$CUDA_DEVICE" \
               --num_gene "$NUM_GENE" \
               --model_path "$MODEL_PATH" \
-              --beam_search \
-              --beam_width 8 \
               --wandb \
               --wandb_project "$WANDB_PROJECT" \
-              --wandb_run_name "gene_${MODEL}_seed${SEED}_beam8" \
+              --wandb_run_name "gene_${MODEL}_seed${SEED}_model_astar" \
               --wandb_tags $TAGS
             
             # Move generated file to organized directory
