@@ -4,7 +4,7 @@ import json
 import ast
 import math
 from datetime import datetime
-import pandas as pd
+import polars as pl
 import numpy as np
 from shapely.geometry import LineString
 from tqdm import tqdm
@@ -14,6 +14,7 @@ from haversine import haversine, haversine_vector
 from geopy import distance  # type: ignore
 import wandb
 import yaml
+import polars_ts as pts  # For DTW calculations
 
 
 def js_divergence(p, q):
@@ -157,66 +158,190 @@ def detect_wandb_metadata(run_dir: str, generated_file: str = None) -> dict:
 # --- Data Loading ---
 
 def load_road_network(geo_path):
-    """Loads road network data from geo files, handling optional header."""
+    """
+    Loads road network data using Polars with aggressive validation.
+    FAILS FAST if data is malformed or incomplete.
+    """
     print("📂 Loading road network...")
     
+    if not os.path.exists(geo_path):
+        raise FileNotFoundError(f"🚨 FATAL: Road network file not found: {geo_path}")
+    
+    # Load with Polars
     try:
-        # First, try to read with a header
-        geo_df = pd.read_csv(geo_path)
-        if 'geo_id' in geo_df.columns:
-            geo_df = geo_df.rename(columns={'geo_id': 'road_id'})
-        elif 'road_id' not in geo_df.columns: # If geo_id is not there, maybe road_id is
-             raise ValueError("Header malformed")
-    except (ValueError, pd.errors.ParserError):
-        # If that fails, read without a header and assign names
-        col_names = ['road_id', 'type', 'coordinates', 'highway', 'oneway', 'length', 'name', 'lanes', 'bridge', 'access', 'maxspeed', 'ref', 'tunnel', 'junction', 'width']
-        geo_df = pd.read_csv(geo_path, header=None, names=col_names)
-
+        geo_df = pl.read_csv(geo_path)
+    except Exception as e:
+        raise RuntimeError(f"🚨 FATAL: Failed to parse road network CSV: {e}")
+    
+    # Validate required columns
+    required_cols = ['geo_id', 'coordinates']
+    missing = [col for col in required_cols if col not in geo_df.columns]
+    if missing:
+        raise ValueError(f"🚨 FATAL: Road network missing required columns: {missing}\nAvailable: {list(geo_df.columns)}")
+    
+    # Rename geo_id to road_id for consistency
+    if 'geo_id' in geo_df.columns and 'road_id' not in geo_df.columns:
+        geo_df = geo_df.rename({'geo_id': 'road_id'})
+    
+    # Validate road_id is unique and sequential
+    road_ids = geo_df['road_id'].to_list()
+    if len(road_ids) != len(set(road_ids)):
+        raise ValueError("🚨 FATAL: Duplicate road_ids found in road network!")
+    
+    max_id = max(road_ids)
+    min_id = min(road_ids)
+    if min_id != 0 or max_id != len(road_ids) - 1:
+        print(f"⚠️  WARNING: Road IDs not sequential. Min: {min_id}, Max: {max_id}, Count: {len(road_ids)}")
+        print(f"    This will cause indexing issues. Expected: 0 to {len(road_ids)-1}")
+    
     # Pre-calculate road center GPS coordinates
+    print(f"📐 Calculating road centroids for {len(geo_df):,} roads...")
     road_center_gps = []
-    for _, row in geo_df.iterrows():
-        # The coordinates are stored as a string, so they need to be parsed.
-        # Using json.loads is safer than eval().
+    failed_roads = []
+    
+    for idx, row in enumerate(geo_df.iter_rows(named=True)):
         try:
             coordinates = json.loads(row['coordinates'])
             road_line = LineString(coordinates=coordinates)
             center_coord = road_line.centroid
+            # Store as (lat, lon) for consistency with haversine
             road_center_gps.append((center_coord.y, center_coord.x))
-        except (json.JSONDecodeError, TypeError):
-            print(f"⚠️ Warning: Could not parse coordinates for road_id {row['road_id']}. Skipping.")
+        except (json.JSONDecodeError, TypeError, Exception) as e:
+            failed_roads.append((row['road_id'], str(e)))
             road_center_gps.append((None, None))
-
-    geo_df['center_gps'] = road_center_gps
-    geo_df = geo_df.dropna(subset=['center_gps'])
     
-    print("✅ Road network loaded.")
-    return geo_df
+    if failed_roads:
+        print(f"⚠️  WARNING: {len(failed_roads)} roads failed centroid calculation")
+        if len(failed_roads) > 10:
+            print(f"    First 10 failures: {failed_roads[:10]}")
+        else:
+            print(f"    Failures: {failed_roads}")
+        
+        if len(failed_roads) > len(geo_df) * 0.1:  # >10% failure
+            raise RuntimeError(f"🚨 FATAL: Too many roads ({len(failed_roads)}) failed centroid calculation!")
+    
+    # Add center_gps column
+    geo_df = geo_df.with_columns(pl.Series('center_gps', road_center_gps))
+    
+    # Drop rows with null centroids
+    before_count = len(geo_df)
+    geo_df = geo_df.filter(pl.col('center_gps').is_not_null())
+    dropped = before_count - len(geo_df)
+    
+    if dropped > 0:
+        print(f"⚠️  Dropped {dropped} roads with invalid coordinates")
+    
+    # Convert to pandas for compatibility with existing code (only for indexed access)
+    geo_pd = geo_df.to_pandas()
+    
+    print(f"✅ Road network loaded: {len(geo_pd):,} valid roads")
+    return geo_pd
 
-def load_trajectories(traj_path, is_real_data):
-    """Loads trajectories from a CSV file."""
+def load_trajectories(traj_path, is_real_data, max_road_id=None):
+    """
+    Loads trajectories using Polars with aggressive validation.
+    FAILS FAST if data is malformed or road IDs are out of bounds.
+    """
     print(f"📂 Loading trajectories from {traj_path}...")
-    traj_df = pd.read_csv(traj_path)
+    
+    if not os.path.exists(traj_path):
+        raise FileNotFoundError(f"🚨 FATAL: Trajectory file not found: {traj_path}")
+    
+    # Load with Polars
+    try:
+        traj_df = pl.read_csv(traj_path)
+    except Exception as e:
+        raise RuntimeError(f"🚨 FATAL: Failed to parse trajectory CSV: {e}")
+    
+    # Validate required columns
+    if is_real_data:
+        required_cols = ['rid_list', 'time_list']
+    else:
+        required_cols = ['gene_trace_road_id', 'gene_trace_datetime']
+    
+    missing = [col for col in required_cols if col not in traj_df.columns]
+    if missing:
+        raise ValueError(f"🚨 FATAL: Trajectory file missing required columns: {missing}\nAvailable: {traj_df.columns}")
     
     trajectories = []
+    invalid_count = 0
+    out_of_bounds_count = 0
+    
+    print(f"🔄 Parsing {len(traj_df):,} trajectories...")
+    
     if is_real_data:
-        # Handles real data from files like test.csv
-        for _, row in traj_df.iterrows():
-            # rid_list is a comma-separated string like "1,2,3"
-            rids = [int(r) for r in str(row['rid_list']).split(',')]
-            timestamps = [datetime.strptime(t, '%Y-%m-%dT%H:%M:%SZ') for t in row['time_list'].split(',')]
-            trajectories.append(list(zip(rids, timestamps)))
-    else:  # Generated data - new format
-        for _, row in traj_df.iterrows():
-            # gene_trace_road_id is a string like "[2977, 2979, 26496, ...]"
-            rid_str = str(row['gene_trace_road_id'])
-            rids = json.loads(rid_str)
-
-            # gene_trace_datetime is a string representation of a list of strings
-            datetime_list_str = ast.literal_eval(row['gene_trace_datetime'])
-            timestamps = [datetime.strptime(t.strip('"'), '%Y-%m-%dT%H:%M:%SZ') for t in datetime_list_str]
-            trajectories.append(list(zip(rids, timestamps)))
-            
-    print(f"✅ Loaded {len(trajectories)} trajectories.")
+        # Real data from test.csv
+        for idx, row in enumerate(traj_df.iter_rows(named=True)):
+            try:
+                # rid_list is comma-separated string
+                rids = [int(r) for r in str(row['rid_list']).split(',')]
+                timestamps = [datetime.strptime(t, '%Y-%m-%dT%H:%M:%SZ') 
+                             for t in str(row['time_list']).split(',')]
+                
+                # Validate road IDs if max_road_id provided
+                if max_road_id is not None:
+                    invalid_rids = [r for r in rids if r < 0 or r > max_road_id]
+                    if invalid_rids:
+                        out_of_bounds_count += 1
+                        if out_of_bounds_count <= 5:  # Show first 5
+                            print(f"⚠️  Traj {idx}: road IDs out of bounds: {invalid_rids[:10]}")
+                        continue
+                
+                if len(rids) != len(timestamps):
+                    invalid_count += 1
+                    continue
+                
+                trajectories.append(list(zip(rids, timestamps)))
+            except Exception as e:
+                invalid_count += 1
+                if invalid_count <= 5:
+                    print(f"⚠️  Traj {idx} parse error: {e}")
+    else:
+        # Generated data
+        for idx, row in enumerate(traj_df.iter_rows(named=True)):
+            try:
+                # gene_trace_road_id is JSON array
+                rid_str = str(row['gene_trace_road_id'])
+                rids = json.loads(rid_str)
+                
+                # gene_trace_datetime is string representation of list
+                datetime_list_str = ast.literal_eval(str(row['gene_trace_datetime']))
+                timestamps = [datetime.strptime(t.strip('"'), '%Y-%m-%dT%H:%M:%SZ') 
+                             for t in datetime_list_str]
+                
+                # Validate road IDs if max_road_id provided
+                if max_road_id is not None:
+                    invalid_rids = [r for r in rids if r < 0 or r > max_road_id]
+                    if invalid_rids:
+                        out_of_bounds_count += 1
+                        if out_of_bounds_count <= 5:
+                            print(f"⚠️  Traj {idx}: road IDs out of bounds: {invalid_rids[:10]}")
+                        continue
+                
+                if len(rids) != len(timestamps):
+                    invalid_count += 1
+                    continue
+                
+                trajectories.append(list(zip(rids, timestamps)))
+            except Exception as e:
+                invalid_count += 1
+                if invalid_count <= 5:
+                    print(f"⚠️  Traj {idx} parse error: {e}")
+    
+    if invalid_count > 0:
+        print(f"⚠️  WARNING: {invalid_count} trajectories failed parsing")
+        if invalid_count > len(traj_df) * 0.1:  # >10% failure
+            raise RuntimeError(f"🚨 FATAL: Too many trajectories ({invalid_count}) failed parsing!")
+    
+    if out_of_bounds_count > 0:
+        print(f"⚠️  WARNING: {out_of_bounds_count} trajectories have out-of-bounds road IDs")
+        if out_of_bounds_count > len(traj_df) * 0.1:  # >10% failure
+            raise RuntimeError(f"🚨 FATAL: Too many trajectories ({out_of_bounds_count}) have invalid road IDs!")
+    
+    if len(trajectories) == 0:
+        raise RuntimeError(f"🚨 FATAL: No valid trajectories loaded from {traj_path}")
+    
+    print(f"✅ Loaded {len(trajectories):,} valid trajectories (dropped {invalid_count + out_of_bounds_count})")
     return trajectories
 
 # --- Metric Calculation ---
@@ -236,28 +361,68 @@ class GlobalMetrics:
         self.generated_trajs = generated_trajs
         self.geo_df = geo_df.set_index('road_id')
         
-        # Pre-calculate road center GPS as (lon, lat) for compatibility with original code
-        self.road_gps = [(row['center_gps'][1], row['center_gps'][0]) 
-                         for _, row in self.geo_df.iterrows()]
+        # Create road_id → GPS mapping dict for safe access
+        self.road_gps = {}
+        for road_id, row in self.geo_df.iterrows():
+            try:
+                center_gps = row['center_gps']
+                if center_gps and center_gps[0] is not None and center_gps[1] is not None:
+                    # Store as (lon, lat) for compatibility with original code
+                    self.road_gps[road_id] = (center_gps[1], center_gps[0])
+                else:
+                    print(f"⚠️  Warning: Invalid GPS for road_id {road_id}")
+            except (KeyError, TypeError, Exception) as e:
+                print(f"⚠️  Warning: Could not process road_id {road_id}: {e}")
+        
+        print(f"✅ GlobalMetrics: Loaded GPS for {len(self.road_gps):,} roads")
 
     def _calculate_distance_distribution(self, trajectories):
         """Calculate trip distances using Haversine between road centroids."""
         distances = []
+        skipped_trajs = 0
+        
         for traj in tqdm(trajectories, desc="Calculating distances"):
             if len(traj) < 2:
                 continue
             
             road_ids = [p[0] for p in traj]
             travel_distance = 0
+            valid_segments = 0
+            
             for i in range(1, len(road_ids)):
-                # Use Haversine distance between consecutive road centroids
-                gps_prev = self.road_gps[road_ids[i-1]]
-                gps_curr = self.road_gps[road_ids[i]]
-                travel_distance += distance.great_circle(
-                    (gps_prev[1], gps_prev[0]),  # (lat, lon)
-                    (gps_curr[1], gps_curr[0])
-                ).kilometers
-            distances.append(travel_distance)
+                road_prev = road_ids[i-1]
+                road_curr = road_ids[i]
+                
+                # Check if both roads have valid GPS coordinates
+                if road_prev not in self.road_gps or road_curr not in self.road_gps:
+                    continue
+                
+                gps_prev = self.road_gps[road_prev]
+                gps_curr = self.road_gps[road_curr]
+                
+                if gps_prev is None or gps_curr is None:
+                    continue
+                
+                try:
+                    # Use Haversine distance between consecutive road centroids
+                    segment_dist = distance.great_circle(
+                        (gps_prev[1], gps_prev[0]),  # (lat, lon)
+                        (gps_curr[1], gps_curr[0])
+                    ).kilometers
+                    travel_distance += segment_dist
+                    valid_segments += 1
+                except Exception as e:
+                    print(f"⚠️  Distance calculation error for roads {road_prev}→{road_curr}: {e}")
+                    continue
+            
+            # Only include trajectories with at least one valid segment
+            if valid_segments > 0:
+                distances.append(travel_distance)
+            else:
+                skipped_trajs += 1
+        
+        if skipped_trajs > 0:
+            print(f"⚠️  Skipped {skipped_trajs} trajectories with no valid road segments")
         
         return distances
 
@@ -359,20 +524,30 @@ class LocalMetrics:
     Calculate local (trajectory-level) metrics using the original author's method.
     
     Key changes:
-    - Uses 200m grid for OD pair grouping (matches original author's grid_size)
+    - Uses 0.001° grid for OD pair grouping (matches Beijing.yaml grid_size)
     - Computes grid bounds dynamically from actual road data
     - Adds EDR (Edit Distance on Real sequence) metric
     - Keeps vectorized Hausdorff from our version (faster)
     """
-    def __init__(self, real_trajs, generated_trajs, geo_df, grid_size=200):
+    def __init__(self, real_trajs, generated_trajs, geo_df, grid_size=0.001, edr_eps=100.0):
         self.real_trajs = real_trajs
         self.generated_trajs = generated_trajs
         self.geo_df = geo_df.set_index('road_id')
-        self.grid_size = grid_size  # in meters
+        self.grid_size = grid_size  # in degrees (matching Beijing.yaml)
+        self.edr_eps = edr_eps  # EDR threshold in meters
         
-        # Pre-calculate road center GPS as (lon, lat)
-        self.road_gps = [(row['center_gps'][1], row['center_gps'][0]) 
-                         for _, row in self.geo_df.iterrows()]
+        # Create road_id → GPS mapping dict for safe access
+        self.road_gps = {}
+        for road_id, row in self.geo_df.iterrows():
+            try:
+                center_gps = row['center_gps']
+                if center_gps and center_gps[0] is not None and center_gps[1] is not None:
+                    # Store as (lon, lat) for compatibility with original code
+                    self.road_gps[road_id] = (center_gps[1], center_gps[0])
+                else:
+                    print(f"⚠️  Warning: Invalid GPS for road_id {road_id}")
+            except (KeyError, TypeError, Exception) as e:
+                print(f"⚠️  Warning: Could not process road_id {road_id}: {e}")
         
         # Setup dynamic grid bounds from actual data
         self._setup_grid()
@@ -380,52 +555,43 @@ class LocalMetrics:
     def _setup_grid(self):
         """
         Setup grid system with bounds computed from actual road data.
-        Matches the original author's 200m grid approach.
+        Uses degree-based grid matching Beijing.yaml configuration.
         """
-        # Get all road center coordinates
-        lons = [gps[0] for gps in self.road_gps]
-        lats = [gps[1] for gps in self.road_gps]
+        # Get all road center coordinates from valid GPS entries
+        valid_gps = [gps for gps in self.road_gps.values() if gps is not None and gps[0] is not None and gps[1] is not None]
+        
+        if not valid_gps:
+            raise RuntimeError("🚨 FATAL: No valid GPS coordinates found for grid setup!")
+        
+        lons = [gps[0] for gps in valid_gps]
+        lats = [gps[1] for gps in valid_gps]
         
         self.min_lon = min(lons)
         self.max_lon = max(lons)
         self.min_lat = min(lats)
         self.max_lat = max(lats)
         
-        # Calculate grid dimensions using geopy distance
-        # Width: longitude distance at min_lat
-        lon_dist = distance.geodesic(
-            (self.min_lat, self.min_lon),
-            (self.min_lat, self.max_lon)
-        ).meters
+        # Calculate grid dimensions in degrees (matching Beijing.yaml grid_size: 0.001)
+        self.img_width = math.ceil((self.max_lon - self.min_lon) / self.grid_size) + 1
+        self.img_height = math.ceil((self.max_lat - self.min_lat) / self.grid_size) + 1
         
-        # Height: latitude distance
-        lat_dist = distance.geodesic(
-            (self.min_lat, self.min_lon),
-            (self.max_lat, self.min_lon)
-        ).meters
+        # Convert grid size to approximate meters for display
+        # At Beijing latitude (~39.9°N), 1 degree ≈ 111km
+        grid_size_m = self.grid_size * 111000  # Approximate meters
         
-        self.img_width = math.ceil(lon_dist / self.grid_size) + 1
-        self.img_height = math.ceil(lat_dist / self.grid_size) + 1
-        
-        print(f"📐 Grid setup: {self.img_width} × {self.img_height} cells ({self.grid_size}m resolution)")
+        print(f"📐 Grid setup: {self.img_width} × {self.img_height} cells ({self.grid_size}° ≈ {grid_size_m:.0f}m resolution)")
         print(f"   Bounds: lon [{self.min_lon:.4f}, {self.max_lon:.4f}], lat [{self.min_lat:.4f}, {self.max_lat:.4f}]")
 
     def gps2grid(self, lon, lat):
         """
         Convert GPS coordinates to grid cell indices.
-        Matches original author's MapManager.gps2grid logic.
+        Uses degree-based grid matching Beijing.yaml configuration.
         """
-        # X: distance from min_lon
-        x = math.floor(distance.geodesic(
-            (lat, self.min_lon),
-            (lat, lon)
-        ).meters / self.grid_size)
+        # X: longitude-based grid cell
+        x = math.floor((lon - self.min_lon) / self.grid_size)
         
-        # Y: distance from min_lat
-        y = math.floor(distance.geodesic(
-            (self.min_lat, lon),
-            (lat, lon)
-        ).meters / self.grid_size)
+        # Y: latitude-based grid cell  
+        y = math.floor((lat - self.min_lat) / self.grid_size)
         
         # Clamp to grid bounds (no assertions, just clamp)
         x = max(0, min(x, self.img_width - 1))
@@ -496,6 +662,53 @@ class LocalMetrics:
 
         return max(h_u_v, h_v_u)
 
+    def _calculate_dtw_polars(self, traj1_coords, traj2_coords):
+        """
+        Calculate DTW distance using polars-ts for better performance.
+        
+        Args:
+            traj1_coords: List of (lat, lon) tuples for trajectory 1
+            traj2_coords: List of (lat, lon) tuples for trajectory 2
+            
+        Returns:
+            DTW distance in kilometers
+        """
+        try:
+            # Convert coordinates to polars DataFrames
+            # polars-ts expects columns: unique_id, ds, y
+            # We'll use unique_id to distinguish trajectories, ds for sequence, y for values
+            
+            # Create trajectory 1 DataFrame
+            df1 = pl.DataFrame({
+                "unique_id": ["traj1"] * len(traj1_coords),
+                "ds": list(range(len(traj1_coords))),
+                "y": [haversine((lat, lon), (0, 0)) for lat, lon in traj1_coords]  # Distance from origin as proxy
+            })
+            
+            # Create trajectory 2 DataFrame  
+            df2 = pl.DataFrame({
+                "unique_id": ["traj2"] * len(traj2_coords),
+                "ds": list(range(len(traj2_coords))),
+                "y": [haversine((lat, lon), (0, 0)) for lat, lon in traj2_coords]
+            })
+            
+            # Calculate pairwise DTW using polars-ts
+            dtw_result = pts.compute_pairwise_dtw(df1, df2)
+            
+            # Extract the DTW distance (should be the only row)
+            if len(dtw_result) > 0:
+                return dtw_result["dtw"][0]
+            else:
+                # Fallback to fastdtw if polars-ts fails
+                dist, _ = fastdtw(traj1_coords, traj2_coords, dist=haversine)
+                return dist
+                
+        except Exception as e:
+            print(f"⚠️  Polars-ts DTW failed, falling back to fastdtw: {e}")
+            # Fallback to original fastdtw
+            dist, _ = fastdtw(traj1_coords, traj2_coords, dist=haversine)
+            return dist
+
     def _calculate_edr(self, t0, t1, eps=100):
         """
         Calculate Edit Distance on Real sequence (EDR).
@@ -529,7 +742,7 @@ class LocalMetrics:
 
         for i in range(1, n0 + 1):
             for j in range(1, n1 + 1):
-                # t0 and t1 are (lat, lon), need to pass (lon, lat) to distance function
+                # t0 and t1 are (lat, lon) from _get_coord_traj, need to pass (lon, lat) to distance function
                 if great_circle_distance(
                     t0[i - 1][1], t0[i - 1][0],  # lon, lat from t0
                     t1[j - 1][1], t1[j - 1][0]   # lon, lat from t1
@@ -578,12 +791,12 @@ class LocalMetrics:
                 h_dist = self._calculate_hausdorff_haversine(gen_traj_coords, real_traj_coords)
                 hausdorff_scores.append(h_dist)
 
-                # DTW (km)
-                dist, _ = fastdtw(gen_traj_coords, real_traj_coords, dist=haversine)
-                dtw_scores.append(dist)
+                # DTW (km) - using polars-ts for better performance
+                dtw_dist = self._calculate_dtw_polars(gen_traj_coords, real_traj_coords)
+                dtw_scores.append(dtw_dist)
                 
                 # EDR (unitless, 0-1)
-                edr = self._calculate_edr(real_traj_coords, gen_traj_coords, eps=100)
+                edr = self._calculate_edr(real_traj_coords, gen_traj_coords, eps=self.edr_eps)
                 edr_scores.append(edr)
 
         results = {
@@ -645,6 +858,8 @@ def main():
     parser.add_argument('--wandb_project', type=str, default=None, help='WandB project name (auto-detected from run metadata if not specified)')
     parser.add_argument('--wandb_run_name', type=str, default='', help='WandB run name (optional)')
     parser.add_argument('--wandb_tags', type=str, nargs='*', default=['eval'], help='WandB tags')
+    parser.add_argument('--grid_size', type=float, default=0.001, help='Grid size in degrees for OD pair matching (default: 0.001 from Beijing.yaml)')
+    parser.add_argument('--edr_eps', type=float, default=100.0, help='EDR threshold in meters (default: 100.0)')
     args = parser.parse_args()
     
     # Detect WandB metadata early (we'll use it even if --wandb is not set, for reference)
@@ -697,12 +912,18 @@ def main():
     
     # Load data
     geo_df = load_road_network(geo_path)
-    real_trajectories = load_trajectories(real_path, is_real_data=True)
-    generated_trajectories = load_trajectories(generated_path, is_real_data=False)
+    
+    # Get max road ID for validation
+    max_road_id = geo_df['road_id'].max()
+    print(f"🔍 Max road ID in network: {max_road_id}")
+    
+    real_trajectories = load_trajectories(real_path, is_real_data=True, max_road_id=max_road_id)
+    generated_trajectories = load_trajectories(generated_path, is_real_data=False, max_road_id=max_road_id)
     
     # Run evaluations
     global_metrics = GlobalMetrics(real_trajectories, generated_trajectories, geo_df).evaluate()
-    local_metrics = LocalMetrics(real_trajectories, generated_trajectories, geo_df).evaluate()
+    local_metrics = LocalMetrics(real_trajectories, generated_trajectories, geo_df, 
+                                grid_size=args.grid_size, edr_eps=args.edr_eps).evaluate()
 
     # Combine and display results
     all_results = {**global_metrics, **local_metrics}
