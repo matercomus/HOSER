@@ -16,6 +16,8 @@
 #   --force                 Force re-run even if results exist (overrides caching)
 #   --cuda DEVICE           CUDA device (default: 0)
 #   --num-gene N            Number of trajectories (default: 5000)
+#   --search-mode MODE      Search algorithm (default: model_astar)
+#                           Options: model_astar, nx_astar, beam_search
 #
 # Examples:
 #   # Run both models with seed 42 (default, uses cache if available)
@@ -165,9 +167,9 @@ process_model() {
             
             # Determine tag based on model type
             if [ "$MODEL" = "vanilla" ]; then
-                TAGS="vanilla baseline 25epochs seed$SEED generation nx_astar"
+                TAGS="vanilla baseline 25epochs seed$SEED generation model_astar"
             else
-                TAGS="distilled final 25epochs seed$SEED generation nx_astar"
+                TAGS="distilled final 25epochs seed$SEED generation model_astar"
             fi
             
             uv run python gene.py \
@@ -176,10 +178,9 @@ process_model() {
               --cuda "$CUDA_DEVICE" \
               --num_gene "$NUM_GENE" \
               --model_path "$MODEL_PATH" \
-              --nx_astar \
               --wandb \
               --wandb_project "$WANDB_PROJECT" \
-              --wandb_run_name "gene_${MODEL}_seed${SEED}_nx_astar" \
+              --wandb_run_name "gene_${MODEL}_seed${SEED}_model_astar" \
               --wandb_tags $TAGS
             
             # Move generated file to organized directory

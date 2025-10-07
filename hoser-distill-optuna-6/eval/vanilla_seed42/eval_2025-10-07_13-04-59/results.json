@@ -1,0 +1,20 @@
+{
+    "Distance (JSD)": 0.06633172799088048,
+    "Duration (JSD)": 0.18957771041793187,
+    "Radius (JSD)": 0.07086290971162316,
+    "Hausdorff (km)": 0.44070834697180555,
+    "DTW (km)": 6.653963503421343,
+    "metadata": {
+        "run_directory": "/home/matt/Dev/HOSER/hoser-distill-optuna-6/eval/.temp_vanilla_seed42",
+        "generated_file": "/home/matt/Dev/HOSER/hoser-distill-optuna-6/eval/.temp_vanilla_seed42/hoser_format/2025-10-07_12-54-48.csv",
+        "real_data_file": "/home/matt/Dev/HOSER/hoser-distill-optuna-6/eval/.temp_vanilla_seed42/hoser_format/test.csv",
+        "road_network_file": "/home/matt/Dev/HOSER/hoser-distill-optuna-6/eval/.temp_vanilla_seed42/hoser_format/roadmap.geo",
+        "evaluation_timestamp": "2025-10-07T13:15:25.166869",
+        "real_trajectories_count": 179823,
+        "generated_trajectories_count": 5000,
+        "training_run_id": null,
+        "training_run_name": null,
+        "generation_run_id": null,
+        "generation_run_name": null
+    }
+}
