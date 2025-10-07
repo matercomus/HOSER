@@ -826,6 +826,250 @@ Where:
 
 **Tuning strategy**: Optuna searches the joint space to find the optimal combination for validation accuracy.
 
+## Validation Metrics
+
+After each training epoch, we evaluate the model on the validation set to monitor performance and guide training decisions (early stopping, best model selection, hyperparameter tuning). This section explains exactly how each metric is computed.
+
+### Next-Step Accuracy (`val_next_step_acc`)
+
+**Definition**: The proportion of timesteps where the model correctly predicts the next road segment among the candidate set.
+
+**Implementation** (from `train_with_distill.py:1198-1215`):
+
+```python
+# Step 1: Extract valid timesteps (mask padding)
+logits_mask = torch.arange(logits.size(1), device=device).unsqueeze(0) < batch_trace_len.unsqueeze(1)
+# Shape: [B, T] - True for real timesteps, False for padding
+# Example: trace_len=[3, 5] → mask=[[T,T,T,F,F], [T,T,T,T,T]]
+
+selected_logits = logits[logits_mask]  # Flatten to [N, C] where N=total valid timesteps
+selected_road_label = batch_road_label[logits_mask]  # [N] ground truth labels
+selected_candidate_len = batch_candidate_len[logits_mask]  # [N] candidates per position
+
+# Step 2: Mask out invalid candidates (beyond candidate_len)
+candidate_mask = torch.arange(selected_logits.size(1), device=device).unsqueeze(0) < selected_candidate_len.unsqueeze(1)
+# Shape: [N, C] - True for valid candidates, False for padding
+masked_selected_logits = selected_logits.masked_fill(~candidate_mask, float("-inf"))
+# Set invalid candidates to -inf so they never win argmax
+
+# Step 3: Count correct predictions
+predictions = torch.argmax(masked_selected_logits, dim=1)  # [N] - index of highest-scoring candidate
+correct = (predictions == selected_road_label)  # [N] - boolean tensor
+val_next_step_correct_cnt += torch.sum(correct).item()  # Accumulate across batches
+
+# Step 4: Count total valid timesteps
+val_next_step_total_cnt += torch.sum(batch_trace_len).item()  # Sum all trajectory lengths
+
+# Step 5: Compute accuracy (after all batches)
+val_acc = val_next_step_correct_cnt / val_next_step_total_cnt
+```
+
+**Key details**:
+
+1. **Per-timestep evaluation**: Each decision point in each trajectory is evaluated independently
+2. **Padding exclusion**: Only real timesteps (within `trace_len`) are counted, padding is ignored
+3. **Candidate masking**: Invalid candidates (beyond `candidate_len`) are masked with `-inf` before argmax
+4. **Label filtering**: Labels marked as `-100` (filtered out by top-k) are included in the count but always wrong
+5. **Batch accumulation**: Correct counts and total counts are accumulated across all validation batches
+
+**Worked example**:
+
+Suppose we have 2 trajectories in validation:
+- Trajectory 1: 89,912 total timesteps in validation set
+- Trajectory 2: Each timestep has up to 64 candidates (after top-k filtering)
+
+```
+Batch 1:
+  Trace lengths: [10, 8]
+  Total timesteps: 10 + 8 = 18
+  
+  Position 0: logits=[2.1, 0.5, -1.2, ...], prediction=0, label=0 → Correct ✅
+  Position 1: logits=[1.3, 2.7, -0.4, ...], prediction=1, label=1 → Correct ✅
+  Position 2: logits=[0.8, 1.1, 1.9, ...], prediction=2, label=1 → Wrong ❌
+  ... (15 more positions)
+  
+  Correct in batch: 14 / 18
+
+Batch 2:
+  Trace lengths: [12, 9]
+  Total timesteps: 12 + 9 = 21
+  Correct in batch: 17 / 21
+
+... (all validation batches)
+
+Final accuracy: 51,238 correct / 89,912 total = 0.5696 = 56.96%
+```
+
+**Why this metric?**
+
+- **Interpretability**: Directly measures "how often does the model pick the right road?"
+- **Task-aligned**: Matches the actual prediction task (next-step classification)
+- **Robust**: Not affected by time prediction errors (separate metric)
+- **Comparable**: Standard metric used across trajectory prediction models
+
+### Time Prediction MAPE (`val_time_pred_mape`)
+
+**Definition**: Mean Absolute Percentage Error of predicted travel time to the next road segment, averaged over valid timesteps.
+
+**Implementation** (from `train_with_distill.py:1217-1234`):
+
+```python
+# Step 1: Extract time predictions for correct candidate positions
+flat_mask = logits_mask  # [B, T] - valid timesteps
+flat_indices = torch.arange(time_pred[flat_mask].size(0), device=device)  # [N]
+
+# Only compute time loss where labels are valid (not filtered out)
+valid_time = (selected_road_label >= 0) & (selected_road_label < selected_candidate_len)
+# Exclude positions with label=-100 (filtered by top-k) or out-of-bounds
+
+# Step 2: Extract predictions for ground-truth candidates (safe indexing)
+safe_labels = torch.clamp(selected_road_label, min=0)  # Clamp -100 to 0 for indexing
+selected_time_pred = time_pred[flat_mask][flat_indices, safe_labels]  # [N]
+
+# Step 3: Denormalize predictions and labels
+selected_time_pred = selected_time_pred * timestamp_std + timestamp_mean
+selected_timestamp_label = batch_timestamp_label[flat_mask]
+selected_timestamp_label = selected_timestamp_label * timestamp_std + timestamp_mean
+
+# Step 4: Compute MAPE on valid positions only
+if torch.any(valid_time):
+    diff = torch.abs(selected_time_pred - selected_timestamp_label)  # [N]
+    mape = diff / torch.clamp(selected_timestamp_label, min=1.0)  # [N] - percentage error
+    val_time_pred_mape_sum += torch.sum(mape[valid_time])  # Accumulate valid positions
+    val_time_pred_total_cnt += torch.sum(valid_time).item()  # Count valid positions
+
+# Step 5: Average after all batches
+val_mape = val_time_pred_mape_sum / val_time_pred_total_cnt
+```
+
+**MAPE formula**:
+
+$$
+\text{MAPE} = \frac{1}{N_{\text{valid}}} \sum_{i \in \text{valid}} \frac{|\hat{t}_i - t_i|}{\max(t_i, 1.0)}
+$$
+
+Where:
+- $\hat{t}_i$: Predicted travel time (seconds) to next road
+- $t_i$: Actual travel time (seconds) from ground truth
+- $N_{\text{valid}}$: Number of positions where label is valid (not filtered)
+
+**Key details**:
+
+1. **Valid positions only**: Excludes timesteps where the ground truth candidate was filtered out (label=-100)
+2. **Denormalization**: Predictions are log1p-normalized during training, denormalized for interpretable MAPE
+3. **Clamp denominator**: Prevents division by zero for very short travel times (<1 second)
+4. **Percentage-based**: MAPE measures relative error, so a 10-second error on a 100-second segment (10%) is equivalent to a 1-second error on a 10-second segment (10%)
+
+**Worked example**:
+
+```
+Position 0: 
+  Predicted: 45.2 seconds
+  Actual: 47.0 seconds
+  Error: |45.2 - 47.0| / 47.0 = 0.0383 (3.83%)
+
+Position 1:
+  Predicted: 12.8 seconds
+  Actual: 10.5 seconds
+  Error: |12.8 - 10.5| / 10.5 = 0.2190 (21.90%)
+
+Position 2:
+  Label=-100 (filtered) → Skip ⏭️
+
+Position 3:
+  Predicted: 120.3 seconds
+  Actual: 118.7 seconds
+  Error: |120.3 - 118.7| / 118.7 = 0.0135 (1.35%)
+
+Average MAPE: (0.0383 + 0.2190 + 0.0135) / 3 = 0.0903 = 9.03%
+```
+
+**Why MAPE?**
+
+- **Scale-invariant**: Works well for travel times ranging from 10 seconds to 300+ seconds
+- **Interpretable**: "On average, time predictions are off by X%"
+- **Secondary objective**: Time prediction is less critical than next-step accuracy but provides additional signal
+
+### Validation Workflow
+
+**Per-epoch validation loop**:
+
+```python
+# 1. Set model to eval mode
+model.eval()
+
+# 2. Initialize accumulators
+val_next_step_correct_cnt = 0
+val_next_step_total_cnt = 0
+val_time_pred_mape_sum = 0.0
+val_time_pred_total_cnt = 0
+
+# 3. Loop through validation batches (no gradient computation)
+with torch.no_grad():
+    for batch in val_dataloader:
+        # Forward pass (with top-k filtering, same as training)
+        logits, time_pred = model(...)
+        
+        # Compute next-step accuracy (accumulate counts)
+        predictions = torch.argmax(masked_logits, dim=1)
+        correct_cnt += (predictions == labels).sum().item()
+        total_cnt += labels.size(0)
+        
+        # Compute time MAPE (accumulate error sum)
+        valid_positions = (labels >= 0)  # Exclude filtered labels
+        mape_sum += compute_mape(time_pred[valid_positions], time_labels[valid_positions])
+        valid_cnt += valid_positions.sum().item()
+
+# 4. Compute final metrics
+val_acc = val_next_step_correct_cnt / val_next_step_total_cnt
+val_mape = val_time_pred_mape_sum / val_time_pred_total_cnt
+
+# 5. Log to TensorBoard, WandB, and console
+writer.add_scalar("val/next_step_acc", val_acc, epoch_id)
+writer.add_scalar("val/time_pred_mape", val_mape, epoch_id)
+logger.info(f"[validation] epoch{epoch_id+1}, val_acc {val_acc:.6f}, val_mape {val_mape:.4f}")
+
+# 6. Track best model (for saving)
+if val_acc > best_val_acc:
+    best_val_acc = val_acc
+    torch.save(model.state_dict(), "best.pth")
+
+# 7. Report to Optuna (for pruning/optimization)
+if optuna_trial is not None:
+    optuna_trial.report(val_acc, epoch_id)
+    if optuna_trial.should_prune():
+        raise optuna.TrialPruned()
+```
+
+### Metric Interpretation Guide
+
+**Next-Step Accuracy**:
+- **Baseline** (vanilla HOSER): ~57.2%
+- **Target** (distilled HOSER): >58% (+1-3% improvement)
+- **Interpretation**: Out of 100 road segment predictions, 57-58 are correct
+
+**Time MAPE**:
+- **Typical range**: 8-15% (good performance)
+- **Acceptable**: <20%
+- **Poor**: >30%
+- **Interpretation**: Time predictions are typically within ±10% of actual travel time
+
+**Monitoring during training**:
+
+| Epoch | Train Loss | Val Acc | Val MAPE | Status |
+|-------|------------|---------|----------|--------|
+| 1 | 2.145 | 0.4523 | 0.1842 | Model learning basic patterns |
+| 3 | 1.327 | 0.5341 | 0.1245 | Improving, not overfitting |
+| 5 | 0.892 | 0.5698 | 0.1089 | Approaching baseline |
+| 7 | 0.654 | 0.5722 | 0.1052 | Converged (vanilla baseline) |
+| 10 | 0.512 | 0.5801 | 0.0987 | **Distillation benefit visible** ✅ |
+
+**Red flags**:
+- Val acc decreases while train loss decreases → **Overfitting**
+- Val acc plateaus early (<50%) → **Underfitting** or data issue
+- Val MAPE > 50% → **Time head not learning**
+- Val acc identical across different seeds/trials → **Reproducibility issue** (fixed: CUDA seed)
+
 ---
 
 **Transitional note for readers**: The sections above provided the theoretical foundation (why distillation, what components exist, mathematical formulation). The sections below dive into concrete implementation details and a complete worked example with real numbers. If you prefer hands-on learning, you may want to jump to the "Detailed Worked Example" section now and return to implementation details later.
