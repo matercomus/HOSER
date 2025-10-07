@@ -22,27 +22,75 @@ hoser-distill-optuna-6/
 
 ## 🚀 Quick Start
 
-### Run Complete Pipeline (Seed 42)
+### Run Now (Seed 42) - In Your Tmux Session!
 
 ```bash
 cd /home/matt/Dev/HOSER/hoser-distill-optuna-6
 
-# Default: Both models, seed 42
+# Default: Both models, seed 42 (uses cache if already run)
 ./run_gene_eval_pipeline.sh
-
-# Or with explicit options
-./run_gene_eval_pipeline.sh --seed 42 --models vanilla,distilled
 ```
 
-This will:
+**What it does**:
 1. Generate 5000 trajectories using vanilla model (NetworkX A* + ML timing)
 2. Evaluate vanilla trajectories against test set
 3. Generate 5000 trajectories using distilled model
 4. Evaluate distilled trajectories against test set
 
+**Runtime**: ~1.5-3 hours total
+
 All runs are logged to WandB project: `hoser-distill-optuna-6`
 
-### Run for Multiple Seeds (Batch Mode)
+### 💡 Smart Caching (Important!)
+
+The pipeline is **idempotent** and uses intelligent caching:
+
+**First Run (Seed 42)**:
+```bash
+./run_gene_eval_pipeline.sh
+```
+- Generates all trajectories
+- Evaluates all trajectories
+- ~1.5-3 hours
+
+**Second Run (Seed 42)**:
+```bash
+./run_gene_eval_pipeline.sh
+```
+- ✅ Finds existing generated files → skips generation
+- ✅ Finds existing evaluation → skips evaluation  
+- **Completes instantly!**
+
+**Force Re-run** (if needed):
+```bash
+./run_gene_eval_pipeline.sh --force
+```
+
+### When Seeds 43 & 44 Finish Training
+
+First, add the new models:
+```bash
+# Download or copy distilled models to:
+models/distilled_25epoch_seed43.pth
+models/distilled_25epoch_seed44.pth
+```
+
+Then run only the new seeds:
+```bash
+# Option A: Run individually (recommended)
+./run_gene_eval_pipeline.sh --seed 43 --models distilled
+./run_gene_eval_pipeline.sh --seed 44 --models distilled
+
+# Option B: Batch run
+./run_all_seeds.sh --seeds "43 44" --models distilled
+```
+
+The pipeline is smart enough to:
+- ✅ Skip seed 42 (already done)
+- ✅ Skip vanilla for 43 & 44 (vanilla only needs one seed)
+- 🧬 Only generate & evaluate distilled for seeds 43 & 44
+
+### Advanced Options
 
 ```bash
 # Run all seeds (42, 43, 44) with both models
@@ -53,11 +101,7 @@ All runs are logged to WandB project: `hoser-distill-optuna-6`
 
 # Run only distilled models for all seeds
 ./run_all_seeds.sh --models distilled
-```
 
-### Run for Specific Seeds or Models
-
-```bash
 # Only seed 43, both models
 ./run_gene_eval_pipeline.sh --seed 43
 
@@ -69,6 +113,9 @@ All runs are logged to WandB project: `hoser-distill-optuna-6`
 
 # Only generate (skip evaluation)
 ./run_gene_eval_pipeline.sh --seed 42 --skip-eval
+
+# Force re-run everything (ignores cache)
+./run_gene_eval_pipeline.sh --force
 ```
 
 ### Run Individual Steps
