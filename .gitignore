@@ -24,3 +24,9 @@ hoser-distill-optuna-6/gene/
 hoser-distill-optuna-6/wandb/
 hoser-distill-optuna-6/pipeline.log
 hoser-distill-optuna-6/eval_test.log
+
+# Temporary analysis files
+caoji-hoser-eval.py
+hoser-eval-caoji.ipynb
+map_manager.py
+*heatmap*.ipynb
