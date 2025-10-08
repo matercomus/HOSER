@@ -15,7 +15,6 @@ from haversine import haversine, haversine_vector
 from geopy import distance  # type: ignore
 import wandb
 import yaml
-import polars_ts as pts  # For DTW calculations
 
 
 def js_divergence(p, q):
@@ -672,7 +671,7 @@ class LocalMetrics:
 
     def _calculate_dtw_polars(self, traj1_coords, traj2_coords):
         """
-        Calculate DTW distance using polars-ts for better performance.
+        Calculate DTW distance using fastdtw.
         
         Args:
             traj1_coords: List of (lat, lon) tuples for trajectory 1
@@ -681,41 +680,9 @@ class LocalMetrics:
         Returns:
             DTW distance in kilometers
         """
-        try:
-            # Convert coordinates to polars DataFrames
-            # polars-ts expects columns: unique_id, ds, y
-            # We'll use unique_id to distinguish trajectories, ds for sequence, y for values
-            
-            # Create trajectory 1 DataFrame
-            df1 = pl.DataFrame({
-                "unique_id": ["traj1"] * len(traj1_coords),
-                "ds": list(range(len(traj1_coords))),
-                "y": [haversine((lat, lon), (0, 0)) for lat, lon in traj1_coords]  # Distance from origin as proxy
-            })
-            
-            # Create trajectory 2 DataFrame  
-            df2 = pl.DataFrame({
-                "unique_id": ["traj2"] * len(traj2_coords),
-                "ds": list(range(len(traj2_coords))),
-                "y": [haversine((lat, lon), (0, 0)) for lat, lon in traj2_coords]
-            })
-            
-            # Calculate pairwise DTW using polars-ts
-            dtw_result = pts.compute_pairwise_dtw(df1, df2)
-            
-            # Extract the DTW distance (should be the only row)
-            if len(dtw_result) > 0:
-                return dtw_result["dtw"][0]
-            else:
-                # Fallback to fastdtw if polars-ts fails
-                dist, _ = fastdtw(traj1_coords, traj2_coords, dist=haversine)
-                return dist
-                
-        except Exception as e:
-            print(f"⚠️  Polars-ts DTW failed, falling back to fastdtw: {e}")
-            # Fallback to original fastdtw
-            dist, _ = fastdtw(traj1_coords, traj2_coords, dist=haversine)
-            return dist
+        # Use fastdtw directly to avoid polars-ts compatibility issues
+        dist, _ = fastdtw(traj1_coords, traj2_coords, dist=haversine)
+        return dist
 
     def _calculate_edr(self, t0, t1, eps=100):
         """

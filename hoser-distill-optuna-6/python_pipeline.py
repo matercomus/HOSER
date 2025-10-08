@@ -199,13 +199,21 @@ class TrajectoryGenerator:
 
 
 class TrajectoryEvaluator:
-    """Evaluate generated trajectories against real data"""
+    """Evaluate generated trajectories against real data with smart caching"""
     
     def __init__(self, config: PipelineConfig):
         self.config = config
+        self.evaluation_cache = {}  # Cache full evaluations by (file, od_source)
     
     def evaluate_trajectories(self, generated_file: Path, model_type: str, od_source: str) -> Dict[str, Any]:
-        """Evaluate generated trajectories"""
+        """Evaluate generated trajectories with caching"""
+        cache_key = (str(generated_file), od_source)
+        
+        # Check if we've already evaluated this exact combination
+        if cache_key in self.evaluation_cache:
+            logger.info(f"Using cached evaluation results for {model_type} ({od_source} OD)")
+            return self.evaluation_cache[cache_key]
+        
         logger.info(f"Evaluating trajectories: {model_type} ({od_source} OD)")
         
         # Use the programmatic interface
@@ -220,6 +228,9 @@ class TrajectoryEvaluator:
             wandb_run_name=None,
             wandb_tags=None
         )
+        
+        # Cache the results
+        self.evaluation_cache[cache_key] = results
         
         # Add our metadata
         results["metadata"]["model_type"] = model_type
