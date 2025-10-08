@@ -28,6 +28,7 @@ import argparse
 import json
 import time
 import signal
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -80,6 +81,7 @@ class PipelineConfig:
         self.beam_width = 4
         self.grid_size = 0.001
         self.edr_eps = 100.0
+        self.background_sync = True  # Background WandB sync
         
         # Load from YAML if provided
         if config_path:
@@ -97,6 +99,7 @@ class PipelineConfig:
                 wandb_config = value
                 self.wandb_project = wandb_config.get('project', self.wandb_project)
                 self.enable_wandb = wandb_config.get('enable', self.enable_wandb)
+                self.background_sync = wandb_config.get('background_sync', self.background_sync)
             elif key == 'logging':
                 logging_config = value
                 self.verbose = logging_config.get('verbose', self.verbose)
@@ -227,12 +230,13 @@ class TrajectoryEvaluator:
 
 
 class WandBManager:
-    """Manage WandB logging efficiently with minimal upload delays"""
+    """Manage WandB logging efficiently with background uploads"""
     
     def __init__(self, config: PipelineConfig):
         self.config = config
-        self.runs = {}  # Store run objects to avoid re-initialization
-        self.metrics_buffer = {}  # Buffer metrics to reduce API calls
+        self.runs = {}  # Store run objects
+        self.completed_runs = []  # Track completed runs for background sync
+        self.sync_thread = None
     
     def init_run(self, run_name: str, tags: List[str], config_dict: Dict[str, Any]) -> str:
         """Initialize a WandB run and return run ID"""
@@ -240,17 +244,16 @@ class WandBManager:
             return "wandb_disabled"
         
         try:
-            # Use offline mode to defer all uploads until finish
+            # Use offline mode - no network delays
             run = wandb.init(
                 project=self.config.wandb_project,
                 name=run_name,
                 tags=tags,
                 config=config_dict,
                 reinit=True,
-                mode="offline"  # Stay offline until we explicitly sync
+                mode="offline"
             )
             self.runs[run_name] = run
-            self.metrics_buffer[run_name] = []
             logger.info(f"WandB run initialized (offline): {run_name}")
             return run.id
         except Exception as e:
@@ -258,7 +261,7 @@ class WandBManager:
             return "wandb_failed"
     
     def log_metrics(self, run_name: str, metrics: Dict[str, Any]):
-        """Log metrics to WandB immediately (offline mode prevents upload delays)"""
+        """Log metrics to WandB (offline, no upload delay)"""
         if not self.config.enable_wandb or run_name not in self.runs:
             return
         
@@ -267,20 +270,23 @@ class WandBManager:
             scalar_metrics = {k: v for k, v in metrics.items() 
                             if isinstance(v, (int, float)) and k != 'metadata'}
             if scalar_metrics:
-                # Log directly - offline mode means no upload delay
                 self.runs[run_name].log(scalar_metrics)
         except Exception as e:
             logger.warning(f"Failed to log metrics to WandB: {e}")
     
     def finish_run(self, run_name: str):
-        """Finish a WandB run (stays offline, no upload)"""
+        """Finish a WandB run and track for background sync"""
         if not self.config.enable_wandb or run_name not in self.runs:
             return
         
         try:
-            # Just finish the run - stays in offline mode
-            self.runs[run_name].finish()
+            run = self.runs[run_name]
+            run_dir = run.dir  # Get the run directory before finishing
+            run.finish()
             del self.runs[run_name]
+            
+            # Track for background sync
+            self.completed_runs.append(run_dir)
             logger.info(f"WandB run completed (offline): {run_name}")
         except Exception as e:
             logger.warning(f"Failed to finish WandB run: {e}")
@@ -290,13 +296,50 @@ class WandBManager:
         for run_name in list(self.runs.keys()):
             self.finish_run(run_name)
     
-    def sync_offline_runs(self):
-        """Sync all offline runs to WandB in the background"""
-        if not self.config.enable_wandb:
+    def start_background_sync(self):
+        """Start background thread to sync offline runs to WandB"""
+        if not self.config.enable_wandb or not self.completed_runs:
             return
         
-        logger.info("📤 All runs saved offline. Use 'wandb sync wandb/offline-run-*' to upload to cloud")
-        logger.info("   Sync will happen in background after pipeline completes")
+        if not self.config.background_sync:
+            logger.info(f"📤 {len(self.completed_runs)} WandB runs saved offline")
+            logger.info("   To upload: wandb sync wandb/offline-run-*")
+            return
+        
+        def sync_worker():
+            """Background worker to sync runs"""
+            logger.info(f"📤 Starting background sync of {len(self.completed_runs)} WandB runs...")
+            
+            import subprocess
+            synced = 0
+            failed = 0
+            
+            for run_dir in self.completed_runs:
+                try:
+                    # Use subprocess to run wandb sync
+                    result = subprocess.run(
+                        ['wandb', 'sync', run_dir],
+                        capture_output=True,
+                        text=True,
+                        timeout=300  # 5 min timeout per run
+                    )
+                    if result.returncode == 0:
+                        synced += 1
+                        logger.info(f"✅ Synced {synced}/{len(self.completed_runs)}: {os.path.basename(run_dir)}")
+                    else:
+                        failed += 1
+                        logger.warning(f"⚠️  Sync failed: {os.path.basename(run_dir)}")
+                except Exception as e:
+                    failed += 1
+                    logger.warning(f"Error syncing {os.path.basename(run_dir)}: {e}")
+            
+            logger.info(f"📤 Background sync complete! {synced} synced, {failed} failed")
+        
+        # Start background thread (daemon=False so it completes even if main exits)
+        self.sync_thread = threading.Thread(target=sync_worker, daemon=False)
+        self.sync_thread.start()
+        logger.info("📤 Background WandB sync started (non-blocking)")
+        logger.info("   Pipeline will exit immediately. Sync continues in background.")
 
 
 class EvaluationPipeline:
@@ -585,7 +628,9 @@ class EvaluationPipeline:
             # Cleanup: finish all WandB runs
             try:
                 self.wandb_manager.finish_all_runs()
-                self.wandb_manager.sync_offline_runs()
+                
+                # Start background sync (non-blocking)
+                self.wandb_manager.start_background_sync()
             except Exception as e:
                 logger.warning(f"Error during WandB cleanup: {e}")
 
@@ -653,7 +698,7 @@ def main():
             
     except KeyboardInterrupt:
         logger.info("\n🛑 Pipeline interrupted by user")
-        logger.info("   Partial results saved offline. Run 'wandb sync wandb/offline-run-*' to upload")
+        logger.info("   Partial results saved offline. Background sync will upload them.")
         sys.exit(130)
     except Exception as e:
         logger.error(f"Pipeline failed: {str(e)}")

@@ -74,7 +74,7 @@ CONFIGURATION:
 USAGE:
   # Standard run (uses Beijing.yaml defaults: 25 trials, 5 epochs)
   uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
-  
+
   # Quick 24-hour run (8-10 trials)
   uv run python tune_hoser.py --n_trials 10 --data_dir /home/matt/Dev/HOSER-dataset
 
@@ -168,7 +168,7 @@ class HOSERObjective:
             # Only cleanup if trial failed (not succeeded or pruned)
             if not trial_succeeded:
                 print(f"🧹 Trial {trial.number} failed - cleaning up artifacts")
-                self._cleanup_trial_artifacts(trial.number)
+            self._cleanup_trial_artifacts(trial.number)
             
             gc.collect()
             torch.cuda.empty_cache()
@@ -485,12 +485,12 @@ def create_study_with_wandb(
             tpe_startup = sampler_cfg.get('n_startup_trials', 10)
             multivariate = sampler_cfg.get('multivariate', True)
             group = sampler_cfg.get('group', True)
-            sampler = optuna.samplers.TPESampler(
-                seed=seed,
-                n_startup_trials=tpe_startup,
-                multivariate=multivariate,
-                group=group
-            )
+        sampler = optuna.samplers.TPESampler(
+            seed=seed,
+            n_startup_trials=tpe_startup,
+            multivariate=multivariate,
+            group=group
+        )
             print(f"🔬 Using TPE Sampler (n_startup_trials={tpe_startup}, seed={seed})")
     except (ImportError, AttributeError) as e:
         print(f"⚠️  Requested sampler not available ({e}), falling back to RandomSampler")

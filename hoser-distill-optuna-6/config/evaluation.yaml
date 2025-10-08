@@ -30,6 +30,7 @@ wandb:
   enable: true
   project: hoser-distill-optuna-6
   mode: offline  # Use offline mode to reduce API calls
+  background_sync: true  # Sync runs in background after pipeline completes
   tags: [evaluation, python-pipeline]
 
 # Logging configuration
