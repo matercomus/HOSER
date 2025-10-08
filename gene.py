@@ -1431,7 +1431,7 @@ if __name__ == '__main__':
     res_df = pl.DataFrame({
         'origin_road_id': origin_road_ids,
         'destination_road_id': destination_road_ids,
-        'source_train_index': source_train_indices,
+        'source_index': source_indices,
         'source_origin_time': [dt.strftime('%Y-%m-%dT%H:%M:%SZ') for dt in origin_datetime_list],
         'gene_trace_road_id': gene_trace_road_id_json,
         'gene_trace_datetime': gene_trace_datetime_json,
