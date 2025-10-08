@@ -8,7 +8,7 @@ data_dir: ../data/Beijing  # Will resolve symlink automatically
 # Model configuration
 models_dir: models
 beam_search: true
-beam_width: 8
+beam_width: 4
 num_gene: 5000  # Reduced for testing, increase to 5000 for full evaluation
 
 # Evaluation configuration
