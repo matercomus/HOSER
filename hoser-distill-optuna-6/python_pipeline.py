@@ -212,6 +212,7 @@ class TrajectoryEvaluator:
         results = evaluate_trajectories_programmatic(
             generated_file=str(generated_file),
             dataset=self.config.dataset,
+            od_source=od_source,  # Pass OD source to load correct real data
             grid_size=self.config.grid_size,
             edr_eps=self.config.edr_eps,
             enable_wandb=False,  # We'll handle WandB separately

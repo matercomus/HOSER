@@ -861,6 +861,7 @@ def find_generated_file(directory):
 def evaluate_trajectories_programmatic(
     generated_file: str,
     dataset: str = "Beijing",
+    od_source: str = "test",
     grid_size: float = 0.001,
     edr_eps: float = 100.0,
     enable_wandb: bool = False,
@@ -874,6 +875,7 @@ def evaluate_trajectories_programmatic(
     Args:
         generated_file: Path to generated trajectory CSV file
         dataset: Dataset name (e.g., 'Beijing')
+        od_source: 'train' or 'test' - which dataset to use for real trajectories
         grid_size: Grid size in degrees for OD pair matching
         edr_eps: EDR threshold in meters
         enable_wandb: Enable WandB logging
@@ -893,7 +895,8 @@ def evaluate_trajectories_programmatic(
     if data_dir.is_symlink():
         data_dir = data_dir.resolve()
     
-    real_path = data_dir / 'test.csv'
+    # Use appropriate dataset based on OD source
+    real_path = data_dir / f'{od_source}.csv'
     geo_path = data_dir / 'roadmap.geo'
     
     if not os.path.exists(real_path):
@@ -923,6 +926,7 @@ def evaluate_trajectories_programmatic(
         "generated_file": str(generated_file),
         "real_data_file": str(real_path),
         "road_network_file": str(geo_path),
+        "od_source": od_source,
         "evaluation_timestamp": datetime.now().isoformat(),
         "real_trajectories_count": len(real_trajectories),
         "generated_trajectories_count": len(generated_trajectories),
