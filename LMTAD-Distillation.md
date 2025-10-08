@@ -114,19 +114,21 @@ Transfer LM-TAD's learned spatial patterns to HOSER during training, then deploy
    # Results will be in: optuna_results/<study_name>/best_trial/
    ```
 
-4. **View results**:
+4. **Evaluate results**:
    ```bash
-   # WandB dashboard (if configured)
-   # https://wandb.ai/<your_entity>/hoser-distill-optuna-6
+   # Run evaluation pipeline
+   cd hoser-distill-optuna-6
+   ./run_gene_eval_pipeline.sh --num-gene 100 --seed 42
    
-   # Or TensorBoard locally
-   tensorboard --logdir optuna_trials/trial_001_distilled_complete/tensorboard_log
+   # View in WandB dashboard
+   # https://wandb.ai/<your_entity>/hoser-distill-optuna-6
    ```
 
 **Expected outcomes**:
 - Vanilla baseline: ~57.2% next-step accuracy (8 epochs, ~2 hours)
 - Distilled model: Target >58% accuracy (requires hyperparameter tuning)
 - Training speed: ~1.6-1.8 it/s (distilled), ~10-12 it/s (vanilla)
+- Evaluation: Better trajectory metrics on test OD pairs (generalization)
 
 **What to read next**:
 - Understand the approach → Read "Executive Summary" and "Loss Design"
@@ -1889,9 +1891,10 @@ HOSER supports three search modes, each with different characteristics:
 - 95-99% correlation with optimal A* results ✅
 
 **Performance characteristics** (RTX 2080 Ti, 11GB VRAM):
-- **Beam width 4**: ~0.5-1 it/s (2-4 seconds per trajectory) - **Recommended for evaluation**
-- **Beam width 8**: ~0.3-0.5 it/s (4-7 seconds per trajectory) - **Exceeds VRAM on our GPU**
+- **Beam width 4**: ~0.5-1 it/s (1-2 seconds per trajectory) - **Recommended for evaluation**
+- **Beam width 8**: ~0.3-0.5 it/s (2-3 seconds per trajectory) - **May exceed VRAM with long trajectories**
 - **Beam width 1**: ~2-3 it/s (greedy, too fast, misses distillation benefits)
+- **Max search steps**: 5000 (configurable, prevents infinite loops)
 
 **Why beam width 4 is optimal for our evaluation**:
 - Fits comfortably in 11GB VRAM (4 paths × ~15 candidates = ~60 batch size)
@@ -2122,7 +2125,7 @@ Total time: 3.2 seconds
 
 ### Evaluation Metrics: Measuring Trajectory Quality
 
-After generating 5,000 trajectories from each model (vanilla and distilled), we compare them against real taxi trajectories using two categories of metrics. Our evaluation script (`evaluation.py`) has been completely refactored to be "bulletproof" and align with the original HOSER author's evaluation methods for fair comparison.
+After generating trajectories from each model (vanilla and distilled), we compare them against real taxi trajectories using two categories of metrics. Our evaluation script (`evaluation.py`) has been completely refactored to be "bulletproof" and align with the original HOSER author's evaluation methods for fair comparison. The evaluation now includes both **memorization** (train OD pairs) and **generalization** (test OD pairs) tests.
 
 #### Global Metrics: Distribution-Level Similarity
 
@@ -2167,20 +2170,20 @@ After generating 5,000 trajectories from each model (vanilla and distilled), we 
 
 $$H(T_{\text{real}}, T_{\text{gen}}) = \max\left\{\max_{p \in T_{\text{real}}} d(p, T_{\text{gen}}), \max_{q \in T_{\text{gen}}} d(q, T_{\text{real}})\right\}$$
 
-- **Unit**: Meters (Haversine distance)
+- **Unit**: Kilometers (Haversine distance)
 - **Interpretation**: "Worst-case" distance between paths
-- **Example**: Real path goes through downtown, generated path takes ring road → H = 850m (large detour)
+- **Example**: Real path goes through downtown, generated path takes ring road → H = 0.85km (large detour)
 - **Typical values**: 
-  - Excellent: <200m (minor deviations)
-  - Good: 200-500m (alternate routes)
-  - Poor: >1000m (major detour or wrong direction)
+  - Excellent: <0.2km (minor deviations)
+  - Good: 0.2-0.5km (alternate routes)
+  - Poor: >1.0km (major detour or wrong direction)
 
 **Dynamic Time Warping (DTW)**: Alignment cost between trajectories
 
 $$\text{DTW}(T_{\text{real}}, T_{\text{gen}}) = \min_{\text{alignment}} \sum_{(i,j) \in \text{alignment}} d(T_{\text{real}}[i], T_{\text{gen}}[j])$$
 
-- **Unit**: Meters (accumulated distance)
-- **Implementation**: Uses `polars-ts` for high-performance DTW with `fastdtw` fallback
+- **Unit**: Kilometers (accumulated distance)
+- **Implementation**: Uses `fastdtw` directly (polars-ts compatibility issues resolved)
 - **Interpretation**: Measures similarity allowing temporal stretching
 - **Key difference from Hausdorff**: DTW finds best alignment between paths, allowing one to be "faster" or "slower"
 - **Example**: 
@@ -2194,8 +2197,9 @@ $$\text{DTW}(T_{\text{real}}, T_{\text{gen}}) = \min_{\text{alignment}} \sum_{(i
 $$\text{EDR}(T_{\text{real}}, T_{\text{gen}}) = \frac{\text{edit\_operations}}{\max(|T_{\text{real}}|, |T_{\text{gen}}|)}$$
 
 - **Unit**: Normalized count [0, 1] where 0 = identical sequences
-- **Threshold**: 100m (configurable via `--edr_eps`) for matching road segments
-- **Interpretation**: Measures how many road segments need to be inserted/deleted to match
+- **Threshold**: 100m (default, configurable via `edr_eps`) for matching road segments
+- **Implementation**: Uses great circle distance (6378137m Earth radius) for road segment matching
+- **Interpretation**: Measures how many road segments need to be inserted/deleted/substituted to match
 - **Example**: Real: [A, B, C, D], Generated: [A, X, C, D] → EDR = 0.25 (1 edit out of 4)
 
 **Why local metrics matter**: Global metrics can hide systematic errors. A model might have good overall statistics but fail on specific trip types (e.g., airport trips). Local metrics catch these failures.
@@ -2205,13 +2209,16 @@ $$\text{EDR}(T_{\text{real}}, T_{\text{gen}}) = \frac{\text{edit\_operations}}{\
 **Bulletproof implementation**:
 - **Polars-first**: All data loading and manipulation uses Polars for performance
 - **Fail-fast validation**: Comprehensive data validation with clear error messages
-- **Road ID safety**: Dictionary-based road ID lookup prevents indexing errors
-- **Grid system**: Dynamic grid bounds calculation (0.001° from Beijing.yaml)
+- **Road ID safety**: Dictionary-based road ID → GPS mapping prevents indexing errors
+- **Grid system**: Dynamic grid bounds calculation (0.001° grid_size parameter)
 - **Error recovery**: Graceful handling of invalid trajectories with warnings
-- **Performance**: Vectorized calculations with GPU acceleration where possible
+- **Performance**: Vectorized calculations, numpy arrays for coordinate operations
+- **Caching**: Road network and real trajectory data cached to avoid reloading
 
 **OD pair matching**:
 - Groups trajectories by origin-destination pairs using configurable grid size
+- **Grid formula**: `grid_x = floor((lon - min_lon) / grid_size)`, `grid_y = floor((lat - min_lat) / grid_size)`
+- **OD key**: `(origin_grid_id, dest_grid_id)` where `grid_id = x * height + y`
 - Handles both training and test OD sources for memorization vs generalization analysis
 - Robust coordinate system handling (lat/lon consistency across all distance calculations)
 
@@ -2271,24 +2278,27 @@ $$\text{EDR}(T_{\text{real}}, T_{\text{gen}}) = \frac{\text{edit\_operations}}{\
 
 ### Practical Evaluation Workflow
 
-**Automated Pipeline**: The complete evaluation is now orchestrated by `hoser-distill-optuna-6/run_gene_eval_pipeline.sh`, which handles both generation and evaluation with intelligent caching.
+**Automated Pipeline Options**: The complete evaluation can be orchestrated through two pipelines:
+
+1. **Shell Pipeline** (`run_gene_eval_pipeline.sh`): Traditional approach with separate gene.py and evaluation.py calls
+2. **Python Pipeline** (`python_pipeline.py`): New integrated approach with programmatic interfaces and enhanced features
 
 **Step 1: Run the complete pipeline** (generates and evaluates both models)
 
 ```bash
 # Run both vanilla and distilled models on both train and test OD sources
 cd hoser-distill-optuna-6
-./run_gene_eval_pipeline.sh --seed 42
+./run_gene_eval_pipeline.sh --seed 42 --num-gene 5000
 
 # This automatically:
-# 1. Generates 5000 trajectories for vanilla model (train OD)
-# 2. Generates 5000 trajectories for vanilla model (test OD) 
-# 3. Generates 5000 trajectories for distilled model (train OD)
-# 4. Generates 5000 trajectories for distilled model (test OD)
-# 5. Evaluates all 4 sets against real trajectories
-# 6. Logs everything to WandB project "hoser-distill-optuna-6"
+# 1. Auto-detects all .pth models in models/ directory
+# 2. Generates trajectories for each model on train OD pairs
+# 3. Generates trajectories for each model on test OD pairs
+# 4. Evaluates all generated trajectories against real data
+# 5. Logs everything to WandB project "hoser-distill-optuna-6"
 
-# Runtime: ~8-12 hours total (2-3 hours per model)
+# Default beam width: 4 (optimal for 11GB VRAM)
+# Runtime: Depends on num_gene (100 trajectories ~10min, 5000 ~3-4 hours per model)
 # Output: Organized results in gene/ and eval/ directories
 ```
 
@@ -2352,14 +2362,60 @@ done
 ./run_all_seeds.sh
 ```
 
+**Alternative: Python Pipeline** (recommended for robustness)
+
+```bash
+# Create evaluation config
+cat > hoser-distill-optuna-6/config/evaluation.yaml << EOF
+dataset: Beijing
+data_dir: ../data/Beijing
+models_dir: models
+beam_search: true
+beam_width: 4
+num_gene: 5000
+grid_size: 0.001
+edr_eps: 100.0
+od_sources: [train, test]
+seed: 42
+cuda_device: 0
+skip_gene: false
+skip_eval: false
+force: false
+
+wandb:
+  enable: true
+  project: hoser-distill-optuna-6
+  mode: offline
+  background_sync: true
+  tags: [evaluation, python-pipeline]
+
+logging:
+  level: INFO
+  verbose: false
+EOF
+
+# Run Python pipeline
+cd hoser-distill-optuna-6
+uv run python python_pipeline.py --config config/evaluation.yaml
+
+# Features:
+# - Programmatic interfaces (no subprocess overhead)
+# - Offline WandB with background sync (no blocking)
+# - Enhanced error handling and recovery
+# - Evaluation result caching
+# - Progress tracking with time estimates
+```
+
 **Pipeline Features**:
 
+- **Auto-detection**: Automatically finds all .pth model files in models/ directory
 - **Intelligent caching**: Skips generation/evaluation if results exist (unless `--force`)
-- **Flexible configuration**: Choose models, OD sources, seeds, beam width
-- **Organized output**: Results saved in structured directories
+- **Flexible configuration**: Choose models, OD sources, seeds, num trajectories
+- **Organized output**: Results saved in structured directories by model/seed/od_source
 - **WandB integration**: All runs logged with descriptive names and tags
 - **Error handling**: Continues if one model fails, reports what completed
 - **Progress tracking**: Shows current phase and estimated completion
+- **Beam search**: Fixed beam width of 4 for consistent evaluation
 
 ### Connection to Training Metrics
 
