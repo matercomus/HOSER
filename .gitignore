@@ -17,3 +17,10 @@ wandb/
 
 optuna_trials/
 optuna_results/
+
+# Pipeline logs and outputs
+hoser-distill-optuna-6/eval/
+hoser-distill-optuna-6/gene/
+hoser-distill-optuna-6/wandb/
+hoser-distill-optuna-6/pipeline.log
+hoser-distill-optuna-6/eval_test.log

@@ -973,7 +973,7 @@ def load_and_preprocess_data(dataset, od_source='train'):
         dataset: Dataset name (e.g., 'Beijing')
         od_source: 'train' or 'test' - which dataset to extract OD pairs from
     """
-    cache_path = f'./data/{dataset}/gene_preprocessed_cache.pkl'
+    cache_path = f'../data/{dataset}/gene_preprocessed_cache.pkl'
     if os.path.exists(cache_path):
         print(f"✅ Loading preprocessed data from cache: {cache_path}")
         with open(cache_path, 'rb') as f:
@@ -982,7 +982,7 @@ def load_and_preprocess_data(dataset, od_source='train'):
         # If using test OD pairs, reload them (cache only has train ODs)
         if od_source == 'test':
             print(f"🔄 Loading test set OD pairs (od_source=test)...")
-            test_traj_file = f'./data/{dataset}/test.csv'
+            test_traj_file = f'../data/{dataset}/test.csv'
             if not os.path.exists(test_traj_file):
                 raise FileNotFoundError(f"Test file not found: {test_traj_file}. Cannot use --od_source test")
             
@@ -1031,11 +1031,11 @@ def load_and_preprocess_data(dataset, od_source='train'):
 
     print("🚀 Preprocessing data for trajectory generation (first time only)...")
 
-    geo_file = f'./data/{dataset}/roadmap.geo'
-    rel_file = f'./data/{dataset}/roadmap.rel'
-    train_traj_file = f'./data/{dataset}/train.csv'
-    road_network_partition_file = f'./data/{dataset}/road_network_partition'
-    zone_trans_mat_file = f'./data/{dataset}/zone_trans_mat.npy'
+    geo_file = f'../data/{dataset}/roadmap.geo'
+    rel_file = f'../data/{dataset}/roadmap.rel'
+    train_traj_file = f'../data/{dataset}/train.csv'
+    road_network_partition_file = f'../data/{dataset}/road_network_partition'
+    zone_trans_mat_file = f'../data/{dataset}/zone_trans_mat.npy'
 
     print("📂 Loading road network data...")
     geo = pl.read_csv(geo_file, schema_overrides={"lanes": pl.Utf8, "oneway": pl.Utf8})
@@ -1167,6 +1167,249 @@ def load_and_preprocess_data(dataset, od_source='train'):
     print(f"✅ Saved preprocessed data to cache: {cache_path}")
 
     return data
+
+def generate_trajectories_programmatic(
+    dataset: str,
+    model_path: str,
+    od_source: str = 'train',
+    seed: int = 42,
+    num_gene: int = 100,
+    cuda_device: int = 0,
+    beam_search: bool = True,
+    beam_width: int = 4,
+    enable_wandb: bool = False,
+    wandb_project: str = None,
+    wandb_run_name: str = None,
+    wandb_tags: list = None
+) -> str:
+    """
+    Programmatic interface for trajectory generation.
+    
+    Args:
+        dataset: Dataset name (e.g., 'Beijing')
+        model_path: Path to trained model checkpoint
+        od_source: Source for OD pairs ('train' or 'test')
+        seed: Random seed
+        num_gene: Number of trajectories to generate
+        cuda_device: CUDA device ID
+        beam_search: Use beam search
+        beam_width: Beam width for beam search
+        enable_wandb: Enable WandB logging
+        wandb_project: WandB project name
+        wandb_run_name: WandB run name
+        wandb_tags: WandB tags
+    
+    Returns:
+        Path to generated CSV file
+    """
+    from datetime import datetime
+    import os
+    import json
+    import torch  # Ensure torch is available in this scope
+    
+    # Auto-detect WandB project from model path if not manually specified
+    if enable_wandb and wandb_project is None:
+        wandb_project = extract_wandb_project_from_model_path(model_path)
+    elif wandb_project is None:
+        wandb_project = 'hoser-generation'
+
+    set_seed(seed)
+    device = f'cuda:{cuda_device}'
+    
+    # Set PyTorch threading for optimal single-process performance
+    torch.set_num_threads(torch.get_num_threads())  # Use all available threads
+    torch.backends.cudnn.benchmark = True  # Enable cuDNN autotuner
+
+    # Initialize wandb if requested
+    if enable_wandb:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        run_name = wandb_run_name or f"gene-{dataset}-seed{seed}-{od_source}od-{timestamp}"
+        
+        # Determine search method for tags
+        search_method = 'beam_search' if beam_search else 'astar'
+        tags = (wandb_tags or ['generation']) + [dataset, f'seed{seed}', search_method, f'{od_source}_od']
+        
+        wandb.init(
+            project=wandb_project,
+            name=run_name,
+            tags=tags,
+            config={
+                'dataset': dataset,
+                'seed': seed,
+                'num_gene': num_gene,
+                'search_method': search_method,
+                'beam_width': beam_width if beam_search else None,
+                'model_path': model_path,
+                'cuda': cuda_device,
+                'od_source': od_source,
+            }
+        )
+        print(f"📊 Logging to WandB: {wandb.run.url}")
+
+    data = load_and_preprocess_data(dataset, od_source=od_source)
+    num_roads = data['num_roads']
+
+    with open(f'../config/{dataset}.yaml', 'r') as file:
+        config = yaml.safe_load(file)
+    config = create_nested_namespace(config)
+    
+    config.road_network_encoder_config.road_id_num_embeddings = num_roads
+    config.road_network_encoder_config.type_num_embeddings = len(np.unique(data['road_attr_type']))
+    config.road_network_encoder_feature.road_attr.len = data['road_attr_len']
+    config.road_network_encoder_feature.road_attr.type = data['road_attr_type']
+    config.road_network_encoder_feature.road_attr.lon = data['road_attr_lon']
+    config.road_network_encoder_feature.road_attr.lat = data['road_attr_lat']
+    config.road_network_encoder_feature.road_edge_index = data['road_edge_index']
+    config.road_network_encoder_feature.intersection_attr = data['intersection_attr']
+    config.road_network_encoder_feature.zone_edge_index = data['zone_edge_index']
+    config.road_network_encoder_feature.zone_edge_weight = data['zone_edge_weight']
+
+    print(" ... Filtering valid OD pairs...")
+    valid_destinations = {i for i in range(num_roads) if len(data['reachable_road_id_dict'][i]) > 0}
+    valid_od_pairs = [(o, d) for (o, d), count in data['od_counts'].items() if d in valid_destinations]
+    valid_od_counts = np.array([data['od_counts'][od] for od in valid_od_pairs], dtype=np.float32)
+
+    if not valid_od_pairs:
+        raise ValueError("No valid origin-destination pairs found (all destinations are dead-ends)")
+
+    od_probabilities = valid_od_counts / valid_od_counts.sum()
+    print(f"✅ Found {len(valid_od_pairs)} valid {od_source} OD pairs.")
+
+    print(f"🎲 Sampling {num_gene} OD pairs from {od_source} set...")
+    sampled_indices = np.random.choice(len(valid_od_pairs), size=num_gene, p=od_probabilities)
+    od_coords = [valid_od_pairs[i] for i in sampled_indices]
+    
+    # For each sampled OD, get start time from corresponding dataset
+    source_indices = []
+    origin_datetime_list = []
+    
+    # Use appropriate dataset for timestamps
+    if od_source == 'test':
+        source_traj_df = data.get('test_traj', data['train_traj'])  # Fallback to train if test not loaded
+        od_to_indices = data.get('od_to_test_indices', data['od_to_train_indices'])
+    else:
+        source_traj_df = data['train_traj']
+        od_to_indices = data['od_to_train_indices']
+    
+    for od in od_coords:
+        candidates = od_to_indices.get(od, [])
+        if candidates:
+            src_idx = random.choice(candidates)
+            # Handle both Polars and Pandas cached DataFrames
+            if hasattr(source_traj_df, 'get_column'):
+                time_list_str = source_traj_df.get_column('time_list')[src_idx]
+            else:
+                time_list_str = source_traj_df['time_list'].iloc[src_idx] if hasattr(source_traj_df, 'iloc') else source_traj_df['time_list'][src_idx]
+            src_time_str = time_list_str.split(',')[0]
+            origin_dt = datetime.strptime(src_time_str, '%Y-%m-%dT%H:%M:%SZ')
+        else:
+            # Fallback: use a random start time from train set (for timestamp stats)
+            train_traj_df = data['train_traj']
+            time_values = (
+                train_traj_df.get_column('time_list').to_list()
+                if hasattr(train_traj_df, 'get_column')
+                else train_traj_df['time_list'].tolist()
+            )
+            time_list_str = random.choice(time_values)
+            src_time_str = time_list_str.split(',')[0]
+            origin_dt = datetime.strptime(src_time_str, '%Y-%m-%dT%H:%M:%SZ')
+            src_idx = -1
+        source_indices.append(src_idx)
+        origin_datetime_list.append(origin_dt)
+
+    print("🧠 Loading trained model...")
+    if os.path.exists(model_path):
+        model = HOSER(
+            config.road_network_encoder_config,
+            config.road_network_encoder_feature,
+            config.trajectory_encoder_config,
+            config.navigator_config,
+            data['road2zone'],
+        )
+        loaded = torch.load(model_path, map_location='cpu')
+        # Support both raw state_dict and wrapped {'state_dict': ...}
+        state_dict = loaded.get('state_dict') if isinstance(loaded, dict) and 'state_dict' in loaded else loaded
+        model.load_state_dict(state_dict)
+        print(f"✅ Model loaded: {model_path}")
+    else:
+        print(f"⚠️  No checkpoint found at {model_path}. Falling back to heuristic timing.")
+        model = None
+
+    gene_trace_road_id = [None] * num_gene
+    gene_trace_datetime = [None] * num_gene
+
+    print(f"🧬 Starting trajectory generation for {num_gene} trajectories...")
+    
+    # Move model to GPU once and set to eval mode (if available)
+    if model is not None:
+        model = model.to(device)
+        model.eval()
+        
+        # Try to compile the model for faster inference (PyTorch 2.0+)
+        try:
+            import torch._dynamo
+            model = torch.compile(model, mode="reduce-overhead")
+            print("✅ Model compiled with torch.compile for faster inference")
+        except (ImportError, AttributeError):
+            pass  # torch.compile not available, use regular model
+    
+    # Create searcher instance
+    searcher = Searcher(model, data['reachable_road_id_dict'], data['geo'], data['road_center_gps'], 
+                       data['road_end_coords'], data['timestamp_label_array_log1p_mean'], 
+                       data['timestamp_label_array_log1p_std'], device)
+    
+    # Process trajectories using beam search
+    if beam_search:
+        print(f"🔍 Using beam search with width {beam_width}")
+        for i, ((origin_road_id, destination_road_id), origin_datetime) in enumerate(
+                tqdm(zip(od_coords, origin_datetime_list), total=len(od_coords), desc='Generating trajectories')):
+            trace_road_id, trace_datetime = searcher.beam_search(origin_road_id, origin_datetime, destination_road_id, beam_width=beam_width)
+            gene_trace_road_id[i] = trace_road_id
+            gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
+    else:
+        print("🔍 Using standard A* search")
+        for i, ((origin_road_id, destination_road_id), origin_datetime) in enumerate(
+                tqdm(zip(od_coords, origin_datetime_list), total=len(od_coords), desc='Generating trajectories')):
+            trace_road_id, trace_datetime = searcher.search(origin_road_id, origin_datetime, destination_road_id)
+            gene_trace_road_id[i] = trace_road_id
+            gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
+
+    # Prepare provenance columns for comparison with real trips
+    origin_road_ids = [od[0] for od in od_coords]
+    destination_road_ids = [od[1] for od in od_coords]
+
+    # CSV cannot store nested lists; serialize trace columns as JSON strings
+    gene_trace_road_id_json = [json.dumps(lst if lst is not None else []) for lst in gene_trace_road_id]
+    gene_trace_datetime_json = [json.dumps(lst if lst is not None else []) for lst in gene_trace_datetime]
+
+    res_df = pl.DataFrame({
+        'origin_road_id': origin_road_ids,
+        'destination_road_id': destination_road_ids,
+        'source_index': source_indices,
+        'source_origin_time': [dt.strftime('%Y-%m-%dT%H:%M:%SZ') for dt in origin_datetime_list],
+        'gene_trace_road_id': gene_trace_road_id_json,
+        'gene_trace_datetime': gene_trace_datetime_json,
+    })
+    
+    gene_dir = f'./gene/{dataset}/seed{seed}'
+    os.makedirs(gene_dir, exist_ok=True)
+    now = datetime.now()
+    output_path = os.path.join(gene_dir, f'{now.strftime("%Y-%m-%d_%H-%M-%S")}.csv')
+    res_df.write_csv(output_path)
+    print(f"🎉 Trajectory generation complete. Saved to {output_path}")
+    
+    # Log to wandb if enabled
+    if enable_wandb:
+        wandb.log({
+            'num_trajectories_generated': len(res_df),
+            'output_file': output_path,
+        })
+        wandb.save(output_path, base_path='./')
+        print(f"📊 Results logged to WandB")
+        wandb.finish()
+    
+    return output_path
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

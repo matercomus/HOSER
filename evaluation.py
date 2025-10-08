@@ -4,6 +4,7 @@ import json
 import ast
 import math
 from datetime import datetime
+from pathlib import Path
 import polars as pl
 import numpy as np
 from shapely.geometry import LineString
@@ -167,9 +168,9 @@ def load_road_network(geo_path):
     if not os.path.exists(geo_path):
         raise FileNotFoundError(f"🚨 FATAL: Road network file not found: {geo_path}")
     
-    # Load with Polars
+    # Load with Polars (specify schema for problematic columns)
     try:
-        geo_df = pl.read_csv(geo_path)
+        geo_df = pl.read_csv(geo_path, schema_overrides={"lanes": pl.Utf8, "oneway": pl.Utf8})
     except Exception as e:
         raise RuntimeError(f"🚨 FATAL: Failed to parse road network CSV: {e}")
     
@@ -193,7 +194,7 @@ def load_road_network(geo_path):
     if min_id != 0 or max_id != len(road_ids) - 1:
         print(f"⚠️  WARNING: Road IDs not sequential. Min: {min_id}, Max: {max_id}, Count: {len(road_ids)}")
         print(f"    This will cause indexing issues. Expected: 0 to {len(road_ids)-1}")
-    
+
     # Pre-calculate road center GPS coordinates
     print(f"📐 Calculating road centroids for {len(geo_df):,} roads...")
     road_center_gps = []
@@ -209,7 +210,7 @@ def load_road_network(geo_path):
         except (json.JSONDecodeError, TypeError, Exception) as e:
             failed_roads.append((row['road_id'], str(e)))
             road_center_gps.append((None, None))
-    
+
     if failed_roads:
         print(f"⚠️  WARNING: {len(failed_roads)} roads failed centroid calculation")
         if len(failed_roads) > 10:
@@ -303,7 +304,7 @@ def load_trajectories(traj_path, is_real_data, max_road_id=None):
                 # gene_trace_road_id is JSON array
                 rid_str = str(row['gene_trace_road_id'])
                 rids = json.loads(rid_str)
-                
+
                 # gene_trace_datetime is string representation of list
                 datetime_list_str = ast.literal_eval(str(row['gene_trace_datetime']))
                 timestamps = [datetime.strptime(t.strip('"'), '%Y-%m-%dT%H:%M:%SZ') 
@@ -360,19 +361,20 @@ class GlobalMetrics:
         self.real_trajs = real_trajs
         self.generated_trajs = generated_trajs
         self.geo_df = geo_df.set_index('road_id')
-        
+
         # Create road_id → GPS mapping dict for safe access
         self.road_gps = {}
         for road_id, row in self.geo_df.iterrows():
             try:
                 center_gps = row['center_gps']
-                if center_gps and center_gps[0] is not None and center_gps[1] is not None:
-                    # Store as (lon, lat) for compatibility with original code
-                    self.road_gps[road_id] = (center_gps[1], center_gps[0])
-                else:
-                    print(f"⚠️  Warning: Invalid GPS for road_id {road_id}")
+                # center_gps is a tuple like (lat, lon)
+                if center_gps is not None and len(center_gps) == 2:
+                    lat, lon = center_gps
+                    if lat is not None and lon is not None:
+                        # Store as (lon, lat) for compatibility with original code
+                        self.road_gps[road_id] = (lon, lat)
             except (KeyError, TypeError, Exception) as e:
-                print(f"⚠️  Warning: Could not process road_id {road_id}: {e}")
+                pass  # Silently skip invalid entries
         
         print(f"✅ GlobalMetrics: Loaded GPS for {len(self.road_gps):,} roads")
 
@@ -449,15 +451,20 @@ class GlobalMetrics:
             
             road_ids = [p[0] for p in traj]
             
+            # Filter out road IDs that don't have GPS data
+            valid_rids = [rid for rid in road_ids if rid in self.road_gps]
+            if not valid_rids:
+                continue
+            
             # Calculate mean center
-            lons = [self.road_gps[rid][0] for rid in road_ids]
-            lats = [self.road_gps[rid][1] for rid in road_ids]
+            lons = [self.road_gps[rid][0] for rid in valid_rids]
+            lats = [self.road_gps[rid][1] for rid in valid_rids]
             lon_mean = np.mean(lons)
             lat_mean = np.mean(lats)
             
             # Calculate average distance from center (original author's method)
             rad_list = []
-            for rid in road_ids:
+            for rid in valid_rids:
                 lon = self.road_gps[rid][0]
                 lat = self.road_gps[rid][1]
                 dis = distance.great_circle((lat_mean, lon_mean), (lat, lon)).kilometers
@@ -490,7 +497,7 @@ class GlobalMetrics:
         # Calculate JS divergence for each metric
         for name, real_vals, gen_vals in [
             ("Distance", real_dist, gen_dist), 
-            ("Duration", real_dur, gen_dur), 
+                                          ("Duration", real_dur, gen_dur), 
             ("Radius", real_rad, gen_rad)
         ]:
             if not real_vals or not gen_vals:
@@ -514,7 +521,7 @@ class GlobalMetrics:
             # Also store mean values for reference
             results[f"{name}_real_mean"] = np.mean(real_vals)
             results[f"{name}_gen_mean"] = np.mean(gen_vals)
-        
+            
         print("✅ Global metrics calculated.")
         return results
 
@@ -541,13 +548,14 @@ class LocalMetrics:
         for road_id, row in self.geo_df.iterrows():
             try:
                 center_gps = row['center_gps']
-                if center_gps and center_gps[0] is not None and center_gps[1] is not None:
-                    # Store as (lon, lat) for compatibility with original code
-                    self.road_gps[road_id] = (center_gps[1], center_gps[0])
-                else:
-                    print(f"⚠️  Warning: Invalid GPS for road_id {road_id}")
+                # center_gps is a tuple like (lat, lon)
+                if center_gps is not None and len(center_gps) == 2:
+                    lat, lon = center_gps
+                    if lat is not None and lon is not None:
+                        # Store as (lon, lat) for compatibility with original code
+                        self.road_gps[road_id] = (lon, lat)
             except (KeyError, TypeError, Exception) as e:
-                print(f"⚠️  Warning: Could not process road_id {road_id}: {e}")
+                pass  # Silently skip invalid entries
         
         # Setup dynamic grid bounds from actual data
         self._setup_grid()
@@ -774,7 +782,7 @@ class LocalMetrics:
         for od_pair, gen_indices in tqdm(gen_od_groups.items(), desc="Comparing OD pairs"):
             if od_pair not in real_od_groups:
                 continue
-            
+
             num_matched_od += 1
             real_indices = real_od_groups[od_pair]
             
@@ -849,6 +857,127 @@ def find_generated_file(directory):
         return os.path.join(directory, other_csv_files[0])
     
     return None
+
+def evaluate_trajectories_programmatic(
+    generated_file: str,
+    dataset: str = "Beijing",
+    grid_size: float = 0.001,
+    edr_eps: float = 100.0,
+    enable_wandb: bool = False,
+    wandb_project: str = None,
+    wandb_run_name: str = None,
+    wandb_tags: list = None
+) -> dict:
+    """
+    Programmatic interface for trajectory evaluation.
+    
+    Args:
+        generated_file: Path to generated trajectory CSV file
+        dataset: Dataset name (e.g., 'Beijing')
+        grid_size: Grid size in degrees for OD pair matching
+        edr_eps: EDR threshold in meters
+        enable_wandb: Enable WandB logging
+        wandb_project: WandB project name
+        wandb_run_name: WandB run name
+        wandb_tags: WandB tags
+    
+    Returns:
+        Dictionary containing evaluation results
+    """
+    from datetime import datetime
+    import os
+    import json
+    
+    # Set up data paths (handle symlink)
+    data_dir = Path(f'../data/{dataset}')
+    if data_dir.is_symlink():
+        data_dir = data_dir.resolve()
+    
+    real_path = data_dir / 'test.csv'
+    geo_path = data_dir / 'roadmap.geo'
+    
+    if not os.path.exists(real_path):
+        raise FileNotFoundError(f"Real data not found: {real_path}")
+    if not os.path.exists(geo_path):
+        raise FileNotFoundError(f"Road network not found: {geo_path}")
+    
+    # Load data
+    geo_df = load_road_network(geo_path)
+    max_road_id = geo_df['road_id'].max()
+    
+    real_trajectories = load_trajectories(real_path, is_real_data=True, max_road_id=max_road_id)
+    generated_trajectories = load_trajectories(generated_file, is_real_data=False, max_road_id=max_road_id)
+    
+    print(f"Loaded {len(real_trajectories)} real and {len(generated_trajectories)} generated trajectories")
+    
+    # Run evaluations
+    global_metrics = GlobalMetrics(real_trajectories, generated_trajectories, geo_df).evaluate()
+    local_metrics = LocalMetrics(real_trajectories, generated_trajectories, geo_df, 
+                                grid_size=grid_size, edr_eps=edr_eps).evaluate()
+
+    # Combine and display results
+    all_results = {**global_metrics, **local_metrics}
+    
+    # Add metadata about the evaluation
+    all_results["metadata"] = {
+        "generated_file": str(generated_file),
+        "real_data_file": str(real_path),
+        "road_network_file": str(geo_path),
+        "evaluation_timestamp": datetime.now().isoformat(),
+        "real_trajectories_count": len(real_trajectories),
+        "generated_trajectories_count": len(generated_trajectories),
+        "grid_size": grid_size,
+        "edr_eps": edr_eps,
+    }
+
+    print("\n--- Evaluation Results ---")
+    for metric, value in all_results.items():
+        if metric != "metadata" and isinstance(value, float):
+            print(f"{metric:<20} {value:.4f}")
+        elif metric != "metadata":
+            print(f"{metric:<20} {value}")
+    print("--------------------------\n")
+    
+    # Save results
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_dir = f'./eval/{timestamp}'
+    os.makedirs(output_dir, exist_ok=True)
+    results_file = os.path.join(output_dir, 'results.json')
+    
+    with open(results_file, 'w') as f:
+        json.dump(all_results, f, indent=4)
+        
+    print(f"Results saved to {results_file}")
+
+    # Optional: log to Weights & Biases
+    if enable_wandb:
+        run_name = wandb_run_name or f"eval-{os.path.basename(generated_file)}-{timestamp}"
+        
+        # Build config
+        wandb_config = {
+            'generated_file': generated_file,
+            'real_data_file': real_path,
+            'road_network_file': geo_path,
+            'evaluation_timestamp': timestamp,
+            'real_trajectories_count': len(real_trajectories),
+            'generated_trajectories_count': len(generated_trajectories),
+            'grid_size': grid_size,
+            'edr_eps': edr_eps,
+        }
+        
+        wandb.init(project=wandb_project or 'hoser-eval', name=run_name, tags=wandb_tags or ['eval'], config=wandb_config)
+        
+        # Log scalar metrics
+        log_payload = {k: v for k, v in all_results.items() if k != 'metadata' and isinstance(v, float)}
+        wandb.log(log_payload)
+        
+        # Save the results file as an artifact
+        wandb.save(results_file)
+        
+        wandb.finish()
+    
+    return all_results
+
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate trajectory generation models.")

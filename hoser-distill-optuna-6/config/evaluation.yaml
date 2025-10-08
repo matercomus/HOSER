@@ -1,0 +1,44 @@
+# Evaluation Pipeline Configuration
+# Controls all variables for trajectory generation and evaluation
+
+# Dataset configuration
+dataset: Beijing
+data_dir: ../data/Beijing  # Will resolve symlink automatically
+
+# Model configuration
+models_dir: models
+beam_search: true
+beam_width: 4
+num_gene: 100  # Reduced for testing, increase to 5000 for full evaluation
+
+# Evaluation configuration
+grid_size: 0.001  # From Beijing.yaml - degrees
+edr_eps: 100.0    # EDR epsilon in meters
+
+# OD source configuration
+od_sources: [train, test]  # Evaluate on both train and test OD pairs
+
+# Runtime configuration
+seed: 42
+cuda_device: 0
+skip_gene: false
+skip_eval: false
+force: false  # Force regeneration even if files exist
+
+# WandB configuration
+wandb:
+  enable: true
+  project: hoser-distill-optuna-6
+  mode: offline  # Use offline mode to reduce API calls
+  tags: [evaluation, python-pipeline]
+
+# Logging configuration
+logging:
+  level: INFO
+  verbose: false
+
+# Performance configuration
+performance:
+  batch_size: 32
+  num_workers: 4
+  pin_memory: false
