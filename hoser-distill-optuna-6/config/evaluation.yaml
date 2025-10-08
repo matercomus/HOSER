@@ -8,8 +8,8 @@ data_dir: ../data/Beijing  # Will resolve symlink automatically
 # Model configuration
 models_dir: models
 beam_search: true
-beam_width: 4
-num_gene: 100  # Reduced for testing, increase to 5000 for full evaluation
+beam_width: 8
+num_gene: 5000  # Reduced for testing, increase to 5000 for full evaluation
 
 # Evaluation configuration
 grid_size: 0.001  # From Beijing.yaml - degrees
