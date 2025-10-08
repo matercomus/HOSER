@@ -157,11 +157,22 @@ def detect_wandb_metadata(run_dir: str, generated_file: str = None) -> dict:
 
 # --- Data Loading ---
 
+# Global caches for expensive data loading
+_ROAD_NETWORK_CACHE = {}
+_TRAJECTORY_CACHE = {}
+
 def load_road_network(geo_path):
     """
     Loads road network data using Polars with aggressive validation.
     FAILS FAST if data is malformed or incomplete.
+    Uses global cache to avoid reloading/reprocessing.
     """
+    # Check cache first
+    cache_key = str(geo_path)
+    if cache_key in _ROAD_NETWORK_CACHE:
+        print("📂 Using cached road network...")
+        return _ROAD_NETWORK_CACHE[cache_key]
+    
     print("📂 Loading road network...")
     
     if not os.path.exists(geo_path):
@@ -235,13 +246,24 @@ def load_road_network(geo_path):
     geo_pd = geo_df.to_pandas()
     
     print(f"✅ Road network loaded: {len(geo_pd):,} valid roads")
+    
+    # Cache the processed road network
+    _ROAD_NETWORK_CACHE[cache_key] = geo_pd
+    
     return geo_pd
 
 def load_trajectories(traj_path, is_real_data, max_road_id=None):
     """
     Loads trajectories using Polars with aggressive validation.
     FAILS FAST if data is malformed or road IDs are out of bounds.
+    Caches real trajectory data to avoid reloading.
     """
+    # Check cache for real trajectories only (generated trajectories change)
+    cache_key = str(traj_path)
+    if is_real_data and cache_key in _TRAJECTORY_CACHE:
+        print(f"📂 Using cached real trajectories from {os.path.basename(traj_path)}...")
+        return _TRAJECTORY_CACHE[cache_key]
+    
     print(f"📂 Loading trajectories from {traj_path}...")
     
     if not os.path.exists(traj_path):
@@ -342,6 +364,11 @@ def load_trajectories(traj_path, is_real_data, max_road_id=None):
         raise RuntimeError(f"🚨 FATAL: No valid trajectories loaded from {traj_path}")
     
     print(f"✅ Loaded {len(trajectories):,} valid trajectories (dropped {invalid_count + out_of_bounds_count})")
+    
+    # Cache real trajectories to avoid reloading
+    if is_real_data:
+        _TRAJECTORY_CACHE[cache_key] = trajectories
+        
     return trajectories
 
 # --- Metric Calculation ---
