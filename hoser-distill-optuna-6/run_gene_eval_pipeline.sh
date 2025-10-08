@@ -9,21 +9,19 @@
 #
 # Options:
 #   --seed SEED              Random seed (default: 42)
-#   --models MODEL1,MODEL2   Models to run (default: vanilla,distilled)
-#                           Options: vanilla, distilled
-#   --od-source SOURCE      OD pair source: train or test (default: train)
-#                           train: Use training OD pairs (seen during training)
-#                           test: Use test OD pairs (evaluates generalization)
+#   --models MODEL1,MODEL2   Models to run (default: auto-detect all)
+#                           Auto-detects all .pth files in models/ directory
+#   --od-source SOURCE      OD pair source: train or test (default: train,test)
+#                           train: Use training OD pairs (memorization test)
+#                           test: Use test OD pairs (generalization test)
 #   --skip-gene             Skip generation (use existing trajectories)
 #   --skip-eval             Skip evaluation
 #   --force                 Force re-run even if results exist (overrides caching)
 #   --cuda DEVICE           CUDA device (default: 0)
-#   --num-gene N            Number of trajectories (default: 5000)
-#   --search-mode MODE      Search algorithm (default: model_astar)
-#                           Options: model_astar, nx_astar, beam_search
+#   --num-gene N            Number of trajectories (default: 100)
 #
 # Examples:
-#   # Run both models on both train and test ODs (default, uses cache if available)
+#   # Run ALL models on both train and test ODs (auto-detects models)
 #   ./run_gene_eval_pipeline.sh
 #
 #   # Run only train OD evaluation (memorization test)
@@ -35,16 +33,14 @@
 #   # Force re-run everything even if results exist
 #   ./run_gene_eval_pipeline.sh --force
 #
-#   # Run only distilled model with seed 43 on both OD sources
-#   ./run_gene_eval_pipeline.sh --seed 43 --models distilled
+#   # Run only specific models
+#   ./run_gene_eval_pipeline.sh --models vanilla,distilled
 #
-#   # Run both models for seeds 42,43,44 on both train and test ODs
-#   for seed in 42 43 44; do
-#     ./run_gene_eval_pipeline.sh --seed $seed
-#   done
+#   # Run with different seed
+#   ./run_gene_eval_pipeline.sh --seed 43
 #
 #   # Re-evaluate existing generated trajectories (skip generation)
-#   ./run_gene_eval_pipeline.sh --seed 43 --skip-gene
+#   ./run_gene_eval_pipeline.sh --skip-gene
 
 set -e  # Exit on error
 
@@ -56,9 +52,9 @@ cd "$PROJECT_ROOT"
 WANDB_PROJECT="hoser-distill-optuna-6"
 DATASET="Beijing"
 CUDA_DEVICE=0
-NUM_GENE=5000
+NUM_GENE=100
 SEED=42
-MODELS="vanilla,distilled"
+MODELS=""  # Empty means auto-detect all models
 OD_SOURCE="train,test"
 SKIP_GENE=false
 SKIP_EVAL=false
@@ -104,13 +100,13 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --seed SEED              Random seed (default: 42)"
-            echo "  --models MODEL1,MODEL2   Models to run (default: vanilla,distilled)"
-            echo "  --od-source SOURCE      OD source: train or test (default: train)"
+            echo "  --models MODEL1,MODEL2   Models to run (default: auto-detect all)"
+            echo "  --od-source SOURCE      OD source: train or test (default: train,test)"
             echo "  --skip-gene             Skip generation"
             echo "  --skip-eval             Skip evaluation"
             echo "  --force                 Force re-run even if results exist"
             echo "  --cuda DEVICE           CUDA device (default: 0)"
-            echo "  --num-gene N            Number of trajectories (default: 5000)"
+            echo "  --num-gene N            Number of trajectories (default: 100)"
             exit 0
             ;;
         *)
@@ -120,6 +116,49 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Auto-detect models if not specified
+if [ -z "$MODELS" ]; then
+    echo "🔍 Auto-detecting models in $SCRIPT_DIR/models/..."
+    MODEL_ARRAY=()
+    for model_file in "$SCRIPT_DIR/models"/*.pth; do
+        if [ -f "$model_file" ]; then
+            model_name=$(basename "$model_file" .pth)
+            # Extract model type (handle naming patterns)
+            # Pattern: vanilla_25epoch_seed42 -> vanilla
+            # Pattern: distilled_25epoch_seed44 -> distilled_seed44
+            if echo "$model_name" | grep -q "_25epoch_seed[0-9]*$"; then
+                # Extract everything before _25epoch_seedXX
+                model_type=$(echo "$model_name" | sed 's/_25epoch_seed[0-9]*$//')
+            else
+                # Fallback: remove everything after first underscore
+                model_type=$(echo "$model_name" | sed 's/_[^_]*$//')
+            fi
+            
+            # For multiple seeds of same model type, append seed to make unique
+            if echo "$model_name" | grep -q "_25epoch_seed[0-9]*$"; then
+                seed=$(echo "$model_name" | sed 's/.*_seed\([0-9]*\)$/\1/')
+                if [ "$model_type" = "distilled" ] && [ "$seed" != "42" ]; then
+                    model_type="${model_type}_seed${seed}"
+                fi
+            fi
+            MODEL_ARRAY+=("$model_type")
+        fi
+    done
+    
+    if [ ${#MODEL_ARRAY[@]} -eq 0 ]; then
+        echo "❌ No .pth files found in $SCRIPT_DIR/models/"
+        exit 1
+    fi
+    
+    # Remove duplicates and sort
+    MODEL_ARRAY=($(printf '%s\n' "${MODEL_ARRAY[@]}" | sort -u))
+    MODELS=$(IFS=','; echo "${MODEL_ARRAY[*]}")
+    echo "✅ Found models: $MODELS"
+else
+    # Convert comma-separated models to array
+    IFS=',' read -ra MODEL_ARRAY <<< "$MODELS"
+fi
 
 echo "=========================================="
 echo "HOSER Distillation: Gene & Eval Pipeline"
@@ -136,9 +175,6 @@ echo "Force Re-run: $FORCE"
 echo "=========================================="
 echo ""
 
-# Convert comma-separated models to array
-IFS=',' read -ra MODEL_ARRAY <<< "$MODELS"
-
 # Convert OD sources to array (supports "train", "test", or "train,test")
 IFS=',' read -ra OD_SOURCE_ARRAY <<< "$OD_SOURCE"
 
@@ -153,17 +189,49 @@ process_model() {
     echo "Processing: $MODEL (seed $SEED, ${OD_SRC}_od)"
     echo "=========================================="
     
-    MODEL_PATH="$SCRIPT_DIR/models/${MODEL}_25epoch_seed${SEED}.pth"
+    # Find the actual model file (supports flexible naming)
+    MODEL_PATH=""
+    for model_file in "$SCRIPT_DIR/models"/*.pth; do
+        if [ -f "$model_file" ]; then
+            model_name=$(basename "$model_file" .pth)
+            # Check if this file matches the model type (handle naming patterns)
+            # Pattern: vanilla_25epoch_seed42 -> vanilla
+            # Pattern: distilled_25epoch_seed44 -> distilled_seed44
+            if echo "$model_name" | grep -q "_25epoch_seed[0-9]*$"; then
+                # Extract everything before _25epoch_seedXX
+                model_type=$(echo "$model_name" | sed 's/_25epoch_seed[0-9]*$//')
+            else
+                # Fallback: remove everything after first underscore
+                model_type=$(echo "$model_name" | sed 's/_[^_]*$//')
+            fi
+            
+            # For multiple seeds of same model type, append seed to make unique
+            if echo "$model_name" | grep -q "_25epoch_seed[0-9]*$"; then
+                seed=$(echo "$model_name" | sed 's/.*_seed\([0-9]*\)$/\1/')
+                if [ "$model_type" = "distilled" ] && [ "$seed" != "42" ]; then
+                    model_type="${model_type}_seed${seed}"
+                fi
+            fi
+            if [ "$model_type" = "$MODEL" ]; then
+                MODEL_PATH="$model_file"
+                break
+            fi
+        fi
+    done
     GENE_DIR="$SCRIPT_DIR/gene/${MODEL}_seed${SEED}_${OD_SRC}od"
     EVAL_DIR="$SCRIPT_DIR/eval/${MODEL}_seed${SEED}_${OD_SRC}od"
     
     # Check if model exists
-    if [ ! -f "$MODEL_PATH" ]; then
-        echo "⚠️  Model not found: $MODEL_PATH"
+    if [ -z "$MODEL_PATH" ] || [ ! -f "$MODEL_PATH" ]; then
+        echo "⚠️  Model not found for type: $MODEL"
+        echo "    Available models:"
+        ls -1 "$SCRIPT_DIR/models"/*.pth 2>/dev/null | sed 's/.*\//    /' || echo "    (none found)"
         echo "    Skipping $MODEL (seed $SEED, ${OD_SRC}_od)"
         echo ""
         return
     fi
+    
+    echo "📁 Using model: $(basename "$MODEL_PATH")"
     
     # =============================================================================
     # GENERATION PHASE
