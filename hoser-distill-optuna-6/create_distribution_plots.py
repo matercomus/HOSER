@@ -268,23 +268,32 @@ class DistributionPlotter:
         """Create distance distribution comparison plot"""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
         
-        # Left: Histograms
-        bins = np.linspace(0, 30, 50)  # 0-30 km range
+        # Left: Density curves (KDE)
+        from scipy import stats
         
-        ax1.hist(real_distances, bins=bins, alpha=0.6, label='Real', 
-                color=COLORS['real_train'], density=True, edgecolor='black', linewidth=0.5)
+        x_range = np.linspace(0, 30, 300)  # Smooth curve with 300 points
         
-        for model_key, distances in generated_distances.items():
+        # Plot real data with thicker line
+        kde_real = stats.gaussian_kde(real_distances)
+        ax1.plot(x_range, kde_real(x_range), color=COLORS['real_train'], 
+                linewidth=3, label='Real', linestyle='-', alpha=0.9)
+        
+        # Plot generated models with distinct styles
+        linestyles = {'distilled': '-', 'distilled_seed44': '--', 'vanilla': '-.'}
+        for model_key, distances in sorted(generated_distances.items()):
             model_name = model_key.replace('_train', '').replace('_test', '')
             color = COLORS.get(model_name, '#95a5a6')
-            ax1.hist(distances, bins=bins, alpha=0.5, label=model_name.title(), 
-                    color=color, density=True, histtype='step', linewidth=2)
+            linestyle = linestyles.get(model_name, '-')
+            
+            kde = stats.gaussian_kde(distances)
+            ax1.plot(x_range, kde(x_range), color=color, linewidth=2.5,
+                    label=model_name.title(), linestyle=linestyle, alpha=0.85)
         
-        ax1.set_xlabel('Distance (km)')
-        ax1.set_ylabel('Density')
-        ax1.set_title('Distance Distributions')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
+        ax1.set_xlabel('Distance (km)', fontsize=12)
+        ax1.set_ylabel('Density', fontsize=12)
+        ax1.set_title('Distance Distributions', fontsize=13, fontweight='bold')
+        ax1.legend(fontsize=11, framealpha=0.95)
+        ax1.grid(True, alpha=0.3, linestyle='--')
         
         # Right: Statistics comparison
         stats_data = []
@@ -339,23 +348,32 @@ class DistributionPlotter:
         """Create radius of gyration comparison plot"""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
         
-        # Left: Histograms
-        bins = np.linspace(0, 5, 50)  # 0-5 km range
+        # Left: Density curves (KDE)
+        from scipy import stats
         
-        ax1.hist(real_radii, bins=bins, alpha=0.6, label='Real', 
-                color=COLORS['real_train'], density=True, edgecolor='black', linewidth=0.5)
+        x_range = np.linspace(0, 5, 300)  # Smooth curve with 300 points
         
-        for model_key, radii in generated_radii.items():
+        # Plot real data with thicker line
+        kde_real = stats.gaussian_kde(real_radii)
+        ax1.plot(x_range, kde_real(x_range), color=COLORS['real_train'], 
+                linewidth=3, label='Real', linestyle='-', alpha=0.9)
+        
+        # Plot generated models with distinct styles
+        linestyles = {'distilled': '-', 'distilled_seed44': '--', 'vanilla': '-.'}
+        for model_key, radii in sorted(generated_radii.items()):
             model_name = model_key.replace('_train', '').replace('_test', '')
             color = COLORS.get(model_name, '#95a5a6')
-            ax1.hist(radii, bins=bins, alpha=0.5, label=model_name.title(), 
-                    color=color, density=True, histtype='step', linewidth=2)
+            linestyle = linestyles.get(model_name, '-')
+            
+            kde = stats.gaussian_kde(radii)
+            ax1.plot(x_range, kde(x_range), color=color, linewidth=2.5,
+                    label=model_name.title(), linestyle=linestyle, alpha=0.85)
         
-        ax1.set_xlabel('Radius of Gyration (km)')
-        ax1.set_ylabel('Density')
-        ax1.set_title('Radius of Gyration Distributions')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
+        ax1.set_xlabel('Radius of Gyration (km)', fontsize=12)
+        ax1.set_ylabel('Density', fontsize=12)
+        ax1.set_title('Radius of Gyration Distributions', fontsize=13, fontweight='bold')
+        ax1.legend(fontsize=11, framealpha=0.95)
+        ax1.grid(True, alpha=0.3, linestyle='--')
         
         # Right: Box plots
         box_data = [real_radii]
@@ -368,7 +386,7 @@ class DistributionPlotter:
             box_labels.append(model_name.title())
             box_colors.append(COLORS.get(model_name, '#95a5a6'))
         
-        bp = ax2.boxplot(box_data, labels=box_labels, patch_artist=True, showfliers=False)
+        bp = ax2.boxplot(box_data, tick_labels=box_labels, patch_artist=True, showfliers=False)
         
         for patch, color in zip(bp['boxes'], box_colors):
             patch.set_facecolor(color)
