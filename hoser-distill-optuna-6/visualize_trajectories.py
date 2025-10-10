@@ -57,8 +57,9 @@ class VisualizationConfig:
     generate_overlaid: bool = True
     generate_cross_model: bool = False  # Compare all models for same OD pair
     
-    # Basemap
-    basemap_style: str = "none"  # "osm", "gaode", "cartodb", "none" - default to none for speed
+    # Background visualization
+    show_road_network: bool = True  # Show road network as light gray reference
+    basemap_style: str = "none"  # "osm", "gaode", "cartodb", "none" - deprecated, use road network
     basemap_timeout: int = 5  # seconds - fast timeout for China network
     basemap_test_first: bool = True  # Test connectivity before fetching all tiles
     
@@ -442,6 +443,84 @@ class TrajectoryPlotter:
     def __init__(self, config: VisualizationConfig):
         self.config = config
         self.basemap_manager = BasemapManager(config)
+        self.road_network = None
+        
+        # Load road network if needed
+        if config.show_road_network:
+            self.road_network = self._load_road_network()
+    
+    def _load_road_network(self) -> Optional[List[List[Tuple[float, float]]]]:
+        """Load road network geometry from roadmap.geo"""
+        try:
+            logger.info(f"📍 Loading road network from {self.config.roadmap_path}")
+            df = pl.read_csv(
+                self.config.roadmap_path,
+                schema_overrides={"lanes": pl.Utf8, "oneway": pl.Utf8}
+            )
+            
+            road_segments = []
+            for coords_str in df['coordinates']:
+                try:
+                    # Parse coordinate string: "[[lon1, lat1], [lon2, lat2], ...]"
+                    coords = ast.literal_eval(coords_str)
+                    road_segments.append([(lon, lat) for lon, lat in coords])
+                except (ValueError, SyntaxError):
+                    continue
+            
+            logger.info(f"✅ Loaded {len(road_segments)} road segments")
+            return road_segments
+            
+        except Exception as e:
+            logger.warning(f"⚠️  Could not load road network: {e}")
+            return None
+    
+    def _plot_road_network(self, ax, bounds: Tuple[float, float, float, float] = None, convert_coords: bool = False):
+        """Plot road network as light gray lines in background
+        
+        Args:
+            ax: Matplotlib axis
+            bounds: (min_lon, max_lon, min_lat, max_lat) to filter roads
+            convert_coords: Apply GCJ-02 conversion
+        
+        Returns:
+            True if roads were plotted, False otherwise
+        """
+        if self.road_network is None:
+            return False
+        
+        # If no bounds provided, plot all roads (slow!)
+        if bounds is None:
+            segments_to_plot = self.road_network
+        else:
+            # Filter roads within bounds for faster plotting
+            min_lon, max_lon, min_lat, max_lat = bounds
+            margin = self.config.margin * 2  # Extra margin for roads
+            segments_to_plot = []
+            
+            for segment in self.road_network:
+                if len(segment) < 2:
+                    continue
+                
+                # Check if segment intersects with bounds
+                seg_lons = [lon for lon, lat in segment]
+                seg_lats = [lat for lon, lat in segment]
+                
+                if (min(seg_lons) <= max_lon + margin and max(seg_lons) >= min_lon - margin and
+                    min(seg_lats) <= max_lat + margin and max(seg_lats) >= min_lat - margin):
+                    segments_to_plot.append(segment)
+        
+        # Plot filtered segments with better visibility
+        for i, segment in enumerate(segments_to_plot):
+            # Convert coordinates if using Gaode basemap
+            if convert_coords:
+                segment = self._convert_coords_for_basemap(segment)
+            
+            lons, lats = zip(*segment)
+            # Add label only to first segment for legend
+            label = 'Road Network' if i == 0 else None
+            ax.plot(lons, lats, color='#CCCCCC', linewidth=0.5, alpha=0.6, zorder=1, label=label)
+        
+        return True
     
     def _wgs84_to_gcj02(self, lon: float, lat: float) -> tuple[float, float]:
         """Convert WGS84 coordinates to GCJ-02 (for Chinese map providers like Gaode)
@@ -496,11 +575,20 @@ class TrajectoryPlotter:
             logger.warning("Empty trajectory, skipping plot")
             return
         
-        fig, ax = plt.subplots(figsize=self.config.figsize)
+        fig, ax = plt.subplots(figsize=self.config.figsize, facecolor='white')
+        ax.set_facecolor('white')
         
         # Convert coordinates for basemap if needed (WGS84 -> GCJ-02 for Gaode)
         plot_coords = self._convert_coords_for_basemap(trajectory.coords)
         lons, lats = zip(*plot_coords)
+        
+        # Calculate bounds for road network filtering
+        margin = self.config.margin
+        bounds = (min(lons), max(lons), min(lats), max(lats))
+        
+        # Plot road network in background if enabled (with bounds for speed)
+        convert_coords = self.config.basemap_style == "gaode"
+        self._plot_road_network(ax, bounds=bounds, convert_coords=convert_coords)
         
         # Plot trajectory line
         ax.plot(lons, lats, 'b-', linewidth=2.5, label='Trajectory', zorder=3, alpha=0.8)
@@ -514,13 +602,8 @@ class TrajectoryPlotter:
                    label='End', zorder=4, edgecolors='black', linewidths=2)
         
         # Auto-zoom with padding
-        margin = self.config.margin
         ax.set_xlim(min(lons) - margin, max(lons) + margin)
         ax.set_ylim(min(lats) - margin, max(lats) + margin)
-        
-        # Add basemap if configured
-        if self.config.basemap_style != "none" and cx is not None:
-            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom='auto')
         
         # Styling
         if title is None:
@@ -555,7 +638,8 @@ class TrajectoryPlotter:
             'generated': '#2ca02c',
         }
         
-        fig, ax = plt.subplots(figsize=self.config.figsize)
+        fig, ax = plt.subplots(figsize=self.config.figsize, facecolor='white')
+        ax.set_facecolor('white')
         
         # Collect all coordinates for bounds calculation
         all_lons, all_lats = [], []
@@ -585,15 +669,17 @@ class TrajectoryPlotter:
             ax.scatter(lons[-1], lats[-1], c=color, s=100, marker='s', 
                        zorder=4, edgecolors='black', linewidths=1.5, alpha=0.9)
         
-        # Auto-zoom with padding
+        # Auto-zoom with padding and plot road network
         if all_lons and all_lats:
             margin = self.config.margin
+            bounds = (min(all_lons), max(all_lons), min(all_lats), max(all_lats))
+            
+            # Plot road network in background if enabled
+            convert_coords = self.config.basemap_style == "gaode"
+            self._plot_road_network(ax, bounds=bounds, convert_coords=convert_coords)
+            
             ax.set_xlim(min(all_lons) - margin, max(all_lons) + margin)
             ax.set_ylim(min(all_lats) - margin, max(all_lats) + margin)
-        
-        # Add basemap if configured
-        if self.config.basemap_style != "none" and cx is not None:
-            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom='auto')
         
         # Styling
         if title is None:
@@ -647,7 +733,8 @@ class TrajectoryPlotter:
             'real': 'Real Trajectory',
         }
         
-        fig, ax = plt.subplots(figsize=self.config.figsize)
+        fig, ax = plt.subplots(figsize=self.config.figsize, facecolor='white')
+        ax.set_facecolor('white')
         
         # Collect all coordinates for bounds calculation
         all_lons, all_lats = [], []
@@ -670,11 +757,10 @@ class TrajectoryPlotter:
             
             # Different line width for real trajectory
             linewidth = 3.5 if model_name == 'real' else 2.5
-            alpha = 0.9 if model_name == 'real' else 0.7
             
             # Plot line
             ax.plot(lons, lats, linestyle=linestyle, linewidth=linewidth, 
-                   label=label, color=color, zorder=4 if model_name == 'real' else 3, alpha=alpha)
+                   label=label, color=color, zorder=4 if model_name == 'real' else 3, alpha=0.8)
             
             # Start marker
             ax.scatter(lons[0], lats[0], c=color, s=120, marker='o', 
@@ -684,15 +770,17 @@ class TrajectoryPlotter:
             ax.scatter(lons[-1], lats[-1], c=color, s=120, marker='s', 
                       zorder=5, edgecolors='black', linewidths=1.5, alpha=0.9)
         
-        # Auto-zoom with padding
+        # Auto-zoom with padding and plot road network
         if all_lons and all_lats:
             margin = self.config.margin
+            bounds = (min(all_lons), max(all_lons), min(all_lats), max(all_lats))
+            
+            # Plot road network in background if enabled
+            convert_coords = self.config.basemap_style == "gaode"
+            self._plot_road_network(ax, bounds=bounds, convert_coords=convert_coords)
+            
             ax.set_xlim(min(all_lons) - margin, max(all_lons) + margin)
             ax.set_ylim(min(all_lats) - margin, max(all_lats) + margin)
-        
-        # Add basemap if configured
-        if self.config.basemap_style != "none" and cx is not None:
-            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom='auto')
         
         # Styling
         if title is None:
