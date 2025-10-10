@@ -25,13 +25,10 @@ Options:
 import os
 import sys
 import argparse
-import json
-import time
 import signal
 import threading
-from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import logging
 
 # Add project root to path for imports
@@ -39,15 +36,12 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import the programmatic interfaces
-from gene import generate_trajectories_programmatic
-from evaluation import evaluate_trajectories_programmatic
-from utils import set_seed, create_nested_namespace
-from models.hoser import HOSER
-import yaml
-import polars as pl
-import numpy as np
-import torch
-import wandb
+from gene import generate_trajectories_programmatic  # noqa: E402
+from evaluation import evaluate_trajectories_programmatic  # noqa: E402
+from utils import set_seed  # noqa: E402
+import yaml  # noqa: E402
+import torch  # noqa: E402
+import wandb  # noqa: E402
 
 # Configure logging
 logging.basicConfig(
@@ -89,7 +83,6 @@ class PipelineConfig:
     
     def load_from_yaml(self, config_path: str):
         """Load configuration from YAML file"""
-        import yaml
         with open(config_path, 'r') as f:
             config_data = yaml.safe_load(f)
         
@@ -315,7 +308,7 @@ class WandBManager:
         
         if not self.config.background_sync:
             logger.info(f"📤 {len(self.completed_runs)} WandB runs saved offline")
-            logger.info("   To upload: wandb sync wandb/offline-run-*")
+            logger.info("   To upload: uv run wandb sync wandb/offline-run-*")
             return
         
         def sync_worker():
@@ -328,9 +321,9 @@ class WandBManager:
             
             for run_dir in self.completed_runs:
                 try:
-                    # Use subprocess to run wandb sync
+                    # Use subprocess to run wandb sync via uv
                     result = subprocess.run(
-                        ['wandb', 'sync', run_dir],
+                        ['uv', 'run', 'wandb', 'sync', run_dir],
                         capture_output=True,
                         text=True,
                         timeout=300  # 5 min timeout per run
@@ -542,7 +535,7 @@ class EvaluationPipeline:
                                         'beam_width': self.config.beam_width,
                                     }
                                     
-                                    wandb_id = self.wandb_manager.init_run(run_name, tags, config_dict)
+                                    self.wandb_manager.init_run(run_name, tags, config_dict)
                                     self.wandb_manager.log_metrics(run_name, {
                                         'num_trajectories_generated': self.config.num_gene,
                                         'output_file': str(generated_file)
@@ -588,7 +581,7 @@ class EvaluationPipeline:
                                         'generated_file': str(generated_file),
                                     }
                                     
-                                    wandb_id = self.wandb_manager.init_run(run_name, tags, config_dict)
+                                    self.wandb_manager.init_run(run_name, tags, config_dict)
                                     self.wandb_manager.log_metrics(run_name, eval_results)
                                     self.wandb_manager.finish_run(run_name)
                                 
