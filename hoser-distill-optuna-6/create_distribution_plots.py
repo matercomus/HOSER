@@ -289,8 +289,8 @@ class DistributionPlotter:
             ax1.plot(x_range, kde(x_range), color=color, linewidth=2.5,
                     label=model_name.title(), linestyle=linestyle, alpha=0.85)
         
-        ax1.set_xlabel('Distance (km)', fontsize=12)
-        ax1.set_ylabel('Density', fontsize=12)
+        ax1.set_xlabel('Distance (km)', fontsize=12, fontweight='bold')
+        ax1.set_ylabel('Density', fontsize=12, fontweight='bold')
         ax1.set_title('Distance Distributions', fontsize=13, fontweight='bold')
         ax1.legend(fontsize=11, framealpha=0.95)
         ax1.grid(True, alpha=0.3, linestyle='--')
@@ -312,7 +312,7 @@ class DistributionPlotter:
             patch.set_facecolor(color)
             patch.set_alpha(0.7)
         
-        ax2.set_ylabel('Distance (km)', fontsize=12)
+        ax2.set_ylabel('Distance (km)', fontsize=12, fontweight='bold')
         ax2.set_title('Distribution Spread', fontsize=13, fontweight='bold')
         ax2.set_xticklabels(box_labels, rotation=15, ha='right', fontsize=10)
         ax2.grid(True, alpha=0.3, axis='y', linestyle='--')
@@ -322,6 +322,17 @@ class DistributionPlotter:
             mean_val = np.mean(data)
             ax2.plot(i, mean_val, marker='D', color=color, markersize=8, 
                     markeredgecolor='black', markeredgewidth=1, zorder=3)
+        
+        # Add legend for box plot elements
+        from matplotlib.patches import Patch
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Patch(facecolor='gray', alpha=0.7, label='Box: IQR (25th-75th percentile)'),
+            Line2D([0], [0], color='black', linewidth=1.5, label='Line: Median'),
+            Line2D([0], [0], color='black', marker='D', markersize=8, linestyle='None',
+                   markeredgecolor='black', markeredgewidth=1, label='Diamond: Mean')
+        ]
+        ax2.legend(handles=legend_elements, loc='upper left', fontsize=9, framealpha=0.95)
         
         fig.suptitle(title, fontsize=16, fontweight='bold')
         plt.tight_layout()
@@ -360,8 +371,8 @@ class DistributionPlotter:
             ax1.plot(x_range, kde(x_range), color=color, linewidth=2.5,
                     label=model_name.title(), linestyle=linestyle, alpha=0.85)
         
-        ax1.set_xlabel('Radius of Gyration (km)', fontsize=12)
-        ax1.set_ylabel('Density', fontsize=12)
+        ax1.set_xlabel('Radius of Gyration (km)', fontsize=12, fontweight='bold')
+        ax1.set_ylabel('Density', fontsize=12, fontweight='bold')
         ax1.set_title('Radius of Gyration Distributions', fontsize=13, fontweight='bold')
         ax1.legend(fontsize=11, framealpha=0.95)
         ax1.grid(True, alpha=0.3, linestyle='--')
@@ -383,10 +394,27 @@ class DistributionPlotter:
             patch.set_facecolor(color)
             patch.set_alpha(0.7)
         
-        ax2.set_ylabel('Radius of Gyration (km)')
-        ax2.set_title('Distribution Spread')
-        ax2.set_xticklabels(box_labels, rotation=15, ha='right')
-        ax2.grid(True, alpha=0.3, axis='y')
+        ax2.set_ylabel('Radius of Gyration (km)', fontsize=12, fontweight='bold')
+        ax2.set_title('Distribution Spread', fontsize=13, fontweight='bold')
+        ax2.set_xticklabels(box_labels, rotation=15, ha='right', fontsize=10)
+        ax2.grid(True, alpha=0.3, axis='y', linestyle='--')
+        
+        # Add mean as diamonds
+        for i, (data, color) in enumerate(zip(box_data, box_colors), start=1):
+            mean_val = np.mean(data)
+            ax2.plot(i, mean_val, marker='D', color=color, markersize=8, 
+                    markeredgecolor='black', markeredgewidth=1, zorder=3)
+        
+        # Add legend for box plot elements
+        from matplotlib.patches import Patch
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Patch(facecolor='gray', alpha=0.7, label='Box: IQR (25th-75th percentile)'),
+            Line2D([0], [0], color='black', linewidth=1.5, label='Line: Median'),
+            Line2D([0], [0], color='black', marker='D', markersize=8, linestyle='None',
+                   markeredgecolor='black', markeredgewidth=1, label='Diamond: Mean')
+        ]
+        ax2.legend(handles=legend_elements, loc='upper left', fontsize=9, framealpha=0.95)
         
         fig.suptitle(title, fontsize=16, fontweight='bold')
         plt.tight_layout()
