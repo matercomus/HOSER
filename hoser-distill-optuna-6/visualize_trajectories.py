@@ -612,7 +612,6 @@ class TrajectoryPlotter:
         ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
         ax.set_xlabel('Longitude', fontsize=12)
         ax.set_ylabel('Latitude', fontsize=12)
-        ax.grid(True, alpha=0.3)
         
         # Save both formats
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -689,7 +688,6 @@ class TrajectoryPlotter:
         ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
         ax.set_xlabel('Longitude', fontsize=12)
         ax.set_ylabel('Latitude', fontsize=12)
-        ax.grid(True, alpha=0.3)
         
         # Save both formats
         output_path.parent.mkdir(parents=True, exist_ok=True)
