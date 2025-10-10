@@ -23,16 +23,60 @@ This analysis evaluates the performance of knowledge-distilled HOSER models agai
 
 ### Models Evaluated:
 1. **Vanilla HOSER** (`vanilla_25epoch_seed42.pth`)
-   - Baseline model trained without distillation
+   - Baseline model trained without distillation (Trial 0)
    - 25 epochs, seed 42
+   - MLE-only training (hard labels)
 
 2. **Distilled HOSER** (`distilled_25epoch_seed42.pth`)
-   - Student model trained with knowledge distillation
+   - Student model trained with knowledge distillation from LM-TAD teacher
    - 25 epochs, seed 42
+   - MLE + KL divergence from teacher
+   - **Distillation hyperparameters (from Optuna tuning):**
+     - λ (KL weight): **0.0106**
+     - τ (temperature): **2.04**
+     - Window size: **4 steps**
 
 3. **Distilled HOSER (seed 44)** (`distilled_25epoch_seed44.pth`)
    - Student model with different seed for robustness check
    - 25 epochs, seed 44
+   - Same distillation hyperparameters as seed 42
+
+### Training Configuration (Fair Comparison):
+
+All models were trained using **identical base configurations** via Optuna hyperparameter tuning (`tune_hoser.py`):
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| **Base Config** | `Beijing.yaml` | Same for all models |
+| **Batch Size** | 128 | Consistent across trials |
+| **Accumulation Steps** | 8 | Effective batch = 1024 |
+| **Candidate Top-K** | 64 | Filters to closest 64 roads |
+| **Learning Rate** | 0.001 | AdamW optimizer |
+| **Weight Decay** | 0.1 | Regularization |
+| **Max Epochs** | 25 | Full convergence |
+| **Architecture** | Identical | Same HOSER model |
+| **Data** | Same train/val/test splits | Fair comparison |
+
+**Distillation-Only Differences:**
+
+| Parameter | Vanilla (Trial 0) | Distilled (Trials 1+) |
+|-----------|-------------------|----------------------|
+| **Distillation enabled** | ❌ No | ✅ Yes |
+| **KL weight (λ)** | 0.0 (disabled) | 0.0106 |
+| **Temperature (τ)** | N/A | 2.04 |
+| **Teacher window** | N/A | 4 steps |
+| **Teacher model** | N/A | LM-TAD (frozen) |
+
+**Key Point:** The **ONLY difference** between vanilla (Trial 0) and distilled models (Trials 1+) is whether distillation was enabled and the tuned distillation hyperparameters. All other training parameters (batch size, learning rate, architecture, data, etc.) are identical. This ensures that any performance differences are purely due to knowledge transfer, not confounded by different training setups.
+
+**Why this matters:** 
+- Isolates the effect of distillation
+- No confounding variables (batch size, learning rate, etc.)
+- Pure comparison of MLE-only vs MLE+distillation training
+- Demonstrates that knowledge transfer alone enables navigation capability
+- Hyperparameters were optimized via 12-trial Optuna study (CMA-ES sampler, Hyperband pruner)
+
+> **📖 For detailed training methodology, loss formulation, and implementation details, see [`LMTAD-Distillation.md`](../LMTAD-Distillation.md).**
 
 ### Evaluation Protocol:
 - **Generated Trajectories:** 5,000 per model per OD source
