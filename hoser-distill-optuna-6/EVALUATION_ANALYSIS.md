@@ -384,6 +384,16 @@ This section presents the main discoveries from our evaluation, organized by the
 
 **Finding:** Vanilla generates unrealistically short trips.
 
+#### Detailed Distribution Analysis
+
+**Train OD Distributions:**
+
+![Train OD Distance Distributions](figures/distributions/distance_distribution_train_od.png)
+
+**Test OD Distributions:**
+
+![Test OD Distance Distributions](figures/distributions/distance_distribution_test_od.png)
+
 | Model Type | Average Distance | Comparison to Real |
 |------------|------------------|-------------------|
 | Real Data | 5.16 km | Baseline |
@@ -402,6 +412,16 @@ This section presents the main discoveries from our evaluation, organized by the
 ![JSD Comparison: Distilled vs Vanilla](figures/jsd_comparison.png)
 
 **Finding:** Even for the small fraction of vanilla OD pairs that DO match, distribution quality is poor.
+
+#### Detailed Radius of Gyration Analysis
+
+**Train OD Radius Distributions:**
+
+![Train OD Radius of Gyration](figures/distributions/radius_distribution_train_od.png)
+
+**Test OD Radius Distributions:**
+
+![Test OD Radius of Gyration](figures/distributions/radius_distribution_test_od.png)
 
 | Metric | Distilled | Vanilla | Improvement |
 |--------|-----------|---------|-------------|
@@ -656,6 +676,7 @@ Based on these results, a successful trajectory generation model must:
 
 All figures are available in `figures/` directory:
 
+**Primary Analysis Figures:**
 1. `distance_distributions.pdf` - Trip distance histograms
 2. `od_matching_rates.pdf` - OD coverage bar chart
 3. `jsd_comparison.pdf` - Distribution quality comparison
@@ -664,6 +685,12 @@ All figures are available in `figures/` directory:
 6. `seed_robustness.pdf` - Cross-seed consistency
 7. `local_metrics.pdf` - Trajectory-level metrics
 8. `performance_radar.pdf` - Overall performance radar chart
+
+**Detailed Distribution Plots:**
+9. `distributions/distance_distribution_train_od.pdf` - Train OD distance comparison (histograms + statistics)
+10. `distributions/distance_distribution_test_od.pdf` - Test OD distance comparison (histograms + statistics)
+11. `distributions/radius_distribution_train_od.pdf` - Train OD radius of gyration (histograms + box plots)
+12. `distributions/radius_distribution_test_od.pdf` - Test OD radius of gyration (histograms + box plots)
 
 ### 9.2 OD Pair Matching Algorithm
 
