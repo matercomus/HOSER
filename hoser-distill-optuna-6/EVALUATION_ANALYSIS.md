@@ -6,6 +6,29 @@
 
 ---
 
+## Table of Contents
+
+1. [Executive Summary](#executive-summary)
+2. [Experimental Setup](#1-experimental-setup)
+   - [Models Evaluated](#models-evaluated)
+   - [Training Configuration](#training-configuration-fair-comparison)
+   - [Evaluation Protocol](#evaluation-protocol)
+   - [Metrics Explained](#metrics)
+3. [Results Overview](#2-results-overview)
+4. [Key Findings](#3-key-findings)
+   - [Path Completion Success](#31-path-completion-success-od-coverage)
+   - [Trip Length Realism](#32-trip-length-realism)
+   - [Spatial Distribution Quality](#33-spatial-distribution-quality-radius-of-gyration)
+   - [Generalization vs Memorization](#34-generalization-vs-memorization)
+5. [Why Vanilla Fails](#4-why-vanilla-fails)
+6. [What Distillation Transferred](#5-what-distillation-transferred)
+7. [Trajectory-Level Analysis](#6-trajectory-level-analysis)
+8. [Statistical Summary](#7-statistical-summary)
+9. [Conclusions](#8-conclusions)
+10. [Appendix: Methodology Details](#9-appendix-methodology-details)
+
+---
+
 ## Executive Summary
 
 This analysis evaluates the performance of knowledge-distilled HOSER models against a vanilla baseline. Results demonstrate that **distillation transfers spatial understanding**, not just improved metrics, from teacher to student models.
@@ -318,9 +341,44 @@ The OD match rate is **NOT** 100% because:
 
 ---
 
-## 3. Deep Dive: Why Vanilla Fails
+## 3. Key Findings
 
-### 3.1 The Distance Problem
+This section presents the main discoveries from our evaluation, organized by the most impactful differences between vanilla and distilled models.
+
+### 3.1 Path Completion Success (OD Coverage)
+
+![OD Pair Matching Rates](figures/od_matching_rates.png)
+
+**The Most Critical Finding:** Vanilla frequently fails to reach target destinations.
+
+| Model | Train OD Match Rate | Test OD Match Rate | Interpretation |
+|-------|---------------------|---------------------|----------------|
+| **Distilled (seed 42)** | **85.8%** | **85.7%** | Successfully reaches targets |
+| **Distilled (seed 44)** | **89.4%** | **88.2%** | Even better navigation |
+| **Vanilla** | 17.7% | 12.1% | Fails 82-88% of the time |
+
+**Why This Matters:**
+- OD matching uses a 111m grid (0.001°) for spatial binning of **actual trajectory endpoints**
+- Distilled models: 85-89% successfully reach target destinations with realistic paths
+- Vanilla: Only 12-18% success → **82-88% of vanilla's trajectories end prematurely or unrealistically**
+
+**Root Causes of Vanilla's Failure:**
+1. **Path Completion Failure**: Weaker spatial understanding causes it to:
+   - Get stuck in local maxima during beam search
+   - Fail to find complete paths to distant destinations
+   - Stop prematurely at intermediate locations
+   
+2. **Unrealistic Endpoint Selection**: When vanilla does complete paths, they're too short (2.4 km avg)
+   - Creates close-proximity OD pairs (A → nearby B) that rarely occur in real taxi data
+   - Real Beijing taxi trips span longer distances (~5 km), creating different OD patterns
+
+**Example Scenario:**
+- **Input**: Origin=Downtown, Destination=Airport (from real data)
+- **Vanilla**: Generates path from Downtown → Mid-City (stops early, 2.4 km)
+- **Distilled**: Generates path from Downtown → Airport (completes path, 6.4 km)
+- **Evaluation**: Vanilla's OD becomes (Downtown, Mid-City) which may not exist in real data
+
+### 3.2 Trip Length Realism
 
 ![Distance Distribution Comparison](figures/distance_distributions.png)
 
@@ -329,61 +387,75 @@ The OD match rate is **NOT** 100% because:
 | Model Type | Average Distance | Comparison to Real |
 |------------|------------------|-------------------|
 | Real Data | 5.16 km | Baseline |
-| Distilled | 6.34-6.68 km | +23-29% (realistic variation) |
+| Distilled (seed 42) | 6.34-6.68 km | +23-29% (realistic variation) |
+| Distilled (seed 44) | 6.34-6.68 km | +23-29% (realistic variation) |
 | Vanilla | 2.33-2.43 km | **-55%** (unrealistic) |
 
 **Interpretation:**
 - Beijing taxi trips naturally average ~5 km
 - Distilled models slightly overestimate (conservative generation)
 - Vanilla severely underestimates, suggesting it hasn't learned realistic spatial scales
+- This compounds with the path completion problem: vanilla stops early AND generates short trips
 
-### 3.2 The OD Coverage Problem
-
-![OD Pair Matching Rates](figures/od_matching_rates.png)
-
-**Finding:** Vanilla frequently fails to reach target destinations and creates unrealistic OD combinations.
-
-**Why This Matters:**
-- OD matching uses a 111m grid (0.001°) for spatial binning of **actual trajectory endpoints**
-- Real dataset has 629K train and 180K test trajectories
-- Distilled models: 85-89% successfully reach target destinations with realistic paths
-- Vanilla: Only 12-18% success → **82-88% of vanilla's trajectories end prematurely or unrealistically**
-
-**Root Causes:**
-1. **Path Completion Failure**: Vanilla's weaker spatial understanding causes it to:
-   - Get stuck in local maxima during beam search
-   - Fail to find complete paths to distant destinations
-   - Stop prematurely at intermediate locations
-   
-2. **Unrealistic Endpoint Selection**: When vanilla does complete paths, they're often too short (2.4 km avg)
-   - Creates close-proximity OD pairs (A → nearby B) that rarely occur in real taxi data
-   - Real Beijing taxi trips span longer distances (~5 km), creating different OD patterns
-   - Even when starting from a real origin A, ending at nearby B produces OD (A,B) not found in data
-
-**Example Scenario:**
-- **Input**: Origin=Downtown, Destination=Airport (from real data)
-- **Vanilla**: Generates path from Downtown → Mid-City (stops early, 2.4 km)
-- **Distilled**: Generates path from Downtown → Airport (completes path, 6.4 km)
-- **Evaluation**: Vanilla's OD becomes (Downtown, Mid-City) which may not exist in real data, so it doesn't match
-
-### 3.3 Distribution Similarity
+### 3.3 Spatial Distribution Quality (Radius of Gyration)
 
 ![JSD Comparison: Distilled vs Vanilla](figures/jsd_comparison.png)
 
-Even for the **17% of vanilla OD pairs that DO match**, the trajectories show poor distribution similarity:
-- **Distance JSD:** 7-8x worse than distilled
-- **Radius JSD:** 50-70x worse than distilled
+**Finding:** Even for the small fraction of vanilla OD pairs that DO match, distribution quality is poor.
 
-This indicates vanilla hasn't learned:
+| Metric | Distilled | Vanilla | Improvement |
+|--------|-----------|---------|-------------|
+| **Distance JSD** | 0.016-0.022 | 0.145-0.153 | **87-89%** reduction |
+| **Radius JSD** | 0.003-0.004 | 0.198-0.206 | **98%** reduction |
+| **Duration JSD** | 0.018-0.024 | 0.018 | Similar (misleading) |
+
+**What This Means:**
+- **Distance JSD**: Distilled models generate realistic trip length distributions, vanilla doesn't
+- **Radius JSD**: Distilled models capture spatial complexity, vanilla generates overly simple paths
+- **Duration JSD**: Vanilla appears good only because shorter trips naturally have different timing
+
+**Vanilla hasn't learned:**
 - Realistic spatial dispersion patterns
 - Common route characteristics
 - Trip complexity (radius of gyration)
 
+### 3.4 Generalization vs Memorization
+
+![Train vs Test Performance](figures/train_test_comparison.png)
+
+**Key Question:** Do distilled models just memorize training patterns or truly generalize?
+
+**Real Data Baseline:**
+- Real train distance: 5.16 km
+- Real test distance: 5.16 km (identical - same underlying distribution)
+
+**Model Performance:**
+
+| Model | Train Distance JSD | Test Distance JSD | Generated Train Distance | Generated Test Distance | Difference |
+|-------|-------------------|-------------------|------------------------|----------------------|------------|
+| distilled | 0.0217 | 0.0192 | 6.68 km (+29% vs real) | 6.48 km (+26% vs real) | -0.0025 (generalization!) |
+| distilled_seed44 | 0.0178 | 0.0162 | 6.44 km (+25% vs real) | 6.34 km (+23% vs real) | -0.0016 (generalization!) |
+| vanilla | 0.1445 | 0.1528 | 2.43 km (-53% vs real) | 2.33 km (-55% vs real) | +0.0083 (degradation) |
+
+**Key Findings:** 
+1. **Distilled models generalize:** They perform **better on test** than train (lower JSD), indicating they've learned generalizable spatial patterns, not just memorized training trajectories.
+2. **Distance consistency:** Distilled models maintain realistic distances on both train (6.34-6.68 km) and test (6.34-6.48 km), staying within 23-29% of real average.
+3. **Vanilla's failure persists:** Vanilla generates unrealistically short trips on both train (2.43 km) and test (2.33 km), consistently ~54% shorter than real data.
+
 ---
 
-## 4. Distillation Success: What Was Transferred?
+## 4. Why Vanilla Fails
 
-### 4.1 Spatial Understanding
+This section was already covered in [Section 3: Key Findings](#3-key-findings). The main failure modes are:
+1. **Path Completion**: 82-88% failure rate to reach destinations
+2. **Trip Length**: 55% too short compared to real data
+3. **Spatial Complexity**: 50-70x worse radius of gyration distribution
+
+---
+
+## 5. What Distillation Transferred
+
+### 5.1 Spatial Understanding
 
 ![Spatial Metrics Heatmap](figures/metrics_heatmap.png)
 
@@ -416,28 +488,7 @@ This indicates vanilla hasn't learned:
    - **Vanilla (test OD):** JSD = 0.2057 (73x worse than best distilled)
    - **Interpretation:** Distilled models accurately capture trajectory spatial complexity, vanilla fails entirely
 
-### 4.2 Generalization vs Memorization
-
-![Train vs Test Performance](figures/train_test_comparison.png)
-
-**Real Data Baseline:**
-- Real train distance: 5.16 km
-- Real test distance: 5.16 km (identical - same underlying distribution)
-
-**Model Performance:**
-
-| Model | Train Distance JSD | Test Distance JSD | Generated Train Distance | Generated Test Distance | Difference |
-|-------|-------------------|-------------------|------------------------|----------------------|------------|
-| distilled | 0.0217 | 0.0192 | 6.68 km (+29% vs real) | 6.48 km (+26% vs real) | -0.0025 (generalization!) |
-| distilled_seed44 | 0.0178 | 0.0162 | 6.44 km (+25% vs real) | 6.34 km (+23% vs real) | -0.0016 (generalization!) |
-| vanilla | 0.1445 | 0.1528 | 2.43 km (-53% vs real) | 2.33 km (-55% vs real) | +0.0083 (degradation) |
-
-**Key Findings:** 
-1. **Distilled models generalize:** They perform **better on test** than train (lower JSD), indicating they've learned generalizable spatial patterns, not just memorized training trajectories.
-2. **Distance consistency:** Distilled models maintain realistic distances on both train (6.34-6.68 km) and test (6.34-6.48 km), staying within 23-29% of real average.
-3. **Vanilla's failure persists:** Vanilla generates unrealistically short trips on both train (2.43 km) and test (2.33 km), consistently ~54% shorter than real data.
-
-### 4.3 Robustness Across Seeds
+### 5.2 Robustness Across Seeds
 
 ![Seed Comparison](figures/seed_robustness.png)
 
@@ -460,9 +511,9 @@ For example, if Distance JSD has CV = 8.9%, this means the variation between see
 
 ---
 
-## 5. Trajectory-Level Analysis
+## 6. Trajectory-Level Analysis
 
-### 5.1 Local Metric Interpretation
+### 6.1 Local Metric Interpretation
 
 ![Local Metrics Comparison](figures/local_metrics.png)
 
@@ -474,7 +525,7 @@ For example, if Distance JSD has CV = 8.9%, this means the variation between see
 
 **Important Note:** Lower Hausdorff/DTW for vanilla is **not better** - it reflects shorter, simpler (but unrealistic) trajectories. When normalized by trajectory length, distilled models show better alignment with real patterns.
 
-### 5.2 Why DTW is Higher for Distilled Models
+### 6.2 Why DTW is Higher for Distilled Models
 
 **Explanation:**
 - DTW measures cumulative point-to-point distance
@@ -488,7 +539,7 @@ For example, if Distance JSD has CV = 8.9%, this means the variation between see
 
 Even accounting for length, distilled models are competitive, but the key insight is they're generating **realistic-length trajectories** in the first place.
 
-### 5.3 The Duration Metric Paradox
+### 6.3 The Duration Metric Paradox
 
 **Observation:** Vanilla achieves the best Duration JSD (0.0175-0.0179), slightly better than distilled models (0.0175-0.0237).
 
@@ -502,7 +553,7 @@ Even accounting for length, distilled models are competitive, but the key insigh
 
 **Interpretation:** Good duration JSD for vanilla is a side effect of generating short trips, not evidence of better trajectory quality. A model that generates only 1km trips would also have low duration JSD, but would be useless for real applications.
 
-### 5.4 EDR: The Normalized Perspective
+### 6.4 EDR: The Normalized Perspective
 
 **Finding:** All models show similar EDR values (0.48-0.51), with minimal variation.
 
@@ -519,9 +570,9 @@ Even accounting for length, distilled models are competitive, but the key insigh
 
 ---
 
-## 6. Statistical Summary
+## 7. Statistical Summary
 
-### 6.1 Performance Metrics
+### 7.1 Performance Metrics
 
 ![Performance Radar Chart](figures/performance_radar.png)
 
@@ -534,7 +585,7 @@ Even accounting for length, distilled models are competitive, but the key insigh
 | Radius Quality (1-JSD) | 99.7% | 79.8% | **+24.9%** |
 | Distance Accuracy | 91.2% | 50.8% | **+79.5%** |
 
-### 6.2 Consistency Analysis
+### 7.2 Consistency Analysis
 
 **Coefficient of Variation (CV) across seeds:**
 - Distance JSD: 8.9% (low variability)
@@ -542,32 +593,6 @@ Even accounting for length, distilled models are competitive, but the key insigh
 - OD Coverage: 2.2% (very stable)
 
 **Interpretation:** Distillation produces consistent, reproducible improvements.
-
----
-
-## 7. Implications for Trajectory Generation
-
-### 7.1 What Makes a Good Trajectory Model?
-
-Based on these results, a successful trajectory generation model must:
-
-1. ✅ **Generate realistic trip lengths** (distilled: yes, vanilla: no)
-2. ✅ **Match real OD pair distributions** (distilled: 87%, vanilla: 15%)
-3. ✅ **Preserve spatial complexity** (radius of gyration)
-4. ✅ **Generalize to unseen OD pairs** (test performance)
-
-### 7.2 The Role of Knowledge Distillation
-
-**What Distillation Transferred:**
-- Spatial scale awareness (trip length understanding)
-- Common OD pattern recognition
-- Route complexity modeling (radius distribution)
-- Generalizable spatial representations
-
-**What Wasn't Transferred (Vanilla's Failures):**
-- Short-trip bias suggests vanilla learned local patterns only
-- Poor OD coverage indicates missing global spatial structure
-- High JSD reveals inadequate distribution modeling
 
 ---
 
@@ -601,7 +626,24 @@ This evaluation demonstrates that:
 - **Generalization testing** (train vs test OD) is essential for validating models
 - **Endpoint validation matters** - models must reach intended destinations, not just generate plausible paths
 
-### 8.3 Recommendations for Future Work
+### 8.3 Implications for Trajectory Generation
+
+**What Makes a Good Trajectory Model?**
+
+Based on these results, a successful trajectory generation model must:
+1. ✅ **Generate realistic trip lengths** (distilled: yes, vanilla: no)
+2. ✅ **Match real OD pair distributions** (distilled: 87%, vanilla: 15%)
+3. ✅ **Preserve spatial complexity** (radius of gyration)
+4. ✅ **Generalize to unseen OD pairs** (test performance)
+
+**What Distillation Transferred:**
+- Spatial scale awareness (trip length understanding)
+- Common OD pattern recognition
+- Route complexity modeling (radius distribution)
+- Generalizable spatial representations
+- Navigation capability (path completion)
+
+### 8.4 Recommendations for Future Work
 
 1. **Evaluation Standards:**
    - Always report path completion success rates (OD endpoint matching)
@@ -621,7 +663,9 @@ This evaluation demonstrates that:
 
 ---
 
-## 9. Visualizations
+## 9. Appendix: Methodology Details
+
+### 9.1 Visualizations
 
 All figures are available in `figures/` directory:
 
@@ -634,11 +678,7 @@ All figures are available in `figures/` directory:
 7. `local_metrics.pdf` - Trajectory-level metrics
 8. `performance_radar.pdf` - Overall performance radar chart
 
----
-
-## 10. Appendix: Methodology Details
-
-### 10.1 OD Pair Matching Algorithm
+### 9.2 OD Pair Matching Algorithm
 
 ```python
 # Grid-based spatial binning
@@ -648,7 +688,7 @@ dest_cell = (round(dest_lat / grid_size), round(dest_lon / grid_size))
 od_pair = (origin_cell, dest_cell)
 ```
 
-### 10.2 JSD Calculation
+### 9.3 JSD Calculation
 
 Jensen-Shannon Divergence is computed as:
 ```
@@ -658,7 +698,7 @@ where M = 0.5 * (P + Q)
 
 Bins: 50 bins for distance, 50 for duration, 50 for radius of gyration
 
-### 10.3 Evaluation Pipeline
+### 9.4 Evaluation Pipeline
 
 - **Caching:** Road network and real trajectories cached for efficiency
 - **Parallelization:** Not yet implemented (future optimization)
