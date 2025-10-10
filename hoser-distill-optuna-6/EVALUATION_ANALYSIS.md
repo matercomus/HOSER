@@ -197,13 +197,22 @@ This indicates vanilla hasn't learned:
 
 ![Train vs Test Performance](figures/train_test_comparison.png)
 
-| Model | Train Distance JSD | Test Distance JSD | Difference |
-|-------|-------------------|-------------------|------------|
-| distilled | 0.0217 | 0.0192 | -0.0025 (generalization!) |
-| distilled_seed44 | 0.0178 | 0.0162 | -0.0016 (generalization!) |
-| vanilla | 0.1445 | 0.1528 | +0.0083 (degradation) |
+**Real Data Baseline:**
+- Real train distance: 5.16 km
+- Real test distance: 5.16 km (identical - same underlying distribution)
 
-**Key Finding:** Distilled models perform **better on test** than train, indicating they've learned generalizable spatial patterns, not just memorized training trajectories.
+**Model Performance:**
+
+| Model | Train Distance JSD | Test Distance JSD | Generated Train Distance | Generated Test Distance | Difference |
+|-------|-------------------|-------------------|------------------------|----------------------|------------|
+| distilled | 0.0217 | 0.0192 | 6.68 km (+29% vs real) | 6.48 km (+26% vs real) | -0.0025 (generalization!) |
+| distilled_seed44 | 0.0178 | 0.0162 | 6.44 km (+25% vs real) | 6.34 km (+23% vs real) | -0.0016 (generalization!) |
+| vanilla | 0.1445 | 0.1528 | 2.43 km (-53% vs real) | 2.33 km (-55% vs real) | +0.0083 (degradation) |
+
+**Key Findings:** 
+1. **Distilled models generalize:** They perform **better on test** than train (lower JSD), indicating they've learned generalizable spatial patterns, not just memorized training trajectories.
+2. **Distance consistency:** Distilled models maintain realistic distances on both train (6.34-6.68 km) and test (6.34-6.48 km), staying within 23-29% of real average.
+3. **Vanilla's failure persists:** Vanilla generates unrealistically short trips on both train (2.43 km) and test (2.33 km), consistently ~54% shorter than real data.
 
 ### 4.3 Robustness Across Seeds
 
