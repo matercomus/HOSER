@@ -25,11 +25,14 @@ hoser-distill-optuna-6/wandb/
 hoser-distill-optuna-6/pipeline.log
 hoser-distill-optuna-6/eval_test.log
 
-# Temporary analysis files
-caoji-hoser-eval.py
-hoser-eval-caoji.ipynb
-map_manager.py
-*heatmap*.ipynb
+# Test directories for visualization experiments
+hoser-distill-optuna-6/figures/test_basemap/
+hoser-distill-optuna-6/figures/test_roadnet/
+
+# Generated trajectory visualizations (temporary outputs)
+hoser-distill-optuna-6/figures/trajectories/overlaid/
+hoser-distill-optuna-6/figures/trajectories/separate/
+hoser-distill-optuna-6/figures/trajectories/trajectories_representative/
 
 # Temporary analysis files
 caoji-hoser-eval.py
