@@ -1103,6 +1103,10 @@ class TrajectoryVisualizer:
             percentiles = [0.10, 0.25, 0.40, 0.60, 0.75, 0.90]
             indices = [int(n * p) for p in percentiles]
             return [sorted_od_pairs[i][0] for i in indices]
+        elif n >= 5:
+            # Sample 5 trajectories: extremes + quartiles
+            indices = [0, int(n * 0.25), int(n * 0.50), int(n * 0.75), n - 1]
+            return [sorted_od_pairs[i][0] for i in indices]
         elif n >= 3:
             # Fallback to short, medium, long
             indices = [int(n * 0.25), int(n * 0.50), int(n * 0.75)]
