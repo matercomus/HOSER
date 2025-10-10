@@ -101,13 +101,39 @@ uv run python visualize_trajectories.py --basemap_style none
 
 Simple plot with trajectory lines only. **Recommended for speed.**
 
-### OpenStreetMap Basemap
+### Gaode Maps (China-Friendly)
+
+```bash
+uv run python visualize_trajectories.py --basemap_style gaode
+```
+
+Uses Gaode (高德) map tiles, which work well in China. **Recommended for users in China.**
+
+### CartoDB (Alternative)
+
+```bash
+uv run python visualize_trajectories.py --basemap_style cartodb
+```
+
+CartoDB Positron style, often accessible in China.
+
+### OpenStreetMap
 
 ```bash
 uv run python visualize_trajectories.py --basemap_style osm
 ```
 
-Adds OpenStreetMap tiles as background. **Requires internet connection.**
+Standard OpenStreetMap tiles. **May be slow or blocked in China.**
+
+### Adjusting Timeout
+
+If basemap requests are timing out:
+
+```bash
+uv run python visualize_trajectories.py --basemap_style gaode --basemap_timeout 10
+```
+
+Default timeout is 5 seconds. Increase if needed for slow connections.
 
 ## Advanced Options
 

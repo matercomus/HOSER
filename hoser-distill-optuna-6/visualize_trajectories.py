@@ -58,7 +58,9 @@ class VisualizationConfig:
     generate_cross_model: bool = False  # Compare all models for same OD pair
     
     # Basemap
-    basemap_style: str = "none"  # "osm", "none" - default to none for speed
+    basemap_style: str = "none"  # "osm", "gaode", "cartodb", "none" - default to none for speed
+    basemap_timeout: int = 5  # seconds - fast timeout for China network
+    basemap_test_first: bool = True  # Test connectivity before fetching all tiles
     
     # Output
     output_dir: Path = Path("figures/trajectories")
@@ -333,6 +335,103 @@ class TrajectorySampler:
 
 
 # =============================================================================
+# Basemap Manager
+# =============================================================================
+
+class BasemapManager:
+    """Smart basemap handling with China-friendly providers and fast failure"""
+    
+    def __init__(self, config: VisualizationConfig):
+        self.config = config
+        self.basemap_available = None  # None = untested, True = works, False = failed
+        self.provider = self._get_provider()
+        
+    def _get_provider(self):
+        """Get appropriate tile provider based on style"""
+        if self.config.basemap_style == "gaode":
+            # Gaode maps work well in China
+            try:
+                return cx.providers.Gaode.Normal
+            except AttributeError:
+                logger.warning("⚠️  Gaode provider not available, falling back to CartoDB")
+                return cx.providers.CartoDB.Positron
+        elif self.config.basemap_style == "cartodb":
+            # CartoDB often works in China
+            return cx.providers.CartoDB.Positron
+        elif self.config.basemap_style == "osm":
+            # Standard OSM (may be slow/blocked in China)
+            return cx.providers.OpenStreetMap.Mapnik
+        else:
+            return None
+    
+    def test_connectivity(self) -> bool:
+        """Quick connectivity test with a single tile request"""
+        if not self.config.basemap_test_first or self.provider is None:
+            return False
+            
+        try:
+            import urllib.request
+            import socket
+            
+            # Quick test: try to connect to tile server
+            socket.setdefaulttimeout(self.config.basemap_timeout)
+            
+            # Extract base URL from provider
+            provider_url = self.provider.get("url", "")
+            if "{s}" in provider_url:
+                provider_url = provider_url.replace("{s}", "a")
+            
+            # Try to fetch a test tile (zoom 0, x=0, y=0)
+            test_url = provider_url.replace("{z}", "0").replace("{x}", "0").replace("{y}", "0")
+            
+            req = urllib.request.Request(test_url, headers={'User-Agent': 'Mozilla/5.0'})
+            urllib.request.urlopen(req, timeout=self.config.basemap_timeout)
+            
+            return True
+        except Exception as e:
+            logger.info(f"🌐 Basemap connectivity test failed: {type(e).__name__}")
+            return False
+    
+    def add_basemap_safe(self, ax, **kwargs) -> bool:
+        """Add basemap with error handling and fast timeout"""
+        if self.provider is None or self.config.basemap_style == "none":
+            return False
+        
+        # If already tested and failed, skip
+        if self.basemap_available is False:
+            return False
+        
+        # Test connectivity on first attempt
+        if self.basemap_available is None:
+            logger.info(f"🌐 Testing {self.config.basemap_style} basemap connectivity...")
+            self.basemap_available = self.test_connectivity()
+            
+            if not self.basemap_available:
+                logger.info("🗺️  Basemap unavailable, continuing without basemap")
+                return False
+        
+        # Try to add basemap with timeout
+        try:
+            # Contextily doesn't directly support timeout, but we can set socket timeout
+            import socket
+            old_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(self.config.basemap_timeout)
+            
+            try:
+                cx.add_basemap(ax, source=self.provider, **kwargs)
+                return True
+            finally:
+                socket.setdefaulttimeout(old_timeout)
+                
+        except Exception as e:
+            # On any error, disable basemap for remaining plots
+            if self.basemap_available is not False:
+                logger.info(f"⚠️  Basemap failed ({type(e).__name__}), disabling for remaining plots")
+                self.basemap_available = False
+            return False
+
+
+# =============================================================================
 # Trajectory Plotter
 # =============================================================================
 
@@ -341,6 +440,7 @@ class TrajectoryPlotter:
     
     def __init__(self, config: VisualizationConfig):
         self.config = config
+        self.basemap_manager = BasemapManager(config)
         
     def plot_single(self, trajectory: Trajectory, output_path: Path, title: str = None):
         """Plot a single trajectory"""
@@ -369,12 +469,9 @@ class TrajectoryPlotter:
         ax.set_xlim(min(lons) - margin, max(lons) + margin)
         ax.set_ylim(min(lats) - margin, max(lats) + margin)
         
-        # Add OSM basemap if available
-        if self.config.basemap_style == "osm" and cx is not None:
-            try:
-                cx.add_basemap(ax, crs='EPSG:4326', source=cx.providers.OpenStreetMap.Mapnik, zoom=14)
-            except Exception as e:
-                logger.warning(f"Failed to add basemap: {e}")
+        # Add basemap if configured
+        if self.config.basemap_style != "none" and cx is not None:
+            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=14)
         
         # Styling
         if title is None:
@@ -443,12 +540,9 @@ class TrajectoryPlotter:
             ax.set_xlim(min(all_lons) - margin, max(all_lons) + margin)
             ax.set_ylim(min(all_lats) - margin, max(all_lats) + margin)
         
-        # Add OSM basemap if available
-        if self.config.basemap_style == "osm" and cx is not None:
-            try:
-                cx.add_basemap(ax, crs='EPSG:4326', source=cx.providers.OpenStreetMap.Mapnik, zoom=14)
-            except Exception as e:
-                logger.warning(f"Failed to add basemap: {e}")
+        # Add basemap if configured
+        if self.config.basemap_style != "none" and cx is not None:
+            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=14)
         
         # Styling
         if title is None:
@@ -543,12 +637,9 @@ class TrajectoryPlotter:
             ax.set_xlim(min(all_lons) - margin, max(all_lons) + margin)
             ax.set_ylim(min(all_lats) - margin, max(all_lats) + margin)
         
-        # Add OSM basemap if available
-        if self.config.basemap_style == "osm" and cx is not None:
-            try:
-                cx.add_basemap(ax, crs='EPSG:4326', source=cx.providers.OpenStreetMap.Mapnik, zoom=14)
-            except Exception as e:
-                logger.warning(f"Failed to add basemap: {e}")
+        # Add basemap if configured
+        if self.config.basemap_style != "none" and cx is not None:
+            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=14)
         
         # Styling
         if title is None:
@@ -913,8 +1004,10 @@ Examples:
     parser.add_argument('--cross_model', action='store_true',
                         help='Generate cross-model comparisons for same OD pairs (includes real trajectories)')
     parser.add_argument('--basemap_style', type=str, default='none',
-                        choices=['osm', 'none'],
-                        help='Basemap style (default: none for speed)')
+                        choices=['osm', 'gaode', 'cartodb', 'none'],
+                        help='Basemap style: gaode (China-friendly), cartodb, osm, none (default: none)')
+    parser.add_argument('--basemap_timeout', type=int, default=5,
+                        help='Timeout for basemap requests in seconds (default: 5)')
     parser.add_argument('--output_dir', type=str, default='figures/trajectories',
                         help='Output directory for figures')
     parser.add_argument('--dpi', type=int, default=300,
@@ -931,6 +1024,7 @@ Examples:
         generate_overlaid=not args.no_overlaid,
         generate_cross_model=args.cross_model,
         basemap_style=args.basemap_style,
+        basemap_timeout=args.basemap_timeout,
         output_dir=Path(args.output_dir),
         dpi=args.dpi,
     )
