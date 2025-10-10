@@ -461,11 +461,11 @@ This section was already covered in [Section 3: Key Findings](#3-key-findings). 
 
 **Summary:** Distillation transferred three critical spatial capabilities that vanilla completely lacks.
 
-| Capability | Distilled Performance | Vanilla Performance | Interpretation |
-|------------|----------------------|---------------------|----------------|
-| **Trip Length** | 6.34-6.68 km (23-29% above real 5.16 km) | 2.33-2.43 km (53-55% below real) | ✅ Realistic vs ❌ Severely underestimated |
-| **Path Completion** | 85-89% reach target destinations | 12-18% reach targets | ✅ Successful navigation vs ❌ Gets stuck |
-| **Spatial Complexity** | JSD 0.003-0.004 (radius of gyration) | JSD 0.198-0.206 (58-73x worse) | ✅ Captures complexity vs ❌ Overly simple |
+| Capability | Distilled Performance | Distilled Interpretation | Vanilla Performance | Vanilla Interpretation |
+|------------|----------------------|--------------------------|---------------------|------------------------|
+| **Trip Length** | 6.34-6.68 km | ✅ Realistic (23-29% above real 5.16 km) | 2.33-2.43 km | ❌ Severely underestimated (53-55% too short) |
+| **Path Completion** | 85-89% reach targets | ✅ Successful navigation | 12-18% reach targets | ❌ Gets stuck / stops early |
+| **Spatial Complexity** | JSD 0.003-0.004 | ✅ Captures realistic patterns | JSD 0.198-0.206 | ❌ 58-73× worse (overly simple paths) |
 
 **Key Observations:**
 
