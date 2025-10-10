@@ -1,6 +1,6 @@
 # HOSER Distillation: Comprehensive Evaluation Analysis
 
-**Date:** October 8, 2025  
+**Date:** October 10, 2025  
 **Experiment:** Comparison of Vanilla vs Distilled HOSER Models  
 **Dataset:** Beijing Taxi Trajectory Data
 
