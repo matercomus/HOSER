@@ -323,17 +323,6 @@ class DistributionPlotter:
             ax2.plot(i, mean_val, marker='D', color=color, markersize=8, 
                     markeredgecolor='black', markeredgewidth=1, zorder=3)
         
-        # Add legend for box plot elements
-        from matplotlib.patches import Patch
-        from matplotlib.lines import Line2D
-        legend_elements = [
-            Patch(facecolor='gray', alpha=0.7, label='Box: IQR (25th-75th percentile)'),
-            Line2D([0], [0], color='black', linewidth=1.5, label='Line: Median'),
-            Line2D([0], [0], color='black', marker='D', markersize=8, linestyle='None',
-                   markeredgecolor='black', markeredgewidth=1, label='Diamond: Mean')
-        ]
-        ax2.legend(handles=legend_elements, loc='upper right', fontsize=9, framealpha=0.95)
-        
         fig.suptitle(title, fontsize=16, fontweight='bold')
         plt.tight_layout()
         
@@ -404,17 +393,6 @@ class DistributionPlotter:
             mean_val = np.mean(data)
             ax2.plot(i, mean_val, marker='D', color=color, markersize=8, 
                     markeredgecolor='black', markeredgewidth=1, zorder=3)
-        
-        # Add legend for box plot elements
-        from matplotlib.patches import Patch
-        from matplotlib.lines import Line2D
-        legend_elements = [
-            Patch(facecolor='gray', alpha=0.7, label='Box: IQR (25th-75th percentile)'),
-            Line2D([0], [0], color='black', linewidth=1.5, label='Line: Median'),
-            Line2D([0], [0], color='black', marker='D', markersize=8, linestyle='None',
-                   markeredgecolor='black', markeredgewidth=1, label='Diamond: Mean')
-        ]
-        ax2.legend(handles=legend_elements, loc='upper right', fontsize=9, framealpha=0.95)
         
         fig.suptitle(title, fontsize=16, fontweight='bold')
         plt.tight_layout()
