@@ -419,7 +419,6 @@ Bins: 50 bins for distance, 50 for duration, 50 for radius of gyration
 
 ---
 
-**Generated:** October 8, 2025  
+**Generated:** October 10, 2025  
 **Pipeline Version:** hoser-distill-optuna-6  
-**Contact:** matt@university.edu
 
