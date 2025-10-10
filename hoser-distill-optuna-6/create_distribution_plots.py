@@ -295,42 +295,33 @@ class DistributionPlotter:
         ax1.legend(fontsize=11, framealpha=0.95)
         ax1.grid(True, alpha=0.3, linestyle='--')
         
-        # Right: Statistics comparison
-        stats_data = []
-        stats_labels = []
+        # Right: Box plots
+        box_data = [real_distances]
+        box_labels = ['Real']
+        box_colors = [COLORS['real_train']]
         
-        real_mean = np.mean(real_distances)
-        real_median = np.median(real_distances)
-        stats_data.append([real_mean, real_median])
-        stats_labels.append('Real')
-        
-        for model_key, distances in generated_distances.items():
+        for model_key, distances in sorted(generated_distances.items()):
             model_name = model_key.replace('_train', '').replace('_test', '')
-            mean_dist = np.mean(distances)
-            median_dist = np.median(distances)
-            stats_data.append([mean_dist, median_dist])
-            stats_labels.append(model_name.title())
+            box_data.append(distances)
+            box_labels.append(model_name.title())
+            box_colors.append(COLORS.get(model_name, '#95a5a6'))
         
-        x = np.arange(len(stats_labels))
-        width = 0.35
+        bp = ax2.boxplot(box_data, tick_labels=box_labels, patch_artist=True, showfliers=False)
         
-        ax2.bar(x - width/2, [s[0] for s in stats_data], width, label='Mean', alpha=0.8)
-        ax2.bar(x + width/2, [s[1] for s in stats_data], width, label='Median', alpha=0.8)
+        for patch, color in zip(bp['boxes'], box_colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
         
-        ax2.set_ylabel('Distance (km)')
-        ax2.set_title('Summary Statistics')
-        ax2.set_xticks(x)
-        ax2.set_xticklabels(stats_labels, rotation=15, ha='right')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3, axis='y')
+        ax2.set_ylabel('Distance (km)', fontsize=12)
+        ax2.set_title('Distribution Spread', fontsize=13, fontweight='bold')
+        ax2.set_xticklabels(box_labels, rotation=15, ha='right', fontsize=10)
+        ax2.grid(True, alpha=0.3, axis='y', linestyle='--')
         
-        # Add percentage differences
-        for i, label in enumerate(stats_labels):
-            if label != 'Real':
-                diff_pct = ((stats_data[i][0] - real_mean) / real_mean) * 100
-                y_pos = stats_data[i][0] + 0.5
-                color = 'green' if abs(diff_pct) < 30 else 'red'
-                ax2.text(i, y_pos, f'{diff_pct:+.1f}%', ha='center', fontsize=9, color=color)
+        # Add mean as diamonds
+        for i, (data, color) in enumerate(zip(box_data, box_colors), start=1):
+            mean_val = np.mean(data)
+            ax2.plot(i, mean_val, marker='D', color=color, markersize=8, 
+                    markeredgecolor='black', markeredgewidth=1, zorder=3)
         
         fig.suptitle(title, fontsize=16, fontweight='bold')
         plt.tight_layout()
