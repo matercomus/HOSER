@@ -520,7 +520,7 @@ class TrajectoryPlotter:
         
         # Add basemap if configured
         if self.config.basemap_style != "none" and cx is not None:
-            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=18)
+            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom='auto')
         
         # Styling
         if title is None:
@@ -593,7 +593,7 @@ class TrajectoryPlotter:
         
         # Add basemap if configured
         if self.config.basemap_style != "none" and cx is not None:
-            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=18)
+            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom='auto')
         
         # Styling
         if title is None:
@@ -692,7 +692,7 @@ class TrajectoryPlotter:
         
         # Add basemap if configured
         if self.config.basemap_style != "none" and cx is not None:
-            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=18)
+            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom='auto')
         
         # Styling
         if title is None:
