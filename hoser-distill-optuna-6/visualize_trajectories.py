@@ -757,9 +757,9 @@ class TrajectoryPlotter:
             # Different line width for real trajectory
             linewidth = 3.5 if model_name == 'real' else 2.5
             
-            # Plot line
+            # Plot line with reduced opacity for visibility when overlapping
             ax.plot(lons, lats, linestyle=linestyle, linewidth=linewidth, 
-                   label=label, color=color, zorder=4 if model_name == 'real' else 3, alpha=0.8)
+                   label=label, color=color, zorder=4 if model_name == 'real' else 3, alpha=0.6)
             
             # Start marker
             ax.scatter(lons[0], lats[0], c=color, s=120, marker='o', 
