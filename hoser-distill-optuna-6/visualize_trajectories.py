@@ -803,6 +803,11 @@ class TrajectoryPlotter:
         # Add separator
         legend_elements.append(Line2D([0], [0], color='none', label=''))
         
+        # Add road network
+        if self.road_network:
+            legend_elements.append(Line2D([0], [0], color='#CCCCCC', linewidth=2, 
+                                         alpha=0.6, label='Road Network'))
+        
         # Add start/end markers
         legend_elements.append(Line2D([0], [0], marker='o', color='w', 
                                      markerfacecolor='gray', markersize=10, 
