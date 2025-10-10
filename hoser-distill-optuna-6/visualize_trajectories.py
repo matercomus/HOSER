@@ -818,7 +818,6 @@ class TrajectoryPlotter:
         
         ax.set_xlabel('Longitude', fontsize=12)
         ax.set_ylabel('Latitude', fontsize=12)
-        ax.grid(True, alpha=0.3)
         
         # Add info box with missing models warning if applicable
         info_lines = [f"Trajectories: {len(trajectories)}/{len(model_labels)}"]
