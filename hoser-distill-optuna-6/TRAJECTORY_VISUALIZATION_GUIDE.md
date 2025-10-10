@@ -79,6 +79,16 @@ uv run python visualize_trajectories.py --cross_model --no_separate --no_overlai
 
 **NEW**: Compares all models (vanilla, distilled, distilled_seed44, and **real trajectories**) for the **same origin-destination pairs**. This shows how each model routes the same trip, with start and end points aligned.
 
+**Edge Case Sampling:**
+- Automatically samples trajectories across the full length distribution
+- **10+ common OD pairs:** Generates 11 visualizations including:
+  - Absolute shortest and longest trajectories (extremes)
+  - 5th, 10th, 25th, 50th, 75th, 90th, 95th percentiles
+  - Additional 33rd, 66th percentiles for coverage
+- **6-9 common OD pairs:** Generates 6 visualizations (10th, 25th, 40th, 60th, 75th, 90th)
+- **3-5 common OD pairs:** Generates 3 visualizations (25th, 50th, 75th)
+- **Captures edge cases** mentioned in EVALUATION_ANALYSIS.md (short vs long trips)
+
 **Features:**
 - Finds OD pairs that appear in all models including real data
 - Samples short, medium, and long trips

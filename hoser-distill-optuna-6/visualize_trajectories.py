@@ -1036,8 +1036,9 @@ class TrajectoryVisualizer:
         
         logger.info(f"✅ Found {len(all_od_pairs)} common OD pairs across all models")
         
-        # Sample a few representative OD pairs
+        # Sample representative OD pairs (including edge cases)
         sampled_od_pairs = self._sample_od_pairs_for_comparison(list(all_od_pairs), od_indices, models_data)
+        logger.info(f"📊 Selected {len(sampled_od_pairs)} OD pairs for visualization (captures edge cases from analysis)")
         
         # Generate comparison plots
         output_dir = self.config.output_dir / "cross_model"
@@ -1085,9 +1086,19 @@ class TrajectoryVisualizer:
         # Sort by length
         sorted_od_pairs = sorted(od_lengths.items(), key=lambda x: x[1])
         
-        # Sample multiple representative lengths (more examples)
+        # Sample multiple representative lengths to capture edge cases from analysis
         n = len(sorted_od_pairs)
-        if n >= 6:
+        if n >= 10:
+            # Sample 10+ trajectories across the full range:
+            # - Extremes: 0th (shortest), 100th (longest) - edge cases
+            # - Key percentiles: 5th, 10th, 25th, 50th, 75th, 90th, 95th
+            # - Extra coverage: 33rd, 66th
+            percentiles = [0.05, 0.10, 0.25, 0.33, 0.50, 0.66, 0.75, 0.90, 0.95]
+            indices = [int(n * p) for p in percentiles]
+            # Add absolute extremes
+            indices = [0] + indices + [n - 1]
+            return [sorted_od_pairs[i][0] for i in indices]
+        elif n >= 6:
             # Sample 6 trajectories: very short, short, medium-short, medium, medium-long, long
             percentiles = [0.10, 0.25, 0.40, 0.60, 0.75, 0.90]
             indices = [int(n * p) for p in percentiles]
