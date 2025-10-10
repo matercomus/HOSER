@@ -44,14 +44,161 @@ This analysis evaluates the performance of knowledge-distilled HOSER models agai
 ### Metrics:
 
 #### Global Metrics (Distribution-Level):
-- **Distance JSD:** Jensen-Shannon Divergence of trip distance distributions
-- **Duration JSD:** Jensen-Shannon Divergence of trip duration distributions
-- **Radius JSD:** Jensen-Shannon Divergence of radius of gyration distributions
+
+These metrics compare the **overall statistical distributions** of generated trajectories against real data. Lower values indicate better distribution matching.
+
+##### **Jensen-Shannon Divergence (JSD)**
+
+**Formula:**
+
+$$
+\text{JSD}(P \parallel Q) = \frac{1}{2} \text{KL}(P \parallel M) + \frac{1}{2} \text{KL}(Q \parallel M)
+$$
+
+where:
+- $M = \frac{1}{2}(P + Q)$ is the average distribution
+- $\text{KL}(P \parallel Q) = \sum_{i} P(i) \log \frac{P(i)}{Q(i)}$ is the Kullback-Leibler divergence
+- $P$ = real trajectory distribution
+- $Q$ = generated trajectory distribution
+
+**Range:** [0, 1]
+- **0** = Perfect match (distributions are identical)
+- **1** = Maximum divergence (completely different distributions)
+
+**Applied to three attributes:**
+
+1. **Distance JSD**: Compares trip distance distributions
+   - Measures: How far trajectories travel (in km)
+   - **Lower is better** (closer to real trip length patterns)
+   - Bins: 50 equal-width bins across distance range
+   - Example: JSD=0.018 (distilled) vs 0.145 (vanilla)
+   - Interpretation: Distilled's distance distribution is much closer to reality
+
+2. **Duration JSD**: Compares trip duration distributions
+   - Measures: How long trajectories take (in hours)
+   - **Lower is better** (closer to real trip time patterns)
+   - Bins: 50 equal-width bins across duration range
+   - Note: Correlated with distance (longer trips take more time)
+   - Less critical metric (duration derived from timestamps)
+
+3. **Radius of Gyration JSD**: Compares spatial spread distributions
+   - Measures: Geographic dispersion of trajectory points
+   - **Formula for radius**: 
+     $$R_g = \sqrt{\frac{1}{N} \sum_{i=1}^{N} \text{dist}(p_i, \bar{p})^2}$$
+     where $\bar{p}$ is the centroid of all trajectory points
+   - **Lower is better** (closer to real spatial complexity)
+   - Bins: 50 equal-width bins across radius range
+   - Interpretation: Captures trajectory "spread" - tighter or more dispersed
+   - Critical for understanding spatial behavior
+
+**Why JSD matters:**
+- Symmetric (unlike KL divergence)
+- Bounded [0,1] (easy to interpret)
+- Sensitive to both shape and scale differences
+- Reveals distributional mismatches even with similar means
+
+---
 
 #### Local Metrics (Trajectory-Level):
-- **Hausdorff Distance:** Maximum distance between trajectory point sets (km)
-- **DTW Distance:** Dynamic Time Warping distance (km)
-- **EDR:** Edit Distance on Real sequence (normalized)
+
+These metrics compare **individual trajectory pairs** with matching OD pairs. They measure point-by-point similarity.
+
+##### **Hausdorff Distance**
+
+**Formula:**
+
+$$
+H(A, B) = \max\{h(A, B), h(B, A)\}
+$$
+
+where:
+
+$$
+h(A, B) = \max_{a \in A} \min_{b \in B} \text{dist}(a, b)
+$$
+
+**Intuition:** "Maximum distance from any point in trajectory A to its nearest neighbor in trajectory B"
+
+**Range:** [0, ∞) km
+- **Lower is better** (trajectories are spatially closer)
+- **0** = Perfect overlap (trajectories pass through same locations)
+
+**Interpretation:**
+- Measures the "worst-case" spatial deviation
+- Sensitive to outlier points
+- If H=0.5 km, the furthest point in one trajectory is 0.5 km from the other
+- **Context matters**: Lower values for vanilla don't mean better—they just reflect shorter trips!
+
+**Caveats:**
+- Scales with trajectory length (longer trips → higher Hausdorff)
+- Doesn't account for temporal order
+- Can be dominated by a single outlier point
+
+---
+
+##### **Dynamic Time Warping (DTW)**
+
+**Formula:**
+
+$$
+\text{DTW}(A, B) = \min_{\pi} \sum_{i=1}^{|\pi|} \text{dist}(A[\pi_A(i)], B[\pi_B(i)])
+$$
+
+where:
+- $\pi$ = optimal alignment (warping path)
+- $\pi_A, \pi_B$ = index mappings allowing non-linear time alignment
+
+**Intuition:** "Minimum cumulative distance when optimally aligning two trajectories, allowing stretching and compression"
+
+**Range:** [0, ∞) km
+- **Lower is better** (trajectories follow similar paths)
+- Cumulative measure (sums all point-to-point distances)
+
+**Interpretation:**
+- Allows one-to-many point matching (handles different sampling rates)
+- Sensitive to trajectory length (longer trips → higher DTW)
+- If DTW=28 km for a 6.4 km trip, the per-km deviation is ~4.4 km/km
+- Temporal flexibility: can match "fast" and "slow" versions of same route
+
+**Caveats:**
+- **Not normalized by trajectory length** - longer trips naturally have higher DTW
+- Use DTW/distance ratio for fair comparison
+- Computationally expensive (O(N²) without optimizations)
+
+---
+
+##### **Edit Distance on Real Sequence (EDR)**
+
+**Formula:**
+
+$$
+\text{EDR}(A, B, \varepsilon) = \frac{\text{EditOps}(A, B, \varepsilon)}{\max(|A|, |B|)}
+$$
+
+where:
+- Allowed operations: insert, delete, substitute
+- Match condition: $\text{dist}(A[i], B[j]) < \varepsilon$ (threshold in meters)
+- Cost: 1 per operation
+- Normalized by max trajectory length
+
+**Intuition:** "How many point insertions/deletions/substitutions needed to align trajectories?"
+
+**Range:** [0, 1] (normalized)
+- **Lower is better** (fewer edits needed)
+- **0** = Perfect match (no edits needed)
+- **1** = Maximum distance (complete mismatch)
+
+**Interpretation:**
+- Threshold-based ($\varepsilon=100$m in our evaluation)
+- Robust to outliers (unlike DTW)
+- Normalized by trajectory length (fair comparison across trip lengths)
+- If EDR=0.5, roughly 50% of points need editing
+- Similar values across models suggest comparable alignment quality
+
+**Caveats:**
+- Threshold-dependent ($\varepsilon=100$m is somewhat arbitrary)
+- Less sensitive than DTW to small deviations
+- Discrete (not continuous like DTW/Hausdorff)
 
 #### Coverage Metrics:
 - **Matched OD Pairs:** Number of generated trajectories whose **actual endpoints** match real OD patterns
