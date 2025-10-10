@@ -459,34 +459,21 @@ This section was already covered in [Section 3: Key Findings](#3-key-findings). 
 
 ![Spatial Metrics Heatmap](figures/metrics_heatmap.png)
 
-**Evidence of Knowledge Transfer:**
+**Summary:** Distillation transferred three critical spatial capabilities that vanilla completely lacks.
 
-1. **Trip Length Realism**
-   - **Distilled (seed 42, test OD):** 6.48 km - closest to real 5.16 km
-   - **Distilled (seed 44, test OD):** 6.34 km - second best
-   - **Distilled (seed 42, train OD):** 6.68 km
-   - **Distilled (seed 44, train OD):** 6.44 km
-   - **Vanilla (train OD):** 2.43 km (53% too short)
-   - **Vanilla (test OD):** 2.33 km (55% too short)
-   - **Interpretation:** All distilled models generate realistic-length trips, vanilla severely underestimates
+| Capability | Distilled Performance | Vanilla Performance | Interpretation |
+|------------|----------------------|---------------------|----------------|
+| **Trip Length** | 6.34-6.68 km (23-29% above real 5.16 km) | 2.33-2.43 km (53-55% below real) | ✅ Realistic vs ❌ Severely underestimated |
+| **Path Completion** | 85-89% reach target destinations | 12-18% reach targets | ✅ Successful navigation vs ❌ Gets stuck |
+| **Spatial Complexity** | JSD 0.003-0.004 (radius of gyration) | JSD 0.198-0.206 (58-73x worse) | ✅ Captures complexity vs ❌ Overly simple |
 
-2. **Path Completion & Destination Reaching**
-   - **Distilled (seed 44, train OD):** 89.4% success rate (best) - nearly always reaches target
-   - **Distilled (seed 44, test OD):** 88.2% success rate - generalizes well to unseen OD pairs
-   - **Distilled (seed 42, train OD):** 85.8% success rate
-   - **Distilled (seed 42, test OD):** 85.7% success rate
-   - **Vanilla (train OD):** 17.7% success rate (poor) - fails to reach 82% of targets
-   - **Vanilla (test OD):** 12.1% success rate (poorest) - fails to reach 88% of targets
-   - **Interpretation:** Distilled models successfully navigate to target destinations with realistic paths, vanilla frequently gets stuck or stops prematurely
+**Key Observations:**
 
-3. **Spatial Dispersion (Radius of Gyration)**
-   - **Distilled (seed 44, train OD):** JSD = 0.0028 (best)
-   - **Distilled (seed 42, train OD):** JSD = 0.0034
-   - **Distilled (seed 44, test OD):** JSD = 0.0034
-   - **Distilled (seed 42, test OD):** JSD = 0.0038
-   - **Vanilla (train OD):** JSD = 0.1979 (58x worse than best distilled)
-   - **Vanilla (test OD):** JSD = 0.2057 (73x worse than best distilled)
-   - **Interpretation:** Distilled models accurately capture trajectory spatial complexity, vanilla fails entirely
+1. **Trip Length Realism**: All distilled models (both seeds, both OD sources) generate realistic ~6.4 km trips, while vanilla consistently generates unrealistically short ~2.4 km trips.
+
+2. **Path Completion Success**: Distilled models reach target destinations 85-89% of the time, demonstrating robust navigation capability. Vanilla fails to complete paths 82-88% of the time.
+
+3. **Spatial Dispersion**: Distilled models accurately capture trajectory spatial complexity (radius of gyration JSD ~0.003), while vanilla's distributions are 58-73× worse, indicating it hasn't learned realistic spatial patterns.
 
 ### 5.2 Robustness Across Seeds
 
