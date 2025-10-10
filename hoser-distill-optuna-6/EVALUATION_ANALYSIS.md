@@ -167,19 +167,31 @@ This indicates vanilla hasn't learned:
 **Evidence of Knowledge Transfer:**
 
 1. **Trip Length Realism**
-   - Distilled models generate 6.3-6.7 km trips
-   - Close to real 5.2 km average
-   - Vanilla: 2.4 km (inadequate)
+   - **Distilled (seed 42, test OD):** 6.48 km - closest to real 5.16 km
+   - **Distilled (seed 44, test OD):** 6.34 km - second best
+   - **Distilled (seed 42, train OD):** 6.68 km
+   - **Distilled (seed 44, train OD):** 6.44 km
+   - **Vanilla (train OD):** 2.43 km (53% too short)
+   - **Vanilla (test OD):** 2.33 km (55% too short)
+   - **Interpretation:** All distilled models generate realistic-length trips, vanilla severely underestimates
 
 2. **OD Pattern Recognition**
-   - 85-89% coverage of real OD pairs
-   - Consistent across train/test (generalization)
-   - Vanilla: 12-18% (poor pattern learning)
+   - **Distilled (seed 44, train OD):** 89.4% coverage (best)
+   - **Distilled (seed 44, test OD):** 88.2% coverage
+   - **Distilled (seed 42, train OD):** 85.8% coverage
+   - **Distilled (seed 42, test OD):** 85.7% coverage
+   - **Vanilla (train OD):** 17.7% coverage (poor)
+   - **Vanilla (test OD):** 12.1% coverage (poorest)
+   - **Interpretation:** Distilled models consistently match real OD patterns, vanilla hallucinates most OD pairs
 
-3. **Spatial Dispersion**
-   - Radius JSD: 0.003-0.004 (excellent)
-   - Matches real trajectory complexity
-   - Vanilla: 0.198-0.206 (poor)
+3. **Spatial Dispersion (Radius of Gyration)**
+   - **Distilled (seed 44, train OD):** JSD = 0.0028 (best)
+   - **Distilled (seed 42, train OD):** JSD = 0.0034
+   - **Distilled (seed 44, test OD):** JSD = 0.0034
+   - **Distilled (seed 42, test OD):** JSD = 0.0038
+   - **Vanilla (train OD):** JSD = 0.1979 (58x worse than best distilled)
+   - **Vanilla (test OD):** JSD = 0.2057 (73x worse than best distilled)
+   - **Interpretation:** Distilled models accurately capture trajectory spatial complexity, vanilla fails entirely
 
 ### 4.2 Generalization vs Memorization
 
