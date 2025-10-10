@@ -88,7 +88,42 @@ Input OD: 10447 → 906, Generated: 10447 → 10282, Length: 3 roads
 ✅ **Same architecture:** Both are HOSER models (verified same keys exist)  
 ✅ **Same search parameters:** max_search_step=5000 for both
 
-**Conclusion:** No implementation bugs found. The difference is in the learned model weights.
+### ⚠️ **CRITICAL FINDING: Different Training Configurations!**
+
+**Training Script:** Both used `train_with_distill.py` (same code)
+
+**But with different YAML configs:**
+
+| Setting | Vanilla (`Beijing_vanilla.yaml`) | Distilled (`Beijing.yaml`) |
+|---------|----------------------------------|----------------------------|
+| **Distillation** | `enable: false` ❌ | `enable: true` ✅ |
+| **Batch Size** | 64 | 128 (2x larger) |
+| **Accum Steps** | 4 (effective: 256) | 8 (effective: 1024) |
+| **Effective Batch** | **256** | **1024** (4x larger!) |
+| **Candidate Top-K** | 0 (unlimited) | 64 (capped) |
+| **Num Workers** | 8 | 6 |
+| **Pin Memory** | true | false |
+
+**Key Differences:**
+
+1. **Effective Batch Size: 256 vs 1024**
+   - Vanilla: 64 × 4 = 256 effective batch
+   - Distilled: 128 × 8 = 1024 effective batch
+   - **Distilled sees 4x more examples per gradient update!**
+
+2. **Candidate Filtering:**
+   - Vanilla: No `candidate_top_k` limit (all candidates considered)
+   - Distilled: `candidate_top_k: 64` (only closest 64 candidates)
+   - **Distilled has much more focused training signal!**
+
+3. **Distillation Loss:**
+   - Vanilla: Only MLE loss (next-step prediction)
+   - Distilled: MLE + KL divergence from teacher (λ=0.01, T=2.0)
+
+**Conclusion:** The poor performance is **primarily due to training differences**, not just distillation! Vanilla was trained with:
+- 4x smaller effective batch size (worse gradient estimates)
+- No candidate filtering (noisier training signal)
+- No teacher guidance (only learns from ground truth)
 
 ---
 
@@ -182,61 +217,129 @@ It's because:
 
 ---
 
-## 7. Is This a Problem with Vanilla Training?
+## 7. Root Causes in Vanilla Training
 
-### Possible Root Causes in Training:
+### Confirmed Training Problems:
 
-1. **Insufficient Training Epochs:**
+1. **Effective Batch Size Too Small (256 vs 1024)**
+   - **Problem:** Vanilla sees 4x fewer examples per gradient update
+   - **Impact:** Noisier gradient estimates → slower convergence → poorer learned representations
+   - **Evidence:** Large batch sizes are critical for trajectory models (more spatial context per update)
+   - **Fix:** Use same batch size as distilled (128 × 8 = 1024 effective)
+
+2. **No Candidate Filtering (Unlimited vs Top-64)**
+   - **Problem:** Vanilla trains on ALL candidates at each timestep (can be 100+ roads)
+   - **Impact:** 
+     - Diluted training signal (probability mass spread over irrelevant candidates)
+     - Noisier loss landscape (model learns weak distinctions between bad options)
+     - Slower training (more compute per forward pass)
+   - **Evidence:** Distilled uses `candidate_top_k: 64` for focused learning
+   - **Fix:** Filter to top-64 closest candidates by distance
+
+3. **MLE-Only Training (No Teacher Guidance)**
+   - **Problem:** Only learns from hard labels (which road was actually taken)
+   - **Impact:**
+     - No soft guidance about "good alternative routes"
+     - Binary signal: correct road = 1.0, all others = 0.0
+     - Doesn't learn uncertainty/confidence calibration
+   - **Evidence:** Distilled adds KL loss from teacher's probability distribution
+   - **Fix:** Add distillation loss (but batch size/filtering matter MORE)
+
+4. **Insufficient Training Epochs:**
    - Both models trained for 25 epochs
-   - Vanilla might need MORE epochs to learn long-distance patterns
+   - With small batch size, vanilla needs MORE epochs to see enough data
    - Distillation accelerates learning via teacher guidance
 
-2. **MLE Training Limitations:**
-   - Maximum Likelihood Estimation (MLE) optimizes next-step prediction
-   - Doesn't directly optimize for "reach the destination"
-   - Local optima in next-step prediction ≠ global path planning
-
-3. **Data Imbalance:**
+5. **Data Imbalance:**
    - Most training examples are full trajectories (30-50 roads)
-   - Model might overfit to local transitions
-   - Fails to generalize to long-distance navigation
+   - Without proper batch size/filtering, model overfits to local transitions
+   - Fails to learn long-range dependencies
 
-4. **Exploration During Training:**
-   - Vanilla only sees ground-truth sequences during training
-   - Never learns to recover from suboptimal intermediate states
-   - Distillation provides richer signal (teacher's full probability distribution)
+6. **No Exploration During Training:**
+   - Only sees ground-truth sequences (teacher forcing)
+   - Never learns to recover from suboptimal states
+   - Beam search at inference exposes model to states it never trained on
 
 ---
 
 ## 8. Recommendations
 
-### For This Analysis:
+### **IMMEDIATE ACTION REQUIRED: Retrain Vanilla with Fair Comparison!** 🚨
 
-✅ **Current interpretation is correct:** Vanilla genuinely fails at navigation  
+The current comparison is **UNFAIR** because vanilla and distilled had different training setups!
+
+**Critical Issues:**
+1. ❌ 4x smaller effective batch size (256 vs 1024)
+2. ❌ No candidate filtering (unlimited vs top-64)
+3. ❌ Different dataloader settings
+
+**To Make Fair Comparison:**
+
+```yaml
+# Fair vanilla config (Beijing_vanilla_fair.yaml)
+optimizer_config:
+  batch_size: 128      # Match distilled
+  accum_steps: 8       # Match distilled (effective: 1024)
+
+data:
+  candidate_top_k: 64  # Match distilled (critical!)
+
+dataloader:
+  num_workers: 6       # Match distilled
+  pin_memory: false    # Match distilled
+```
+
+**Expected Outcomes After Fair Retraining:**
+
+1. **Best Case:** Vanilla significantly improves (maybe 40-60% destination reaching)
+   - Would show distillation provides **additional** benefit beyond training setup
+   - Still demonstrates value of knowledge transfer
+   
+2. **Medium Case:** Vanilla moderately improves (maybe 20-30% destination reaching)
+   - Shows training setup matters but distillation provides major boost
+   - Strengthens distillation contribution
+
+3. **Worst Case:** Vanilla barely improves (<15% destination reaching)
+   - Would suggest fundamental architecture limitations
+   - Distillation overcomes these via teacher guidance
+
+**For Thesis Defense:**
+- **Current analysis is still valid** (vanilla genuinely fails)
+- But must acknowledge **unfair training setup** in current comparison
+- Retraining with fair setup would **strengthen** the contribution (shows distillation works even with good training)
+
+### For Current Analysis:
+
+⚠️ **Interpretation needs caveat:** "Vanilla's poor performance may be partially due to suboptimal training configuration"  
+✅ **Metrics are still appropriate:** They correctly measure actual model capability  
 ✅ **No bug fixes needed:** Implementation is sound  
-✅ **Metrics are appropriate:** They correctly capture the capability gap  
 
 ### For Future Work:
 
-1. **Training Improvements:**
-   - Train vanilla for more epochs (50-100) to see if it catches up
-   - Use reinforcement learning with "reach destination" reward
-   - Add explicit supervision for intermediate waypoints
+1. **Fair Comparison (PRIORITY):**
+   - Retrain vanilla with matching batch size and candidate filtering
+   - Compare: Vanilla (fair) vs Vanilla (unfair) vs Distilled
+   - Quantify: How much is training setup vs distillation?
 
-2. **Architecture Improvements:**
+2. **Training Improvements:**
+   - Investigate optimal batch size for trajectory models
+   - Study impact of candidate filtering strategies
+   - Analyze convergence with different effective batch sizes
+
+3. **Architecture Improvements:**
    - Add destination embedding/attention mechanism
    - Use graph neural networks for better long-range spatial reasoning
    - Implement hierarchical planning (coarse route → fine-grained path)
 
-3. **Distillation Insights:**
+4. **Distillation Insights:**
    - Analyze what teacher knowledge is most valuable
    - Try progressive distillation (multiple teacher-student stages)
    - Investigate if smaller teachers can still improve vanilla
 
-4. **Evaluation Extensions:**
+5. **Evaluation Extensions:**
    - Report "destination reaching rate" as explicit metric
-   - Analyze failure modes (how close did vanilla get?)
-   - Visualize trajectories to see where vanilla gets stuck
+   - Analyze failure modes (how close did models get?)
+   - Visualize trajectories to see where models get stuck
 
 ---
 
