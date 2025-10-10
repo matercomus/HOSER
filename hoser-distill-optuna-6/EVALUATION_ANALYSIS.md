@@ -202,7 +202,17 @@ Both distilled models (seed 42 and 44) show:
 - Consistently low JSD (0.016-0.022)
 - Minimal variation between seeds
 
-**Conclusion:** Distillation reliably transfers spatial knowledge regardless of random seed.
+**Understanding CV (Coefficient of Variation):**
+The CV percentage shown on each subplot measures the relative variability between seeds:
+- **CV = (Standard Deviation / Mean) × 100%**
+- **Lower CV = More consistent** across seeds
+- CV < 10%: Very stable
+- CV 10-20%: Moderately stable
+- CV > 20%: High variability
+
+For example, if Distance JSD has CV = 8.9%, this means the variation between seed 42 and seed 44 is only 8.9% of the average value - indicating very consistent performance.
+
+**Conclusion:** Distillation reliably transfers spatial knowledge regardless of random seed, with CV values consistently below 15% across all metrics.
 
 ---
 
