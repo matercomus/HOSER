@@ -71,16 +71,32 @@ class EvaluationVisualizer:
         # Determine OD source
         od_source = metadata.get('od_source', 'unknown')
         
-        # Determine model type from generated file path
+        # Determine model type from generated file path or timestamp mapping
         gen_file = metadata.get('generated_file', '')
-        if 'distilled_seed44' in gen_file:
-            model_type = 'distilled_seed44'
-        elif 'distilled' in gen_file:
-            model_type = 'distilled'
-        elif 'vanilla' in gen_file:
-            model_type = 'vanilla'
-        else:
-            model_type = 'unknown'
+        timestamp = metadata.get('evaluation_timestamp', '')
+        
+        # Use timestamp-based mapping (from the log analysis)
+        timestamp_to_model = {
+            '2025-10-08T18:32:17': 'distilled',     # train
+            '2025-10-08T19:19:30': 'distilled',     # test
+            '2025-10-08T20:08:30': 'distilled_seed44',  # train
+            '2025-10-08T20:53:17': 'distilled_seed44',  # test
+            '2025-10-08T21:31:30': 'vanilla',       # train
+            '2025-10-08T22:05:39': 'vanilla',       # test
+        }
+        
+        # Extract timestamp prefix (first 19 chars)
+        timestamp_key = timestamp[:19] if len(timestamp) >= 19 else ''
+        model_type = timestamp_to_model.get(timestamp_key, 'unknown')
+        
+        # Fallback to file-based detection if timestamp mapping fails
+        if model_type == 'unknown':
+            if 'distilled_seed44' in gen_file:
+                model_type = 'distilled_seed44'
+            elif 'distilled' in gen_file:
+                model_type = 'distilled'
+            elif 'vanilla' in gen_file:
+                model_type = 'vanilla'
         
         return model_type, od_source
     
@@ -279,13 +295,24 @@ class EvaluationVisualizer:
         metric_names = ['Distance_JSD', 'Radius_JSD', 'Duration_JSD',
                        'Hausdorff_km', 'DTW_km', 'EDR']
         
+        # Collect all data first
+        data_list = []
         for result in self.results:
             model_type, od_source = self._parse_model_info(result)
-            models_od.append(f"{model_type}\n({od_source})")
-            
             row = []
             for metric in metric_names:
                 row.append(result.get(metric, 0))
+            data_list.append((model_type, od_source, row))
+        
+        # Sort by model type then OD source
+        model_order = ['distilled', 'distilled_seed44', 'vanilla']
+        od_order = ['train', 'test']
+        data_list.sort(key=lambda x: (model_order.index(x[0]) if x[0] in model_order else 999, 
+                                       od_order.index(x[1]) if x[1] in od_order else 999))
+        
+        # Build sorted arrays
+        for model_type, od_source, row in data_list:
+            models_od.append(f"{model_type}\n({od_source})")
             metrics_data.append(row)
         
         # Normalize each metric to 0-1 scale for visualization
