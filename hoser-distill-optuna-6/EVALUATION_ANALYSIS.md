@@ -32,9 +32,9 @@ This analysis evaluates the performance of knowledge-distilled HOSER models agai
    - 25 epochs, seed 42
    - MLE + KL divergence from teacher
    - **Distillation hyperparameters (from Optuna tuning):**
-     - λ (KL weight): **0.0106**
-     - τ (temperature): **2.04**
-     - Window size: **4 steps**
+     - λ (KL weight): **0.0014**
+     - τ (temperature): **4.37**
+     - Window size: **7 steps**
 
 3. **Distilled HOSER (seed 44)** (`distilled_25epoch_seed44.pth`)
    - Student model with different seed for robustness check
@@ -62,9 +62,9 @@ All models were trained using **identical base configurations** via Optuna hyper
 | Parameter | Vanilla (Trial 0) | Distilled (Trials 1+) |
 |-----------|-------------------|----------------------|
 | **Distillation enabled** | ❌ No | ✅ Yes |
-| **KL weight (λ)** | 0.0 (disabled) | 0.0106 |
-| **Temperature (τ)** | N/A | 2.04 |
-| **Teacher window** | N/A | 4 steps |
+| **KL weight (λ)** | 0.0 (disabled) | 0.0014 |
+| **Temperature (τ)** | N/A | 4.37 |
+| **Teacher window** | N/A | 7 steps |
 | **Teacher model** | N/A | LM-TAD (frozen) |
 
 **Key Point:** The **ONLY difference** between vanilla (Trial 0) and distilled models (Trials 1+) is whether distillation was enabled and the tuned distillation hyperparameters. All other training parameters (batch size, learning rate, architecture, data, etc.) are identical. This ensures that any performance differences are purely due to knowledge transfer, not confounded by different training setups.
