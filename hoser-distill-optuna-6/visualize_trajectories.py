@@ -698,6 +698,34 @@ class TrajectoryPlotter:
         
         logger.info(f"✅ Saved: {output_path}.{{pdf,png}}")
     
+    def _calculate_trajectory_overlap(self, trajectories: Dict[str, Trajectory]) -> Dict[str, float]:
+        """Calculate overlap percentage for each trajectory with others"""
+        overlaps = {}
+        
+        for model_name, traj in trajectories.items():
+            if not traj.road_ids:
+                overlaps[model_name] = 0.0
+                continue
+            
+            # Get road IDs for this trajectory
+            traj_roads = set(traj.road_ids)
+            
+            # Get all road IDs from other trajectories
+            other_roads = set()
+            for other_model, other_traj in trajectories.items():
+                if other_model != model_name and other_traj.road_ids:
+                    other_roads.update(other_traj.road_ids)
+            
+            # Calculate overlap percentage
+            if traj_roads and other_roads:
+                overlap_count = len(traj_roads.intersection(other_roads))
+                overlap_pct = (overlap_count / len(traj_roads)) * 100
+                overlaps[model_name] = overlap_pct
+            else:
+                overlaps[model_name] = 0.0
+        
+        return overlaps
+    
     def plot_cross_model_comparison(self, trajectories: Dict[str, Trajectory], output_path: Path, 
                                    title: str = None, missing_models: List[str] = None):
         """Plot trajectories from different models for the same OD pair"""
@@ -707,6 +735,9 @@ class TrajectoryPlotter:
         
         if missing_models is None:
             missing_models = []
+        
+        # Calculate overlap percentages
+        overlaps = self._calculate_trajectory_overlap(trajectories)
         
         # Color scheme for different models
         model_colors = {
@@ -791,12 +822,16 @@ class TrajectoryPlotter:
         
         legend_elements = []
         
-        # Add model trajectories to legend
+        # Add model trajectories to legend with overlap percentages
         for model_name in sorted(trajectories.keys(), key=lambda x: (x != 'real', x)):
             color = model_colors.get(model_name, '#333333')
             linestyle = model_linestyles.get(model_name, '-')
-            label = model_labels.get(model_name, model_name)
+            base_label = model_labels.get(model_name, model_name)
             linewidth = 3.5 if model_name == 'real' else 2.5
+            
+            # Add overlap percentage to label
+            overlap_pct = overlaps.get(model_name, 0.0)
+            label = f"{base_label} ({overlap_pct:.1f}% overlap)"
             
             legend_elements.append(Line2D([0], [0], color=color, linewidth=linewidth, 
                                          linestyle=linestyle, label=label))
