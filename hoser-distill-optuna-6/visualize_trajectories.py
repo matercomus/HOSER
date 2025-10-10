@@ -1002,10 +1002,13 @@ class TrajectoryVisualizer:
             if self.config.include_real_in_cross_model:
                 logger.info(f"  Loading real {od_type} trajectories...")
                 real_csv = self.config.train_csv_path if od_type == 'train' else self.config.test_csv_path
-                real_trajectories = self.loader.load_real_trajectories(real_csv, od_type, sample_size=2000)
+                # Load much larger sample to capture all generated OD pairs
+                # Generated trajectories use OD pairs from real data, so they should all exist
+                real_trajectories = self.loader.load_real_trajectories(real_csv, od_type, sample_size=50000)
                 
                 if real_trajectories:
                     models_data['real'] = real_trajectories
+                    logger.info(f"  ✅ Loaded {len(real_trajectories)} real trajectories")
             
             if len(models_data) < 2:
                 logger.warning(f"⚠️  Not enough models loaded for {od_type} OD comparison")
