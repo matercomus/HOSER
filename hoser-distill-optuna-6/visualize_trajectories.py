@@ -822,16 +822,19 @@ class TrajectoryPlotter:
         
         legend_elements = []
         
-        # Add model trajectories to legend with overlap percentages
+        # Add model trajectories to legend with overlap percentages (except real)
         for model_name in sorted(trajectories.keys(), key=lambda x: (x != 'real', x)):
             color = model_colors.get(model_name, '#333333')
             linestyle = model_linestyles.get(model_name, '-')
             base_label = model_labels.get(model_name, model_name)
             linewidth = 3.5 if model_name == 'real' else 2.5
             
-            # Add overlap percentage to label
-            overlap_pct = overlaps.get(model_name, 0.0)
-            label = f"{base_label} ({overlap_pct:.1f}% overlap)"
+            # Add overlap percentage to label (skip for real trajectory)
+            if model_name == 'real':
+                label = base_label
+            else:
+                overlap_pct = overlaps.get(model_name, 0.0)
+                label = f"{base_label} ({overlap_pct:.1f}% overlap)"
             
             legend_elements.append(Line2D([0], [0], color=color, linewidth=linewidth, 
                                          linestyle=linestyle, label=label))
