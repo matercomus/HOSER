@@ -56,6 +56,7 @@ class VisualizationConfig:
     generate_separate: bool = True
     generate_overlaid: bool = True
     generate_cross_model: bool = False  # Compare all models for same OD pair
+    include_real_in_cross_model: bool = True  # Include real trajectories in cross-model comparison
     
     # Background visualization
     show_road_network: bool = True  # Show road network as light gray reference
@@ -997,13 +998,14 @@ class TrajectoryVisualizer:
                     if trajectories:
                         models_data[model] = trajectories
             
-            # Also load real trajectories (increased sample size to find more common OD pairs)
-            logger.info(f"  Loading real {od_type} trajectories...")
-            real_csv = self.config.train_csv_path if od_type == 'train' else self.config.test_csv_path
-            real_trajectories = self.loader.load_real_trajectories(real_csv, od_type, sample_size=2000)
-            
-            if real_trajectories:
-                models_data['real'] = real_trajectories
+            # Optionally load real trajectories for comparison
+            if self.config.include_real_in_cross_model:
+                logger.info(f"  Loading real {od_type} trajectories...")
+                real_csv = self.config.train_csv_path if od_type == 'train' else self.config.test_csv_path
+                real_trajectories = self.loader.load_real_trajectories(real_csv, od_type, sample_size=2000)
+                
+                if real_trajectories:
+                    models_data['real'] = real_trajectories
             
             if len(models_data) < 2:
                 logger.warning(f"⚠️  Not enough models loaded for {od_type} OD comparison")
@@ -1160,7 +1162,9 @@ Examples:
     parser.add_argument('--no_overlaid', action='store_true',
                         help='Skip generating overlaid plots')
     parser.add_argument('--cross_model', action='store_true',
-                        help='Generate cross-model comparisons for same OD pairs (includes real trajectories)')
+                        help='Generate cross-model comparisons for same OD pairs')
+    parser.add_argument('--no_real', action='store_true',
+                        help='Exclude real trajectories from cross-model comparison (compare generated models only)')
     parser.add_argument('--basemap_style', type=str, default='none',
                         choices=['osm', 'gaode', 'cartodb', 'none'],
                         help='Basemap style: gaode (China-friendly), cartodb, osm, none (default: none)')
@@ -1181,6 +1185,7 @@ Examples:
         generate_separate=not args.no_separate,
         generate_overlaid=not args.no_overlaid,
         generate_cross_model=args.cross_model,
+        include_real_in_cross_model=not args.no_real,
         basemap_style=args.basemap_style,
         basemap_timeout=args.basemap_timeout,
         output_dir=Path(args.output_dir),
