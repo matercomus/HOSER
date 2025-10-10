@@ -819,8 +819,9 @@ class TrajectoryPlotter:
                                      markeredgecolor='black', markeredgewidth=1.5,
                                      label='End Point', linestyle=''))
         
-        ax.legend(handles=legend_elements, loc='upper right', fontsize=11, 
-                 framealpha=0.95, title='Legend', title_fontsize=12)
+        # Place legend outside plot area to avoid obstructing trajectories
+        ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1.02, 0.5),
+                 fontsize=11, framealpha=0.95, title='Legend', title_fontsize=12)
         
         ax.set_xlabel('Longitude', fontsize=12)
         ax.set_ylabel('Latitude', fontsize=12)
