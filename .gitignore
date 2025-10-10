@@ -29,6 +29,7 @@ hoser-distill-optuna-6/eval_test.log
 hoser-distill-optuna-6/figures/test_basemap/
 hoser-distill-optuna-6/figures/test_roadnet/
 hoser-distill-optuna-6/figures/test_clean/
+hoser-distill-optuna-6/figures/trajectories_final/
 
 # Generated trajectory visualizations (temporary outputs)
 hoser-distill-optuna-6/figures/trajectories/overlaid/
