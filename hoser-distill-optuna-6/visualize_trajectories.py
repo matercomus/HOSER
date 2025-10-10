@@ -348,19 +348,20 @@ class BasemapManager:
         
     def _get_provider(self):
         """Get appropriate tile provider based on style"""
-        if self.config.basemap_style == "gaode":
-            # Gaode maps work well in China
+        if self.config.basemap_style == "cartodb":
+            # CartoDB uses WGS84/EPSG:4326 (matches your data)
+            return cx.providers.CartoDB.Positron
+        elif self.config.basemap_style == "osm":
+            # Standard OSM uses WGS84/EPSG:4326 (matches your data)
+            return cx.providers.OpenStreetMap.Mapnik
+        elif self.config.basemap_style == "gaode":
+            # Gaode uses GCJ-02 coordinates (causes ~50-500m offset from WGS84)
+            logger.warning("⚠️  Gaode uses GCJ-02 coordinates, expect ~50-500m offset from WGS84 data")
             try:
                 return cx.providers.Gaode.Normal
             except AttributeError:
                 logger.warning("⚠️  Gaode provider not available, falling back to CartoDB")
                 return cx.providers.CartoDB.Positron
-        elif self.config.basemap_style == "cartodb":
-            # CartoDB often works in China
-            return cx.providers.CartoDB.Positron
-        elif self.config.basemap_style == "osm":
-            # Standard OSM (may be slow/blocked in China)
-            return cx.providers.OpenStreetMap.Mapnik
         else:
             return None
     
@@ -441,6 +442,53 @@ class TrajectoryPlotter:
     def __init__(self, config: VisualizationConfig):
         self.config = config
         self.basemap_manager = BasemapManager(config)
+    
+    def _wgs84_to_gcj02(self, lon: float, lat: float) -> tuple[float, float]:
+        """Convert WGS84 coordinates to GCJ-02 (for Chinese map providers like Gaode)
+        
+        Algorithm based on: https://github.com/wandergis/coordtransform
+        """
+        import math
+        
+        # Constants
+        a = 6378245.0  # Semi-major axis
+        ee = 0.00669342162296594323  # Eccentricity squared
+        
+        def _transform_lat(x, y):
+            ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * math.sqrt(abs(x))
+            ret += (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
+            ret += (20.0 * math.sin(y * math.pi) + 40.0 * math.sin(y / 3.0 * math.pi)) * 2.0 / 3.0
+            ret += (160.0 * math.sin(y / 12.0 * math.pi) + 320 * math.sin(y * math.pi / 30.0)) * 2.0 / 3.0
+            return ret
+        
+        def _transform_lon(x, y):
+            ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * math.sqrt(abs(x))
+            ret += (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
+            ret += (20.0 * math.sin(x * math.pi) + 40.0 * math.sin(x / 3.0 * math.pi)) * 2.0 / 3.0
+            ret += (150.0 * math.sin(x / 12.0 * math.pi) + 300.0 * math.sin(x / 30.0 * math.pi)) * 2.0 / 3.0
+            return ret
+        
+        # Check if coordinates are in China
+        if lon < 72.004 or lon > 137.8347 or lat < 0.8293 or lat > 55.8271:
+            return lon, lat  # Outside China, no conversion needed
+        
+        dlat = _transform_lat(lon - 105.0, lat - 35.0)
+        dlon = _transform_lon(lon - 105.0, lat - 35.0)
+        radlat = lat / 180.0 * math.pi
+        magic = math.sin(radlat)
+        magic = 1 - ee * magic * magic
+        sqrtmagic = math.sqrt(magic)
+        dlat = (dlat * 180.0) / ((a * (1 - ee)) / (magic * sqrtmagic) * math.pi)
+        dlon = (dlon * 180.0) / (a / sqrtmagic * math.cos(radlat) * math.pi)
+        mglat = lat + dlat
+        mglon = lon + dlon
+        return mglon, mglat
+    
+    def _convert_coords_for_basemap(self, coords: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        """Convert coordinates if using Gaode basemap (WGS84 -> GCJ-02)"""
+        if self.config.basemap_style == "gaode":
+            return [self._wgs84_to_gcj02(lon, lat) for lon, lat in coords]
+        return coords
         
     def plot_single(self, trajectory: Trajectory, output_path: Path, title: str = None):
         """Plot a single trajectory"""
@@ -450,8 +498,9 @@ class TrajectoryPlotter:
         
         fig, ax = plt.subplots(figsize=self.config.figsize)
         
-        # Extract coordinates
-        lons, lats = zip(*trajectory.coords)
+        # Convert coordinates for basemap if needed (WGS84 -> GCJ-02 for Gaode)
+        plot_coords = self._convert_coords_for_basemap(trajectory.coords)
+        lons, lats = zip(*plot_coords)
         
         # Plot trajectory line
         ax.plot(lons, lats, 'b-', linewidth=2.5, label='Trajectory', zorder=3, alpha=0.8)
@@ -471,7 +520,7 @@ class TrajectoryPlotter:
         
         # Add basemap if configured
         if self.config.basemap_style != "none" and cx is not None:
-            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=16)
+            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=18)
         
         # Styling
         if title is None:
@@ -516,7 +565,9 @@ class TrajectoryPlotter:
             if not traj.coords:
                 continue
             
-            lons, lats = zip(*traj.coords)
+            # Convert coordinates for basemap if needed (WGS84 -> GCJ-02 for Gaode)
+            plot_coords = self._convert_coords_for_basemap(traj.coords)
+            lons, lats = zip(*plot_coords)
             all_lons.extend(lons)
             all_lats.extend(lats)
             
@@ -542,7 +593,7 @@ class TrajectoryPlotter:
         
         # Add basemap if configured
         if self.config.basemap_style != "none" and cx is not None:
-            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=16)
+            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=18)
         
         # Styling
         if title is None:
@@ -607,7 +658,9 @@ class TrajectoryPlotter:
             if not traj.coords:
                 continue
             
-            lons, lats = zip(*traj.coords)
+            # Convert coordinates for basemap if needed (WGS84 -> GCJ-02 for Gaode)
+            plot_coords = self._convert_coords_for_basemap(traj.coords)
+            lons, lats = zip(*plot_coords)
             all_lons.extend(lons)
             all_lats.extend(lats)
             
@@ -639,7 +692,7 @@ class TrajectoryPlotter:
         
         # Add basemap if configured
         if self.config.basemap_style != "none" and cx is not None:
-            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=16)
+            self.basemap_manager.add_basemap_safe(ax, crs='EPSG:4326', zoom=18)
         
         # Styling
         if title is None:
