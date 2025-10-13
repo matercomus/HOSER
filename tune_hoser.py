@@ -106,7 +106,7 @@ from datetime import datetime
 class HOSERObjective:
     """Objective function for Optuna optimization of HOSER distillation hyperparameters."""
 
-    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 3):
+    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 3, dataset: str = 'Beijing'):
         """
         Initialize HOSER distillation optimization objective.
         
@@ -114,10 +114,12 @@ class HOSERObjective:
             base_config_path: Path to base YAML config
             data_dir: Path to HOSER dataset
             max_epochs: Max epochs per trial (default 3 for ultra-fast tuning)
+            dataset: Dataset name (default 'Beijing', can be 'porto_hoser', etc.)
         """
         self.base_config_path = base_config_path
         self.data_dir = data_dir
         self.max_epochs = max_epochs
+        self.dataset = dataset
         
         # Load base config
         with open(base_config_path, 'r') as f:
@@ -275,7 +277,7 @@ class HOSERObjective:
         
         try:
             result = train_main(
-                dataset='Beijing',
+                dataset=self.dataset,
                 config_path=config_path,
                 seed=self.base_seed + trial.number,  # Deterministic but different per trial
                 cuda=0,
@@ -552,7 +554,7 @@ def create_study_with_wandb(
 
 
 def _run_final_evaluation(study: optuna.Study, base_config: Dict[str, Any], data_dir: str, 
-                          final_run_cfg: Dict[str, Any], study_name: str):
+                          final_run_cfg: Dict[str, Any], study_name: str, dataset: str = 'Beijing'):
     """
     Run final evaluation with best hyperparameters from the study.
     
@@ -614,7 +616,7 @@ def _run_final_evaluation(study: optuna.Study, base_config: Dict[str, Any], data
         
         try:
             result = train_main(
-                dataset='Beijing',
+                dataset=dataset,
                 config_path=final_config_path,
                 seed=seed,
                 cuda=0,
@@ -666,6 +668,119 @@ def _run_final_evaluation(study: optuna.Study, base_config: Dict[str, Any], data
         
         print("\n" + "="*60)
         print("📊 FINAL EVALUATION SUMMARY")
+        print("="*60)
+        print(f"Successful runs: {len(successful_runs)}/{len(seeds)}")
+        print(f"Average best val_acc: {avg_best_val_acc:.4f}")
+        print(f"Average final val_acc: {avg_final_val_acc:.4f}")
+        print(f"Average final val_mape: {avg_final_val_mape:.4f}")
+        print("="*60)
+
+
+def _run_vanilla_baseline(base_config: Dict[str, Any], data_dir: str, 
+                          vanilla_cfg: Dict[str, Any], study_name: str, dataset: str = 'Beijing'):
+    """
+    Run full vanilla baseline for fair comparison with distilled models.
+    
+    This runs vanilla HOSER (distill.enable=False) for the same number of epochs
+    as the final distilled runs, using the base configuration without any tuned
+    hyperparameters (since vanilla has no distillation hyperparameters to tune).
+    
+    Args:
+        base_config: Base configuration dict (uses optimizer_config as-is)
+        data_dir: Path to dataset  
+        vanilla_cfg: Configuration for vanilla baseline (max_epochs, seeds)
+        study_name: Study name for organizing results
+        dataset: Dataset name (default 'Beijing')
+    """
+    from train_with_distill import main as train_main
+    
+    max_epochs = vanilla_cfg.get('max_epochs', 25)
+    seeds = vanilla_cfg.get('seeds', [42])
+    
+    print("\n📊 Running vanilla baseline (no distillation):")
+    print(f"   Dataset: {dataset}")
+    print(f"   Epochs: {max_epochs} (same as final distilled runs)")
+    print(f"   Seeds: {seeds}")
+    print("   Config: Uses base optimizer_config (no tuned hyperparameters)")
+    print()
+    
+    # Create vanilla config
+    vanilla_config = copy.deepcopy(base_config)
+    vanilla_config['optimizer_config']['max_epoch'] = max_epochs
+    vanilla_config['data_dir'] = data_dir
+    vanilla_config['distill']['enable'] = False  # Critical: disable distillation
+    
+    # Run training for each seed
+    vanilla_results = []
+    for seed_idx, seed in enumerate(seeds):
+        print(f"\n{'='*60}")
+        print(f"🎯 Vanilla Baseline {seed_idx + 1}/{len(seeds)} (seed={seed})")
+        print(f"{'='*60}")
+        
+        # Update WandB config
+        vanilla_config['wandb']['run_name'] = f"vanilla_baseline_seed{seed}"
+        vanilla_config['wandb']['tags'] = vanilla_config['wandb']['tags'][:] + ['vanilla', 'baseline', 'full-training']
+        
+        # Save config
+        config_path = f"./optuna_results/{study_name}/vanilla_baseline/vanilla_config_seed{seed}.yaml"
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        with open(config_path, 'w') as f:
+            yaml.dump(vanilla_config, f)
+        
+        try:
+            result = train_main(
+                dataset=dataset,
+                config_path=config_path,
+                seed=seed,
+                cuda=0,
+                data_dir=data_dir,
+                return_metrics=True,
+                optuna_trial=None  # No pruning for baseline run
+            )
+            
+            vanilla_results.append({
+                'seed': seed,
+                'best_val_acc': result['best_val_acc'],
+                'final_val_acc': result['final_val_acc'],
+                'final_val_mape': result['final_val_mape']
+            })
+            
+            print(f"\n✅ Vanilla Baseline {seed_idx + 1} Complete:")
+            print(f"   Best val_acc: {result['best_val_acc']:.4f}")
+            print(f"   Final val_acc: {result['final_val_acc']:.4f}")
+            print(f"   Final val_mape: {result['final_val_mape']:.4f}")
+            
+        except Exception as e:
+            print(f"\n❌ Vanilla baseline {seed_idx + 1} failed: {e}")
+            vanilla_results.append({'seed': seed, 'error': str(e)})
+    
+    # Save results
+    results_file = f"./optuna_results/{study_name}/vanilla_baseline_results.json"
+    try:
+        with open(results_file, 'w') as f:
+            json.dump({
+                'study_name': study_name,
+                'dataset': dataset,
+                'vanilla_baseline_runs': vanilla_results,
+                'config': {
+                    'max_epochs': max_epochs,
+                    'seeds': seeds,
+                    'distillation_enabled': False
+                }
+            }, f, indent=2)
+        print(f"\n💾 Vanilla baseline results saved to: {results_file}")
+    except Exception as e:
+        print(f"\n⚠️  Warning: Could not save results: {e}")
+    
+    # Print summary
+    successful_runs = [r for r in vanilla_results if 'error' not in r]
+    if successful_runs:
+        avg_best_val_acc = sum(r['best_val_acc'] for r in successful_runs) / len(successful_runs)
+        avg_final_val_acc = sum(r['final_val_acc'] for r in successful_runs) / len(successful_runs)
+        avg_final_val_mape = sum(r['final_val_mape'] for r in successful_runs) / len(successful_runs)
+        
+        print("\n" + "="*60)
+        print("📊 VANILLA BASELINE SUMMARY")
         print("="*60)
         print(f"Successful runs: {len(successful_runs)}/{len(seeds)}")
         print(f"Average best val_acc: {avg_best_val_acc:.4f}")
@@ -751,7 +866,8 @@ def main():
     objective = HOSERObjective(
         base_config_path=args.config,
         data_dir=args.data_dir,
-        max_epochs=max_epochs
+        max_epochs=max_epochs,
+        dataset=args.dataset
     )
     
     # Run optimization with proper callback handling
@@ -851,7 +967,17 @@ def main():
             print("\n" + "="*60)
             print("🚀 PHASE 2: FINAL EVALUATION RUN")
             print("="*60)
-            _run_final_evaluation(study, config, args.data_dir, final_run_cfg, study_name)
+            _run_final_evaluation(study, config, args.data_dir, final_run_cfg, study_name, dataset=args.dataset)
+        
+        # Phase 3: Run vanilla baseline for fair comparison
+        vanilla_cfg = optuna_cfg.get('vanilla_baseline', {})
+        if vanilla_cfg.get('enabled', True):  # Default: enabled
+            print("\n" + "="*60)
+            print("🚀 PHASE 3: VANILLA BASELINE RUN")
+            print("="*60)
+            print("ℹ️  Running full vanilla baseline (no distillation) for fair comparison")
+            print("   with Phase 2 distilled models (same epochs, same base config)")
+            _run_vanilla_baseline(config, args.data_dir, vanilla_cfg, study_name, dataset=args.dataset)
         
     except KeyboardInterrupt:
         print("\n⚠️  Optimization interrupted by user")

@@ -112,4 +112,10 @@ optuna:
     enabled: true        # Run final 25-epoch training with best hyperparameters
     max_epochs: 25       # Full convergence for proper evaluation (25 × 54min = ~23h)
     seeds: [42, 43, 44]  # Multiple seeds for statistical robustness (optional)
+  
+  # Vanilla baseline run (for fair comparison with distilled models)
+  vanilla_baseline:
+    enabled: true         # Run full vanilla baseline after Phase 2
+    max_epochs: 25        # Same as final distilled run
+    seeds: [42, 43, 44]   # Same seeds for direct comparison
 
