@@ -23,6 +23,11 @@ def load_single_file(file_path):
     """Load a single .pt file for parallel caching."""
     return torch.load(file_path, weights_only=False)
 
+def load_single_file_with_index(args):
+    """Load a single .pt file with its index for parallel caching with unordered loading."""
+    idx, file_path = args
+    return idx, torch.load(file_path, weights_only=False)
+
 def process_and_save_row(args):
     index, row, cache_dir = args
 
@@ -170,12 +175,20 @@ class Dataset(torch.utils.data.Dataset):
             num_workers = multiprocessing.cpu_count()
             print(f"🚀 Using {num_workers} cores for parallel loading...")
             
+            # Use imap_unordered for much faster loading, then restore order
+            # chunksize allows batching files to reduce overhead
+            indexed_paths = list(enumerate(self.file_paths))
+            chunksize = max(1, len(indexed_paths) // (num_workers * 4))
             with multiprocessing.Pool(processes=num_workers) as pool:
-                self.cached_data = list(tqdm(
-                    pool.imap(load_single_file, self.file_paths),
-                    total=len(self.file_paths),
+                results = list(tqdm(
+                    pool.imap_unordered(load_single_file_with_index, indexed_paths, chunksize=chunksize),
+                    total=len(indexed_paths),
                     desc="Loading cache"
                 ))
+            
+            # Sort by index to restore original order
+            results.sort(key=lambda x: x[0])
+            self.cached_data = [data for idx, data in results]
             
             print(f"✅ Cached {len(self.cached_data):,} samples in memory")
         else:
