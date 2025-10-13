@@ -12,6 +12,8 @@ def main():
     parser.add_argument("--repo", required=True, help="Path to LM-TAD repo root (expects code/ under it)")
     parser.add_argument("--ckpt_in", required=True, help="Path to original LM-TAD checkpoint .pt")
     parser.add_argument("--ckpt_out", required=True, help="Output path for weights-only checkpoint .pt")
+    parser.add_argument("--grip_size", type=str, default=None, 
+                       help="Grid dimensions for LM-TAD (e.g., '205 252' for Beijing, '46 134' for Porto)")
     args = parser.parse_args()
 
     code_path = os.path.join(args.repo, "code")
@@ -61,7 +63,7 @@ def main():
             "n_head": 12, 
             "n_embd": 768,
             "dropout": 0.2,
-            "grip_size": "205 252",  # Updated for beijing_hoser_reference model
+            "grip_size": args.grip_size if args.grip_size else "205 252",  # CLI argument or Beijing default
             "vocab_size": None,  # Will be inferred
             "block_size": -1
         }
