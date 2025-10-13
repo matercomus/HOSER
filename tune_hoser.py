@@ -485,12 +485,12 @@ def create_study_with_wandb(
             tpe_startup = sampler_cfg.get('n_startup_trials', 10)
             multivariate = sampler_cfg.get('multivariate', True)
             group = sampler_cfg.get('group', True)
-        sampler = optuna.samplers.TPESampler(
-            seed=seed,
-            n_startup_trials=tpe_startup,
-            multivariate=multivariate,
-            group=group
-        )
+            sampler = optuna.samplers.TPESampler(
+                seed=seed,
+                n_startup_trials=tpe_startup,
+                multivariate=multivariate,
+                group=group
+            )
             print(f"🔬 Using TPE Sampler (n_startup_trials={tpe_startup}, seed={seed})")
     except (ImportError, AttributeError) as e:
         print(f"⚠️  Requested sampler not available ({e}), falling back to RandomSampler")
