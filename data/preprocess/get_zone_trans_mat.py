@@ -1,10 +1,16 @@
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+import argparse
 
 
 if __name__ == '__main__':
-    for dataset in ['Beijing']:  # Only process Beijing for now
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--datasets', type=str, nargs='+', default=['Beijing'],
+                       help='Dataset names to process (e.g., Beijing porto_hoser)')
+    args = parser.parse_args()
+    
+    for dataset in args.datasets:
         print(f'Processing {dataset} dataset')
 
         road2zone = []
