@@ -344,11 +344,26 @@ uv run python tune_hoser.py \
 ### Out of memory
 **Error:** CUDA OOM during training
 
-**Solutions:**
-- Reduce `batch_size` in config
-- Reduce `candidate_top_k` in config (default: 64)
-- Reduce `max_len` if trajectories are very long
-- Increase `accum_steps` to maintain effective batch size
+**Root Cause:** Memory usage scales **quadratically** with trajectory length due to:
+- `trace_distance_mat`: O(batch × T²) 
+- `trace_time_interval_mat`: O(batch × T²)
+- Transformer attention masks: O(batch × heads × T²)
+
+**Example:** Porto trajectories are ~2x longer than Beijing (avg 8 vs 4.6 points), resulting in ~72% more memory usage despite smaller batch size.
+
+**Solutions (in order of effectiveness):**
+1. **Reduce `batch_size`** - Most direct fix for longer trajectories
+2. **Enable `grad_checkpoint: true`** - Reduces activation memory at cost of ~20% speed
+3. **Reduce `accum_steps`** - Adjust to maintain similar effective batch size
+4. **Reduce `candidate_top_k`** (default: 64) - Caps candidates per timestep
+5. **Reduce `max_len`** - Hard cap on trajectory length (last resort)
+6. **Adjust dataloader** - Lower `prefetch_factor` to reduce staging memory
+
+**Porto-specific adjustments** (see `config/porto_hoser.yaml`):
+- `batch_size: 64` (vs Beijing's 128) - Compensates for longer trajectories
+- `accum_steps: 4` (vs Beijing's 8) - Maintains reasonable effective batch size
+- `grad_checkpoint: true` - Further reduces memory footprint
+- `prefetch_factor: 8` (vs Beijing's 16) - Lower memory overhead
 
 ## File Structure After Setup
 

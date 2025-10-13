@@ -30,15 +30,15 @@ trajectory_encoder_config:
   num_layers: 2
   dropout: 0.0
   max_len: 1024
-  grad_checkpoint: false # Disabled: we have enough VRAM, this trades memory for speed
+  grad_checkpoint: true # Enabled: Porto trajectories are ~2x longer than Beijing, reducing activation memory
 
 navigator_config:
   hidden_dim: 128
 
 optimizer_config:
   max_epoch: 25
-  batch_size: 128
-  accum_steps: 8
+  batch_size: 64  # Reduced from Beijing's 128 due to Porto's longer trajectories (memory scales O(T²))
+  accum_steps: 4  # Reduced from 8 to maintain similar effective batch size (64×4=256 vs Beijing 128×8=1024)
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -60,9 +60,9 @@ data_dir: /home/matt/Dev/HOSER-dataset-porto
 
 # Dataloader performance knobs - optimized for streaming large dataset
 dataloader:
-  num_workers: 6  # Efficient with RAM-cached dataset (no disk I/O)
+  num_workers: 8  # Increased from 6 for better CPU utilization
   pin_memory: false # Disabled: Relieves CPU memory pressure
-  prefetch_factor: 16  # Balanced buffer for disk streaming
+  prefetch_factor: 8  # Reduced from 16 to lower memory overhead
   persistent_workers: false  # Disabled: Avoid memory leaks with repeated torch.load
 
 # Data-specific knobs
