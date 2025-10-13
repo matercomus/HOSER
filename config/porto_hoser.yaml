@@ -38,7 +38,7 @@ navigator_config:
 optimizer_config:
   max_epoch: 25
   batch_size: 64  # Reduced from Beijing's 128 due to Porto's longer trajectories (memory scales O(T²))
-  accum_steps: 4  # Reduced from 8 to maintain similar effective batch size (64×4=256 vs Beijing 128×8=1024)
+  accum_steps: 2  # Reduced from 8 to maintain similar effective batch size (64×4=256 vs Beijing 128×8=1024)
   learning_rate: 0.001
   weight_decay: 0.1
   warmup_ratio: 0.1
