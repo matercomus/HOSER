@@ -16,6 +16,7 @@ wandb/
 *.wandb
 
 optuna_trials/
+optuna_trials_beijing_hoser/
 optuna_results/
 
 # Pipeline logs and outputs
