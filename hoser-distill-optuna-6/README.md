@@ -343,6 +343,6 @@ Both `run_gene_eval_pipeline.sh` and `run_all_seeds.sh` support:
 ## 📚 References
 
 - Training details: `optuna_results/hoser_tuning_20251003_162916/`
-- Documentation: `LMTAD-Distillation.md`
+- Documentation: [`../docs/LMTAD-Distillation.md`](../docs/LMTAD-Distillation.md)
 - WandB models: Use `tools/download_wandb_model.py` to explore other runs
 

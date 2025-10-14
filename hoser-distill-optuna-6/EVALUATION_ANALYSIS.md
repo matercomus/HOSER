@@ -99,7 +99,7 @@ All models were trained using **identical base configurations** via Optuna hyper
 - Demonstrates that knowledge transfer alone enables navigation capability
 - Hyperparameters were optimized via 12-trial Optuna study (CMA-ES sampler, Hyperband pruner)
 
-> **📖 For detailed training methodology, loss formulation, and implementation details, see [`LMTAD-Distillation.md`](../LMTAD-Distillation.md).**
+> **📖 For detailed training methodology, loss formulation, and implementation details, see [`LMTAD-Distillation.md`](../docs/LMTAD-Distillation.md).**
 
 ### Evaluation Protocol:
 - **Generated Trajectories:** 5,000 per model per OD source
