@@ -2,14 +2,10 @@
 """
 Comprehensive hyperparameter tuning for HOSER with Optuna
 
-This script optimizes both vanilla HOSER and distillation configurations,
-allowing Optuna to discover whether distillation actually improves performance.
+This script optimizes distillation hyperparameters for HOSER using CMA-ES.
+Vanilla baseline runs separately for WandB comparison (Phase 0).
 
-TUNED HYPERPARAMETERS:
-- distill_enable: Whether to use distillation (conditional branching)
-                 Trial 0: vanilla baseline, Trials 1+: distilled
-
-If distillation is enabled:
+TUNED HYPERPARAMETERS (all trials are distilled):
 - lambda: KL divergence weight (0.001-0.1, log scale)
          Controls balance between teacher guidance and student loss
 - temperature: Softmax temperature (1.0-5.0, linear)
@@ -22,36 +18,40 @@ FIXED PARAMETERS (architectural choices):
 - downsample: 1 (from base config)
 - All HOSER model architecture parameters
 
-TRAINING STRATEGY (Fast Iteration - Option B):
-  • 5 epochs per trial for rapid exploration (~4.5h per full trial @ 54min/epoch)
-  • Minimum 3 epochs before pruning (~2.7h minimum)
-  • Focus: Many trials to explore hyperparameter space quickly
-  • Trade-off: Less convergence per trial, but more comprehensive search
+TRAINING STRATEGY (Fast Iteration):
+  • 8 epochs per trial for convergence trends (~7.3h per full trial @ 54min/epoch)
+  • Minimum 5 epochs before pruning (~4.6h minimum)
+  • Focus: Many trials to explore hyperparameter space efficiently
+  • Trade-off: Faster exploration with adaptive early stopping
 
 PRUNING STRATEGY (HyperbandPruner - Moderate):
-  • min_resource=3: All trials run at least 3 epochs before pruning
+  • min_resource=5: All trials run at least 5 epochs before pruning
   • reduction_factor=3: Keeps top 1/3 of trials at each evaluation rung
   • Adaptive: Allocates more resources to promising trials
   
-  Expected pruning rate: ~50-60% of trials stopped at 3-4 epochs
+  Expected pruning rate: ~50-60% of trials stopped at 5-6 epochs
   This saves ~2h per pruned trial while gathering early performance data
 
 SAMPLING STRATEGY (CmaEsSampler - Evolution Strategy):
-  • All parameters continuous/integer (compatible with CMA-ES)
+  • All parameters continuous/integer (fully compatible with CMA-ES)
   • Adaptive covariance matrix evolution from trial 0
   • Optimal for 10-100 trials with continuous optimization
-  • No startup trials needed - begins optimization immediately
-  • Trial 0: vanilla baseline (establishes performance floor)
+  • Consistent 3-parameter space enables CMA-ES from trial 0
+  • No wasted random trials - all 12 trials use CMA-ES optimization
 
 STORAGE & CRASH RECOVERY:
   Default storage: /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db
   Heartbeat: 60s | Grace period: 120s
   Study can be resumed after crashes/interruptions.
 
-TIME ESTIMATE (12 trials + final eval, 2-Phase Approach):
+TIME ESTIMATE (3-Phase Approach):
   Baseline: 54 minutes/epoch (9835 batches @ 3 it/s)
   
-  PHASE 1: Hyperparameter Search (12 trials, 8 max epochs)
+  PHASE 0: Vanilla Baseline (optional, for WandB comparison)
+  • 1 run, 8 epochs, single seed: ~7.3 hours
+  • Optional - can be disabled in config
+  
+  PHASE 1: Hyperparameter Search (12 distilled trials, 8 max epochs)
   • Full trial (8 epochs): ~7.3 hours
   • Pruned trial (5 epochs avg): ~4.6 hours
   • Expected: 7 complete + 5 pruned
@@ -62,18 +62,22 @@ TIME ESTIMATE (12 trials + final eval, 2-Phase Approach):
   • Or 1 run for quick results: 1 × 23h = 23h (~1 day)
   
   TOTAL TIMELINE:
-  • Phase 1 + Phase 2 (1 seed): ~97 hours (~4 days)
-  • Phase 1 + Phase 2 (3 seeds): ~143 hours (~6 days)
+  • Phase 0 + Phase 1 + Phase 2 (1 seed): ~104 hours (~4.3 days)
+  • Phase 0 + Phase 1 + Phase 2 (3 seeds): ~150 hours (~6.3 days)
+  • Skip Phase 0: saves ~7 hours
   
-  CmaEsSampler optimizes from trial 0 - no warmup needed!
+  CmaEsSampler optimizes all 12 trials - no random baseline needed!
 
 CONFIGURATION:
-  All settings in config/Beijing.yaml under 'optuna' section.
+  All settings in config/Beijing.yaml or config/porto_hoser.yaml under 'optuna' section.
   CLI args override YAML defaults.
 
 USAGE:
-  # Standard run (uses Beijing.yaml defaults: 25 trials, 5 epochs)
-  uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
+  # Standard run (uses config defaults: 12 trials, 8 epochs)
+  uv run python tune_hoser.py --config config/porto_hoser.yaml --data_dir /home/matt/Dev/HOSER-dataset-porto
+
+  # Skip Phase 0 vanilla baseline (faster start)
+  # Edit config: vanilla_baseline_pretune.enabled: false
 
   # Quick 24-hour run (8-10 trials)
   uv run python tune_hoser.py --n_trials 10 --data_dir /home/matt/Dev/HOSER-dataset
@@ -130,15 +134,13 @@ class HOSERObjective:
         """
         Objective function called by Optuna for each trial.
         
-        Suggests hyperparameters including whether to use distillation.
-        Returns validation accuracy to maximize.
+        Suggests distillation hyperparameters and returns validation accuracy to maximize.
+        All trials are distillation trials (vanilla baseline runs separately in Phase 0).
         """
         # Step 1: Suggest all hyperparameters (defines search space)
         hparams = self._suggest_hyperparameters(trial)
         
-        # Show what mode we're running
-        mode = "distilled" if hparams['distill_enable'] else "vanilla baseline"
-        print(f"🔬 Running trial {trial.number} ({mode})")
+        print(f"🔬 Running trial {trial.number} (distilled)")
         
         # Step 2: Create trial config from hyperparameters
         config = self._create_trial_config(trial, hparams)
@@ -155,13 +157,13 @@ class HOSERObjective:
             trial_succeeded = True  # Mark trial as successful
             
             # ✅ PRESERVE MODEL IMMEDIATELY AFTER SUCCESSFUL TRIAL
-            self._preserve_trial_artifacts(trial.number, mode)
+            self._preserve_trial_artifacts(trial.number, pruned=False)
             
             return result
         except optuna.TrialPruned:
             # Pruned trials are also successful (completed some epochs)
             trial_succeeded = True
-            self._preserve_trial_artifacts(trial.number, mode, pruned=True)
+            self._preserve_trial_artifacts(trial.number, pruned=True)
             raise
         finally:
             if temp_config_path and os.path.exists(temp_config_path):
@@ -179,48 +181,29 @@ class HOSERObjective:
         """
         Define the hyperparameter search space - all tunable parameters in one place.
         
+        All trials optimize distillation hyperparameters (vanilla baseline runs separately in Phase 0).
+        
         Search space includes:
-        - distill_enable: Whether to use distillation (categorical: True/False)
-                         This allows Optuna to discover if distillation helps
+        - distill_lambda: KL divergence weight (log scale: 0.001 to 0.1)
+                         Controls how much to weight teacher guidance vs student loss
+        - distill_temperature: Softmax temperature (linear: 1.0 to 5.0)
+                              Higher = softer distributions, more knowledge transfer
+        - distill_window: Context window size (integer: 2-8)
+                         Number of neighboring road segments to consider for teacher guidance
         
-        If distillation is enabled, additional parameters are suggested:
-        - lambda: KL divergence weight (log scale: 0.001 to 0.1)
-                 Controls how much to weight teacher guidance vs student loss
-        - temperature: Softmax temperature (linear: 1.0 to 5.0)
-                      Higher = softer distributions, more knowledge transfer
-        - window: Context window size (categorical: 2, 4, 8)
-                 Number of neighboring road segments to consider
-        
-        CONDITIONAL SEARCH SPACE PATTERN (Optuna best practice):
-        We only suggest distillation parameters when distill_enable=True.
-        This creates a hierarchical/conditional search space where certain parameters
-        only exist in specific branches of the configuration tree.
+        All parameters are continuous/integer - fully compatible with CmaEsSampler.
+        The consistent 3-parameter space allows CmaEsSampler to optimize from trial 0.
         
         Returns:
             Dict of hyperparameter names to suggested values
         """
-        # Trial 0: vanilla baseline (no distillation)
-        # Trials 1+: tune distillation hyperparameters
-        if trial.number == 0:
-            distill_enable = False
-        else:
-            distill_enable = True
-        
-        hparams = {'distill_enable': distill_enable}
-        
-        if distill_enable:
-            # Only suggest distillation hyperparameters when distillation is enabled
-            # All parameters are continuous/integer - compatible with CmaEsSampler
-            hparams['distill_lambda'] = trial.suggest_float('distill_lambda', 0.001, 0.1, log=True)
-            hparams['distill_temperature'] = trial.suggest_float('distill_temperature', 1.0, 5.0)
-            hparams['distill_window'] = trial.suggest_int('distill_window', 2, 8)  # Integer: explore all window sizes 2-8
-        else:
-            # When distillation is disabled, don't suggest or set these params at all
-            # The sampler will understand this branch doesn't have these parameters
-            hparams['distill_lambda'] = None
-            hparams['distill_temperature'] = None
-            hparams['distill_window'] = None
-        
+        # All trials are distillation trials (vanilla baseline runs separately in Phase 0)
+        hparams = {
+            'distill_enable': True,
+            'distill_lambda': trial.suggest_float('distill_lambda', 0.001, 0.1, log=True),
+            'distill_temperature': trial.suggest_float('distill_temperature', 1.0, 5.0),
+            'distill_window': trial.suggest_int('distill_window', 2, 8)
+        }
         return hparams
 
     def _create_trial_config(self, trial: optuna.Trial, hparams: Dict[str, Any]) -> Dict[str, Any]:
@@ -240,25 +223,17 @@ class HOSERObjective:
         config['optimizer_config']['max_epoch'] = self.max_epochs
         config['data_dir'] = self.data_dir
         
-        # Configure distillation based on hyperparameters
-        distill_enable = hparams['distill_enable']
-        config['distill']['enable'] = distill_enable
-        
-        if distill_enable:
-            # Apply distillation hyperparameters
-            config['distill']['lambda'] = hparams['distill_lambda']
-            config['distill']['temperature'] = hparams['distill_temperature']
-            config['distill']['window'] = hparams['distill_window']
-            # Keep grid_size and downsample fixed (architectural choices, not tuned)
-            trial_mode = "distilled"
-        else:
-            # Vanilla training - distillation params don't matter
-            trial_mode = "vanilla"
+        # All trials use distillation (vanilla baseline runs separately in Phase 0)
+        config['distill']['enable'] = True
+        config['distill']['lambda'] = hparams['distill_lambda']
+        config['distill']['temperature'] = hparams['distill_temperature']
+        config['distill']['window'] = hparams['distill_window']
+        # Keep grid_size and downsample fixed (architectural choices, not tuned)
         
         # WandB config for trial
-        config['wandb']['run_name'] = f"trial_{trial.number:03d}_{trial_mode}"
+        config['wandb']['run_name'] = f"trial_{trial.number:03d}_distilled"
         existing_tags = config['wandb'].get('tags', [])
-        config['wandb']['tags'] = existing_tags + ['hoser-tuning', trial_mode]
+        config['wandb']['tags'] = existing_tags + ['hoser-tuning', 'distilled']
         
         return config
     
@@ -310,30 +285,28 @@ class HOSERObjective:
             print(f"❌ Trial {trial.number} failed: {e}")
             raise optuna.TrialPruned(str(e))
     
-    def _preserve_trial_artifacts(self, trial_number: int, mode: str, pruned: bool = False):
+    def _preserve_trial_artifacts(self, trial_number: int, pruned: bool = False):
         """
         Preserve model artifacts immediately after a successful or pruned trial.
         Creates a unique directory for each trial to avoid overwriting.
         
         Args:
             trial_number: The trial number
-            mode: "vanilla baseline" or "distilled"
             pruned: Whether this trial was pruned (still saved, just stopped early)
         """
         trial_seed = self.base_seed + trial_number
         status = "pruned" if pruned else "complete"
-        mode_short = "vanilla" if "vanilla" in mode else "distilled"
+        
+        # All trials are distilled
+        trial_dir = os.path.abspath(f"./optuna_trials/trial_{trial_number:03d}_distilled_{status}")
+        os.makedirs(trial_dir, exist_ok=True)
         
         # Source directories (where training saves models)
         src_dirs = {
-            "model": os.path.abspath(f"./save/Beijing/seed{trial_seed}_distill"),
-            "tensorboard": os.path.abspath(f"./tensorboard_log/Beijing/seed{trial_seed}_distill"),
-            "logs": os.path.abspath(f"./log/Beijing/seed{trial_seed}_distill")
+            "model": os.path.abspath(f"./save/{self.dataset}/seed{trial_seed}_distill"),
+            "tensorboard": os.path.abspath(f"./tensorboard_log/{self.dataset}/seed{trial_seed}_distill"),
+            "logs": os.path.abspath(f"./log/{self.dataset}/seed{trial_seed}_distill")
         }
-        
-        # Destination: optuna_trials/trial_NNN_{mode}_{status}/
-        trial_dir = os.path.abspath(f"./optuna_trials/trial_{trial_number:03d}_{mode_short}_{status}")
-        os.makedirs(trial_dir, exist_ok=True)
         
         print(f"💾 Preserving trial {trial_number} artifacts to {trial_dir}")
         
@@ -870,6 +843,23 @@ def main():
         dataset=args.dataset
     )
     
+    # Phase 0: Optional vanilla baseline (for WandB comparison)
+    pretune_vanilla_cfg = optuna_cfg.get('vanilla_baseline_pretune', {})
+    if pretune_vanilla_cfg.get('enabled', True):  # Default: enabled
+        print("\n" + "="*60)
+        print("🚀 PHASE 0: VANILLA BASELINE (Pre-Tuning)")
+        print("="*60)
+        print("ℹ️  Running vanilla baseline before tuning for WandB comparison")
+        print(f"   Epochs: {pretune_vanilla_cfg.get('max_epochs', max_epochs)}")
+        print(f"   Seeds: {pretune_vanilla_cfg.get('seeds', [config.get('training', {}).get('seed', 42)])}")
+        _run_vanilla_baseline(config, args.data_dir, pretune_vanilla_cfg, f"{study_name}_phase0", dataset=args.dataset)
+    
+    # Phase 1: Hyperparameter tuning (all trials are distilled)
+    print("\n" + "="*60)
+    print("🚀 PHASE 1: HYPERPARAMETER SEARCH")
+    print("="*60)
+    print(f"ℹ️  Optimizing {n_trials} distillation trials with CmaEsSampler")
+    
     # Run optimization with proper callback handling
     try:
         callbacks = [wandbc] if wandbc is not None else []
@@ -900,7 +890,7 @@ def main():
         os.makedirs(results_base, exist_ok=True)
         
         # Find the preserved best trial directory
-        best_trial_mode = "vanilla" if not study.best_trial.params.get('distill_enable', True) else "distilled"
+        best_trial_mode = "distilled"  # All trials are distilled now
         best_trial_status = "pruned" if study.best_trial.state == optuna.trial.TrialState.PRUNED else "complete"
         best_trial_src = os.path.abspath(f"./optuna_trials/trial_{best_trial_num:03d}_{best_trial_mode}_{best_trial_status}")
         best_trial_link = os.path.join(results_base, "best_trial")
@@ -990,7 +980,7 @@ def main():
                 results_base = os.path.abspath(f"./optuna_results/{study_name}")
                 os.makedirs(results_base, exist_ok=True)
                 
-                best_trial_mode = "vanilla" if not study.best_trial.params.get('distill_enable', True) else "distilled"
+                best_trial_mode = "distilled"  # All trials are distilled now
                 best_trial_status = "pruned" if study.best_trial.state == optuna.trial.TrialState.PRUNED else "complete"
                 best_trial_src = os.path.abspath(f"./optuna_trials/trial_{best_trial_num:03d}_{best_trial_mode}_{best_trial_status}")
                 best_trial_link = os.path.join(results_base, "best_trial")
