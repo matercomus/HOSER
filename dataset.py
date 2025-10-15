@@ -171,8 +171,9 @@ class Dataset(torch.utils.data.Dataset):
         if estimated_ram_gb < (available_ram_gb * 0.6):
             print(f"📦 Caching {len(self.file_paths):,} samples to RAM (~{estimated_ram_gb:.1f}GB, {available_ram_gb:.1f}GB available)")
             
-            # Parallel loading with all CPU cores
-            num_workers = multiprocessing.cpu_count()
+            # Parallel loading with limited workers to avoid overwhelming WSL2
+            # Sweet spot: 8-16 workers balances speed vs process spawning overhead
+            num_workers = min(16, multiprocessing.cpu_count())
             print(f"🚀 Using {num_workers} cores for parallel loading...")
             
             # Use imap_unordered for much faster loading, then restore order
