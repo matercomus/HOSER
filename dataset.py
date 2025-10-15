@@ -177,9 +177,10 @@ class Dataset(torch.utils.data.Dataset):
             print(f"🚀 Using {num_workers} cores for parallel loading...")
             
             # Use imap_unordered for much faster loading, then restore order
-            # chunksize allows batching files to reduce overhead
+            # Fixed chunksize of 100 for smooth progress bar updates
+            # Prevents massive chunks (7.5K files) that cause choppy loading on large datasets
             indexed_paths = list(enumerate(self.file_paths))
-            chunksize = max(1, len(indexed_paths) // (num_workers * 4))
+            chunksize = 100
             with multiprocessing.Pool(processes=num_workers) as pool:
                 results = list(tqdm(
                     pool.imap_unordered(load_single_file_with_index, indexed_paths, chunksize=chunksize),
@@ -194,7 +195,7 @@ class Dataset(torch.utils.data.Dataset):
             print(f"✅ Cached {len(self.cached_data):,} samples in memory")
         else:
             print(f"📁 Dataset needs ~{estimated_ram_gb:.1f}GB but only {available_ram_gb:.1f}GB available — streaming from disk")
-            print(f"   To enable caching, free up more RAM or reduce dataset size")
+            print("   To enable caching, free up more RAM or reduce dataset size")
 
     def __len__(self):
         return len(self.file_paths) if self.cached_data is None else len(self.cached_data)
