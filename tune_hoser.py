@@ -860,6 +860,11 @@ def main():
     print("="*60)
     print(f"ℹ️  Optimizing {n_trials} distillation trials with CmaEsSampler")
     
+    # Clean up stale/stuck trials before starting
+    from optuna.storages import fail_stale_trials
+    print('🧹 Cleaning up stale trials...')
+    fail_stale_trials(study)
+    
     # Run optimization with proper callback handling
     try:
         callbacks = [wandbc] if wandbc is not None else []
