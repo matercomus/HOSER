@@ -530,6 +530,22 @@ def main(
 
     logger.info("[distill] Initialized HOSER model for distillation training")
 
+    # Check for checkpoint BEFORE WandB init to get resume_wandb_id
+    checkpoint_path = os.path.join(save_dir, 'checkpoint_latest.pth')
+    resume_wandb_id = None
+    checkpoint_exists = False
+    
+    if os.path.exists(checkpoint_path):
+        try:
+            # Only extract wandb_run_id now, full load happens after optimizer created
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            resume_wandb_id = checkpoint.get('wandb_run_id')
+            checkpoint_exists = True
+            logger.info(f'✅ Found checkpoint: will resume from epoch {checkpoint["epoch"] + 1}')
+        except Exception as e:
+            logger.warning(f'⚠️  Failed to read checkpoint: {e}. Starting fresh.')
+            checkpoint_exists = False
+
     # Initialize Weights & Biases if enabled
     wb_enable = bool(getattr(getattr(config, "wandb", {}), "enable", False))
     if wb_enable:
@@ -649,13 +665,10 @@ def main(
     # Track validation metrics for Optuna
     validation_metrics = []
     best_val_acc = 0.0
-
-    # Checkpoint resume support
-    checkpoint_path = os.path.join(save_dir, 'checkpoint_latest.pth')
     start_epoch = 0
-    resume_wandb_id = None
-    
-    if os.path.exists(checkpoint_path):
+
+    # Load checkpoint state into model/optimizer (if checkpoint was found earlier)
+    if checkpoint_exists:
         try:
             checkpoint = torch.load(checkpoint_path, map_location='cpu')
             model.load_state_dict(checkpoint['model_state_dict'])
@@ -663,14 +676,12 @@ def main(
             start_epoch = checkpoint['epoch'] + 1
             best_val_acc = checkpoint['best_val_acc']
             validation_metrics = checkpoint['validation_metrics']
-            resume_wandb_id = checkpoint.get('wandb_run_id')
             logger.info(f'✅ Resumed from checkpoint: epoch {start_epoch}, best_val_acc={best_val_acc:.4f}')
         except Exception as e:
-            logger.warning(f'⚠️  Failed to load checkpoint: {e}. Starting from scratch.')
+            logger.warning(f'⚠️  Failed to load checkpoint state: {e}. Starting from scratch.')
             start_epoch = 0
             best_val_acc = 0.0
             validation_metrics = []
-            resume_wandb_id = None
 
     # Performance Profiling Setup
     profiling_enabled = getattr(getattr(config, "profiling", {}), "enable", False)
