@@ -539,11 +539,29 @@ def main(
         try:
             # Only extract wandb_run_id now, full load happens after optimizer created
             checkpoint = torch.load(checkpoint_path, map_location='cpu')
-            resume_wandb_id = checkpoint.get('wandb_run_id')
-            checkpoint_exists = True
-            logger.info(f'✅ Found checkpoint: will resume from epoch {checkpoint["epoch"] + 1}')
+            
+            # Validate checkpoint metadata to prevent loading wrong checkpoint
+            ckpt_seed = checkpoint.get('seed', -1)
+            ckpt_dataset = checkpoint.get('dataset', '')
+            
+            if ckpt_seed == seed and ckpt_dataset == dataset_name:
+                resume_wandb_id = checkpoint.get('wandb_run_id')
+                checkpoint_exists = True
+                logger.info(f'✅ Valid checkpoint found: will resume from epoch {checkpoint["epoch"] + 1}')
+            else:
+                logger.warning(f'⚠️  Checkpoint mismatch (seed={ckpt_seed} vs {seed}, dataset={ckpt_dataset} vs {dataset_name})')
+                logger.warning(f'⚠️  Deleting invalid checkpoint and starting fresh')
+                os.remove(checkpoint_path)
+                checkpoint_exists = False
         except Exception as e:
             logger.warning(f'⚠️  Failed to read checkpoint: {e}. Starting fresh.')
+            # Delete corrupted checkpoint
+            if os.path.exists(checkpoint_path):
+                try:
+                    os.remove(checkpoint_path)
+                    logger.info('🧹 Deleted corrupted checkpoint')
+                except:
+                    pass
             checkpoint_exists = False
 
     # Initialize Weights & Biases if enabled
@@ -1323,6 +1341,8 @@ def main(
         try:
             torch.save({
                 'epoch': epoch_id,
+                'seed': seed,  # For validation on resume
+                'dataset': dataset_name,  # For validation on resume
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'best_val_acc': best_val_acc,
