@@ -172,7 +172,7 @@ class HOSERObjective:
             # Only cleanup if trial failed (not succeeded or pruned)
             if not trial_succeeded:
                 print(f"🧹 Trial {trial.number} failed - cleaning up artifacts")
-            self._cleanup_trial_artifacts(trial.number)
+                self._cleanup_trial_artifacts(trial.number)
             
             gc.collect()
             torch.cuda.empty_cache()
