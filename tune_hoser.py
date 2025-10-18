@@ -340,9 +340,9 @@ class HOSERObjective:
         """
         trial_seed = self.base_seed + trial_number
         trial_dirs = [
-            os.path.abspath(f"./save/Beijing/seed{trial_seed}_distill"),
-            os.path.abspath(f"./tensorboard_log/Beijing/seed{trial_seed}_distill"),
-            os.path.abspath(f"./log/Beijing/seed{trial_seed}_distill")
+            os.path.abspath(f"./save/{self.dataset}/seed{trial_seed}_distill"),
+            os.path.abspath(f"./tensorboard_log/{self.dataset}/seed{trial_seed}_distill"),
+            os.path.abspath(f"./log/{self.dataset}/seed{trial_seed}_distill")
         ]
         
         for dir_path in trial_dirs:
