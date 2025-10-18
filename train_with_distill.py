@@ -540,8 +540,14 @@ def main(
         )
         wb_tags = list(getattr(getattr(config, "wandb", {}), "tags", []))
         # Log entire YAML config to wandb
+        # Support resuming from checkpoint (uses same run ID if available)
         wandb.init(
-            project=wb_project, name=wb_run_name, tags=wb_tags, config=raw_config
+            project=wb_project, 
+            name=wb_run_name, 
+            tags=wb_tags, 
+            config=raw_config,
+            id=resume_wandb_id,  # Resume same run if checkpoint exists
+            resume='allow'  # Allow resuming if id matches existing run
         )
 
     # Training performance knobs
@@ -644,6 +650,28 @@ def main(
     validation_metrics = []
     best_val_acc = 0.0
 
+    # Checkpoint resume support
+    checkpoint_path = os.path.join(save_dir, 'checkpoint_latest.pth')
+    start_epoch = 0
+    resume_wandb_id = None
+    
+    if os.path.exists(checkpoint_path):
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start_epoch = checkpoint['epoch'] + 1
+            best_val_acc = checkpoint['best_val_acc']
+            validation_metrics = checkpoint['validation_metrics']
+            resume_wandb_id = checkpoint.get('wandb_run_id')
+            logger.info(f'✅ Resumed from checkpoint: epoch {start_epoch}, best_val_acc={best_val_acc:.4f}')
+        except Exception as e:
+            logger.warning(f'⚠️  Failed to load checkpoint: {e}. Starting from scratch.')
+            start_epoch = 0
+            best_val_acc = 0.0
+            validation_metrics = []
+            resume_wandb_id = None
+
     # Performance Profiling Setup
     profiling_enabled = getattr(getattr(config, "profiling", {}), "enable", False)
     if profiling_enabled:
@@ -659,7 +687,7 @@ def main(
         loop_end_time = time.time()
 
 
-    for epoch_id in range(config.optimizer_config.max_epoch):
+    for epoch_id in range(start_epoch, config.optimizer_config.max_epoch):
         model.train()
         for batch_id, (
             batch_trace_road_id,
@@ -1278,6 +1306,21 @@ def main(
                     f"🔪 Trial pruned at epoch {epoch_id + 1} (val_acc={val_acc:.4f})"
                 )
                 raise optuna.TrialPruned()
+
+        # Save checkpoint after each epoch
+        checkpoint_path = os.path.join(save_dir, 'checkpoint_latest.pth')
+        try:
+            torch.save({
+                'epoch': epoch_id,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'best_val_acc': best_val_acc,
+                'validation_metrics': validation_metrics,
+                'wandb_run_id': wandb.run.id if wb_enable and wandb.run else None,
+            }, checkpoint_path)
+            logger.info(f'💾 Checkpoint saved: epoch {epoch_id + 1}')
+        except Exception as e:
+            logger.warning(f'⚠️  Failed to save checkpoint: {e}')
 
         model.train()
 
