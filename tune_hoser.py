@@ -101,6 +101,7 @@ import torch
 import optuna
 from optuna.integration.wandb import WeightsAndBiasesCallback
 from optuna.storages import RDBStorage, RetryFailedTrialCallback
+from optuna.trial import TrialState
 from typing import Dict, Any, Optional
 import yaml
 import json
@@ -857,23 +858,32 @@ def main():
         print(f"   Seeds: {pretune_vanilla_cfg.get('seeds', [config.get('training', {}).get('seed', 42)])}")
         _run_vanilla_baseline(config, args.data_dir, pretune_vanilla_cfg, f"{study_name}_phase0", dataset=args.dataset)
     
-    # Phase 1: Hyperparameter tuning (all trials are distilled)
-    print("\n" + "="*60)
-    print("🚀 PHASE 1: HYPERPARAMETER SEARCH")
-    print("="*60)
-    print(f"ℹ️  Optimizing {n_trials} distillation trials with CmaEsSampler")
+    # Calculate remaining trials (only count successful ones)
+    completed_trials = len([t for t in study.trials 
+                            if t.state in [TrialState.COMPLETE, TrialState.PRUNED]])
+    remaining_trials = max(0, n_trials - completed_trials)
     
-    # Clean up stale/stuck trials before starting
-    from optuna.storages import fail_stale_trials
-    print('🧹 Cleaning up stale trials...')
-    fail_stale_trials(study)
+    print(f"📊 Study progress: {completed_trials}/{n_trials} trials complete")
     
-    # Run optimization with proper callback handling
-    try:
+    if remaining_trials == 0:
+        print("✅ All trials already completed! Skipping Phase 1.")
+    else:
+        # Phase 1: Hyperparameter tuning (all trials are distilled)
+        print("\n" + "="*60)
+        print("🚀 PHASE 1: HYPERPARAMETER SEARCH")
+        print("="*60)
+        print(f"ℹ️  Running {remaining_trials} more trials with CmaEsSampler")
+        
+        # Clean up stale/stuck trials before starting
+        from optuna.storages import fail_stale_trials
+        print('🧹 Cleaning up stale trials...')
+        fail_stale_trials(study)
+        
+        # Run optimization with proper callback handling
         callbacks = [wandbc] if wandbc is not None else []
         study.optimize(
             objective,
-            n_trials=n_trials,
+            n_trials=remaining_trials,  # ← FIXED: only remaining trials
             callbacks=callbacks,
             gc_after_trial=True,
             show_progress_bar=True
@@ -976,33 +986,6 @@ def main():
             print("ℹ️  Running full vanilla baseline (no distillation) for fair comparison")
             print("   with Phase 2 distilled models (same epochs, same base config)")
             _run_vanilla_baseline(config, args.data_dir, vanilla_cfg, study_name, dataset=args.dataset)
-        
-    except KeyboardInterrupt:
-        print("\n⚠️  Optimization interrupted by user")
-        # Successful trials are already preserved in optuna_trials/
-        # Just create a reference to the best trial
-        if study.best_trial is not None:
-            print("💾 Creating reference to best trial...")
-            try:
-                best_trial_num = study.best_trial.number
-                results_base = os.path.abspath(f"./optuna_results/{study_name}")
-                os.makedirs(results_base, exist_ok=True)
-                
-                best_trial_mode = "distilled"  # All trials are distilled now
-                best_trial_status = "pruned" if study.best_trial.state == optuna.trial.TrialState.PRUNED else "complete"
-                best_trial_src = os.path.abspath(f"./optuna_trials/trial_{best_trial_num:03d}_{best_trial_mode}_{best_trial_status}")
-                best_trial_link = os.path.join(results_base, "best_trial")
-                
-                if os.path.exists(best_trial_src):
-                    shutil.copytree(best_trial_src, best_trial_link, dirs_exist_ok=True)
-                    print(f"✅ Best trial preserved at: {best_trial_link}")
-                else:
-                    print(f"⚠️  Best trial artifacts not found at {best_trial_src}")
-            except Exception as e:
-                print(f"⚠️  Could not create best trial reference: {e}")
-    except Exception as e:
-        print(f"\n❌ Optimization failed: {e}")
-        raise
 
 
 if __name__ == '__main__':
