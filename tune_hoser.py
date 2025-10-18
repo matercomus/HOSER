@@ -325,10 +325,13 @@ class HOSERObjective:
         else:
             print(f"⚠️  Trial {trial_number}: No artifacts found to preserve")
         
-        # After preserving, clean up original directories to save space
+        # After preserving, clean up original directories and checkpoints to save space
         for src_path in src_dirs.values():
             if os.path.exists(src_path):
+                # This also removes checkpoint_latest.pth inside save_dir
                 shutil.rmtree(src_path, ignore_errors=True)
+        
+        print(f"🧹 Cleaned up trial {trial_number} working directories (checkpoints removed)")
     
     def _cleanup_trial_artifacts(self, trial_number: int):
         """
