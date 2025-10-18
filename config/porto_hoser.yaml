@@ -60,10 +60,11 @@ data_dir: /home/matt/Dev/HOSER-dataset-porto
 
 # Dataloader performance knobs - optimized for streaming large dataset
 dataloader:
-  num_workers: 8  # Increased from 6 for better CPU utilization
+  num_workers: 4  # Reduced from 8 to prevent multiprocess deadlocks
   pin_memory: false # Disabled: Relieves CPU memory pressure
-  prefetch_factor: 8  # Reduced from 16 to lower memory overhead
+  prefetch_factor: 2  # Reduced from 8 to lower memory overhead and coordination
   persistent_workers: false  # Disabled: Avoid memory leaks with repeated torch.load
+  timeout: 300  # Kill workers after 5min of no response (detects hangs)
 
 # Data-specific knobs
 data:
