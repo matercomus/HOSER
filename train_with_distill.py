@@ -297,9 +297,13 @@ def main(
             f"Missing required data files: {missing}. Set --data_dir to your HOSER-format directory."
         )
 
-    save_dir = f"./save/{dataset_name}/seed{seed}_distill"
-    tensorboard_log_dir = f"./tensorboard_log/{dataset_name}/seed{seed}_distill"
-    loguru_log_dir = f"./log/{dataset_name}/seed{seed}_distill"
+    # Determine suffix based on distillation mode (prevents directory collision)
+    distill_enabled = getattr(getattr(config, 'distill', {}), 'enable', False)
+    dir_suffix = 'distill' if distill_enabled else 'vanilla'
+
+    save_dir = f"./save/{dataset_name}/seed{seed}_{dir_suffix}"
+    tensorboard_log_dir = f"./tensorboard_log/{dataset_name}/seed{seed}_{dir_suffix}"
+    loguru_log_dir = f"./log/{dataset_name}/seed{seed}_{dir_suffix}"
 
     # config already loaded above
 
@@ -545,9 +549,19 @@ def main(
             ckpt_dataset = checkpoint.get('dataset', '')
             
             if ckpt_seed == seed and ckpt_dataset == dataset_name:
-                resume_wandb_id = checkpoint.get('wandb_run_id')
-                checkpoint_exists = True
-                logger.info(f'✅ Valid checkpoint found: will resume from epoch {checkpoint["epoch"] + 1}')
+                # Validate distillation mode matches to prevent vanilla/distilled cross-contamination
+                ckpt_distill = checkpoint.get('distill_enabled', False)
+                current_distill = distill_enabled
+                
+                if ckpt_distill != current_distill:
+                    logger.warning(f'⚠️  Checkpoint mode mismatch (distill={ckpt_distill} vs {current_distill})')
+                    logger.warning(f'⚠️  Deleting mismatched checkpoint and starting fresh')
+                    os.remove(checkpoint_path)
+                    checkpoint_exists = False
+                else:
+                    resume_wandb_id = checkpoint.get('wandb_run_id')
+                    checkpoint_exists = True
+                    logger.info(f'✅ Valid checkpoint found: will resume from epoch {checkpoint["epoch"] + 1}')
             else:
                 logger.warning(f'⚠️  Checkpoint mismatch (seed={ckpt_seed} vs {seed}, dataset={ckpt_dataset} vs {dataset_name})')
                 logger.warning(f'⚠️  Deleting invalid checkpoint and starting fresh')
@@ -1343,6 +1357,7 @@ def main(
                 'epoch': epoch_id,
                 'seed': seed,  # For validation on resume
                 'dataset': dataset_name,  # For validation on resume
+                'distill_enabled': distill_enabled,  # For validation on resume (prevent vanilla/distilled cross-contamination)
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'best_val_acc': best_val_acc,

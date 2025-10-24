@@ -303,10 +303,12 @@ class HOSERObjective:
         os.makedirs(trial_dir, exist_ok=True)
         
         # Source directories (where training saves models)
+        # All Optuna trials are distilled (vanilla runs separately in Phase 0/3)
+        dir_suffix = "distill"
         src_dirs = {
-            "model": os.path.abspath(f"./save/{self.dataset}/seed{trial_seed}_distill"),
-            "tensorboard": os.path.abspath(f"./tensorboard_log/{self.dataset}/seed{trial_seed}_distill"),
-            "logs": os.path.abspath(f"./log/{self.dataset}/seed{trial_seed}_distill")
+            "model": os.path.abspath(f"./save/{self.dataset}/seed{trial_seed}_{dir_suffix}"),
+            "tensorboard": os.path.abspath(f"./tensorboard_log/{self.dataset}/seed{trial_seed}_{dir_suffix}"),
+            "logs": os.path.abspath(f"./log/{self.dataset}/seed{trial_seed}_{dir_suffix}")
         }
         
         print(f"💾 Preserving trial {trial_number} artifacts to {trial_dir}")
@@ -340,10 +342,12 @@ class HOSERObjective:
         Successful/pruned trials are preserved via _preserve_trial_artifacts().
         """
         trial_seed = self.base_seed + trial_number
+        # All Optuna trials are distilled (vanilla runs separately in Phase 0/3)
+        dir_suffix = "distill"
         trial_dirs = [
-            os.path.abspath(f"./save/{self.dataset}/seed{trial_seed}_distill"),
-            os.path.abspath(f"./tensorboard_log/{self.dataset}/seed{trial_seed}_distill"),
-            os.path.abspath(f"./log/{self.dataset}/seed{trial_seed}_distill")
+            os.path.abspath(f"./save/{self.dataset}/seed{trial_seed}_{dir_suffix}"),
+            os.path.abspath(f"./tensorboard_log/{self.dataset}/seed{trial_seed}_{dir_suffix}"),
+            os.path.abspath(f"./log/{self.dataset}/seed{trial_seed}_{dir_suffix}")
         ]
         
         for dir_path in trial_dirs:
@@ -778,6 +782,17 @@ def main():
     # Optional overrides (if not provided, read from config YAML)
     parser.add_argument('--n_trials', type=int, default=None, help='Override number of trials (default: from config)')
     parser.add_argument('--max_epochs', type=int, default=None, help='Override max epochs per trial (default: from config)')
+    
+    # Phase control (skip completed phases)
+    parser.add_argument('--skip-phase0', action='store_true', 
+                       help='Skip Phase 0 (vanilla baseline pre-tuning)')
+    parser.add_argument('--skip-phase1', action='store_true', 
+                       help='Skip Phase 1 (hyperparameter search)')
+    parser.add_argument('--skip-phase2', action='store_true', 
+                       help='Skip Phase 2 (final distilled evaluation)')
+    parser.add_argument('--skip-phase3', action='store_true', 
+                       help='Skip Phase 3 (vanilla baseline post-tuning)')
+    
     args = parser.parse_args()
     
     # Validate inputs
@@ -849,7 +864,7 @@ def main():
     
     # Phase 0: Optional vanilla baseline (for WandB comparison)
     pretune_vanilla_cfg = optuna_cfg.get('vanilla_baseline_pretune', {})
-    if pretune_vanilla_cfg.get('enabled', True):  # Default: enabled
+    if not args.skip_phase0 and pretune_vanilla_cfg.get('enabled', True):  # Default: enabled
         print("\n" + "="*60)
         print("🚀 PHASE 0: VANILLA BASELINE (Pre-Tuning)")
         print("="*60)
@@ -857,6 +872,8 @@ def main():
         print(f"   Epochs: {pretune_vanilla_cfg.get('max_epochs', max_epochs)}")
         print(f"   Seeds: {pretune_vanilla_cfg.get('seeds', [config.get('training', {}).get('seed', 42)])}")
         _run_vanilla_baseline(config, args.data_dir, pretune_vanilla_cfg, f"{study_name}_phase0", dataset=args.dataset)
+    elif args.skip_phase0:
+        print("\n⏭️  Skipping Phase 0 (vanilla baseline pre-tuning)")
     
     # Calculate remaining trials (only count successful ones)
     completed_trials = len([t for t in study.trials 
@@ -865,7 +882,9 @@ def main():
     
     print(f"📊 Study progress: {completed_trials}/{n_trials} trials complete")
     
-    if remaining_trials == 0:
+    if args.skip_phase1:
+        print("\n⏭️  Skipping Phase 1 (hyperparameter search)")
+    elif remaining_trials == 0:
         print("✅ All trials already completed! Skipping Phase 1.")
     else:
         # Phase 1: Hyperparameter tuning (all trials are distilled)
@@ -968,24 +987,28 @@ def main():
         print(f"\n💾 Results saved to: {results_base}")
         print(f"📁 Preserved trials: ./optuna_trials/ ({n_complete + n_pruned} successful trials)")
         print(f"🏆 Best trial: {best_trial_link}")
-        
-        # Phase 2: Run final evaluation with best hyperparameters
-        final_run_cfg = optuna_cfg.get('final_run', {})
-        if final_run_cfg.get('enabled', False):
-            print("\n" + "="*60)
-            print("🚀 PHASE 2: FINAL EVALUATION RUN")
-            print("="*60)
-            _run_final_evaluation(study, config, args.data_dir, final_run_cfg, study_name, dataset=args.dataset)
-        
-        # Phase 3: Run vanilla baseline for fair comparison
-        vanilla_cfg = optuna_cfg.get('vanilla_baseline', {})
-        if vanilla_cfg.get('enabled', True):  # Default: enabled
-            print("\n" + "="*60)
-            print("🚀 PHASE 3: VANILLA BASELINE RUN")
-            print("="*60)
-            print("ℹ️  Running full vanilla baseline (no distillation) for fair comparison")
-            print("   with Phase 2 distilled models (same epochs, same base config)")
-            _run_vanilla_baseline(config, args.data_dir, vanilla_cfg, study_name, dataset=args.dataset)
+    
+    # Phase 2: Run final evaluation with best hyperparameters
+    final_run_cfg = optuna_cfg.get('final_run', {})
+    if args.skip_phase2:
+        print("\n⏭️  Skipping Phase 2 (final distilled evaluation)")
+    elif final_run_cfg.get('enabled', False):
+        print("\n" + "="*60)
+        print("🚀 PHASE 2: FINAL EVALUATION RUN")
+        print("="*60)
+        _run_final_evaluation(study, config, args.data_dir, final_run_cfg, study_name, dataset=args.dataset)
+    
+    # Phase 3: Run vanilla baseline for fair comparison
+    vanilla_cfg = optuna_cfg.get('vanilla_baseline', {})
+    if args.skip_phase3:
+        print("\n⏭️  Skipping Phase 3 (vanilla baseline post-tuning)")
+    elif vanilla_cfg.get('enabled', True):  # Default: enabled
+        print("\n" + "="*60)
+        print("🚀 PHASE 3: VANILLA BASELINE RUN")
+        print("="*60)
+        print("ℹ️  Running full vanilla baseline (no distillation) for fair comparison")
+        print("   with Phase 2 distilled models (same epochs, same base config)")
+        _run_vanilla_baseline(config, args.data_dir, vanilla_cfg, study_name, dataset=args.dataset)
 
 
 if __name__ == '__main__':
