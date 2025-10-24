@@ -18,90 +18,180 @@
       "count": 1775,
       "percentage": 35.5,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.20632322592832325,
+        "Distance_real_mean": 5.382590333638563,
+        "Distance_gen_mean": 2.1061528936212586,
+        "Duration_JSD": 0.020232593804575212,
+        "Duration_real_mean": 0.4860313985914535,
+        "Duration_gen_mean": 0.36903728060930535,
+        "Radius_JSD": 0.2707518979596113,
+        "Radius_real_mean": 1.2160646678977407,
+        "Radius_gen_mean": 0.3733009110711815,
+        "Hausdorff_km": 0.6168387623069168,
+        "DTW_km": 12.78627581925544,
+        "EDR": 0.5662290500644538,
+        "matched_od_pairs": 72,
+        "total_generated_od_pairs": 1668
       }
     },
     "from_center": {
       "count": 607,
       "percentage": 12.139999999999999,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.2999885243670354,
+        "Distance_real_mean": 6.484379416283563,
+        "Distance_gen_mean": 2.199836452825166,
+        "Duration_JSD": 0.020721378463472558,
+        "Duration_real_mean": 0.47205195777007797,
+        "Duration_gen_mean": 0.3671966674489556,
+        "Radius_JSD": 0.35946778635641036,
+        "Radius_real_mean": 1.472855741778438,
+        "Radius_gen_mean": 0.39277604809625966,
+        "Hausdorff_km": 0.9705812921520551,
+        "DTW_km": 27.06171383910088,
+        "EDR": 0.6937431331945375,
+        "matched_od_pairs": 15,
+        "total_generated_od_pairs": 574
       }
     },
     "off_peak": {
       "count": 4228,
       "percentage": 84.56,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.14840071500777946,
+        "Distance_real_mean": 5.2800895435240225,
+        "Distance_gen_mean": 2.443033685761398,
+        "Duration_JSD": 0.01561844869346847,
+        "Duration_real_mean": 0.4425920857566427,
+        "Duration_gen_mean": 0.370508398906189,
+        "Radius_JSD": 0.20118888517880446,
+        "Radius_real_mean": 1.2183816656392763,
+        "Radius_gen_mean": 0.4206577180017411,
+        "Hausdorff_km": 0.6089624678068205,
+        "DTW_km": 10.516683304263651,
+        "EDR": 0.5336604901182493,
+        "matched_od_pairs": 265,
+        "total_generated_od_pairs": 3951
       }
     },
     "peak": {
       "count": 772,
       "percentage": 15.440000000000001,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.1724444697692416,
+        "Distance_real_mean": 5.134227944063642,
+        "Distance_gen_mean": 2.342483254864845,
+        "Duration_JSD": 0.03642647142942142,
+        "Duration_real_mean": 0.62855239007262,
+        "Duration_gen_mean": 0.38209685729005666,
+        "Radius_JSD": 0.22391989845122912,
+        "Radius_real_mean": 1.1726670190545556,
+        "Radius_gen_mean": 0.4127199625847366,
+        "Hausdorff_km": 0.64797767754343,
+        "DTW_km": 9.45800619625885,
+        "EDR": 0.4999312664481934,
+        "matched_od_pairs": 51,
+        "total_generated_od_pairs": 738
       }
     },
     "suburban": {
       "count": 3225,
       "percentage": 64.5,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.12809957791439733,
+        "Distance_real_mean": 5.188758052907984,
+        "Distance_gen_mean": 2.6048313236427245,
+        "Duration_JSD": 0.018691240208267325,
+        "Duration_real_mean": 0.46097211627093854,
+        "Duration_gen_mean": 0.3738487090442398,
+        "Radius_JSD": 0.17471511763738667,
+        "Radius_real_mean": 1.2087137474463532,
+        "Radius_gen_mean": 0.44482217850400957,
+        "Hausdorff_km": 0.6126490828057226,
+        "DTW_km": 9.573435163106147,
+        "EDR": 0.5152995989738925,
+        "matched_od_pairs": 245,
+        "total_generated_od_pairs": 2998
       }
     },
     "to_center": {
       "count": 479,
       "percentage": 9.58,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.2503958751341762,
+        "Distance_real_mean": 6.134816823575318,
+        "Distance_gen_mean": 2.476743144779921,
+        "Duration_JSD": 0.024010398682212955,
+        "Duration_real_mean": 0.49403193003864143,
+        "Duration_gen_mean": 0.36812458105908263,
+        "Radius_JSD": 0.3132842406460649,
+        "Radius_real_mean": 1.3900434701138626,
+        "Radius_gen_mean": 0.4296205502070643,
+        "Hausdorff_km": 0.748932368924853,
+        "DTW_km": 17.206623007653683,
+        "EDR": 0.5787898644306206,
+        "matched_od_pairs": 16,
+        "total_generated_od_pairs": 453
       }
     },
     "weekday": {
       "count": 3877,
       "percentage": 77.53999999999999,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.15066394659889015,
+        "Distance_real_mean": 5.264899571892899,
+        "Distance_gen_mean": 2.442191208435959,
+        "Duration_JSD": 0.018278474825662742,
+        "Duration_real_mean": 0.47543694097715317,
+        "Duration_gen_mean": 0.3714352723307565,
+        "Radius_JSD": 0.20179676574877306,
+        "Radius_real_mean": 1.2133450941394797,
+        "Radius_gen_mean": 0.42068189933037287,
+        "Hausdorff_km": 0.6098394233994895,
+        "DTW_km": 10.063864667359628,
+        "EDR": 0.527390600520319,
+        "matched_od_pairs": 234,
+        "total_generated_od_pairs": 3627
       }
     },
     "weekend": {
       "count": 1123,
       "percentage": 22.46,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.16357232075393185,
+        "Distance_real_mean": 5.232259058422023,
+        "Distance_gen_mean": 2.377317812819305,
+        "Duration_JSD": 0.017194585497228923,
+        "Duration_real_mean": 0.45456135790032387,
+        "Duration_gen_mean": 0.37501573043459396,
+        "Radius_JSD": 0.21599805257185242,
+        "Radius_real_mean": 1.2043434470651966,
+        "Radius_gen_mean": 0.4151174702786488,
+        "Hausdorff_km": 0.6242890414087584,
+        "DTW_km": 11.010621119724592,
+        "EDR": 0.5258594130245041,
+        "matched_od_pairs": 83,
+        "total_generated_od_pairs": 1074
       }
     },
     "within_center": {
       "count": 689,
       "percentage": 13.780000000000001,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.19271193514466728,
+        "Distance_real_mean": 3.8889728273320023,
+        "Distance_gen_mean": 1.7639068443980608,
+        "Duration_JSD": 0.021032194245433983,
+        "Duration_real_mean": 0.49515308119959284,
+        "Duration_gen_mean": 0.3717130023066651,
+        "Radius_JSD": 0.23781734622549114,
+        "Radius_real_mean": 0.868883204752449,
+        "Radius_gen_mean": 0.3169895680808909,
+        "Hausdorff_km": 0.44018077055539173,
+        "DTW_km": 6.0039633118255935,
+        "EDR": 0.5159032339499316,
+        "matched_od_pairs": 41,
+        "total_generated_od_pairs": 651
       }
     }
   },
@@ -110,120 +200,240 @@
       "count": 1952,
       "percentage": 39.04,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.12676280570082346,
+        "Distance_real_mean": 5.304881192837704,
+        "Distance_gen_mean": 2.70665122736879,
+        "Duration_JSD": 0.015857469037725266,
+        "Duration_real_mean": 0.42478212239936897,
+        "Duration_gen_mean": 0.37172874716514326,
+        "Radius_JSD": 0.17213943274761306,
+        "Radius_real_mean": 1.2378784568665762,
+        "Radius_gen_mean": 0.45493694667489054,
+        "Hausdorff_km": 0.5941577979475111,
+        "DTW_km": 9.51183514239122,
+        "EDR": 0.5188763070760858,
+        "matched_od_pairs": 144,
+        "total_generated_od_pairs": 1830
       }
     },
     "off_peak+suburban+weekend": {
       "count": 759,
       "percentage": 15.18,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.15513915546375412,
+        "Distance_real_mean": 5.04125153575674,
+        "Distance_gen_mean": 2.485655744210482,
+        "Duration_JSD": 0.016906853113218392,
+        "Duration_real_mean": 0.45128384324688103,
+        "Duration_gen_mean": 0.3757737579781263,
+        "Radius_JSD": 0.19249327084258655,
+        "Radius_real_mean": 1.1717470239321592,
+        "Radius_gen_mean": 0.4320939723833809,
+        "Hausdorff_km": 0.6227575265996713,
+        "DTW_km": 9.680034684338029,
+        "EDR": 0.5201519860211277,
+        "matched_od_pairs": 58,
+        "total_generated_od_pairs": 728
       }
     },
     "peak+suburban+weekday": {
       "count": 514,
       "percentage": 10.280000000000001,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.18195129306890417,
+        "Distance_real_mean": 4.965577269590827,
+        "Distance_gen_mean": 2.3957422257740273,
+        "Duration_JSD": 0.03726803205971814,
+        "Duration_real_mean": 0.6186429613700944,
+        "Duration_gen_mean": 0.37992038061947764,
+        "Radius_JSD": 0.21035659703249282,
+        "Radius_real_mean": 1.1525429893899288,
+        "Radius_gen_mean": 0.4252048263172342,
+        "Hausdorff_km": 0.660938740469291,
+        "DTW_km": 9.635938203838723,
+        "EDR": 0.4967767055912076,
+        "matched_od_pairs": 43,
+        "total_generated_od_pairs": 491
       }
     },
     "city_center+off_peak+weekday+within_center": {
       "count": 448,
       "percentage": 8.959999999999999,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.19744467516185776,
+        "Distance_real_mean": 3.8248173423812113,
+        "Distance_gen_mean": 1.7578777936269583,
+        "Duration_JSD": 0.020840771015215514,
+        "Duration_real_mean": 0.48083478420232756,
+        "Duration_gen_mean": 0.37164599774520857,
+        "Radius_JSD": 0.241375557534932,
+        "Radius_real_mean": 0.8595947577970253,
+        "Radius_gen_mean": 0.31705221910627923,
+        "Hausdorff_km": 0.4307309126064288,
+        "DTW_km": 5.987702419228265,
+        "EDR": 0.5180267677314488,
+        "matched_od_pairs": 23,
+        "total_generated_od_pairs": 423
       }
     },
     "city_center+from_center+off_peak+weekday": {
       "count": 405,
       "percentage": 8.1,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.314120286876746,
+        "Distance_real_mean": 6.362882892482174,
+        "Distance_gen_mean": 2.205206285359282,
+        "Duration_JSD": 0.017654485262773297,
+        "Duration_real_mean": 0.4333889960912375,
+        "Duration_gen_mean": 0.35791028509149314,
+        "Radius_JSD": 0.3623764252745428,
+        "Radius_real_mean": 1.4471126822064615,
+        "Radius_gen_mean": 0.3955396409851114,
+        "Hausdorff_km": 1.1655997773070945,
+        "DTW_km": 34.42227223998481,
+        "EDR": 0.8101206343341855,
+        "matched_od_pairs": 9,
+        "total_generated_od_pairs": 381
       }
     },
     "city_center+off_peak+to_center+weekday": {
       "count": 300,
       "percentage": 6.0,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.2923912239232194,
+        "Distance_real_mean": 6.009259460501247,
+        "Distance_gen_mean": 2.316988921892576,
+        "Duration_JSD": 0.021157616031278047,
+        "Duration_real_mean": 0.4677416192903353,
+        "Duration_gen_mean": 0.36140690545337206,
+        "Radius_JSD": 0.3435607940661184,
+        "Radius_real_mean": 1.3710738522613501,
+        "Radius_gen_mean": 0.4069801464015643,
+        "Hausdorff_km": 0.6005219402878589,
+        "DTW_km": 9.302942731046166,
+        "EDR": 0.6416348357524827,
+        "matched_od_pairs": 6,
+        "total_generated_od_pairs": 288
       }
     },
     "city_center+off_peak+weekend+within_center": {
       "count": 146,
       "percentage": 2.92,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.3081448120136689,
+        "Distance_real_mean": 4.24729351530283,
+        "Distance_gen_mean": 1.7202045842122728,
+        "Duration_JSD": 0.020473715282170037,
+        "Duration_real_mean": 0.44735491861288035,
+        "Duration_gen_mean": 0.3784010684983781,
+        "Radius_JSD": 0.3205816434052588,
+        "Radius_real_mean": 0.9535916033785831,
+        "Radius_gen_mean": 0.3143393500105146,
+        "Hausdorff_km": 0.41851285569700514,
+        "DTW_km": 4.617591788672675,
+        "EDR": 0.5145342174694401,
+        "matched_od_pairs": 13,
+        "total_generated_od_pairs": 140
       }
     },
     "city_center+from_center+off_peak+weekend": {
       "count": 120,
       "percentage": 2.4,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.3902286023116611,
+        "Distance_real_mean": 6.715724487907564,
+        "Distance_gen_mean": 2.2818689927738007,
+        "Duration_JSD": 0.026128971068566348,
+        "Duration_real_mean": 0.48260369577286066,
+        "Duration_gen_mean": 0.3781636726546906,
+        "Radius_JSD": 0.4238840781588771,
+        "Radius_real_mean": 1.5301822727635146,
+        "Radius_gen_mean": 0.4042081995683012,
+        "Hausdorff_km": 0.6252001696714846,
+        "DTW_km": 24.30751208553629,
+        "EDR": 0.4592474827768946,
+        "matched_od_pairs": 3,
+        "total_generated_od_pairs": 114
       }
     },
     "city_center+off_peak+to_center+weekend": {
       "count": 98,
       "percentage": 1.96,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.375646673400427,
+        "Distance_real_mean": 6.362502195769842,
+        "Distance_gen_mean": 2.649749422399723,
+        "Duration_JSD": 0.028936738533283175,
+        "Duration_real_mean": 0.44670014347202297,
+        "Duration_gen_mean": 0.36274951706374753,
+        "Radius_JSD": 0.3515602700894158,
+        "Radius_real_mean": 1.431382174130736,
+        "Radius_gen_mean": 0.44713331667556344,
+        "Hausdorff_km": 0.9310873623411662,
+        "DTW_km": 24.387590192909098,
+        "EDR": 0.6012032018194483,
+        "matched_od_pairs": 9,
+        "total_generated_od_pairs": 95
       }
     },
     "city_center+peak+weekday+within_center": {
       "count": 95,
       "percentage": 1.9,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.43632113312792686,
+        "Distance_real_mean": 3.6408342674816194,
+        "Distance_gen_mean": 1.8619649818457784,
+        "Duration_JSD": 0.04157885931288399,
+        "Duration_real_mean": 0.6384675472234058,
+        "Duration_gen_mean": 0.36201484018264846,
+        "Radius_JSD": 0.3334128228297579,
+        "Radius_real_mean": 0.7825021314536528,
+        "Radius_gen_mean": 0.32076708575353263,
+        "Hausdorff_km": 0.5233523748862533,
+        "DTW_km": 9.070101700280011,
+        "EDR": 0.5107292234951809,
+        "matched_od_pairs": 5,
+        "total_generated_od_pairs": 89
       }
     },
     "city_center+from_center+peak+weekday": {
       "count": 82,
       "percentage": 1.6400000000000001,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.4902263117248783,
+        "Distance_real_mean": 6.74589994731627,
+        "Distance_gen_mean": 2.056627903981196,
+        "Duration_JSD": 0.0367383772586591,
+        "Duration_real_mean": 0.6414179104477612,
+        "Duration_gen_mean": 0.4014409221902017,
+        "Radius_JSD": 0.44267960945484697,
+        "Radius_real_mean": 1.5161088565155292,
+        "Radius_gen_mean": 0.3623966176495529,
+        "Hausdorff_km": 1.067179571380663,
+        "DTW_km": 11.525184619357498,
+        "EDR": 0.7853260869565217,
+        "matched_od_pairs": 2,
+        "total_generated_od_pairs": 80
       }
     },
     "city_center+peak+to_center+weekday": {
       "count": 81,
       "percentage": 1.6199999999999999,
       "metrics": {
-        "error": "'DataFrame' object has no attribute 'set_index'",
-        "Distance_JSD": NaN,
-        "Duration_JSD": NaN,
-        "Hausdorff_mean": NaN
+        "Distance_JSD": 0.4205375696098601,
+        "Distance_real_mean": 6.324372903169856,
+        "Distance_gen_mean": 2.85760045158885,
+        "Duration_JSD": 0.04339679078272497,
+        "Duration_real_mean": 0.6542853619435195,
+        "Duration_gen_mean": 0.3963978073610024,
+        "Radius_JSD": 0.38835370671659736,
+        "Radius_real_mean": 1.4102865856953486,
+        "Radius_gen_mean": 0.49228561227789247,
+        "Hausdorff_km": 0.0,
+        "DTW_km": 0.0,
+        "EDR": 0.0,
+        "matched_od_pairs": 1,
+        "total_generated_od_pairs": 78
       }
     }
   },
@@ -233,20 +443,40 @@
         "count": 258,
         "percentage": 14.535211267605632,
         "metrics": {
-          "error": "'DataFrame' object has no attribute 'set_index'",
-          "Distance_JSD": NaN,
-          "Duration_JSD": NaN,
-          "Hausdorff_mean": NaN
+          "Distance_JSD": 0.25729275304033195,
+          "Distance_real_mean": 5.470221923439715,
+          "Distance_gen_mean": 2.2363930959453486,
+          "Duration_JSD": 0.03743776699434513,
+          "Duration_real_mean": 0.6449601559850797,
+          "Duration_gen_mean": 0.38638362975712376,
+          "Radius_JSD": 0.29192402816955,
+          "Radius_real_mean": 1.2127590781538513,
+          "Radius_gen_mean": 0.3878470170091404,
+          "Hausdorff_km": 0.5860525991198718,
+          "DTW_km": 8.607886604488339,
+          "EDR": 0.5150030572093477,
+          "matched_od_pairs": 8,
+          "total_generated_od_pairs": 247
         }
       },
       "off_peak": {
         "count": 1517,
         "percentage": 85.46478873239437,
         "metrics": {
-          "error": "'DataFrame' object has no attribute 'set_index'",
-          "Distance_JSD": NaN,
-          "Duration_JSD": NaN,
-          "Hausdorff_mean": NaN
+          "Distance_JSD": 0.20896009244568037,
+          "Distance_real_mean": 5.367686609071195,
+          "Distance_gen_mean": 2.0840617421371315,
+          "Duration_JSD": 0.018218647361435948,
+          "Duration_real_mean": 0.45888804430448477,
+          "Duration_gen_mean": 0.3660489251297257,
+          "Radius_JSD": 0.27719345439348353,
+          "Radius_real_mean": 1.2166268578475914,
+          "Radius_gen_mean": 0.3708270183012452,
+          "Hausdorff_km": 0.6301015003426171,
+          "DTW_km": 13.583727038633745,
+          "EDR": 0.5798893090976877,
+          "matched_od_pairs": 63,
+          "total_generated_od_pairs": 1427
         }
       }
     },
@@ -255,20 +485,40 @@
         "count": 381,
         "percentage": 9.82718596853237,
         "metrics": {
-          "error": "'DataFrame' object has no attribute 'set_index'",
-          "Distance_JSD": NaN,
-          "Duration_JSD": NaN,
-          "Hausdorff_mean": NaN
+          "Distance_JSD": 0.27355459700212925,
+          "Distance_real_mean": 6.076252082170951,
+          "Distance_gen_mean": 2.4312645297958535,
+          "Duration_JSD": 0.025142919426987917,
+          "Duration_real_mean": 0.5068138964225752,
+          "Duration_gen_mean": 0.3696678375546928,
+          "Radius_JSD": 0.33530806615846787,
+          "Radius_real_mean": 1.3794104176370818,
+          "Radius_gen_mean": 0.4251159541075553,
+          "Hausdorff_km": 0.5147330916753077,
+          "DTW_km": 7.973950912325285,
+          "EDR": 0.5499727163592709,
+          "matched_od_pairs": 7,
+          "total_generated_od_pairs": 364
         }
       },
       "from_center": {
         "count": 487,
         "percentage": 12.561258705184422,
         "metrics": {
-          "error": "'DataFrame' object has no attribute 'set_index'",
-          "Distance_JSD": NaN,
-          "Duration_JSD": NaN,
-          "Hausdorff_mean": NaN
+          "Distance_JSD": 0.30849981459651943,
+          "Distance_real_mean": 6.427374470503522,
+          "Distance_gen_mean": 2.1800235088545215,
+          "Duration_JSD": 0.020034655699239345,
+          "Duration_real_mean": 0.4693291584806811,
+          "Duration_gen_mean": 0.36452374002724264,
+          "Radius_JSD": 0.3612052326123344,
+          "Radius_real_mean": 1.4587301078601442,
+          "Radius_gen_mean": 0.3899590908546887,
+          "Hausdorff_km": 1.0569265727721981,
+          "DTW_km": 27.750264277492025,
+          "EDR": 0.7523670457989483,
+          "matched_od_pairs": 12,
+          "total_generated_od_pairs": 460
         }
       }
     }
@@ -278,61 +528,41 @@
       "peak_vs_off_peak_Distance_JSD": {
         "metric": "Distance_JSD",
         "group1": "peak",
-        "group1_mean": NaN,
+        "group1_mean": 0.1724444697692416,
         "group2": "off_peak",
-        "group2_mean": NaN,
-        "difference": NaN,
-        "relative_difference": NaN,
+        "group2_mean": 0.14840071500777946,
+        "difference": 0.024043754761462144,
+        "relative_difference": 14.98776101512754,
         "note": "Full statistical test requires per-trajectory distributions"
       },
       "peak_vs_off_peak_Duration_JSD": {
         "metric": "Duration_JSD",
         "group1": "peak",
-        "group1_mean": NaN,
+        "group1_mean": 0.03642647142942142,
         "group2": "off_peak",
-        "group2_mean": NaN,
-        "difference": NaN,
-        "relative_difference": NaN,
-        "note": "Full statistical test requires per-trajectory distributions"
-      },
-      "peak_vs_off_peak_Hausdorff_mean": {
-        "metric": "Hausdorff_mean",
-        "group1": "peak",
-        "group1_mean": NaN,
-        "group2": "off_peak",
-        "group2_mean": NaN,
-        "difference": NaN,
-        "relative_difference": NaN,
+        "group2_mean": 0.01561844869346847,
+        "difference": 0.020808022735952947,
+        "relative_difference": 79.96178181009972,
         "note": "Full statistical test requires per-trajectory distributions"
       },
       "weekday_vs_weekend_Distance_JSD": {
         "metric": "Distance_JSD",
         "group1": "weekday",
-        "group1_mean": NaN,
+        "group1_mean": 0.15066394659889015,
         "group2": "weekend",
-        "group2_mean": NaN,
-        "difference": NaN,
-        "relative_difference": NaN,
+        "group2_mean": 0.16357232075393185,
+        "difference": 0.012908374155041702,
+        "relative_difference": 8.215712504342015,
         "note": "Full statistical test requires per-trajectory distributions"
       },
       "weekday_vs_weekend_Duration_JSD": {
         "metric": "Duration_JSD",
         "group1": "weekday",
-        "group1_mean": NaN,
+        "group1_mean": 0.018278474825662742,
         "group2": "weekend",
-        "group2_mean": NaN,
-        "difference": NaN,
-        "relative_difference": NaN,
-        "note": "Full statistical test requires per-trajectory distributions"
-      },
-      "weekday_vs_weekend_Hausdorff_mean": {
-        "metric": "Hausdorff_mean",
-        "group1": "weekday",
-        "group1_mean": NaN,
-        "group2": "weekend",
-        "group2_mean": NaN,
-        "difference": NaN,
-        "relative_difference": NaN,
+        "group2_mean": 0.017194585497228923,
+        "difference": 0.0010838893284338194,
+        "relative_difference": 6.111056213181349,
         "note": "Full statistical test requires per-trajectory distributions"
       }
     },

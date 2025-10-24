@@ -31,6 +31,7 @@ Features:
 import argparse
 from pathlib import Path
 import json
+import ast
 import polars as pl
 import numpy as np
 from typing import Dict, List, Tuple, Optional
@@ -46,6 +47,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import existing evaluation metrics (reuse, don't rewrite)
 from evaluation import GlobalMetrics, LocalMetrics
+
+# Additional imports for geo processing
+from shapely.geometry import LineString
 
 # Configure logging
 logging.basicConfig(
@@ -83,12 +87,16 @@ class ScenarioCategorizer:
         """Pre-compute spatial data for fast lookups"""
         # Build road_id → (lat, lon) mapping
         self.road_coords = {}
+        
+        # Determine ID column name
+        id_col = 'road_id' if 'road_id' in self.geo_df.columns else 'geo_id'
+        
         for row in self.geo_df.iter_rows(named=True):
             # Extract first coordinate from the road segment
             coords = json.loads(row['coordinates']) if isinstance(row['coordinates'], str) else row['coordinates']
             if coords and len(coords) > 0:
                 # coordinates are in [lon, lat] format
-                self.road_coords[row['geo_id']] = (coords[0][1], coords[0][0])  # lat, lon
+                self.road_coords[row[id_col]] = (coords[0][1], coords[0][0])  # lat, lon
         
         # Pre-compute airport road IDs (if using coordinates method)
         if self.config.spatial['airport']['enabled']:
@@ -267,6 +275,13 @@ class ScenarioAnalyzer:
     def __init__(self, config: ScenarioConfig, geo_df: pl.DataFrame):
         self.config = config
         self.geo_df = geo_df
+        
+        # Rename geo_id to road_id for consistency
+        geo_df_renamed = geo_df
+        if "geo_id" in geo_df.columns and "road_id" not in geo_df.columns:
+            geo_df_renamed = geo_df.rename({"geo_id": "road_id"})
+        
+        self.geo_df_pandas = geo_df_renamed.to_pandas()  # Convert for evaluation metrics
         self.categorizer = ScenarioCategorizer(config, geo_df)
     
     def analyze(self, generated_df: pl.DataFrame, real_df: pl.DataFrame) -> Dict:
@@ -464,24 +479,31 @@ class ScenarioAnalyzer:
         source_indices = generated_subset_df['source_index'].to_list()
         real_subset_df = real_df[source_indices]
         
-        # Parse trajectories
+        # Parse trajectories to expected format: [(road_id, timestamp), ...]
         generated_subset = []
         real_subset = []
         
         for row in generated_subset_df.iter_rows(named=True):
-            generated_subset.append(self._parse_generated_trajectory(row))
+            traj = self._parse_generated_trajectory_to_tuples(row)
+            if traj:
+                generated_subset.append(traj)
         
         for row in real_subset_df.iter_rows(named=True):
-            real_subset.append(self._parse_real_trajectory(row))
+            traj = self._parse_real_trajectory_to_tuples(row)
+            if traj:
+                real_subset.append(traj)
         
         # Compute metrics (reuse existing evaluation logic)
         try:
-            global_metrics = GlobalMetrics(real_subset, generated_subset, self.geo_df).evaluate()
-            local_metrics = LocalMetrics(real_subset, generated_subset, self.geo_df).evaluate()
+            # Pass pandas DataFrame to metrics
+            global_metrics = GlobalMetrics(real_subset, generated_subset, self.geo_df_pandas).evaluate()
+            local_metrics = LocalMetrics(real_subset, generated_subset, self.geo_df_pandas).evaluate()
             
             return {**global_metrics, **local_metrics}
         except Exception as e:
             logger.warning(f"Error computing metrics: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 'error': str(e),
                 'Distance_JSD': float('nan'),
@@ -504,6 +526,60 @@ class ScenarioAnalyzer:
             'rid_list': [int(x) for x in row['rid_list'].split(',')],
             'time_list': row['time_list'].split(',')
         }
+    
+    def _parse_generated_trajectory_to_tuples(self, row: Dict) -> List[Tuple]:
+        """Parse generated trajectory to expected format: [(road_id, timestamp), ...]"""
+        try:
+            # Parse road IDs and timestamps
+            road_ids = json.loads(row['gene_trace_road_id'])
+            timestamps_str = json.loads(row['gene_trace_datetime'])
+            
+            # Convert timestamps to datetime objects
+            timestamps = []
+            for ts in timestamps_str:
+                # Handle different timestamp formats
+                ts = ts.strip('"')
+                try:
+                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                except:
+                    dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+                timestamps.append(dt)
+            
+            # Zip into tuples
+            if len(road_ids) == len(timestamps):
+                return list(zip(road_ids, timestamps))
+            else:
+                logger.warning(f"Length mismatch: {len(road_ids)} roads, {len(timestamps)} timestamps")
+                return None
+        except Exception as e:
+            logger.warning(f"Error parsing generated trajectory: {e}")
+            return None
+    
+    def _parse_real_trajectory_to_tuples(self, row: Dict) -> List[Tuple]:
+        """Parse real trajectory to expected format: [(road_id, timestamp), ...]"""
+        try:
+            # Parse road IDs
+            road_ids = [int(x) for x in row['rid_list'].split(',')]
+            
+            # Parse timestamps
+            timestamps_str = row['time_list'].split(',')
+            timestamps = []
+            for ts in timestamps_str:
+                try:
+                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                except:
+                    dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+                timestamps.append(dt)
+            
+            # Zip into tuples
+            if len(road_ids) == len(timestamps):
+                return list(zip(road_ids, timestamps))
+            else:
+                logger.warning(f"Length mismatch: {len(road_ids)} roads, {len(timestamps)} timestamps")
+                return None
+        except Exception as e:
+            logger.warning(f"Error parsing real trajectory: {e}")
+            return None
     
     def _run_statistical_tests(self, scenario_data, generated_df, real_df, 
                                individual_metrics) -> Dict:
@@ -723,6 +799,28 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
         infer_schema_length=10000,
         schema_overrides=schema_overrides
     )
+    
+    # Pre-process geo data (mimic load_road_network from evaluation.py)
+    # Rename geo_id to road_id early
+    if "geo_id" in geo_df.columns and "road_id" not in geo_df.columns:
+        geo_df = geo_df.rename({"geo_id": "road_id"})
+    
+    # Calculate road center GPS coordinates
+    logger.info("📐 Calculating road centroids...")
+    road_center_gps = []
+    for row in geo_df.iter_rows(named=True):
+        try:
+            coordinates = json.loads(row["coordinates"])
+            road_line = LineString(coordinates=coordinates)
+            center_coord = road_line.centroid
+            # Store as (lat, lon) for consistency with haversine
+            road_center_gps.append((center_coord.y, center_coord.x))
+        except:
+            road_center_gps.append((None, None))
+    
+    # Add center_gps column
+    geo_df = geo_df.with_columns(pl.Series("center_gps", road_center_gps))
+    geo_df = geo_df.filter(pl.col("center_gps").is_not_null())
     
     # Load config
     config = ScenarioConfig.from_yaml(config_path)
