@@ -58,6 +58,10 @@ class VisualizationConfig:
     generate_overlaid: bool = True
     generate_cross_model: bool = False  # Compare all models for same OD pair
     include_real_in_cross_model: bool = True  # Include real trajectories in cross-model comparison
+    generate_scenario_cross_model: bool = False  # Compare models across scenarios
+    scenario_cross_model_grid: bool = True  # Generate grid layout
+    scenario_cross_model_individual: bool = True  # Generate individual plots
+    min_trajectories_per_scenario: int = 10  # Minimum for inclusion
     
     # Background visualization
     show_road_network: bool = True  # Show road network as light gray reference
@@ -378,6 +382,12 @@ class TrajectorySampler:
             logger.warning("No scenario results available, falling back to length-based sampling")
             return self.sample_by_length(trajectories)
         
+        # Check if we have trajectory mapping
+        trajectory_mapping = self.scenario_results.get('trajectory_mapping', {})
+        if not trajectory_mapping or 'trajectories' not in trajectory_mapping:
+            logger.warning("No trajectory mapping found, falling back to length-based sampling")
+            return self.sample_by_length(trajectories)
+        
         # Get scenario distribution from results
         overview = self.scenario_results.get('overview', {})
         scenario_dist = overview.get('scenario_distribution', {})
@@ -394,13 +404,35 @@ class TrajectorySampler:
         
         logger.info(f"Sampling from top {len(top_scenarios)} scenarios: {', '.join(top_scenarios)}")
         
-        # For now, sample by length (scenario-based trajectory matching would require
-        # trajectory IDs or OD pairs from scenario analysis)
-        # This is a simplified version - full implementation would need trajectory-level scenario tags
-        sampled = self.sample_by_length(trajectories)
+        # Group trajectories by scenario
+        scenario_groups = {scenario: [] for scenario in top_scenarios}
         
-        # Rename keys to indicate scenario-based selection
-        return {f"scenario_{k}": v for k, v in sampled.items()}
+        for traj_info in trajectory_mapping['trajectories']:
+            idx = traj_info['index']
+            if idx < len(trajectories):
+                traj = trajectories[idx]
+                # Add trajectory to each scenario it belongs to
+                for scenario in traj_info['scenarios']:
+                    if scenario in scenario_groups:
+                        scenario_groups[scenario].append(traj)
+        
+        # Sample one representative trajectory from each scenario (median length)
+        sampled = {}
+        for scenario in top_scenarios:
+            trajs = scenario_groups[scenario]
+            if trajs:
+                # Get median-length trajectory from this scenario
+                lengths = [t.length for t in trajs]
+                median_length = np.median(lengths)
+                median_idx = min(range(len(lengths)), key=lambda i: abs(lengths[i] - median_length))
+                sampled[scenario] = trajs[median_idx]
+                logger.info(f"  📍 {scenario}: sampled trajectory with length {trajs[median_idx].length:.4f}")
+        
+        if not sampled:
+            logger.warning("No trajectories found for top scenarios, falling back to length-based sampling")
+            return self.sample_by_length(trajectories)
+        
+        return sampled
     
 
 
@@ -500,6 +532,137 @@ class BasemapManager:
                 logger.info(f"⚠️  Basemap failed ({type(e).__name__}), disabling for remaining plots")
                 self.basemap_available = False
             return False
+
+
+# =============================================================================
+# Trajectory Comparison Plotter (Shared logic for cross-model comparisons)
+# =============================================================================
+
+class TrajectoryComparisonPlotter:
+    """Shared logic for comparing trajectories across models"""
+    
+    def __init__(self, config: VisualizationConfig, road_network: Dict):
+        self.config = config
+        self.road_network = road_network
+        
+        # Model styling constants
+        self.model_colors = {
+            'vanilla': '#e74c3c',          # Red
+            'distilled': '#3498db',        # Blue
+            'distilled_seed44': '#2ecc71', # Green
+            'real': '#f39c12',             # Orange/Gold
+        }
+        
+        self.model_linestyles = {
+            'vanilla': '-',
+            'distilled': '-',
+            'distilled_seed44': '-',
+            'real': '--',  # Dashed for real
+        }
+        
+        self.model_labels = {
+            'vanilla': 'Vanilla',
+            'distilled': 'Distilled (seed 42)',
+            'distilled_seed44': 'Distilled (seed 44)',
+            'real': 'Real Trajectory',
+        }
+    
+    def plot_comparison(self, trajectories: Dict[str, 'Trajectory'], 
+                       output_path: Path, title: str, 
+                       scenario_labels: Dict[str, List[str]] = None):
+        """Core comparison plotting logic with enhanced scenario labels
+        
+        Args:
+            trajectories: Dict mapping model_name -> Trajectory
+            output_path: Path for output files (without extension)
+            title: Plot title
+            scenario_labels: Dict mapping model_name -> list of scenario tags
+        """
+        if not trajectories:
+            logger.warning("No trajectories to plot")
+            return
+        
+        fig, ax = plt.subplots(figsize=self.config.figsize, facecolor='white')
+        ax.set_facecolor('white')
+        
+        # Collect all coordinates for bounds
+        all_lons, all_lats = [], []
+        
+        # Plot each model's trajectory
+        for model_name in sorted(trajectories.keys(), key=lambda x: (x != 'real', x)):
+            traj = trajectories[model_name]
+            if not traj.coords:
+                continue
+            
+            lons = [c[0] for c in traj.coords]
+            lats = [c[1] for c in traj.coords]
+            
+            all_lons.extend(lons)
+            all_lats.extend(lats)
+            
+            # Plot trajectory
+            ax.plot(lons, lats,
+                   color=self.model_colors.get(model_name, '#95a5a6'),
+                   linestyle=self.model_linestyles.get(model_name, '-'),
+                   linewidth=2.5 if model_name == 'real' else 2,
+                   alpha=0.8,
+                   zorder=10 if model_name == 'real' else 5)
+            
+            # Mark start and end
+            ax.scatter(lons[0], lats[0], c=self.model_colors.get(model_name, '#95a5a6'),
+                      marker='o', s=100, zorder=15, edgecolors='white', linewidths=1.5)
+            ax.scatter(lons[-1], lats[-1], c=self.model_colors.get(model_name, '#95a5a6'),
+                      marker='s', s=100, zorder=15, edgecolors='white', linewidths=1.5)
+        
+        # Set bounds
+        if all_lons and all_lats:
+            margin = self.config.margin
+            ax.set_xlim(min(all_lons) - margin, max(all_lons) + margin)
+            ax.set_ylim(min(all_lats) - margin, max(all_lats) + margin)
+        
+        # Build legend with scenario labels
+        legend_elements = []
+        for model_name in sorted(trajectories.keys(), key=lambda x: (x != 'real', x)):
+            label = self._build_legend_label(model_name, 
+                                             scenario_labels.get(model_name) if scenario_labels else None)
+            legend_elements.append(
+                plt.Line2D([0], [0], 
+                          color=self.model_colors.get(model_name, '#95a5a6'),
+                          linestyle=self.model_linestyles.get(model_name, '-'),
+                          linewidth=2.5 if model_name == 'real' else 2,
+                          label=label)
+            )
+        
+        # Position legend outside plot area
+        ax.legend(handles=legend_elements, 
+                 loc='center left',
+                 bbox_to_anchor=(1.02, 0.5),
+                 frameon=True,
+                 fontsize=9,
+                 title='Models' if not scenario_labels else 'Models (Scenarios)')
+        
+        ax.set_title(title, fontsize=14, pad=15)
+        ax.set_xlabel('Longitude', fontsize=11)
+        ax.set_ylabel('Latitude', fontsize=11)
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+        ax.set_aspect('equal', adjustable='box')
+        
+        # Save
+        plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches='tight')
+        plt.savefig(f"{output_path}.png", dpi=self.config.dpi, bbox_inches='tight')
+        plt.close()
+    
+    def _build_legend_label(self, model_name: str, scenarios: List[str] = None) -> str:
+        """Build legend label with scenario tags if provided"""
+        base_label = self.model_labels.get(model_name, model_name)
+        if scenarios:
+            # Format scenarios nicely
+            scenario_display = [s.replace('_', ' ').title() for s in scenarios[:3]]
+            scenario_str = ", ".join(scenario_display)
+            if len(scenarios) > 3:
+                scenario_str += f" +{len(scenarios)-3}"
+            return f"{base_label}\n({scenario_str})"
+        return base_label
 
 
 # =============================================================================
@@ -970,12 +1133,13 @@ class TrajectoryVisualizer:
         # Load scenario results if available
         self.scenario_results = self._load_scenario_results()
         if self.scenario_results:
-            logger.info(f"✅ Loaded scenario analysis results")
+            logger.info("✅ Loaded scenario analysis results")
         
         # Initialize components
         self.loader = TrajectoryLoader(config, self.road_network)
         self.sampler = TrajectorySampler(config, self.scenario_results)
         self.plotter = TrajectoryPlotter(config)
+        self.comparison_plotter = TrajectoryComparisonPlotter(config, self.road_network)
     
     def _load_scenario_results(self) -> Optional[dict]:
         """Load scenario analysis results if available"""
@@ -987,7 +1151,15 @@ class TrajectoryVisualizer:
         for json_file in scenarios_dir.rglob("scenario_analysis.json"):
             try:
                 with open(json_file) as f:
-                    return json.load(f)
+                    results = json.load(f)
+                
+                # Also load trajectory mapping if available
+                mapping_file = json_file.parent / "trajectory_scenarios.json"
+                if mapping_file.exists():
+                    with open(mapping_file) as f:
+                        results['trajectory_mapping'] = json.load(f)
+                
+                return results
             except Exception as e:
                 logger.warning(f"Failed to load scenario results from {json_file}: {e}")
         
@@ -1012,6 +1184,13 @@ class TrajectoryVisualizer:
         # Cross-model comparison for same OD pairs
         if self.config.generate_cross_model:
             self._generate_cross_model_comparisons(gene_files)
+        
+        # Scenario-based cross-model comparison
+        if self.config.generate_scenario_cross_model:
+            if self.scenario_results:
+                self._generate_scenario_cross_model_comparisons(gene_files)
+            else:
+                logger.warning("⚠️  Scenario cross-model mode requires scenario analysis results")
         
         logger.info("✅ Visualization pipeline completed!")
     
@@ -1146,6 +1325,34 @@ class TrajectoryVisualizer:
             # Find common OD pairs
             self._plot_matching_od_pairs(models_data, od_type)
     
+    def _load_all_models_for_od(self, gene_files: List[Dict], od_type: str) -> Dict[str, List['Trajectory']]:
+        """Load all models and optionally real trajectories for a given OD type"""
+        models_data = {}
+        
+        # Load generated models
+        for model_info in gene_files:
+            if model_info['od_type'] == od_type:
+                model = model_info['model']
+                csv_path = model_info['path']
+                
+                logger.info(f"  Loading {model}...")
+                trajectories = self.loader.load_generated_trajectories(csv_path, model, od_type)
+                
+                if trajectories:
+                    models_data[model] = trajectories
+        
+        # Optionally load real trajectories
+        if self.config.include_real_in_cross_model:
+            logger.info(f"  Loading real {od_type} trajectories...")
+            real_csv = self.config.train_csv_path if od_type == 'train' else self.config.test_csv_path
+            real_trajectories = self.loader.load_real_trajectories(real_csv, od_type, sample_size=50000)
+            
+            if real_trajectories:
+                models_data['real'] = real_trajectories
+                logger.info(f"  ✅ Loaded {len(real_trajectories)} real trajectories")
+        
+        return models_data
+    
     def _plot_matching_od_pairs(self, models_data: Dict[str, List[Trajectory]], od_type: str):
         """Find and plot trajectories with matching OD pairs across models"""
         
@@ -1252,6 +1459,209 @@ class TrajectoryVisualizer:
         else:
             # Return all available
             return [pair for pair, _ in sorted_od_pairs]
+    
+    def _generate_scenario_cross_model_comparisons(self, gene_files: List[Dict]):
+        """Generate cross-model comparisons organized by scenario"""
+        
+        if not self.scenario_results or 'trajectory_mapping' not in self.scenario_results:
+            logger.warning("No scenario mapping available for scenario cross-model mode")
+            return
+        
+        logger.info("\n🎯 Generating scenario-based cross-model comparisons...")
+        
+        # For each OD type (train/test)
+        for od_type in ['train', 'test']:
+            logger.info(f"\n📊 Processing {od_type.upper()} OD scenarios...")
+            
+            # Load all models and real trajectories
+            models_data = self._load_all_models_for_od(gene_files, od_type)
+            
+            if len(models_data) < 2:
+                logger.warning(f"⚠️  Not enough models loaded for {od_type} OD scenario comparison")
+                continue
+            
+            # Get scenario distribution and filter by minimum trajectories
+            scenario_dist = self.scenario_results['overview']['scenario_distribution']
+            valid_scenarios = [
+                s for s, count in scenario_dist.items()
+                if count >= self.config.min_trajectories_per_scenario
+            ]
+            
+            logger.info(f"  Found {len(valid_scenarios)} scenarios with sufficient data")
+            
+            # Generate comparisons
+            if self.config.scenario_cross_model_individual:
+                self._plot_individual_scenario_comparisons(
+                    models_data, valid_scenarios, od_type
+                )
+            
+            if self.config.scenario_cross_model_grid:
+                self._plot_scenario_comparison_grid(
+                    models_data, valid_scenarios, od_type
+                )
+    
+    def _plot_individual_scenario_comparisons(self, models_data: Dict[str, List['Trajectory']], 
+                                             scenarios: List[str], od_type: str):
+        """Generate one comparison plot per scenario"""
+        
+        output_dir = self.config.output_dir / "scenario_cross_model" / od_type
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        trajectory_mapping = self.scenario_results['trajectory_mapping']['trajectories']
+        
+        for scenario in scenarios:
+            logger.info(f"  📍 Scenario: {scenario}")
+            
+            # For each model, find one representative trajectory from this scenario
+            scenario_trajectories = {}
+            scenario_labels = {}
+            
+            for model_name, all_trajectories in models_data.items():
+                # Find trajectories in this scenario
+                scenario_indices = [
+                    t['index'] for t in trajectory_mapping
+                    if scenario in t['scenarios'] and t['index'] < len(all_trajectories)
+                ]
+                
+                if not scenario_indices:
+                    logger.warning(f"    No {model_name} trajectories in {scenario}")
+                    continue
+                
+                # Get representative trajectory (median length)
+                candidate_trajs = [all_trajectories[i] for i in scenario_indices]
+                lengths = [t.length for t in candidate_trajs]
+                median_idx = scenario_indices[
+                    np.argmin(np.abs(np.array(lengths) - np.median(lengths)))
+                ]
+                
+                traj = all_trajectories[median_idx]
+                scenario_trajectories[model_name] = traj
+                
+                # Get all scenarios for this trajectory for legend
+                traj_scenarios = trajectory_mapping[median_idx]['scenarios']
+                scenario_labels[model_name] = traj_scenarios
+            
+            # Plot comparison with scenario labels in legend
+            if len(scenario_trajectories) >= 2:
+                output_path = output_dir / f"{scenario}_comparison"
+                title = f"Model Comparison: {scenario.replace('_', ' ').title()} Scenario\n{od_type.upper()} OD"
+                
+                self.comparison_plotter.plot_comparison(
+                    scenario_trajectories,
+                    output_path,
+                    title,
+                    scenario_labels=scenario_labels
+                )
+                logger.info(f"    ✅ Saved: {output_path}.{{pdf,png}}")
+    
+    def _plot_scenario_comparison_grid(self, models_data: Dict[str, List['Trajectory']], 
+                                      scenarios: List[str], od_type: str):
+        """Generate multi-panel grid showing all scenarios"""
+        
+        output_dir = self.config.output_dir / "scenario_cross_model" / od_type
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Determine grid layout (e.g., 3 cols, N rows)
+        n_scenarios = len(scenarios)
+        n_cols = 3
+        n_rows = (n_scenarios + n_cols - 1) // n_cols
+        
+        _ = plt.figure(figsize=(18, 6 * n_rows))
+        
+        trajectory_mapping = self.scenario_results['trajectory_mapping']['trajectories']
+        
+        plot_count = 0
+        for idx, scenario in enumerate(scenarios):
+            ax = plt.subplot(n_rows, n_cols, idx + 1)
+            
+            # For each model, find one representative trajectory from this scenario
+            scenario_trajectories = {}
+            
+            for model_name, all_trajectories in models_data.items():
+                # Find trajectories in this scenario
+                scenario_indices = [
+                    t['index'] for t in trajectory_mapping
+                    if scenario in t['scenarios'] and t['index'] < len(all_trajectories)
+                ]
+                
+                if not scenario_indices:
+                    continue
+                
+                # Get representative trajectory (median length)
+                candidate_trajs = [all_trajectories[i] for i in scenario_indices]
+                lengths = [t.length for t in candidate_trajs]
+                median_idx = scenario_indices[
+                    np.argmin(np.abs(np.array(lengths) - np.median(lengths)))
+                ]
+                
+                scenario_trajectories[model_name] = all_trajectories[median_idx]
+            
+            # Plot on this subplot
+            if scenario_trajectories:
+                self._plot_scenario_on_axis(ax, scenario_trajectories, scenario)
+                plot_count += 1
+        
+        if plot_count > 0:
+            plt.tight_layout()
+            output_path = output_dir / "all_scenarios_grid"
+            plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches='tight')
+            plt.savefig(f"{output_path}.png", dpi=self.config.dpi, bbox_inches='tight')
+            plt.close()
+            
+            logger.info(f"  ✅ Saved grid: {output_path}.pdf/.png ({plot_count} scenarios)")
+        else:
+            plt.close()
+            logger.warning("  ⚠️  No valid scenarios to plot in grid")
+    
+    def _plot_scenario_on_axis(self, ax, trajectories: Dict[str, 'Trajectory'], scenario: str):
+        """Plot trajectories for a scenario on a given axis"""
+        
+        # Collect all coordinates
+        all_lons, all_lats = [], []
+        
+        # Plot each model's trajectory
+        for model_name in sorted(trajectories.keys(), key=lambda x: (x != 'real', x)):
+            traj = trajectories[model_name]
+            if not traj.coords:
+                continue
+            
+            lons = [c[0] for c in traj.coords]
+            lats = [c[1] for c in traj.coords]
+            
+            all_lons.extend(lons)
+            all_lats.extend(lats)
+            
+            # Plot trajectory
+            ax.plot(lons, lats,
+                   color=self.comparison_plotter.model_colors.get(model_name, '#95a5a6'),
+                   linestyle=self.comparison_plotter.model_linestyles.get(model_name, '-'),
+                   linewidth=2 if model_name == 'real' else 1.5,
+                   alpha=0.8,
+                   label=self.comparison_plotter.model_labels.get(model_name, model_name),
+                   zorder=10 if model_name == 'real' else 5)
+            
+            # Mark start and end (smaller markers for grid)
+            ax.scatter(lons[0], lats[0], c=self.comparison_plotter.model_colors.get(model_name, '#95a5a6'),
+                      marker='o', s=50, zorder=15, edgecolors='white', linewidths=1)
+            ax.scatter(lons[-1], lats[-1], c=self.comparison_plotter.model_colors.get(model_name, '#95a5a6'),
+                      marker='s', s=50, zorder=15, edgecolors='white', linewidths=1)
+        
+        # Set bounds
+        if all_lons and all_lats:
+            margin = self.config.margin
+            ax.set_xlim(min(all_lons) - margin, max(all_lons) + margin)
+            ax.set_ylim(min(all_lats) - margin, max(all_lats) + margin)
+        
+        # Styling
+        ax.set_title(scenario.replace('_', ' ').title(), fontsize=11, pad=8)
+        ax.set_xlabel('Longitude', fontsize=9)
+        ax.set_ylabel('Latitude', fontsize=9)
+        ax.grid(True, alpha=0.2, linestyle='--', linewidth=0.5)
+        ax.tick_params(labelsize=8)
+        ax.set_aspect('equal', adjustable='box')
+        
+        # Add legend (compact)
+        ax.legend(fontsize=7, loc='best', framealpha=0.9)
 
 
 # =============================================================================
@@ -1299,6 +1709,14 @@ Examples:
                         help='Generate cross-model comparisons for same OD pairs')
     parser.add_argument('--no_real', action='store_true',
                         help='Exclude real trajectories from cross-model comparison (compare generated models only)')
+    parser.add_argument('--scenario_cross_model', action='store_true',
+                        help='Generate scenario-based cross-model comparisons')
+    parser.add_argument('--no_scenario_grid', action='store_true',
+                        help='Skip multi-panel grid layout (only individual plots)')
+    parser.add_argument('--no_scenario_individual', action='store_true',
+                        help='Skip individual scenario plots (only grid)')
+    parser.add_argument('--min_traj_per_scenario', type=int, default=10,
+                        help='Minimum trajectories required per scenario')
     parser.add_argument('--basemap_style', type=str, default='none',
                         choices=['osm', 'gaode', 'cartodb', 'none'],
                         help='Basemap style: gaode (China-friendly), cartodb, osm, none (default: none)')
@@ -1321,6 +1739,10 @@ Examples:
         generate_overlaid=not args.no_overlaid,
         generate_cross_model=args.cross_model,
         include_real_in_cross_model=not args.no_real,
+        generate_scenario_cross_model=args.scenario_cross_model,
+        scenario_cross_model_grid=not args.no_scenario_grid,
+        scenario_cross_model_individual=not args.no_scenario_individual,
+        min_trajectories_per_scenario=args.min_traj_per_scenario,
         basemap_style=args.basemap_style,
         basemap_timeout=args.basemap_timeout,
         dpi=args.dpi,

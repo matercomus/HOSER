@@ -326,7 +326,8 @@ class ScenarioAnalyzer:
             'individual_scenarios': individual_metrics,
             'combinations': combination_metrics,
             'hierarchical': hierarchical_metrics,
-            'statistics': statistical_tests
+            'statistics': statistical_tests,
+            '_scenario_data': scenario_data  # Include for trajectory mapping
         }
         
         logger.info("✅ Scenario analysis complete!")
@@ -771,8 +772,16 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
     geo_file = data_dir / "roadmap.geo"
     logger.info(f"📂 Loading geo data from {geo_file}...")
     # Handle complex geo file format with proper schema
-    # Read first to check columns
-    sample_df = pl.read_csv(geo_file, n_rows=100)
+    # Read first to check columns with basic schema
+    sample_df = pl.read_csv(
+        geo_file, 
+        n_rows=100,
+        schema_overrides={
+            "coordinates": pl.Utf8,
+            "lanes": pl.Utf8,  # Handle list-format strings
+            "oneway": pl.Utf8
+        }
+    )
     
     # Build schema overrides based on dataset
     schema_overrides = {
@@ -834,6 +843,26 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
     
     with open(output_dir / 'scenario_analysis.json', 'w') as f:
         json.dump(results, f, indent=2, default=str)
+    
+    # Save trajectory-to-scenario mapping for visualization sampling
+    # Extract scenario_data from results
+    scenario_data = results.get('_scenario_data', [])
+    
+    if scenario_data:
+        trajectory_mapping = {
+            'trajectories': [
+                {
+                    'index': idx,
+                    'scenarios': s['scenario_tags']
+                }
+                for idx, s in enumerate(scenario_data)
+            ]
+        }
+        
+        with open(output_dir / 'trajectory_scenarios.json', 'w') as f:
+            json.dump(trajectory_mapping, f, indent=2)
+        
+        logger.info(f"💾 Saved trajectory-to-scenario mapping ({len(scenario_data)} trajectories)")
     
     # Visualizations can be created using create_analysis_figures.py ScenarioVisualizer
     # For backward compatibility, keep visualization code here
