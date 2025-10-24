@@ -25,7 +25,8 @@ All scripts automatically:
 - Multiple sampling strategies (random, length-based, representative, scenario)
 - Scenario-aware sampling (uses scenario analysis results if available)
 - Separate and overlaid comparison modes
-- Cross-model comparisons
+- Cross-model comparisons for same OD pairs
+- **NEW: Scenario-based cross-model comparisons** - Compare all models across different scenarios
 - Road network overlay
 
 ### Basic Usage
@@ -107,7 +108,90 @@ uv run python create_distribution_plots.py --eval-dir hoser-distill-optuna-6 --v
 - Formats: PNG images
 - Plots: Distance distributions, duration distributions, KDE overlays
 
-## 3. Analysis Figures (`create_analysis_figures.py`)
+## 3. Scenario-Based Cross-Model Comparisons
+
+### Overview
+The scenario cross-model mode compares all models (vanilla, distilled, distilled_seed44, real) across different scenario types to show how model performance varies by scenario characteristics (peak/off-peak, weekday/weekend, city center, etc.).
+
+### Features
+- Individual comparison plots per scenario (e.g., one plot for "peak_hour" comparing all models)
+- Multi-panel grid showing all scenarios in one visualization
+- Enhanced legends showing which scenarios each trajectory belongs to (since scenarios are not disjoint)
+- Representative trajectory sampling (median length) per model per scenario
+- Automatic filtering of scenarios with insufficient data
+
+### Usage
+
+```bash
+# Generate scenario-based cross-model comparisons
+uv run python visualize_trajectories.py \
+    --eval-dir hoser-distill-optuna-6 \
+    --scenario_cross_model
+
+# Only individual plots (skip grid)
+uv run python visualize_trajectories.py \
+    --eval-dir hoser-distill-optuna-6 \
+    --scenario_cross_model \
+    --no_scenario_grid
+
+# Only grid (skip individual plots)
+uv run python visualize_trajectories.py \
+    --eval-dir hoser-distill-optuna-6 \
+    --scenario_cross_model \
+    --no_scenario_individual
+
+# Increase minimum trajectories per scenario
+uv run python visualize_trajectories.py \
+    --eval-dir hoser-distill-optuna-6 \
+    --scenario_cross_model \
+    --min_traj_per_scenario 50
+```
+
+### Options
+
+```bash
+--scenario_cross_model            # Enable scenario-based cross-model mode
+--no_scenario_grid               # Skip multi-panel grid (only individual plots)
+--no_scenario_individual         # Skip individual plots (only grid)
+--min_traj_per_scenario N        # Minimum trajectories required per scenario (default: 10)
+```
+
+### Output
+
+Individual scenario plots:
+- `scenario_cross_model/train/off_peak_comparison.{pdf,png}`
+- `scenario_cross_model/train/weekday_comparison.{pdf,png}`
+- `scenario_cross_model/train/city_center_comparison.{pdf,png}`
+- ... (one per valid scenario)
+
+Grid layout:
+- `scenario_cross_model/train/all_scenarios_grid.{pdf,png}` - All scenarios in 3-column grid
+- `scenario_cross_model/test/all_scenarios_grid.{pdf,png}`
+
+### Requirements
+
+- Requires scenario analysis to be run first (using `tools/analyze_scenarios.py`)
+- Or run `python_pipeline.py --run-scenarios` to generate scenarios automatically
+- The scenario analysis must generate `trajectory_scenarios.json` mapping file
+
+### Legend Format
+
+Legends show scenario membership for each model's trajectory since scenarios are not disjoint:
+
+```
+Vanilla
+(Off Peak, Weekday, Suburban)
+
+Distilled (seed 42)
+(Off Peak, City Center, From Center)
+
+Real Trajectory
+(Off Peak, Weekday, City Center +2)
+```
+
+The "+N" suffix indicates N additional scenarios beyond the first 3 shown.
+
+## 4. Analysis Figures (`create_analysis_figures.py`)
 
 ### Features
 - Publication-quality PDF and PNG figures
@@ -202,11 +286,17 @@ After running all visualization scripts:
 eval_directory/
 ├── figures/
 │   ├── trajectories/          # From visualize_trajectories.py
-│   │   ├── train/
-│   │   │   ├── vanilla_separate/
-│   │   │   ├── distilled_separate/
-│   │   │   └── overlaid/
-│   │   └── test/
+│   │   ├── separate/          # Individual model plots
+│   │   ├── overlaid/          # Combined plots per model
+│   │   ├── cross_model/       # Same OD pair, different models
+│   │   └── scenario_cross_model/  # NEW: Scenario-based comparisons
+│   │       ├── train/
+│   │       │   ├── off_peak_comparison.{pdf,png}
+│   │       │   ├── weekday_comparison.{pdf,png}
+│   │       │   ├── city_center_comparison.{pdf,png}
+│   │       │   └── all_scenarios_grid.{pdf,png}
+│   │       └── test/
+│   │           └── ... (same structure)
 │   ├── distributions/         # From create_distribution_plots.py
 │   │   ├── distance_distribution.png
 │   │   └── duration_distribution.png
@@ -224,7 +314,8 @@ eval_directory/
 └── scenarios/                 # Raw scenario analysis results
     ├── train/
     │   └── vanilla/
-    │       └── scenario_analysis.json
+    │       ├── scenario_analysis.json
+    │       └── trajectory_scenarios.json  # NEW: Trajectory-to-scenario mapping
     └── test/
 ```
 
