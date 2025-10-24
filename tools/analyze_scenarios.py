@@ -670,10 +670,22 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
     generated_df = pl.read_csv(generated_file)
     
     # Load real data
-    data_dir = Path(f"../data/{dataset}")
-    if not data_dir.is_absolute():
-        # Handle relative paths from eval directory
-        data_dir = generated_file.parent.parent.parent.parent / "data" / dataset
+    # Try multiple paths to find data directory
+    possible_data_dirs = [
+        Path(f"data/{dataset}"),  # From project root
+        Path(f"../data/{dataset}"),  # From eval directory
+        generated_file.parent.parent.parent.parent / "data" / dataset,  # Relative to gene file
+        Path("data") / dataset  # Direct path
+    ]
+    
+    data_dir = None
+    for possible_dir in possible_data_dirs:
+        if possible_dir.exists():
+            data_dir = possible_dir
+            break
+    
+    if data_dir is None:
+        raise FileNotFoundError(f"Could not find data directory for {dataset}")
     
     real_file = data_dir / f"{od_source}.csv"
     logger.info(f"📂 Loading real data from {real_file}...")
@@ -682,7 +694,35 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
     # Load geo data
     geo_file = data_dir / "roadmap.geo"
     logger.info(f"📂 Loading geo data from {geo_file}...")
-    geo_df = pl.read_csv(geo_file)
+    # Handle complex geo file format with proper schema
+    # Read first to check columns
+    sample_df = pl.read_csv(geo_file, n_rows=100)
+    
+    # Build schema overrides based on dataset
+    schema_overrides = {
+        "coordinates": pl.Utf8  # Always JSON string
+    }
+    
+    # Check for problematic columns that might contain lists
+    for col in ["lanes", "oneway", "name"]:
+        if col in sample_df.columns:
+            try:
+                # Try to read normally first
+                sample_df.select(pl.col(col)).head()
+            except:
+                # If error, read as string
+                schema_overrides[col] = pl.Utf8
+    
+    # For Beijing, oneway can be "[False, True]" etc
+    if "oneway" in sample_df.columns and dataset.lower() == "beijing":
+        schema_overrides["oneway"] = pl.Utf8
+    
+    # Read with proper schema
+    geo_df = pl.read_csv(
+        geo_file,
+        infer_schema_length=10000,
+        schema_overrides=schema_overrides
+    )
     
     # Load config
     config = ScenarioConfig.from_yaml(config_path)
@@ -811,7 +851,19 @@ Examples:
                     logger.warning(f"No seed directory found in {gene_dir / dataset}")
                     continue
             
-            generated_files = list(seed_dir.glob(f'*{od_source}od*.csv'))
+            # Try multiple patterns to find generated files
+            patterns = [
+                f'*{od_source}od*.csv',      # New pattern: *testod*.csv
+                f'*_{od_source}_*.csv',       # Old pattern: vanilla_test_*.csv
+                f'*{od_source}*.csv'          # Fallback: *test*.csv
+            ]
+            
+            generated_files = []
+            for pattern in patterns:
+                files = list(seed_dir.glob(pattern))
+                if files:
+                    generated_files.extend(files)
+                    break
             
             if not generated_files:
                 logger.warning(f"No generated files found for {od_source} OD")
@@ -891,7 +943,32 @@ Examples:
         logger.info("📂 Loading data...")
         generated_df = pl.read_csv(args.generated)
         real_df = pl.read_csv(args.real)
-        geo_df = pl.read_csv(args.geo)
+        
+        # Handle geo data with dataset-specific formats
+        # Read sample first
+        sample_df = pl.read_csv(args.geo, n_rows=100)
+        
+        # Build schema overrides
+        schema_overrides = {"coordinates": pl.Utf8}
+        
+        # Check for problematic columns
+        for col in ["lanes", "oneway", "name"]:
+            if col in sample_df.columns:
+                try:
+                    sample_df.select(pl.col(col)).head()
+                except:
+                    schema_overrides[col] = pl.Utf8
+        
+        # For Beijing, oneway can be lists
+        if "oneway" in sample_df.columns and "beijing" in dataset.lower():
+            schema_overrides["oneway"] = pl.Utf8
+        
+        # Read with proper schema
+        geo_df = pl.read_csv(
+            args.geo,
+            infer_schema_length=10000,
+            schema_overrides=schema_overrides
+        )
         
         # Load config
         config = ScenarioConfig.from_yaml(Path(args.config))

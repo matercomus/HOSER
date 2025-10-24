@@ -1,0 +1,341 @@
+{
+  "overview": {
+    "total_trajectories": 5000,
+    "scenario_distribution": {
+      "off_peak": 4228,
+      "weekday": 3877,
+      "suburban": 3225,
+      "city_center": 1775,
+      "from_center": 607,
+      "weekend": 1123,
+      "peak": 772,
+      "to_center": 479,
+      "within_center": 689
+    }
+  },
+  "individual_scenarios": {
+    "city_center": {
+      "count": 1775,
+      "percentage": 35.5,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "from_center": {
+      "count": 607,
+      "percentage": 12.139999999999999,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "off_peak": {
+      "count": 4228,
+      "percentage": 84.56,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "peak": {
+      "count": 772,
+      "percentage": 15.440000000000001,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "suburban": {
+      "count": 3225,
+      "percentage": 64.5,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "to_center": {
+      "count": 479,
+      "percentage": 9.58,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "weekday": {
+      "count": 3877,
+      "percentage": 77.53999999999999,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "weekend": {
+      "count": 1123,
+      "percentage": 22.46,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "within_center": {
+      "count": 689,
+      "percentage": 13.780000000000001,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    }
+  },
+  "combinations": {
+    "off_peak+suburban+weekday": {
+      "count": 1952,
+      "percentage": 39.04,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "off_peak+suburban+weekend": {
+      "count": 759,
+      "percentage": 15.18,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "peak+suburban+weekday": {
+      "count": 514,
+      "percentage": 10.280000000000001,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "city_center+off_peak+weekday+within_center": {
+      "count": 448,
+      "percentage": 8.959999999999999,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "city_center+from_center+off_peak+weekday": {
+      "count": 405,
+      "percentage": 8.1,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "city_center+off_peak+to_center+weekday": {
+      "count": 300,
+      "percentage": 6.0,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "city_center+off_peak+weekend+within_center": {
+      "count": 146,
+      "percentage": 2.92,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "city_center+from_center+off_peak+weekend": {
+      "count": 120,
+      "percentage": 2.4,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "city_center+off_peak+to_center+weekend": {
+      "count": 98,
+      "percentage": 1.96,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "city_center+peak+weekday+within_center": {
+      "count": 95,
+      "percentage": 1.9,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "city_center+from_center+peak+weekday": {
+      "count": 82,
+      "percentage": 1.6400000000000001,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    },
+    "city_center+peak+to_center+weekday": {
+      "count": 81,
+      "percentage": 1.6199999999999999,
+      "metrics": {
+        "error": "'DataFrame' object has no attribute 'set_index'",
+        "Distance_JSD": NaN,
+        "Duration_JSD": NaN,
+        "Hausdorff_mean": NaN
+      }
+    }
+  },
+  "hierarchical": {
+    "city_center": {
+      "peak": {
+        "count": 258,
+        "percentage": 14.535211267605632,
+        "metrics": {
+          "error": "'DataFrame' object has no attribute 'set_index'",
+          "Distance_JSD": NaN,
+          "Duration_JSD": NaN,
+          "Hausdorff_mean": NaN
+        }
+      },
+      "off_peak": {
+        "count": 1517,
+        "percentage": 85.46478873239437,
+        "metrics": {
+          "error": "'DataFrame' object has no attribute 'set_index'",
+          "Distance_JSD": NaN,
+          "Duration_JSD": NaN,
+          "Hausdorff_mean": NaN
+        }
+      }
+    },
+    "weekday": {
+      "to_center": {
+        "count": 381,
+        "percentage": 9.82718596853237,
+        "metrics": {
+          "error": "'DataFrame' object has no attribute 'set_index'",
+          "Distance_JSD": NaN,
+          "Duration_JSD": NaN,
+          "Hausdorff_mean": NaN
+        }
+      },
+      "from_center": {
+        "count": 487,
+        "percentage": 12.561258705184422,
+        "metrics": {
+          "error": "'DataFrame' object has no attribute 'set_index'",
+          "Distance_JSD": NaN,
+          "Duration_JSD": NaN,
+          "Hausdorff_mean": NaN
+        }
+      }
+    }
+  },
+  "statistics": {
+    "significance_tests": {
+      "peak_vs_off_peak_Distance_JSD": {
+        "metric": "Distance_JSD",
+        "group1": "peak",
+        "group1_mean": NaN,
+        "group2": "off_peak",
+        "group2_mean": NaN,
+        "difference": NaN,
+        "relative_difference": NaN,
+        "note": "Full statistical test requires per-trajectory distributions"
+      },
+      "peak_vs_off_peak_Duration_JSD": {
+        "metric": "Duration_JSD",
+        "group1": "peak",
+        "group1_mean": NaN,
+        "group2": "off_peak",
+        "group2_mean": NaN,
+        "difference": NaN,
+        "relative_difference": NaN,
+        "note": "Full statistical test requires per-trajectory distributions"
+      },
+      "peak_vs_off_peak_Hausdorff_mean": {
+        "metric": "Hausdorff_mean",
+        "group1": "peak",
+        "group1_mean": NaN,
+        "group2": "off_peak",
+        "group2_mean": NaN,
+        "difference": NaN,
+        "relative_difference": NaN,
+        "note": "Full statistical test requires per-trajectory distributions"
+      },
+      "weekday_vs_weekend_Distance_JSD": {
+        "metric": "Distance_JSD",
+        "group1": "weekday",
+        "group1_mean": NaN,
+        "group2": "weekend",
+        "group2_mean": NaN,
+        "difference": NaN,
+        "relative_difference": NaN,
+        "note": "Full statistical test requires per-trajectory distributions"
+      },
+      "weekday_vs_weekend_Duration_JSD": {
+        "metric": "Duration_JSD",
+        "group1": "weekday",
+        "group1_mean": NaN,
+        "group2": "weekend",
+        "group2_mean": NaN,
+        "difference": NaN,
+        "relative_difference": NaN,
+        "note": "Full statistical test requires per-trajectory distributions"
+      },
+      "weekday_vs_weekend_Hausdorff_mean": {
+        "metric": "Hausdorff_mean",
+        "group1": "weekday",
+        "group1_mean": NaN,
+        "group2": "weekend",
+        "group2_mean": NaN,
+        "difference": NaN,
+        "relative_difference": NaN,
+        "note": "Full statistical test requires per-trajectory distributions"
+      }
+    },
+    "effect_sizes": {}
+  }
+}
