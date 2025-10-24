@@ -1141,27 +1141,60 @@ class TrajectoryVisualizer:
         self.comparison_plotter = TrajectoryComparisonPlotter(config, self.road_network)
     
     def _load_scenario_results(self) -> Optional[dict]:
-        """Load scenario analysis results if available"""
+        """Load scenario analysis results from new focused file structure"""
         scenarios_dir = self.config.eval_dir / "scenarios"
         if not scenarios_dir.exists():
             return None
         
-        # Find scenario analysis JSON files - look for any model/od_source
-        for json_file in scenarios_dir.rglob("scenario_analysis.json"):
+        # Try to load cross-model analysis first (preferred for visualization)
+        cross_model_file = scenarios_dir / 'cross_model_analysis.json'
+        if cross_model_file.exists():
             try:
-                with open(json_file) as f:
-                    results = json.load(f)
+                with open(cross_model_file) as f:
+                    cross_model_data = json.load(f)
                 
-                # Also load trajectory mapping if available
-                mapping_file = json_file.parent / "trajectory_scenarios.json"
-                if mapping_file.exists():
-                    with open(mapping_file) as f:
-                        results['trajectory_mapping'] = json.load(f)
+                # Load trajectory mapping from first available model for sampling
+                for od_dir in scenarios_dir.iterdir():
+                    if od_dir.is_dir() and not od_dir.name.startswith('.'):
+                        for model_dir in od_dir.iterdir():
+                            if model_dir.is_dir():
+                                mapping_file = model_dir / 'trajectory_scenarios.json'
+                                if mapping_file.exists():
+                                    with open(mapping_file) as f:
+                                        cross_model_data['trajectory_mapping'] = json.load(f)
+                                    break
+                        if 'trajectory_mapping' in cross_model_data:
+                            break
                 
-                return results
+                logger.info("✅ Loaded cross-model scenario analysis")
+                return cross_model_data
             except Exception as e:
-                logger.warning(f"Failed to load scenario results from {json_file}: {e}")
+                logger.warning(f"Failed to load cross-model analysis: {e}")
         
+        # Fallback: load from first available model (backward compatibility)
+        for od_dir in scenarios_dir.iterdir():
+            if od_dir.is_dir() and not od_dir.name.startswith('.'):
+                for model_dir in od_dir.iterdir():
+                    if model_dir.is_dir():
+                        metrics_file = model_dir / 'scenario_metrics.json'
+                        mapping_file = model_dir / 'trajectory_scenarios.json'
+                        
+                        if metrics_file.exists() and mapping_file.exists():
+                            try:
+                                with open(metrics_file) as f:
+                                    metrics = json.load(f)
+                                with open(mapping_file) as f:
+                                    mapping = json.load(f)
+                                
+                                # Construct compatible structure
+                                return {
+                                    'overview': metrics.get('overview', {}),
+                                    'trajectory_mapping': mapping
+                                }
+                            except Exception as e:
+                                logger.warning(f"Failed to load scenario results from {model_dir}: {e}")
+        
+        logger.warning("No scenario results found (neither cross-model nor individual)")
         return None
         
     def run(self):
@@ -1546,20 +1579,8 @@ class TrajectoryVisualizer:
         # No model has route variation across scenarios
         return False
     
-    def _generate_multi_scenario_comparisons(self, od_scenario_map: Dict, od_type: str) -> Dict:
-        """Generate concatenated plots for OD pairs that appear in multiple scenarios
-        
-        Returns:
-            dict: Statistics about multi-scenario comparisons
-        """
-        
-        stats = {
-            'total_od_pairs_checked': len(od_scenario_map),
-            'multi_scenario_od_pairs': 0,
-            'filtered_identical_routes': 0,
-            'od_pairs_with_variation': 0,
-            'plots_generated': 0
-        }
+    def _generate_multi_scenario_comparisons(self, od_scenario_map: Dict, od_type: str):
+        """Generate concatenated plots for OD pairs that appear in multiple scenarios"""
         
         # Find OD pairs that appear in 2+ scenarios
         multi_scenario_pairs = {
@@ -1568,11 +1589,9 @@ class TrajectoryVisualizer:
             if len(scenarios) >= 2
         }
         
-        stats['multi_scenario_od_pairs'] = len(multi_scenario_pairs)
-        
         if not multi_scenario_pairs:
             logger.info(f"\n  ℹ️  No OD pairs found in multiple scenarios for {od_type} OD")
-            return stats
+            return
         
         # Filter to only keep OD pairs where at least one model takes different routes
         varied_pairs = {}
@@ -1583,15 +1602,12 @@ class TrajectoryVisualizer:
             else:
                 filtered_count += 1
         
-        stats['filtered_identical_routes'] = filtered_count
-        stats['od_pairs_with_variation'] = len(varied_pairs)
-        
         if filtered_count > 0:
             logger.info(f"\n  ℹ️  Filtered out {filtered_count} OD pairs with identical routes across scenarios")
         
         if not varied_pairs:
             logger.info(f"  ℹ️  No OD pairs with route variation across scenarios for {od_type} OD")
-            return stats
+            return
         
         logger.info(f"\n🔄 Generating multi-scenario comparisons for {len(varied_pairs)} OD pairs with route variation...")
         
@@ -1639,9 +1655,6 @@ class TrajectoryVisualizer:
             plt.close()
             
             logger.info(f"    ✅ Saved: {output_path}.{{pdf,png}}")
-            stats['plots_generated'] += 1
-        
-        return stats
     
     def _plot_multi_scenario_panel(self, ax, models_trajs: Dict, scenario: str, 
                                    origin: int, destination: int):
@@ -1699,41 +1712,6 @@ class TrajectoryVisualizer:
         # Legend
         ax.legend(fontsize=9, loc='best', framealpha=0.95, edgecolor='black', fancybox=False)
     
-    def _save_scenario_statistics(self, stats: Dict):
-        """Save scenario cross-model statistics to JSON file"""
-        import json
-        from datetime import datetime
-        
-        output_file = self.config.output_dir / "scenario_cross_model" / "statistics.json"
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Add metadata
-        full_stats = {
-            'generated_at': datetime.now().isoformat(),
-            'dataset': self.config.dataset,
-            'eval_dir': str(self.config.eval_dir),
-            'statistics': stats
-        }
-        
-        with open(output_file, 'w') as f:
-            json.dump(full_stats, f, indent=2)
-        
-        logger.info(f"\n💾 Saved scenario statistics to: {output_file}")
-        
-        # Print summary
-        logger.info("\n📊 Scenario Cross-Model Summary:")
-        for od_type in ['train', 'test']:
-            if od_type in stats and stats[od_type]['models_loaded']:
-                logger.info(f"\n  {od_type.upper()} OD:")
-                logger.info(f"    Models loaded: {', '.join([f'{k}={v}' for k, v in stats[od_type]['models_loaded'].items()])}")
-                logger.info(f"    Total plots generated: {stats[od_type]['total_plots']}")
-                logger.info(f"    Scenarios processed: {len([s for s in stats[od_type]['scenarios'].values() if not s.get('skipped', False)])}")
-                
-                if stats[od_type]['multi_scenario']:
-                    ms = stats[od_type]['multi_scenario']
-                    logger.info(f"    Multi-scenario: {ms['od_pairs_with_variation']} with variation, "
-                              f"{ms['filtered_identical_routes']} filtered (identical routes)")
-    
     def _generate_scenario_cross_model_comparisons(self, gene_files: List[Dict]):
         """Generate cross-model comparisons per scenario (reuses OD matching logic)"""
         
@@ -1743,13 +1721,10 @@ class TrajectoryVisualizer:
         
         logger.info("\n🎯 Generating scenario-based cross-model comparisons...")
         
-        trajectory_mapping = self.scenario_results['trajectory_mapping']['trajectories']
+        # Note: Statistics are now computed and saved by analyze_scenarios.py
+        # This method focuses purely on visualization
         
-        # Statistics tracking
-        stats = {
-            'train': {'scenarios': {}, 'total_plots': 0, 'models_loaded': {}, 'multi_scenario': {}},
-            'test': {'scenarios': {}, 'total_plots': 0, 'models_loaded': {}, 'multi_scenario': {}}
-        }
+        trajectory_mapping = self.scenario_results['trajectory_mapping']['trajectories']
         
         # For each OD type (train/test)
         for od_type in ['train', 'test']:
@@ -1761,10 +1736,6 @@ class TrajectoryVisualizer:
             if len(models_data) < 2:
                 logger.warning(f"⚠️  Not enough models loaded for {od_type} OD")
                 continue
-            
-            # Track loaded model sizes
-            for model_name, trajs in models_data.items():
-                stats[od_type]['models_loaded'][model_name] = len(trajs)
             
             # Get all scenarios (no filtering)
             scenarios = list(self.scenario_results['overview']['scenario_distribution'].keys())
@@ -1791,7 +1762,6 @@ class TrajectoryVisualizer:
                 
                 if len(scenario_models_data) < 2:
                     logger.warning(f"    Skipping {scenario} - not enough models with data")
-                    stats[od_type]['scenarios'][scenario] = {'skipped': True, 'reason': 'insufficient_models'}
                     continue
                 
                 # Track OD pairs in this scenario for multi-scenario plots
@@ -1800,28 +1770,12 @@ class TrajectoryVisualizer:
                 )
                 
                 # Call existing cross-model logic with scenario parameter
-                # Track how many plots were generated
-                output_dir = self.config.output_dir / "scenario_cross_model" / od_type / scenario
-                plots_before = len(list(output_dir.glob("*.png"))) if output_dir.exists() else 0
-                
                 self._plot_matching_od_pairs(scenario_models_data, od_type, scenario=scenario)
-                
-                plots_after = len(list(output_dir.glob("*.png"))) if output_dir.exists() else 0
-                plots_generated = plots_after - plots_before
-                
-                # Record scenario statistics
-                stats[od_type]['scenarios'][scenario] = {
-                    'trajectories_per_model': {k: len(v) for k, v in scenario_models_data.items()},
-                    'plots_generated': plots_generated
-                }
-                stats[od_type]['total_plots'] += plots_generated
             
             # Generate multi-scenario comparison plots for OD pairs appearing in 2+ scenarios
-            multi_stats = self._generate_multi_scenario_comparisons(od_scenario_map, od_type)
-            stats[od_type]['multi_scenario'] = multi_stats
+            self._generate_multi_scenario_comparisons(od_scenario_map, od_type)
         
-        # Save statistics
-        self._save_scenario_statistics(stats)
+        logger.info("\n✅ Scenario cross-model visualization complete!")
 
 
 # =============================================================================
