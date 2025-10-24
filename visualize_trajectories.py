@@ -224,10 +224,13 @@ class TrajectoryLoader:
     
     def load_real_trajectories(self, csv_path: Path, od_type: str, sample_size: int = 100) -> List[Trajectory]:
         """Load real trajectories from train/test CSV (sample for memory efficiency)"""
-        logger.info(f"📂 Loading real trajectories from {csv_path.name} (sampling {sample_size})")
-        
-        # Read with sampling
-        df = pl.read_csv(csv_path, n_rows=sample_size * 10)  # Read more to account for failures
+        if sample_size is None:
+            logger.info(f"📂 Loading ALL real trajectories from {csv_path.name}")
+            df = pl.read_csv(csv_path)
+        else:
+            logger.info(f"📂 Loading real trajectories from {csv_path.name} (sampling {sample_size})")
+            # Read with sampling
+            df = pl.read_csv(csv_path, n_rows=sample_size * 10)  # Read more to account for failures
         
         trajectories = []
         for row in df.iter_rows(named=True):
@@ -256,7 +259,7 @@ class TrajectoryLoader:
                 metadata={}
             ))
             
-            if len(trajectories) >= sample_size:
+            if sample_size is not None and len(trajectories) >= sample_size:
                 break
         
         logger.info(f"✅ Loaded {len(trajectories)} real trajectories")
@@ -1341,7 +1344,8 @@ class TrajectoryVisualizer:
         if self.config.include_real_in_cross_model:
             logger.info(f"  Loading real {od_type} trajectories...")
             real_csv = self.config.train_csv_path if od_type == 'train' else self.config.test_csv_path
-            real_trajectories = self.loader.load_real_trajectories(real_csv, od_type, sample_size=50000)
+            # Load all data for better OD pair coverage and route variation detection
+            real_trajectories = self.loader.load_real_trajectories(real_csv, od_type, sample_size=None)
             
             if real_trajectories:
                 models_data['real'] = real_trajectories
@@ -1349,19 +1353,23 @@ class TrajectoryVisualizer:
         
         return models_data
     
-    def _plot_matching_od_pairs(self, models_data: Dict[str, List[Trajectory]], od_type: str, scenario: str = None):
+    def _plot_matching_od_pairs(self, models_data: Dict[str, List[Trajectory]], od_type: str, 
+                                scenario: str = None, max_plots: int = None):
         """Find and plot trajectories with matching OD pairs across models
         
         Args:
             models_data: Dict mapping model_name -> list of trajectories
             od_type: 'train' or 'test'
             scenario: Optional scenario name for scenario-based comparisons
+            max_plots: Optional maximum number of plots to generate (default: 10 for scenarios, no limit otherwise)
         """
         
         # Adjust output path and title based on scenario
         if scenario:
             output_dir = self.config.output_dir / "scenario_cross_model" / od_type / scenario
             title_prefix = f"{scenario.replace('_', ' ').title()} Scenario - "
+            if max_plots is None:
+                max_plots = 10  # Default limit for scenario-based comparisons
         else:
             output_dir = self.config.output_dir / "cross_model" / od_type
             title_prefix = ""
@@ -1395,7 +1403,13 @@ class TrajectoryVisualizer:
         
         # Sample representative OD pairs (including edge cases)
         sampled_od_pairs = self._sample_od_pairs_for_comparison(list(all_od_pairs), od_indices, models_data)
-        logger.info(f"📊 Selected {len(sampled_od_pairs)} OD pairs for visualization (captures edge cases from analysis)")
+        
+        # Apply max_plots limit if specified
+        if max_plots is not None and len(sampled_od_pairs) > max_plots:
+            sampled_od_pairs = sampled_od_pairs[:max_plots]
+            logger.info(f"📊 Selected {len(sampled_od_pairs)} OD pairs for visualization (limited to max {max_plots})")
+        else:
+            logger.info(f"📊 Selected {len(sampled_od_pairs)} OD pairs for visualization (captures edge cases from analysis)")
         
         # Generate comparison plots
         for i, od_pair in enumerate(sampled_od_pairs):
