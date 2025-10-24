@@ -1508,6 +1508,30 @@ class TrajectoryVisualizer:
                 for model_name in model_names
             }
     
+    def _has_route_variation(self, scenarios_dict: Dict) -> bool:
+        """Check if at least one model takes different routes across scenarios"""
+        
+        # Get all model names
+        first_scenario = list(scenarios_dict.keys())[0]
+        model_names = list(scenarios_dict[first_scenario].keys())
+        
+        # For each model, check if routes differ across scenarios
+        for model_name in model_names:
+            # Collect all routes (as tuples of road IDs) for this model across scenarios
+            routes = []
+            for scenario, models_trajs in scenarios_dict.items():
+                if model_name in models_trajs:
+                    traj = models_trajs[model_name]
+                    if traj.road_ids:
+                        routes.append(tuple(traj.road_ids))
+            
+            # If this model has at least 2 different routes, there's variation
+            if len(set(routes)) > 1:
+                return True
+        
+        # No model has route variation across scenarios
+        return False
+    
     def _generate_multi_scenario_comparisons(self, od_scenario_map: Dict, od_type: str):
         """Generate concatenated plots for OD pairs that appear in multiple scenarios"""
         
@@ -1522,12 +1546,28 @@ class TrajectoryVisualizer:
             logger.info(f"\n  ℹ️  No OD pairs found in multiple scenarios for {od_type} OD")
             return
         
-        logger.info(f"\n🔄 Generating multi-scenario comparisons for {len(multi_scenario_pairs)} OD pairs...")
+        # Filter to only keep OD pairs where at least one model takes different routes
+        varied_pairs = {}
+        filtered_count = 0
+        for od_pair, scenarios_dict in multi_scenario_pairs.items():
+            if self._has_route_variation(scenarios_dict):
+                varied_pairs[od_pair] = scenarios_dict
+            else:
+                filtered_count += 1
+        
+        if filtered_count > 0:
+            logger.info(f"\n  ℹ️  Filtered out {filtered_count} OD pairs with identical routes across scenarios")
+        
+        if not varied_pairs:
+            logger.info(f"  ℹ️  No OD pairs with route variation across scenarios for {od_type} OD")
+            return
+        
+        logger.info(f"\n🔄 Generating multi-scenario comparisons for {len(varied_pairs)} OD pairs with route variation...")
         
         output_dir = self.config.output_dir / "scenario_cross_model" / od_type / "multi_scenario"
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        for od_pair, scenarios_dict in multi_scenario_pairs.items():
+        for od_pair, scenarios_dict in varied_pairs.items():
             origin, destination = od_pair
             scenario_names = sorted(scenarios_dict.keys())
             
