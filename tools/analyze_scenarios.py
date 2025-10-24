@@ -31,10 +31,9 @@ Features:
 import argparse
 from pathlib import Path
 import json
-import ast
 import polars as pl
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from dataclasses import dataclass
 import yaml
 from datetime import datetime
@@ -288,7 +287,7 @@ class ScenarioAnalyzer:
         """
         Main analysis entry point.
         
-        Returns comprehensive scenario analysis results.
+        Returns structured scenario analysis results split into focused components.
         """
         logger.info("📊 Starting scenario analysis...")
         
@@ -296,38 +295,45 @@ class ScenarioAnalyzer:
         logger.info("  1. Categorizing trajectories by scenarios...")
         scenario_data = self._categorize_all_trajectories(generated_df)
         
-        # Step 2: Individual scenario metrics
-        logger.info("  2. Computing individual scenario metrics...")
+        # Step 2: Build trajectory metadata
+        logger.info("  2. Building trajectory metadata...")
+        trajectory_metadata = self._build_trajectory_metadata(scenario_data, generated_df)
+        
+        # Step 3: Individual scenario metrics
+        logger.info("  3. Computing individual scenario metrics...")
         individual_metrics = self._compute_individual_scenarios(
             scenario_data, generated_df, real_df
         )
         
-        # Step 3: Combination metrics
-        logger.info("  3. Computing scenario combination metrics...")
+        # Step 4: Combination metrics
+        logger.info("  4. Computing scenario combination metrics...")
         combination_metrics = self._compute_combinations(
             scenario_data, generated_df, real_df
         )
         
-        # Step 4: Hierarchical breakdown
-        logger.info("  4. Computing hierarchical breakdowns...")
+        # Step 5: Hierarchical breakdown
+        logger.info("  5. Computing hierarchical breakdowns...")
         hierarchical_metrics = self._compute_hierarchical(
             scenario_data, generated_df, real_df
         )
         
-        # Step 5: Statistical tests
-        logger.info("  5. Running statistical significance tests...")
+        # Step 6: Statistical tests
+        logger.info("  6. Running statistical significance tests...")
         statistical_tests = self._run_statistical_tests(
             scenario_data, generated_df, real_df, individual_metrics
         )
         
-        # Compile results
+        # Compile results into structured format
         results = {
-            'overview': self._compute_overview(scenario_data),
-            'individual_scenarios': individual_metrics,
-            'combinations': combination_metrics,
-            'hierarchical': hierarchical_metrics,
-            'statistics': statistical_tests,
-            '_scenario_data': scenario_data  # Include for trajectory mapping
+            'trajectory_metadata': trajectory_metadata,
+            'scenario_metrics': {
+                'overview': self._compute_overview(scenario_data),
+                'individual_scenarios': individual_metrics,
+                'hierarchical': hierarchical_metrics,
+                'statistics': statistical_tests
+            },
+            'scenario_combinations': combination_metrics,
+            'trajectory_scenarios': self._build_trajectory_scenarios_mapping(scenario_data)
         }
         
         logger.info("✅ Scenario analysis complete!")
@@ -348,6 +354,37 @@ class ScenarioAnalyzer:
             scenario_data.append(scenarios)
         
         return scenario_data
+    
+    def _build_trajectory_metadata(self, scenario_data: List[Dict], generated_df: pl.DataFrame) -> List[Dict]:
+        """Build per-trajectory metadata with clear labels"""
+        metadata = []
+        
+        for idx, (scenario, row) in enumerate(zip(scenario_data, generated_df.iter_rows(named=True))):
+            metadata.append({
+                'index': idx,
+                'origin_road_id': row['origin_road_id'],
+                'destination_road_id': row['destination_road_id'],
+                'timestamp': row['source_origin_time'],
+                'scenario_tags': scenario['scenario_tags'],
+                'scenario_details': {
+                    k: v for k, v in scenario.items() 
+                    if k != 'scenario_tags'
+                }
+            })
+        
+        return metadata
+    
+    def _build_trajectory_scenarios_mapping(self, scenario_data: List[Dict]) -> Dict:
+        """Build simple index→tags mapping for visualization sampling"""
+        return {
+            'trajectories': [
+                {
+                    'index': idx,
+                    'scenarios': s['scenario_tags']
+                }
+                for idx, s in enumerate(scenario_data)
+            ]
+        }
     
     def _compute_overview(self, scenario_data: List[Dict]) -> Dict:
         """Compute overview statistics"""
@@ -731,7 +768,7 @@ def create_visualizations(results: Dict, output_dir: Path):
 
 
 def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
-                         config_path: Path, output_dir: Path):
+                         config_path: Path, output_dir: Path, model_name: str = None):
     """
     Main entry point for scenario analysis (called from python_pipeline.py)
     
@@ -741,7 +778,16 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
         od_source: OD source (train, test)
         config_path: Path to scenarios config YAML
         output_dir: Output directory for results
+        model_name: Model name (vanilla, distilled, etc.). If None, extracted from filename
     """
+    # Extract model name from filename if not provided
+    if model_name is None:
+        if 'vanilla' in generated_file.name:
+            model_name = 'vanilla'
+        elif 'distilled' in generated_file.name:
+            model_name = 'distilled'
+        else:
+            model_name = 'unknown'
     # Load data
     logger.info(f"📂 Loading data from {generated_file.name}...")
     generated_df = pl.read_csv(generated_file)
@@ -838,35 +884,46 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
     analyzer = ScenarioAnalyzer(config, geo_df)
     results = analyzer.analyze(generated_df, real_df)
     
-    # Save results
+    # Save results to separate focused files
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    with open(output_dir / 'scenario_analysis.json', 'w') as f:
-        json.dump(results, f, indent=2, default=str)
+    # Save trajectory metadata
+    with open(output_dir / 'trajectory_metadata.json', 'w') as f:
+        json.dump({
+            'model': model_name,
+            'od_source': od_source,
+            'dataset': dataset,
+            'trajectories': results['trajectory_metadata']
+        }, f, indent=2, default=str)
+    logger.info(f"💾 Saved trajectory metadata ({len(results['trajectory_metadata'])} trajectories)")
     
-    # Save trajectory-to-scenario mapping for visualization sampling
-    # Extract scenario_data from results
-    scenario_data = results.get('_scenario_data', [])
+    # Save scenario metrics (without bloated _scenario_data)
+    with open(output_dir / 'scenario_metrics.json', 'w') as f:
+        json.dump({
+            'model': model_name,
+            'od_source': od_source,
+            'dataset': dataset,
+            **results['scenario_metrics']
+        }, f, indent=2, default=str)
+    logger.info("💾 Saved scenario metrics")
     
-    if scenario_data:
-        trajectory_mapping = {
-            'trajectories': [
-                {
-                    'index': idx,
-                    'scenarios': s['scenario_tags']
-                }
-                for idx, s in enumerate(scenario_data)
-            ]
-        }
-        
-        with open(output_dir / 'trajectory_scenarios.json', 'w') as f:
-            json.dump(trajectory_mapping, f, indent=2)
-        
-        logger.info(f"💾 Saved trajectory-to-scenario mapping ({len(scenario_data)} trajectories)")
+    # Save combinations analysis
+    with open(output_dir / 'scenario_combinations.json', 'w') as f:
+        json.dump({
+            'model': model_name,
+            'od_source': od_source,
+            'dataset': dataset,
+            'combinations': results['scenario_combinations']
+        }, f, indent=2, default=str)
+    logger.info(f"💾 Saved scenario combinations ({len(results['scenario_combinations'])} combos)")
     
-    # Visualizations can be created using create_analysis_figures.py ScenarioVisualizer
-    # For backward compatibility, keep visualization code here
-    create_visualizations(results, output_dir)
+    # Save trajectory scenarios mapping (for visualization sampling)
+    with open(output_dir / 'trajectory_scenarios.json', 'w') as f:
+        json.dump(results['trajectory_scenarios'], f, indent=2)
+    logger.info("💾 Saved trajectory-to-scenario mapping")
+    
+    # Create visualizations (use scenario_metrics for plotting)
+    create_visualizations(results['scenario_metrics'], output_dir)
     
     # Print summary
     print("\n" + "="*60)
@@ -874,22 +931,190 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
     print("="*60)
     print(f"\nDataset: {dataset}")
     print(f"OD Source: {od_source}")
-    print(f"Model: {generated_file.stem}")
-    print(f"\nTotal trajectories: {results['overview']['total_trajectories']}")
+    print(f"Model: {model_name}")
+    print(f"\nTotal trajectories: {results['scenario_metrics']['overview']['total_trajectories']}")
     print("\nScenario distribution:")
-    for tag, count in sorted(results['overview']['scenario_distribution'].items(), 
+    for tag, count in sorted(results['scenario_metrics']['overview']['scenario_distribution'].items(), 
                             key=lambda x: x[1], reverse=True)[:10]:
-        pct = (count / results['overview']['total_trajectories']) * 100
+        pct = (count / results['scenario_metrics']['overview']['total_trajectories']) * 100
         print(f"  {tag:<20} {count:>5} ({pct:>5.1f}%)")
     
-    if results['statistics'] and results['statistics']['significance_tests']:
+    if results['scenario_metrics']['statistics'] and results['scenario_metrics']['statistics'].get('significance_tests'):
         print("\nKey Metric Differences:")
-        for test_name, test_result in results['statistics']['significance_tests'].items():
+        for test_name, test_result in results['scenario_metrics']['statistics']['significance_tests'].items():
             if 'Distance_JSD' in test_name:  # Show only distance metric for brevity
                 print(f"  {test_result['group1']} vs {test_result['group2']}: "
                       f"{test_result['relative_difference']:.1f}% difference")
     
     logger.info(f"💾 Results saved to {output_dir}/")
+    return results
+
+
+def run_cross_model_scenario_analysis(eval_dir: Path, 
+                                       config_path: Path = None,
+                                       od_sources: List[str] = None):
+    """
+    Aggregate scenario analysis across all models.
+    Computes cross-model statistics for visualization.
+    
+    Args:
+        eval_dir: Evaluation directory containing scenarios/
+        config_path: Path to scenario config (optional, for metadata)
+        od_sources: List of OD sources to analyze (default: ['train', 'test'])
+    
+    Returns:
+        dict: Cross-model analysis results
+    """
+    if od_sources is None:
+        od_sources = ['train', 'test']
+    
+    eval_dir = Path(eval_dir)
+    scenarios_dir = eval_dir / 'scenarios'
+    
+    if not scenarios_dir.exists():
+        raise FileNotFoundError(f"No scenarios directory found in {eval_dir}")
+    
+    logger.info("🔄 Starting cross-model scenario analysis...")
+    
+    results = {
+        'dataset': None,
+        'models': [],
+        'od_sources': od_sources,
+        'analysis': {}
+    }
+    
+    for od_source in od_sources:
+        od_dir = scenarios_dir / od_source
+        if not od_dir.exists():
+            logger.warning(f"No {od_source} directory found, skipping")
+            continue
+        
+        logger.info(f"\n📊 Analyzing {od_source.upper()} OD source...")
+        
+        # Discover all models
+        models = [d.name for d in od_dir.iterdir() if d.is_dir() and not d.name.startswith('.')]
+        results['models'] = list(set(results['models'] + models))
+        logger.info(f"  Found models: {', '.join(models)}")
+        
+        od_analysis = {
+            'models_loaded': {},
+            'scenarios': {},
+            'multi_scenario_candidates': {}
+        }
+        
+        # Load each model's metadata
+        models_metadata = {}
+        for model in models:
+            metadata_file = od_dir / model / 'trajectory_metadata.json'
+            if metadata_file.exists():
+                with open(metadata_file) as f:
+                    models_metadata[model] = json.load(f)
+                logger.info(f"    Loaded {model}: {len(models_metadata[model]['trajectories'])} trajectories")
+        
+        if not models_metadata:
+            logger.warning(f"  No metadata files found for {od_source}, skipping")
+            continue
+        
+        # Get dataset from first model
+        if models_metadata and not results['dataset']:
+            results['dataset'] = list(models_metadata.values())[0]['dataset']
+        
+        # Build per-scenario OD pair mappings
+        scenario_od_pairs = {}  # {scenario: {(o,d): {model: [traj_indices]}}}
+        
+        for model, metadata in models_metadata.items():
+            od_analysis['models_loaded'][model] = {
+                'total_trajectories': len(metadata['trajectories']),
+                'scenarios': {}
+            }
+            
+            for traj in metadata['trajectories']:
+                od_pair = (traj['origin_road_id'], traj['destination_road_id'])
+                
+                for scenario_tag in traj['scenario_tags']:
+                    # Track for per-scenario analysis
+                    if scenario_tag not in scenario_od_pairs:
+                        scenario_od_pairs[scenario_tag] = {}
+                    if od_pair not in scenario_od_pairs[scenario_tag]:
+                        scenario_od_pairs[scenario_tag][od_pair] = {}
+                    if model not in scenario_od_pairs[scenario_tag][od_pair]:
+                        scenario_od_pairs[scenario_tag][od_pair][model] = []
+                    
+                    scenario_od_pairs[scenario_tag][od_pair][model].append(traj['index'])
+        
+        # Convert to final structure
+        logger.info(f"  Processing {len(scenario_od_pairs)} scenarios...")
+        for scenario, od_pairs in scenario_od_pairs.items():
+            od_analysis['scenarios'][scenario] = {
+                'models': list(models),
+                'od_pairs': {}
+            }
+            
+            for (origin, dest), model_data in od_pairs.items():
+                od_key = f"({origin}, {dest})"
+                od_analysis['scenarios'][scenario]['od_pairs'][od_key] = {
+                    'origin': origin,
+                    'destination': dest,
+                    'models_with_data': list(model_data.keys()),
+                    'trajectory_counts': {m: len(indices) for m, indices in model_data.items()}
+                }
+        
+        # Find multi-scenario candidates (OD pairs in 2+ scenarios)
+        od_pair_scenarios = {}  # {od_pair: [scenarios]}
+        for scenario, od_pairs in scenario_od_pairs.items():
+            for od_pair in od_pairs.keys():
+                if od_pair not in od_pair_scenarios:
+                    od_pair_scenarios[od_pair] = []
+                od_pair_scenarios[od_pair].append(scenario)
+        
+        multi_scenario_count = 0
+        for od_pair, scenarios in od_pair_scenarios.items():
+            if len(scenarios) >= 2:
+                origin, dest = od_pair
+                od_key = f"({origin}, {dest})"
+                
+                # Get all models that have this OD pair
+                models_with_od = set()
+                for scenario in scenarios:
+                    if od_pair in scenario_od_pairs[scenario]:
+                        models_with_od.update(scenario_od_pairs[scenario][od_pair].keys())
+                
+                od_analysis['multi_scenario_candidates'][od_key] = {
+                    'origin': origin,
+                    'destination': dest,
+                    'scenarios': scenarios,
+                    'models': list(models_with_od),
+                    'note': 'Route variation analysis requires loading generated trajectory data'
+                }
+                multi_scenario_count += 1
+        
+        logger.info(f"  Found {multi_scenario_count} OD pairs appearing in multiple scenarios")
+        
+        results['analysis'][od_source] = od_analysis
+    
+    # Save cross-model analysis
+    output_file = scenarios_dir / 'cross_model_analysis.json'
+    with open(output_file, 'w') as f:
+        json.dump(results, f, indent=2)
+    
+    logger.info(f"\n💾 Saved cross-model analysis to {output_file}")
+    logger.info("✅ Cross-model analysis complete!")
+    
+    # Print summary
+    print("\n" + "="*60)
+    print("CROSS-MODEL SCENARIO ANALYSIS SUMMARY")
+    print("="*60)
+    print(f"\nDataset: {results['dataset']}")
+    print(f"Models: {', '.join(results['models'])}")
+    print(f"OD Sources: {', '.join(results['od_sources'])}")
+    
+    for od_source, analysis in results['analysis'].items():
+        print(f"\n{od_source.upper()} OD:")
+        print(f"  Scenarios: {len(analysis['scenarios'])}")
+        print(f"  Multi-scenario candidates: {len(analysis['multi_scenario_candidates'])}")
+        for model, info in analysis['models_loaded'].items():
+            print(f"  {model}: {info['total_trajectories']} trajectories")
+    
     return results
 
 
@@ -926,14 +1151,30 @@ Examples:
     parser.add_argument('--output', type=str, help='Output directory (required with --generated)')
     
     # Common arguments
-    parser.add_argument('--config', type=str, required=True, help='Scenario config YAML')
+    parser.add_argument('--config', type=str, help='Scenario config YAML (required for individual model analysis)')
     parser.add_argument('--models', type=str, help='Comma-separated list of models to analyze (for --eval-dir)')
     parser.add_argument('--od-sources', type=str, default='train,test', help='OD sources to analyze')
+    parser.add_argument('--cross-model', action='store_true',
+                        help='Run cross-model aggregation analysis (requires existing model analyses in --eval-dir)')
     
     args = parser.parse_args()
     
-    if args.eval_dir:
+    if args.cross_model:
+        # Cross-model aggregation mode
+        if not args.eval_dir:
+            parser.error("--cross-model requires --eval-dir")
+        
+        run_cross_model_scenario_analysis(
+            eval_dir=Path(args.eval_dir),
+            config_path=Path(args.config) if args.config else None,
+            od_sources=args.od_sources.split(',')
+        )
+        
+    elif args.eval_dir:
         # Evaluation directory mode
+        if not args.config:
+            parser.error("--config is required for individual model analysis")
+        
         eval_dir = Path(args.eval_dir)
         if not eval_dir.exists():
             logger.error(f"Evaluation directory not found: {eval_dir}")
@@ -1012,7 +1253,6 @@ Examples:
             for gen_file in generated_files:
                 # Extract model name from filename
                 # Example: hoser_vanilla_testod_gene_20241024_123456.csv
-                parts = gen_file.stem.split('_')
                 if 'vanilla' in gen_file.name:
                     model_name = 'vanilla'
                 elif 'distilled' in gen_file.name:
@@ -1030,7 +1270,8 @@ Examples:
                         dataset=dataset,
                         od_source=od_source,
                         config_path=config_copy,
-                        output_dir=output_dir
+                        output_dir=output_dir,
+                        model_name=model_name
                     )
                 except Exception as e:
                     logger.error(f"Analysis failed for {model_name}: {e}")
