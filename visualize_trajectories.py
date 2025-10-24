@@ -1470,6 +1470,161 @@ class TrajectoryVisualizer:
             # Return all available
             return [pair for pair, _ in sorted_od_pairs]
     
+    def _track_od_pairs_for_multi_scenario(self, models_data: Dict, scenario: str, 
+                                           od_scenario_map: Dict):
+        """Track OD pairs and their trajectories across scenarios for multi-scenario plots"""
+        
+        # Find common OD pairs across all models in this scenario
+        od_indices = {}
+        for model_name, trajectories in models_data.items():
+            od_indices[model_name] = {}
+            for traj in trajectories:
+                if traj.road_ids and len(traj.road_ids) >= 2:
+                    origin = traj.road_ids[0]
+                    destination = traj.road_ids[-1]
+                    od_pair = (origin, destination)
+                    
+                    if od_pair not in od_indices[model_name]:
+                        od_indices[model_name][od_pair] = []
+                    od_indices[model_name][od_pair].append(traj)
+        
+        # Find OD pairs common to all models
+        if not od_indices:
+            return
+        
+        model_names = list(models_data.keys())
+        common_od_pairs = set(od_indices[model_names[0]].keys())
+        for model_name in model_names[1:]:
+            common_od_pairs &= set(od_indices[model_name].keys())
+        
+        # Store trajectories for each common OD pair in this scenario
+        for od_pair in common_od_pairs:
+            if od_pair not in od_scenario_map:
+                od_scenario_map[od_pair] = {}
+            
+            # Store one representative trajectory from each model for this OD pair
+            od_scenario_map[od_pair][scenario] = {
+                model_name: od_indices[model_name][od_pair][0]  # Take first trajectory
+                for model_name in model_names
+            }
+    
+    def _generate_multi_scenario_comparisons(self, od_scenario_map: Dict, od_type: str):
+        """Generate concatenated plots for OD pairs that appear in multiple scenarios"""
+        
+        # Find OD pairs that appear in 2+ scenarios
+        multi_scenario_pairs = {
+            od_pair: scenarios 
+            for od_pair, scenarios in od_scenario_map.items() 
+            if len(scenarios) >= 2
+        }
+        
+        if not multi_scenario_pairs:
+            logger.info(f"\n  ℹ️  No OD pairs found in multiple scenarios for {od_type} OD")
+            return
+        
+        logger.info(f"\n🔄 Generating multi-scenario comparisons for {len(multi_scenario_pairs)} OD pairs...")
+        
+        output_dir = self.config.output_dir / "scenario_cross_model" / od_type / "multi_scenario"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        for od_pair, scenarios_dict in multi_scenario_pairs.items():
+            origin, destination = od_pair
+            scenario_names = sorted(scenarios_dict.keys())
+            
+            logger.info(f"  🔄 Origin {origin} → Dest {destination}: {len(scenario_names)} scenarios")
+            
+            # Create multi-panel figure (one column per scenario)
+            n_scenarios = len(scenario_names)
+            fig_width = 6 * n_scenarios
+            fig_height = 6
+            
+            fig, axes = plt.subplots(1, n_scenarios, figsize=(fig_width, fig_height))
+            if n_scenarios == 1:
+                axes = [axes]
+            
+            # Plot each scenario in its own panel
+            for idx, scenario in enumerate(scenario_names):
+                ax = axes[idx]
+                models_trajs = scenarios_dict[scenario]
+                
+                # Plot all models on this axis
+                self._plot_multi_scenario_panel(
+                    ax, models_trajs, scenario, origin, destination
+                )
+            
+            # Overall title
+            fig.suptitle(
+                f"{od_type.upper()} OD: Origin {origin} → Destination {destination}\n"
+                f"Across {n_scenarios} Scenarios: {', '.join([s.replace('_', ' ').title() for s in scenario_names])}",
+                fontsize=14, fontweight='bold', y=0.98
+            )
+            
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            
+            # Save
+            output_path = output_dir / f"{od_type}_origin{origin}_dest{destination}_multi_scenario"
+            plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches='tight')
+            plt.savefig(f"{output_path}.png", dpi=self.config.dpi, bbox_inches='tight')
+            plt.close()
+            
+            logger.info(f"    ✅ Saved: {output_path}.{{pdf,png}}")
+    
+    def _plot_multi_scenario_panel(self, ax, models_trajs: Dict, scenario: str, 
+                                   origin: int, destination: int):
+        """Plot all models for one scenario on a subplot panel"""
+        
+        # Collect all coordinates for bounds
+        all_lons, all_lats = [], []
+        
+        # Plot each model's trajectory
+        for model_name in sorted(models_trajs.keys(), key=lambda x: (x != 'real', x)):
+            traj = models_trajs[model_name]
+            if not traj.coords:
+                continue
+            
+            lons = [c[0] for c in traj.coords]
+            lats = [c[1] for c in traj.coords]
+            
+            all_lons.extend(lons)
+            all_lats.extend(lats)
+            
+            # Get plot styling
+            color = self.comparison_plotter.model_colors.get(model_name, '#95a5a6')
+            linestyle = self.comparison_plotter.model_linestyles.get(model_name, '-')
+            label = self.comparison_plotter.model_labels.get(model_name, model_name)
+            linewidth = 2.5 if model_name == 'real' else 2
+            
+            # Plot trajectory
+            ax.plot(lons, lats,
+                   color=color,
+                   linestyle=linestyle,
+                   linewidth=linewidth,
+                   alpha=0.8,
+                   label=label,
+                   zorder=10 if model_name == 'real' else 5)
+            
+            # Mark start and end
+            ax.scatter(lons[0], lats[0], c=color, marker='o', s=100,
+                      zorder=15, edgecolors='white', linewidths=1.5)
+            ax.scatter(lons[-1], lats[-1], c=color, marker='s', s=100,
+                      zorder=15, edgecolors='white', linewidths=1.5)
+        
+        # Set bounds with margin
+        if all_lons and all_lats:
+            margin = self.config.margin
+            ax.set_xlim(min(all_lons) - margin, max(all_lons) + margin)
+            ax.set_ylim(min(all_lats) - margin, max(all_lats) + margin)
+        
+        # Styling
+        ax.set_title(scenario.replace('_', ' ').title(), fontsize=12, fontweight='bold', pad=10)
+        ax.set_xlabel('Longitude', fontsize=10)
+        ax.set_ylabel('Latitude', fontsize=10)
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+        ax.set_aspect('equal', adjustable='box')
+        
+        # Legend
+        ax.legend(fontsize=9, loc='best', framealpha=0.95, edgecolor='black', fancybox=False)
+    
     def _generate_scenario_cross_model_comparisons(self, gene_files: List[Dict]):
         """Generate cross-model comparisons per scenario (reuses OD matching logic)"""
         
@@ -1496,6 +1651,9 @@ class TrajectoryVisualizer:
             scenarios = list(self.scenario_results['overview']['scenario_distribution'].keys())
             logger.info(f"  Found {len(scenarios)} scenarios")
             
+            # Track OD pairs and their scenarios for multi-scenario plots
+            od_scenario_map = {}  # {(origin, dest): {scenario: models_data}}
+            
             # For each scenario: filter trajectories and call existing OD matching
             for scenario in scenarios:
                 logger.info(f"  📍 Scenario: {scenario}")
@@ -1516,8 +1674,16 @@ class TrajectoryVisualizer:
                     logger.warning(f"    Skipping {scenario} - not enough models with data")
                     continue
                 
+                # Track OD pairs in this scenario for multi-scenario plots
+                self._track_od_pairs_for_multi_scenario(
+                    scenario_models_data, scenario, od_scenario_map
+                )
+                
                 # Call existing cross-model logic with scenario parameter
                 self._plot_matching_od_pairs(scenario_models_data, od_type, scenario=scenario)
+            
+            # Generate multi-scenario comparison plots for OD pairs appearing in 2+ scenarios
+            self._generate_multi_scenario_comparisons(od_scenario_map, od_type)
 
 
 # =============================================================================
