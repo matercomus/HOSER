@@ -835,7 +835,8 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
     with open(output_dir / 'scenario_analysis.json', 'w') as f:
         json.dump(results, f, indent=2, default=str)
     
-    # Create visualizations
+    # Visualizations can be created using create_analysis_figures.py ScenarioVisualizer
+    # For backward compatibility, keep visualization code here
     create_visualizations(results, output_dir)
     
     # Print summary
