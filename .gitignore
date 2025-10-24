@@ -36,7 +36,9 @@ hoser-distill-optuna-6/figures/trajectories_with_real/
 hoser-distill-optuna-6/figures/trajectories/overlaid/
 hoser-distill-optuna-6/figures/trajectories/separate/
 hoser-distill-optuna-6/figures/trajectories/trajectories_representative/
-
+hoser-distill-optuna-6/figures/trajectories/scenario_cross_model/
+scenario_cross_model/
+hoser-distill-optuna-6/scenarios/
 # Temporary analysis files
 caoji-hoser-eval.py
 hoser-eval-caoji.ipynb
