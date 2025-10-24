@@ -152,6 +152,9 @@ class Searcher:
         # Pre-compute constants for timestamp operations
         self.timestamp_mean_tensor = torch.tensor(timestamp_label_array_log1p_mean, device=device)
         self.timestamp_std_tensor = torch.tensor(timestamp_label_array_log1p_std, device=device)
+        
+        # Performance profiling: detect CUDA for accurate timing (PyTorch best practice)
+        self.use_cuda = torch.cuda.is_available() and 'cuda' in str(device)
 
         # Setup road network features once (if model is available)
         if self.model is not None:
@@ -190,6 +193,17 @@ class Searcher:
         self.nx_graph = G
 
     def search(self, origin_road_id, origin_datetime, destination_road_id, max_search_step=5000):
+        import time
+        
+        # Performance profiling: track overall trajectory generation time
+        traj_start_time = time.perf_counter()
+        forward_count = 0
+        forward_time_total = 0.0
+        
+        # Sync CUDA before starting timing (PyTorch best practice)
+        if self.use_cuda:
+            torch.cuda.synchronize()
+        
         vis_set = set()
         pq = PriorityQueue()
         road_id2log_prob = dict()
@@ -269,8 +283,26 @@ class Searcher:
             batch_metric_angle = torch.from_numpy(metric_angle).unsqueeze(0).to(self.device)
 
             # Inference without autocast for single samples (autocast adds overhead)
+            # Performance profiling: time model forward pass with CUDA-aware timing
+            if self.use_cuda:
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+                start_event.record()
+            else:
+                forward_start = time.perf_counter()
+            
             with torch.no_grad():
                 logits, time_pred = self.model.infer(batch_trace_road_id, batch_temporal_info, batch_trace_distance_mat, batch_trace_time_interval_mat, batch_trace_len, batch_destination_road_id, batch_candidate_road_id, batch_metric_dis, batch_metric_angle)
+            
+            if self.use_cuda:
+                end_event.record()
+                torch.cuda.synchronize()
+                forward_time = start_event.elapsed_time(end_event) / 1000.0  # Convert ms to seconds
+            else:
+                forward_time = time.perf_counter() - forward_start
+            
+            forward_time_total += forward_time
+            forward_count += 1
 
             logits = logits[0]
             # Use log_softmax for numerical stability and efficiency
@@ -297,11 +329,35 @@ class Searcher:
 
             search_step += 1
 
+        # Performance profiling: finalize timing measurements
+        if self.use_cuda:
+            torch.cuda.synchronize()
+        total_time = time.perf_counter() - traj_start_time
+        
         assert best_trace is not None
-        return best_trace[0], best_trace[1]
+        
+        # Return trajectory and performance metrics
+        perf_metrics = {
+            'total_time': total_time,
+            'forward_time_total': forward_time_total,
+            'forward_count': forward_count,
+            'forward_time_avg': forward_time_total / max(1, forward_count)
+        }
+        return best_trace[0], best_trace[1], perf_metrics
 
     def beam_search(self, origin_road_id, origin_datetime, destination_road_id, beam_width=8, max_search_step=5000):
         """Beam search that processes multiple candidates in parallel for better GPU utilization"""
+        import time
+        
+        # Performance profiling: track overall trajectory generation time
+        traj_start_time = time.perf_counter()
+        forward_count = 0
+        forward_time_total = 0.0
+        
+        # Sync CUDA before starting timing (PyTorch best practice)
+        if self.use_cuda:
+            torch.cuda.synchronize()
+        
         vis_set = set()
         road_id2best = {}  # Maps road_id to best (log_prob, node) tuple
         
@@ -319,7 +375,18 @@ class Searcher:
             for node in beam:
                 cur_road_id = node.trace_road_id[-1]
                 if cur_road_id == destination_road_id:
-                    return node.trace_road_id, node.trace_datetime
+                    # Performance profiling: finalize timing for early exit
+                    if self.use_cuda:
+                        torch.cuda.synchronize()
+                    total_time = time.perf_counter() - traj_start_time
+                    perf_metrics = {
+                        'total_time': total_time,
+                        'forward_time_total': forward_time_total,
+                        'forward_count': forward_count,
+                        'forward_time_avg': forward_time_total / max(1, forward_count),
+                        'beam_width': beam_width
+                    }
+                    return node.trace_road_id, node.trace_datetime, perf_metrics
                 
                 # Update best trace based on distance
                 dis = haversine(self.road_center_gps[cur_road_id], self.road_center_gps[destination_road_id], unit='m')
@@ -349,6 +416,14 @@ class Searcher:
             batch_data = self._prepare_beam_batch_data(all_candidates, candidate_info, destination_road_id)
             
             # Single batched inference for all candidates
+            # Performance profiling: time model forward pass with CUDA-aware timing
+            if self.use_cuda:
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+                start_event.record()
+            else:
+                forward_start = time.perf_counter()
+            
             with torch.no_grad():
                 logits, time_pred = self.model.infer(
                     batch_data['trace_road_id'],
@@ -361,6 +436,16 @@ class Searcher:
                     batch_data['metric_dis'],
                     batch_data['metric_angle']
                 )
+            
+            if self.use_cuda:
+                end_event.record()
+                torch.cuda.synchronize()
+                forward_time = start_event.elapsed_time(end_event) / 1000.0  # Convert ms to seconds
+            else:
+                forward_time = time.perf_counter() - forward_start
+            
+            forward_time_total += forward_time
+            forward_count += 1
             
             # Process results and collect new candidates
             new_candidates = []
@@ -394,7 +479,23 @@ class Searcher:
             
             search_step += len(all_candidates)
         
-        return best_trace[0], best_trace[1] if best_trace else (None, None)
+        # Performance profiling: finalize timing measurements
+        if self.use_cuda:
+            torch.cuda.synchronize()
+        total_time = time.perf_counter() - traj_start_time
+        
+        perf_metrics = {
+            'total_time': total_time,
+            'forward_time_total': forward_time_total,
+            'forward_count': forward_count,
+            'forward_time_avg': forward_time_total / max(1, forward_count),
+            'beam_width': beam_width
+        }
+        
+        if best_trace:
+            return best_trace[0], best_trace[1], perf_metrics
+        else:
+            return None, None, perf_metrics
 
     def nx_astar_search(self, origin_road_id, origin_datetime, destination_road_id):
         """Use NetworkX A* to find path; use the model only to timestamp along the chosen path."""
