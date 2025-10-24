@@ -167,12 +167,16 @@ class TrajectoryGenerator:
     def __init__(self, config: PipelineConfig):
         self.config = config
     
-    def generate_trajectories(self, model_path: Path, model_type: str, od_source: str) -> Path:
-        """Generate trajectories for a specific model and OD source"""
+    def generate_trajectories(self, model_path: Path, model_type: str, od_source: str) -> tuple[Path, dict]:
+        """Generate trajectories for a specific model and OD source
+        
+        Returns:
+            Tuple of (output_path, performance_metrics)
+        """
         logger.info(f"Generating trajectories: {model_type} ({od_source} OD)")
         
-        # Use the programmatic interface
-        output_path = generate_trajectories_programmatic(
+        # Use the programmatic interface (returns dict with output_file, num_generated, performance)
+        result = generate_trajectories_programmatic(
             dataset=self.config.dataset,
             model_path=str(model_path),
             od_source=od_source,
@@ -187,8 +191,16 @@ class TrajectoryGenerator:
             wandb_tags=None
         )
         
+        output_path = Path(result['output_file'])
+        performance = result.get('performance', {})
+        
+        # Log performance summary
+        if performance:
+            logger.info(f"Generation performance: {performance.get('throughput_traj_per_sec', 0):.2f} traj/s, " + 
+                       f"mean time: {performance.get('total_time_mean', 0):.3f}s")
+        
         logger.info(f"Trajectories saved to: {output_path}")
-        return Path(output_path)
+        return output_path, performance
 
 
 class TrajectoryEvaluator:
@@ -198,18 +210,30 @@ class TrajectoryEvaluator:
         self.config = config
         self.evaluation_cache = {}  # Cache full evaluations by (file, od_source)
     
-    def evaluate_trajectories(self, generated_file: Path, model_type: str, od_source: str) -> Dict[str, Any]:
-        """Evaluate generated trajectories with caching"""
+    def evaluate_trajectories(self, generated_file: Path, model_type: str, od_source: str, 
+                             generation_performance: dict = None) -> Dict[str, Any]:
+        """Evaluate generated trajectories with caching and optional performance metrics
+        
+        Args:
+            generated_file: Path to generated trajectories
+            model_type: Model type identifier
+            od_source: OD source (train/test)
+            generation_performance: Optional performance metrics from generation
+        """
         cache_key = (str(generated_file), od_source)
         
         # Check if we've already evaluated this exact combination
         if cache_key in self.evaluation_cache:
             logger.info(f"Using cached evaluation results for {model_type} ({od_source} OD)")
-            return self.evaluation_cache[cache_key]
+            cached_results = self.evaluation_cache[cache_key]
+            # Update with new performance metrics if provided
+            if generation_performance:
+                cached_results['generation_performance'] = generation_performance
+            return cached_results
         
         logger.info(f"Evaluating trajectories: {model_type} ({od_source} OD)")
         
-        # Use the programmatic interface
+        # Use the programmatic interface with performance metrics
         results = evaluate_trajectories_programmatic(
             generated_file=str(generated_file),
             dataset=self.config.dataset,
@@ -219,7 +243,8 @@ class TrajectoryEvaluator:
             enable_wandb=False,  # We'll handle WandB separately
             wandb_project=None,
             wandb_run_name=None,
-            wandb_tags=None
+            wandb_tags=None,
+            generation_performance=generation_performance  # Pass performance metrics
         )
         
         # Cache the results
@@ -512,13 +537,15 @@ class EvaluationPipeline:
                         existing_file = self._check_existing_results(model_type, od_source)
                         
                         # Generation phase
+                        generation_performance = None  # Store performance metrics for evaluation
                         if not self.config.skip_gene:
                             try:
                                 if existing_file:
                                     generated_file = existing_file
+                                    generation_performance = None  # No metrics for existing files
                                     logger.info(f"Using existing generated file: {generated_file}")
                                 else:
-                                    generated_file = self.generator.generate_trajectories(
+                                    generated_file, generation_performance = self.generator.generate_trajectories(
                                         model_file, model_type, od_source
                                     )
                                 
@@ -536,10 +563,19 @@ class EvaluationPipeline:
                                     }
                                     
                                     self.wandb_manager.init_run(run_name, tags, config_dict)
-                                    self.wandb_manager.log_metrics(run_name, {
+                                    
+                                    # Log generation metrics including performance
+                                    log_data = {
                                         'num_trajectories_generated': self.config.num_gene,
                                         'output_file': str(generated_file)
-                                    })
+                                    }
+                                    if generation_performance:
+                                        # Add performance metrics with 'perf/' prefix
+                                        perf_log = {f"perf/{k}": v for k, v in generation_performance.items() 
+                                                   if isinstance(v, (int, float))}
+                                        log_data.update(perf_log)
+                                    
+                                    self.wandb_manager.log_metrics(run_name, log_data)
                                     self.wandb_manager.finish_run(run_name)
                                 
                             except Exception as e:
@@ -566,7 +602,7 @@ class EvaluationPipeline:
                         if not self.config.skip_eval:
                             try:
                                 eval_results = self.evaluator.evaluate_trajectories(
-                                    generated_file, model_type, od_source
+                                    generated_file, model_type, od_source, generation_performance
                                 )
                                 
                                 # Log to WandB
