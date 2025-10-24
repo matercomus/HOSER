@@ -534,7 +534,7 @@ class EvaluationPipeline:
     
     def _run_scenario_analysis(self):
         """Run scenario-based analysis on all generated trajectories"""
-        from tools.analyze_scenarios import run_scenario_analysis
+        from tools.analyze_scenarios import run_scenario_analysis, run_cross_model_scenario_analysis
         
         # Auto-detect scenarios config if not provided
         if not self.config.scenarios_config:
@@ -560,7 +560,8 @@ class EvaluationPipeline:
         # Output directory for scenarios
         scenarios_output = Path("./scenarios")
         
-        # Run analysis for each OD source
+        # Step 1: Run individual model analysis for each OD source
+        logger.info("\n🎯 Step 1: Analyzing individual models...")
         for od_source in self.config.od_sources:
             logger.info(f"Running scenario analysis for {od_source} OD...")
             
@@ -585,7 +586,8 @@ class EvaluationPipeline:
                         dataset=self.config.dataset,
                         od_source=od_source,
                         config_path=config_copy,
-                        output_dir=output_dir
+                        output_dir=output_dir,
+                        model_name=model_name
                     )
                     
                     logger.info(f"  ✅ Results saved to {output_dir}")
@@ -594,7 +596,21 @@ class EvaluationPipeline:
                 logger.error(f"Scenario analysis failed for {od_source} OD: {e}")
                 continue
         
-        logger.info(f"✅ Scenario analysis complete! Results in {scenarios_output}/")
+        # Step 2: Run cross-model aggregation analysis
+        logger.info("\n🔄 Step 2: Running cross-model scenario aggregation...")
+        try:
+            run_cross_model_scenario_analysis(
+                eval_dir=self.eval_dir,
+                config_path=config_copy,
+                od_sources=self.config.od_sources
+            )
+            logger.info("✅ Cross-model analysis complete")
+        except Exception as e:
+            logger.error(f"Cross-model analysis failed: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        logger.info(f"\n✅ Scenario analysis complete! Results in {scenarios_output}/")
     
     def _extract_model_from_filename(self, filename: str) -> str:
         """Extract model type from generated file name"""
