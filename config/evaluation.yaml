@@ -1,0 +1,38 @@
+# HOSER Evaluation Configuration Template
+# This file will be copied to evaluation directories and customized
+
+# Dataset configuration (will be updated by setup_evaluation.py)
+dataset: Beijing
+data_dir: ../data/Beijing
+
+# Generation settings
+num_gene: 5000
+beam_width: 4
+seed: 42
+cuda_device: 0
+od_sources:
+  - train
+  - test
+
+# Evaluation settings
+grid_size: 0.001
+edr_eps: 100.0
+
+# Pipeline control
+skip_gene: false
+skip_eval: false
+force: false
+
+# Scenario analysis (optional)
+run_scenarios: false
+scenarios_config: null  # Auto-detected if not specified
+
+# WandB configuration
+wandb:
+  enable: true
+  project: hoser-evaluation  # Will be updated by setup_evaluation.py
+  background_sync: true      # Upload runs in background after completion
+
+# Logging
+logging:
+  verbose: false

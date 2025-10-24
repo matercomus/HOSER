@@ -1,0 +1,65 @@
+# Dataset-specific scenario definitions for Beijing
+dataset: Beijing
+
+# Temporal scenarios
+temporal:
+  peak_hours:
+    enabled: true
+    weekday_morning: ["07:00", "09:00"]  # Beijing morning rush
+    weekday_evening: ["17:00", "19:00"]  # Beijing evening rush
+    weekend_peak: null  # No peak on weekends
+  
+  weekend:
+    enabled: true
+    # Saturday=5, Sunday=6 in Python weekday()
+
+# Spatial scenarios
+spatial:
+  city_center:
+    enabled: true
+    method: "coordinates"
+    center_lat: 39.9042  # Beijing Tiananmen Square
+    center_lon: 116.4074
+    radius_km: 5.0
+    
+  airport:
+    enabled: true
+    method: "hybrid"  # Try coordinates first, fallback to road_ids
+    airports:
+      - name: "Beijing Capital International Airport"
+        lat: 40.0799
+        lon: 116.6031
+        radius_km: 2.0
+      - name: "Beijing Daxing International Airport"
+        lat: 39.5094
+        lon: 116.4104
+        radius_km: 2.0
+    fallback_road_ids: []  # Can be populated with known airport road IDs
+
+# Functional trip types (derived from spatial)
+trip_types:
+  enabled: true
+  categories:
+    - to_airport
+    - from_airport
+    - to_center
+    - from_center
+    - within_center
+    - suburban
+
+# Analysis settings
+analysis:
+  min_samples_per_scenario: 10  # Skip scenarios with <10 samples
+  
+  # Reporting configuration
+  reporting:
+    individual_scenarios: true    # Report peak, weekday, airport individually
+    combinations: true            # Report peak+weekday+airport combos
+    hierarchical: true           # Break down airport → airport+peak vs airport+off_peak
+  
+  # Statistical analysis
+  statistics:
+    enabled: true
+    significance_tests: true      # Test if scenarios have different performance
+    control_confounding: true     # Attempt to isolate effects
+    confidence_level: 0.95

@@ -8,7 +8,6 @@ Usage:
     uv run python setup_evaluation.py [--dataset DATASET] [--name NAME] [--dry-run]
 """
 
-import os
 import sys
 import shutil
 import argparse
@@ -131,39 +130,77 @@ class EvaluationSetup:
         print()
     
     def create_config(self):
-        """Create config file"""
-        print(f"⚙️  Creating config...\n")
+        """Create config files"""
+        print("⚙️  Creating config...\n")
         
-        # Load from template or create default
-        template = Path("hoser-distill-optuna-6/config/evaluation.yaml")
+        # Look for evaluation template in main config directory
+        eval_template = Path("config/evaluation.yaml")
         
-        if template.exists():
-            with open(template) as f:
+        if eval_template.exists():
+            # Load template and copy it
+            with open(eval_template) as f:
                 config = yaml.safe_load(f)
+            
+            # Update dataset-specific fields
+            config['dataset'] = self.dataset
+            config['data_dir'] = f'../data/{self.dataset}'
+            
+            # Update wandb project if specified
+            if 'wandb' in config and isinstance(config['wandb'], dict):
+                config['wandb']['project'] = f'hoser-{self.name}'
+            
+            target = self.config_dir / "evaluation.yaml"
+            
+            if self.dry_run:
+                print(f"  [dry-run] {target} (from template)")
+            else:
+                with open(target, 'w') as f:
+                    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+                print(f"  ✅ {target.relative_to(self.eval_dir)} (from config/evaluation.yaml)")
+                print(f"     Dataset: {self.dataset}")
         else:
+            # Create default config if no template exists
+            print(f"  ⚠️  No template found at {eval_template}, creating default config")
+            
             config = {
                 'dataset': self.dataset,
+                'data_dir': f'../data/{self.dataset}',
                 'num_gene': 5000,
                 'beam_width': 4,
                 'seed': 42,
                 'cuda_device': 0,
                 'od_sources': ['train', 'test'],
-                'wandb': {'enable': True, 'project': f'hoser-{self.name}'},
+                'wandb': {
+                    'enable': True, 
+                    'project': f'hoser-{self.name}',
+                    'background_sync': True
+                },
+                'logging': {
+                    'verbose': False
+                }
             }
+            
+            target = self.config_dir / "evaluation.yaml"
+            
+            if self.dry_run:
+                print(f"  [dry-run] {target} (default)")
+            else:
+                with open(target, 'w') as f:
+                    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+                print(f"  ✅ {target.relative_to(self.eval_dir)} (default config)")
+                print(f"     Dataset: {self.dataset}")
         
-        # Update dataset
-        config['dataset'] = self.dataset
-        config['data_dir'] = f'../data/{self.dataset}'
-        
-        target = self.config_dir / "evaluation.yaml"
-        
-        if self.dry_run:
-            print(f"  [dry-run] {target}")
+        # NEW: Copy scenarios config template if available
+        scenarios_template = Path(f"config/scenarios_{self.dataset.lower()}.yaml")
+        if scenarios_template.exists():
+            target = self.config_dir / scenarios_template.name
+            if self.dry_run:
+                print(f"  [dry-run] {target}")
+            else:
+                shutil.copy2(scenarios_template, target)
+                print(f"  ✅ {target.relative_to(self.eval_dir)} (scenarios)")
         else:
-            with open(target, 'w') as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-            print(f"  ✅ {target.relative_to(self.eval_dir)}")
-            print(f"     Dataset: {self.dataset}")
+            print(f"  ℹ️  No scenarios config found (optional): {scenarios_template}")
         
         print()
     
@@ -179,14 +216,21 @@ class EvaluationSetup:
 
 ```bash
 cd {self.eval_dir.name}
-uv run python ../hoser-distill-optuna-6/python_pipeline.py
+uv run python ../python_pipeline.py
 ```
 
 ## Test Run
 
 ```bash
 cd {self.eval_dir.name}
-uv run python ../hoser-distill-optuna-6/python_pipeline.py --num-gene 10
+uv run python ../python_pipeline.py --num-gene 10
+```
+
+## With Scenario Analysis
+
+```bash
+cd {self.eval_dir.name}
+uv run python ../python_pipeline.py --run-scenarios
 ```
 
 ## Configuration
@@ -198,15 +242,16 @@ CLI arguments override config values.
 
 - `gene/{self.dataset}/seed42/` - Generated trajectories
 - `eval/` - Evaluation results
+- `scenarios/` - Scenario-based analysis (if enabled)
 """
         
         target = self.eval_dir / "README.md"
         
         if self.dry_run:
-            print(f"📝 [dry-run] README.md\n")
+            print("📝 [dry-run] README.md\n")
         else:
             target.write_text(content)
-            print(f"📝 Created README.md\n")
+            print("📝 Created README.md\n")
     
     def print_summary(self):
         """Print completion summary"""
@@ -217,10 +262,10 @@ CLI arguments override config values.
         print()
         print("Next steps:")
         print(f"  cd {self.eval_dir}")
-        print(f"  uv run python ../hoser-distill-optuna-6/python_pipeline.py")
+        print("  uv run python ../python_pipeline.py")
         print()
         print("Quick test:")
-        print(f"  cd {self.eval_dir} && uv run python ../hoser-distill-optuna-6/python_pipeline.py --num-gene 10")
+        print(f"  cd {self.eval_dir} && uv run python ../python_pipeline.py --num-gene 10")
         print("=" * 60)
     
     def run(self):

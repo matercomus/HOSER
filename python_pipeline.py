@@ -1,25 +1,34 @@
 #!/usr/bin/env python3
 """
-Bulletproof Python Pipeline for HOSER Distillation Evaluation
+Bulletproof Python Pipeline for HOSER Evaluation
 
-This script imports gene.py and evaluation.py directly to avoid CLI overhead
-and WandB upload delays. Designed for thesis-critical evaluation runs.
+This script imports gene.py and evaluation.py directly to orchestrate
+trajectory generation and evaluation. Designed to work with evaluation
+directories created by setup_evaluation.py.
 
 Usage:
-    python python_pipeline.py [OPTIONS]
+    # From inside an evaluation directory created by setup_evaluation.py:
+    cd hoser-evaluation-xyz-20241024_123456
+    uv run python ../python_pipeline.py [OPTIONS]
+    
+    # Or with explicit paths:
+    uv run python python_pipeline.py --eval-dir path/to/eval/dir [OPTIONS]
 
 Options:
-    --seed SEED              Random seed (default: 42)
+    --eval-dir DIR           Evaluation directory (default: current directory)
+    --seed SEED              Random seed (default: from config)
     --models MODEL1,MODEL2   Models to run (default: auto-detect all)
-    --od-source SOURCE      OD source: train or test (default: train,test)
+    --od-source SOURCE      OD source: train or test (default: from config)
     --skip-gene             Skip generation (use existing trajectories)
     --skip-eval             Skip evaluation
     --force                 Force re-run even if results exist
-    --cuda DEVICE           CUDA device (default: 0)
-    --num-gene N            Number of trajectories (default: 100)
-    --wandb-project PROJECT WandB project name (default: hoser-distill-optuna-6)
+    --cuda DEVICE           CUDA device (default: from config)
+    --num-gene N            Number of trajectories (default: from config)
+    --wandb-project PROJECT WandB project name (default: from config)
     --no-wandb              Disable WandB logging entirely
     --verbose               Enable verbose output
+    --run-scenarios         Run scenario analysis after evaluation
+    --scenarios-config PATH Path to scenarios config YAML
 """
 
 import os
@@ -31,8 +40,20 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 import logging
 
-# Add project root to path for imports
-PROJECT_ROOT = Path(__file__).parent.parent
+# Detect if we're running from inside an eval directory or from project root
+SCRIPT_DIR = Path(__file__).parent
+CURRENT_DIR = Path.cwd()
+
+# Add appropriate paths for imports based on location
+if (CURRENT_DIR / "models").exists() and (CURRENT_DIR / "config").exists():
+    # Running from inside an evaluation directory
+    EVAL_DIR = CURRENT_DIR
+    PROJECT_ROOT = SCRIPT_DIR  # python_pipeline.py is in project root
+else:
+    # Running from project root or elsewhere
+    EVAL_DIR = None  # Will be set from args
+    PROJECT_ROOT = SCRIPT_DIR
+
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import the programmatic interfaces
@@ -58,9 +79,12 @@ logger = logging.getLogger(__name__)
 class PipelineConfig:
     """Configuration for the evaluation pipeline"""
     
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: str = None, eval_dir: Path = None):
+        # Store evaluation directory
+        self.eval_dir = eval_dir
+        
         # Default values
-        self.wandb_project = "hoser-distill-optuna-6"
+        self.wandb_project = "hoser-evaluation"
         self.dataset = "Beijing"
         self.cuda_device = 0
         self.num_gene = 100
@@ -76,6 +100,8 @@ class PipelineConfig:
         self.grid_size = 0.001
         self.edr_eps = 100.0
         self.background_sync = True  # Background WandB sync
+        self.run_scenarios = False  # NEW: Run scenario analysis after eval
+        self.scenarios_config = None  # NEW: Path to scenarios config
         
         # Load from YAML if provided
         if config_path:
@@ -375,14 +401,19 @@ class WandBManager:
 class EvaluationPipeline:
     """Main evaluation pipeline"""
     
-    def __init__(self, config: PipelineConfig):
+    def __init__(self, config: PipelineConfig, eval_dir: Path):
         self.config = config
-        self.models_dir = Path("./models")
+        self.eval_dir = eval_dir
+        self.models_dir = self.eval_dir / "models"
         self.detector = ModelDetector(self.models_dir)
         self.generator = TrajectoryGenerator(config)
         self.evaluator = TrajectoryEvaluator(config)
         self.wandb_manager = WandBManager(config)
         self.interrupted = False
+        
+        # Change to eval directory for all operations
+        os.chdir(self.eval_dir)
+        logger.info(f"Working directory: {self.eval_dir}")
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -412,8 +443,17 @@ class EvaluationPipeline:
         if not self.models_dir.exists():
             raise FileNotFoundError(f"Models directory not found: {self.models_dir}")
         
-        # Check data directory (handle symlink)
-        data_dir = Path(f'../data/{self.config.dataset}')
+        # Check data directory
+        # First check if data_dir is specified in config as absolute path
+        if hasattr(self.config, 'data_dir') and self.config.data_dir:
+            data_dir = Path(self.config.data_dir)
+            if not data_dir.is_absolute():
+                # Relative to eval dir
+                data_dir = self.eval_dir / data_dir
+        else:
+            # Default: ../data/{dataset} from eval dir
+            data_dir = self.eval_dir.parent / 'data' / self.config.dataset
+        
         if not data_dir.exists():
             raise FileNotFoundError(f"Data directory not found: {data_dir}")
         
@@ -428,10 +468,8 @@ class EvaluationPipeline:
             if not file_path.exists():
                 raise FileNotFoundError(f"Required data file not found: {file_path}")
         
-        # Check config file
-        config_file = Path(f'../config/{self.config.dataset}.yaml')
-        if not config_file.exists():
-            raise FileNotFoundError(f"Config file not found: {config_file}")
+        # Check dataset config file (not required, just for validation)
+        # Config is in the eval directory itself
         
         # Validate CUDA device
         if torch.cuda.is_available():
@@ -493,6 +531,81 @@ class EvaluationPipeline:
             raise
         else:
             logger.warning("Non-critical error encountered, continuing with next operation")
+    
+    def _run_scenario_analysis(self):
+        """Run scenario-based analysis on all generated trajectories"""
+        from tools.analyze_scenarios import run_scenario_analysis
+        
+        # Auto-detect scenarios config if not provided
+        if not self.config.scenarios_config:
+            # Try config/scenarios_{dataset}.yaml first
+            scenarios_config = Path(f"./config/scenarios_{self.config.dataset.lower()}.yaml")
+            if not scenarios_config.exists():
+                # Fallback to config/scenarios.yaml
+                scenarios_config = Path("./config/scenarios.yaml")
+            
+            if not scenarios_config.exists():
+                logger.warning("No scenarios config found, skipping scenario analysis")
+                return
+        else:
+            scenarios_config = Path(self.config.scenarios_config)
+        
+        # Copy config to eval directory for reproducibility
+        config_copy = Path("./config") / scenarios_config.name
+        config_copy.parent.mkdir(exist_ok=True)
+        import shutil
+        shutil.copy(scenarios_config, config_copy)
+        logger.info(f"Copied scenarios config to {config_copy}")
+        
+        # Output directory for scenarios
+        scenarios_output = Path("./scenarios")
+        
+        # Run analysis for each OD source
+        for od_source in self.config.od_sources:
+            logger.info(f"Running scenario analysis for {od_source} OD...")
+            
+            try:
+                # Find generated files for this OD source
+                gene_dir = Path(f'./gene/{self.config.dataset}/seed{self.config.seed}')
+                generated_files = list(gene_dir.glob(f'*{od_source}od*.csv'))
+                
+                if not generated_files:
+                    logger.warning(f"No generated files found for {od_source} OD")
+                    continue
+                
+                # Run analysis on each generated file (one per model)
+                for gen_file in generated_files:
+                    model_name = self._extract_model_from_filename(gen_file.name)
+                    output_dir = scenarios_output / od_source / model_name
+                    
+                    logger.info(f"  Analyzing {model_name} ({od_source} OD)...")
+                    
+                    run_scenario_analysis(
+                        generated_file=gen_file,
+                        dataset=self.config.dataset,
+                        od_source=od_source,
+                        config_path=config_copy,
+                        output_dir=output_dir
+                    )
+                    
+                    logger.info(f"  ✅ Results saved to {output_dir}")
+            
+            except Exception as e:
+                logger.error(f"Scenario analysis failed for {od_source} OD: {e}")
+                continue
+        
+        logger.info(f"✅ Scenario analysis complete! Results in {scenarios_output}/")
+    
+    def _extract_model_from_filename(self, filename: str) -> str:
+        """Extract model type from generated file name"""
+        # Example: hoser_vanilla_testod_gene_20241024_123456.csv -> vanilla
+        parts = filename.split('_')
+        if 'vanilla' in filename:
+            return 'vanilla'
+        elif 'distilled' in filename:
+            return 'distilled'
+        else:
+            return 'unknown'
     
     def run(self):
         """Run the complete evaluation pipeline"""
@@ -657,6 +770,15 @@ class EvaluationPipeline:
                 for failure in failed_operations:
                     logger.warning(f"  - {failure}")
             
+            # NEW: Optional scenario analysis
+            if self.config.run_scenarios:
+                logger.info("Starting scenario analysis...")
+                try:
+                    self._run_scenario_analysis()
+                except Exception as e:
+                    logger.error(f"Scenario analysis failed: {e}")
+                    # Don't fail entire pipeline if scenarios fail
+            
             # Return success status
             return len(failed_operations) == 0
             
@@ -678,8 +800,9 @@ class EvaluationPipeline:
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description="HOSER Distillation Evaluation Pipeline")
-    parser.add_argument('--config', type=str, default='config/evaluation.yaml', help='Path to YAML configuration file')
+    parser = argparse.ArgumentParser(description="HOSER Evaluation Pipeline")
+    parser.add_argument('--eval-dir', type=str, help='Evaluation directory (default: current directory)')
+    parser.add_argument('--config', type=str, help='Path to YAML configuration file (default: config/evaluation.yaml in eval dir)')
     parser.add_argument('--seed', type=int, help='Random seed (overrides config)')
     parser.add_argument('--models', type=str, help='Comma-separated list of models to run (overrides config)')
     parser.add_argument('--od-source', type=str, help='OD sources: train,test (overrides config)')
@@ -691,6 +814,8 @@ def main():
     parser.add_argument('--wandb-project', type=str, help='WandB project (overrides config)')
     parser.add_argument('--no-wandb', action='store_true', help='Disable WandB logging (overrides config)')
     parser.add_argument('--verbose', action='store_true', help='Verbose output (overrides config)')
+    parser.add_argument('--run-scenarios', action='store_true', help='Run scenario analysis after evaluation (optional)')
+    parser.add_argument('--scenarios-config', type=str, help='Path to scenarios config YAML (default: auto-detect from config/)')
     
     args = parser.parse_args()
     
@@ -698,8 +823,30 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
+    # Determine evaluation directory
+    if args.eval_dir:
+        eval_dir = Path(args.eval_dir).resolve()
+    else:
+        # Use current directory if it looks like an eval dir
+        current_dir = Path.cwd()
+        if (current_dir / "models").exists() and (current_dir / "config").exists():
+            eval_dir = current_dir
+        else:
+            parser.error("No --eval-dir specified and current directory doesn't appear to be an evaluation directory")
+    
+    if not eval_dir.exists():
+        parser.error(f"Evaluation directory not found: {eval_dir}")
+    
+    # Determine config path
+    if args.config:
+        config_path = args.config
+    else:
+        config_path = eval_dir / "config" / "evaluation.yaml"
+        if not config_path.exists():
+            parser.error(f"Config file not found: {config_path}")
+    
     # Create configuration from YAML file
-    config = PipelineConfig(args.config)
+    config = PipelineConfig(str(config_path), eval_dir)
     
     # Override with command line arguments if provided
     if args.seed is not None:
@@ -724,10 +871,14 @@ def main():
         config.enable_wandb = False
     if args.verbose:
         config.verbose = True
+    if args.run_scenarios:
+        config.run_scenarios = True
+    if args.scenarios_config:
+        config.scenarios_config = args.scenarios_config
     
     # Run pipeline
     try:
-        pipeline = EvaluationPipeline(config)
+        pipeline = EvaluationPipeline(config, eval_dir)
         success = pipeline.run()
         
         if success:

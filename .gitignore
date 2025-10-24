@@ -42,3 +42,6 @@ caoji-hoser-eval.py
 hoser-eval-caoji.ipynb
 map_manager.py
 *heatmap*.ipynb
+
+# Backup files
+backup_*.tar.gz
