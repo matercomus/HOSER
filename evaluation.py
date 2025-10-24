@@ -941,9 +941,10 @@ def evaluate_trajectories_programmatic(
     wandb_project: str = None,
     wandb_run_name: str = None,
     wandb_tags: list = None,
+    generation_performance: dict = None,
 ) -> dict:
     """
-    Programmatic interface for trajectory evaluation.
+    Programmatic interface for trajectory evaluation with optional performance metrics.
 
     Args:
         generated_file: Path to generated trajectory CSV file
@@ -955,9 +956,10 @@ def evaluate_trajectories_programmatic(
         wandb_project: WandB project name
         wandb_run_name: WandB run name
         wandb_tags: WandB tags
+        generation_performance: Optional dict with generation timing metrics from gene.py
 
     Returns:
-        Dictionary containing evaluation results
+        Dictionary containing evaluation results including optional performance metrics
     """
     from datetime import datetime
     import os
@@ -1006,6 +1008,10 @@ def evaluate_trajectories_programmatic(
 
     # Combine and display results
     all_results = {**global_metrics, **local_metrics}
+    
+    # Add generation performance metrics if provided
+    if generation_performance:
+        all_results['generation_performance'] = generation_performance
 
     # Add metadata about the evaluation
     all_results["metadata"] = {
@@ -1022,10 +1028,28 @@ def evaluate_trajectories_programmatic(
 
     print("\n--- Evaluation Results ---")
     for metric, value in all_results.items():
-        if metric != "metadata" and isinstance(value, float):
+        if metric not in ["metadata", "generation_performance"] and isinstance(value, float):
             print(f"{metric:<20} {value:.4f}")
-        elif metric != "metadata":
+        elif metric not in ["metadata", "generation_performance"]:
             print(f"{metric:<20} {value}")
+    
+    # Display generation performance metrics
+    if generation_performance:
+        print("\n--- Generation Performance ---")
+        perf = generation_performance
+        print(f"{'Throughput':<25} {perf.get('throughput_traj_per_sec', 0):.2f} traj/s")
+        print(f"{'Mean time/trajectory':<25} {perf.get('total_time_mean', 0):.3f}s")
+        print(f"{'Min time':<25} {perf.get('total_time_min', 0):.3f}s")
+        print(f"{'Max time':<25} {perf.get('total_time_max', 0):.3f}s")
+        print(f"{'Std dev':<25} {perf.get('total_time_std', 0):.3f}s")
+        print(f"{'Median time':<25} {perf.get('total_time_median', 0):.3f}s")
+        print(f"{'95th percentile':<25} {perf.get('total_time_p95', 0):.3f}s")
+        print(f"{'Forward passes/traj':<25} {perf.get('forward_count_mean', 0):.1f}")
+        print(f"{'Forward time/step':<25} {perf.get('forward_time_per_step_mean', 0)*1000:.1f}ms")
+        print(f"{'Beam width':<25} {perf.get('beam_width', 1)}")
+        print(f"{'Device':<25} {perf.get('device', 'unknown')}")
+        print(f"{'Total generation time':<25} {perf.get('total_generation_time', 0):.1f}s")
+    
     print("--------------------------\n")
 
     # Save results
@@ -1068,8 +1092,15 @@ def evaluate_trajectories_programmatic(
         log_payload = {
             k: v
             for k, v in all_results.items()
-            if k != "metadata" and isinstance(v, float)
+            if k not in ["metadata", "generation_performance"] and isinstance(v, float)
         }
+        
+        # Add generation performance metrics to WandB
+        if generation_performance:
+            perf_log = {f"generation/{k}": v for k, v in generation_performance.items() 
+                        if isinstance(v, (int, float))}
+            log_payload.update(perf_log)
+        
         wandb.log(log_payload)
 
         # Save the results file as an artifact
