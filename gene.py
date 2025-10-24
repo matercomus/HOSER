@@ -1282,9 +1282,9 @@ def generate_trajectories_programmatic(
     wandb_project: str = None,
     wandb_run_name: str = None,
     wandb_tags: list = None
-) -> str:
+) -> dict:
     """
-    Programmatic interface for trajectory generation.
+    Programmatic interface for trajectory generation with performance profiling.
     
     Args:
         dataset: Dataset name (e.g., 'Beijing')
@@ -1301,7 +1301,10 @@ def generate_trajectories_programmatic(
         wandb_tags: WandB tags
     
     Returns:
-        Path to generated CSV file
+        Dict with keys:
+        - 'output_file': Path to generated CSV
+        - 'num_generated': Number of trajectories generated
+        - 'performance': Dict with timing statistics (mean/std/min/max/p95, forward pass metrics, throughput)
     """
     from datetime import datetime
     import os
@@ -1438,6 +1441,7 @@ def generate_trajectories_programmatic(
 
     gene_trace_road_id = [None] * num_gene
     gene_trace_datetime = [None] * num_gene
+    timing_stats = []  # NEW: Collect performance metrics per trajectory
 
     print(f"🧬 Starting trajectory generation for {num_gene} trajectories...")
     
@@ -1464,16 +1468,18 @@ def generate_trajectories_programmatic(
         print(f"🔍 Using beam search with width {beam_width}")
         for i, ((origin_road_id, destination_road_id), origin_datetime) in enumerate(
                 tqdm(zip(od_coords, origin_datetime_list), total=len(od_coords), desc='Generating trajectories')):
-            trace_road_id, trace_datetime = searcher.beam_search(origin_road_id, origin_datetime, destination_road_id, beam_width=beam_width)
+            trace_road_id, trace_datetime, perf_metrics = searcher.beam_search(origin_road_id, origin_datetime, destination_road_id, beam_width=beam_width)
             gene_trace_road_id[i] = trace_road_id
             gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
+            timing_stats.append(perf_metrics)  # NEW: Store performance metrics
     else:
         print("🔍 Using standard A* search")
         for i, ((origin_road_id, destination_road_id), origin_datetime) in enumerate(
                 tqdm(zip(od_coords, origin_datetime_list), total=len(od_coords), desc='Generating trajectories')):
-            trace_road_id, trace_datetime = searcher.search(origin_road_id, origin_datetime, destination_road_id)
+            trace_road_id, trace_datetime, perf_metrics = searcher.search(origin_road_id, origin_datetime, destination_road_id)
             gene_trace_road_id[i] = trace_road_id
             gene_trace_datetime[i] = [t.strftime('%Y-%m-%dT%H:%M:%SZ') for t in trace_datetime]
+            timing_stats.append(perf_metrics)  # NEW: Store performance metrics
 
     # Prepare provenance columns for comparison with real trips
     origin_road_ids = [od[0] for od in od_coords]
@@ -1499,17 +1505,70 @@ def generate_trajectories_programmatic(
     res_df.write_csv(output_path)
     print(f"🎉 Trajectory generation complete. Saved to {output_path}")
     
+    # Calculate aggregate performance statistics
+    if timing_stats:
+        total_times = [t['total_time'] for t in timing_stats]
+        forward_times = [t['forward_time_total'] for t in timing_stats]
+        forward_counts = [t['forward_count'] for t in timing_stats]
+        
+        performance_metrics = {
+            # Per-trajectory statistics
+            'total_time_mean': float(np.mean(total_times)),
+            'total_time_std': float(np.std(total_times)),
+            'total_time_min': float(np.min(total_times)),
+            'total_time_max': float(np.max(total_times)),
+            'total_time_median': float(np.median(total_times)),
+            'total_time_p95': float(np.percentile(total_times, 95)),
+            
+            # Forward pass statistics
+            'forward_time_mean': float(np.mean(forward_times)),
+            'forward_time_std': float(np.std(forward_times)),
+            'forward_count_mean': float(np.mean(forward_counts)),
+            'forward_count_std': float(np.std(forward_counts)),
+            
+            # Throughput
+            'total_generation_time': float(np.sum(total_times)),
+            'throughput_traj_per_sec': len(total_times) / float(np.sum(total_times)),
+            'num_trajectories': len(total_times),
+            
+            # Model forward pass efficiency
+            'forward_time_per_step_mean': float(np.mean([t['forward_time_avg'] for t in timing_stats])),
+            
+            # Configuration
+            'beam_search_enabled': beam_search,
+            'beam_width': beam_width if beam_search else 1,
+            'device': device
+        }
+    else:
+        performance_metrics = {}
+    
     # Log to wandb if enabled
     if enable_wandb:
-        wandb.log({
+        wandb_log = {
             'num_trajectories_generated': len(res_df),
             'output_file': output_path,
-        })
+        }
+        
+        # Add performance metrics to WandB
+        if performance_metrics:
+            wandb_log.update({
+                'perf/total_time_mean': performance_metrics['total_time_mean'],
+                'perf/total_time_std': performance_metrics['total_time_std'],
+                'perf/throughput': performance_metrics['throughput_traj_per_sec'],
+                'perf/forward_time_mean': performance_metrics['forward_time_mean'],
+                'perf/forward_count_mean': performance_metrics['forward_count_mean']
+            })
+        
+        wandb.log(wandb_log)
         wandb.save(output_path, base_path='./')
         print(f"📊 Results logged to WandB")
         wandb.finish()
     
-    return output_path
+    return {
+        'output_file': output_path,
+        'num_generated': len(res_df),
+        'performance': performance_metrics
+    }
 
 
 if __name__ == '__main__':
