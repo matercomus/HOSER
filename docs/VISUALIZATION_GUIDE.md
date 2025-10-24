@@ -111,62 +111,60 @@ uv run python create_distribution_plots.py --eval-dir hoser-distill-optuna-6 --v
 ## 3. Scenario-Based Cross-Model Comparisons
 
 ### Overview
-The scenario cross-model mode compares all models (vanilla, distilled, distilled_seed44, real) across different scenario types to show how model performance varies by scenario characteristics (peak/off-peak, weekday/weekend, city center, etc.).
+The scenario cross-model mode **filters trajectories by scenario**, then uses the same OD-matching logic as regular cross-model comparisons. This ensures fair comparisons where all models are evaluated on the **same routes** within each scenario context (peak/off-peak, weekday/weekend, city center, etc.).
 
 ### Features
-- Individual comparison plots per scenario (e.g., one plot for "peak_hour" comparing all models)
-- Multi-panel grid showing all scenarios in one visualization
-- Enhanced legends showing which scenarios each trajectory belongs to (since scenarios are not disjoint)
-- Representative trajectory sampling (median length) per model per scenario
-- Automatic filtering of scenarios with insufficient data
+- **OD-matched comparisons within scenarios**: Only compares trajectories with matching origin-destination pairs
+- **Multiple plots per scenario**: Generates one plot for each common OD pair found within the scenario
+- **Fair route comparisons**: All models navigate the same route in the same scenario conditions
+- **No arbitrary filtering**: Processes all scenarios regardless of trajectory count
+- **Reuses proven logic**: Same plot style and OD-matching as regular cross-model mode
 
 ### Usage
 
 ```bash
-# Generate scenario-based cross-model comparisons
+# Generate scenario-based cross-model comparisons (OD-matched within scenarios)
 uv run python visualize_trajectories.py \
     --eval-dir hoser-distill-optuna-6 \
     --scenario_cross_model
 
-# Only individual plots (skip grid)
+# Combine with other modes (skip overlaid/separate, only do scenario cross-model)
 uv run python visualize_trajectories.py \
     --eval-dir hoser-distill-optuna-6 \
     --scenario_cross_model \
-    --no_scenario_grid
-
-# Only grid (skip individual plots)
-uv run python visualize_trajectories.py \
-    --eval-dir hoser-distill-optuna-6 \
-    --scenario_cross_model \
-    --no_scenario_individual
-
-# Increase minimum trajectories per scenario
-uv run python visualize_trajectories.py \
-    --eval-dir hoser-distill-optuna-6 \
-    --scenario_cross_model \
-    --min_traj_per_scenario 50
+    --no_separate --no_overlaid
 ```
 
 ### Options
 
 ```bash
---scenario_cross_model            # Enable scenario-based cross-model mode
---no_scenario_grid               # Skip multi-panel grid (only individual plots)
---no_scenario_individual         # Skip individual plots (only grid)
---min_traj_per_scenario N        # Minimum trajectories required per scenario (default: 10)
+--scenario_cross_model            # Enable scenario-based cross-model mode with OD matching
 ```
 
 ### Output
 
-Individual scenario plots:
-- `scenario_cross_model/train/off_peak_comparison.{pdf,png}`
-- `scenario_cross_model/train/weekday_comparison.{pdf,png}`
-- `scenario_cross_model/train/city_center_comparison.{pdf,png}`
-- ... (one per valid scenario)
+Per-scenario OD comparison plots organized by scenario:
+- `scenario_cross_model/train/off_peak/train_od_comparison_1_origin997_dest26798.{pdf,png}`
+- `scenario_cross_model/train/off_peak/train_od_comparison_2_origin17308_dest16404.{pdf,png}`
+- `scenario_cross_model/train/weekday/train_od_comparison_1_origin997_dest26798.{pdf,png}`
+- `scenario_cross_model/train/suburban/train_od_comparison_1_origin1154_dest36175.{pdf,png}`
+- ... (multiple plots per scenario, one for each matching OD pair)
 
-Grid layout:
-- `scenario_cross_model/train/all_scenarios_grid.{pdf,png}` - All scenarios in 3-column grid
-- `scenario_cross_model/test/all_scenarios_grid.{pdf,png}`
+Directory structure:
+```
+scenario_cross_model/
+├── train/
+│   ├── off_peak/          # 3 OD comparisons
+│   ├── weekday/           # 1 OD comparison  
+│   ├── suburban/          # 3 OD comparisons
+│   └── ...
+└── test/
+    ├── off_peak/          # 6 OD comparisons
+    ├── weekday/           # 6 OD comparisons
+    └── ...
+```
+
+Each plot shows all models (vanilla, distilled, distilled_seed44, real) for the same OD pair within the specific scenario context.
 
 ### Requirements
 
@@ -174,22 +172,15 @@ Grid layout:
 - Or run `python_pipeline.py --run-scenarios` to generate scenarios automatically
 - The scenario analysis must generate `trajectory_scenarios.json` mapping file
 
-### Legend Format
+### Plot Titles
 
-Legends show scenario membership for each model's trajectory since scenarios are not disjoint:
+Titles include scenario context to make it clear what conditions are being compared:
 
 ```
-Vanilla
-(Off Peak, Weekday, Suburban)
-
-Distilled (seed 42)
-(Off Peak, City Center, From Center)
-
-Real Trajectory
-(Off Peak, Weekday, City Center +2)
+"Off Peak Scenario - TRAIN OD: All Models - Origin 997 → Destination 26798"
+"Weekday Scenario - TEST OD: All Models - Origin 832 → Destination 17361"
+"City Center Scenario - TRAIN OD: All Models - Origin 17496 → Destination 33590"
 ```
-
-The "+N" suffix indicates N additional scenarios beyond the first 3 shown.
 
 ## 4. Analysis Figures (`create_analysis_figures.py`)
 
