@@ -1021,7 +1021,8 @@ class TrajectoryVisualizer:
         
         gene_files = []
         
-        for csv_file in self.config.gene_dir.glob("*.csv"):
+        # Search recursively for CSV files (handles seed subdirectories)
+        for csv_file in self.config.gene_dir.rglob("*.csv"):
             # Parse filename to extract model and OD type
             filename = csv_file.name
             
