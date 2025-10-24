@@ -182,6 +182,36 @@ Titles include scenario context to make it clear what conditions are being compa
 "City Center Scenario - TRAIN OD: All Models - Origin 17496 → Destination 33590"
 ```
 
+### Multi-Scenario Comparisons
+
+**New Feature**: For OD pairs that appear in 2+ scenarios, a concatenated multi-panel plot is automatically generated showing the same route under different conditions side-by-side.
+
+Example output:
+- `scenario_cross_model/train/multi_scenario/train_origin997_dest26798_multi_scenario.{pdf,png}`
+  - Shows Origin 997 → Dest 26798 across 3 scenarios: Off Peak | Suburban | Weekday
+  - Each panel shows all models (vanilla, distilled, distilled_seed44, real) for that scenario
+  - Perfect for analyzing subtle differences in the same route under varying conditions
+
+Benefits:
+- **Side-by-side comparison** of same OD pair across scenarios
+- **Identify scenario-specific model behavior** (e.g., does the model perform worse during peak hours?)
+- **Publication-ready** multi-panel figures showing condition variations
+
+Output structure:
+```
+scenario_cross_model/
+├── train/
+│   ├── multi_scenario/          # NEW: Multi-scenario concatenated plots
+│   │   ├── train_origin997_dest26798_multi_scenario.{pdf,png}    # 3 scenarios
+│   │   └── train_origin17308_dest16404_multi_scenario.{pdf,png}  # 2 scenarios
+│   ├── off_peak/                # Individual scenario plots
+│   └── ...
+└── test/
+    └── multi_scenario/          # NEW: Multi-scenario concatenated plots
+        ├── test_origin31410_dest374_multi_scenario.{pdf,png}     # 3 scenarios
+        └── ...
+```
+
 ## 4. Analysis Figures (`create_analysis_figures.py`)
 
 ### Features
