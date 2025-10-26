@@ -781,11 +781,16 @@ def run_scenario_analysis(generated_file: Path, dataset: str, od_source: str,
         model_name: Model name (vanilla, distilled, etc.). If None, extracted from filename
     """
     # Extract model name from filename if not provided
+    # Order matters: check for more specific patterns first
     if model_name is None:
-        if 'vanilla' in generated_file.name:
-            model_name = 'vanilla'
+        if 'distilled_seed44' in generated_file.name:
+            model_name = 'distilled_seed44'
+        elif 'distilled_seed43' in generated_file.name:
+            model_name = 'distilled_seed43'
         elif 'distilled' in generated_file.name:
             model_name = 'distilled'
+        elif 'vanilla' in generated_file.name:
+            model_name = 'vanilla'
         else:
             model_name = 'unknown'
     # Load data
@@ -1253,10 +1258,15 @@ Examples:
             for gen_file in generated_files:
                 # Extract model name from filename
                 # Example: hoser_vanilla_testod_gene_20241024_123456.csv
-                if 'vanilla' in gen_file.name:
-                    model_name = 'vanilla'
+                # Order matters: check for more specific patterns first
+                if 'distilled_seed44' in gen_file.name:
+                    model_name = 'distilled_seed44'
+                elif 'distilled_seed43' in gen_file.name:
+                    model_name = 'distilled_seed43'
                 elif 'distilled' in gen_file.name:
                     model_name = 'distilled'
+                elif 'vanilla' in gen_file.name:
+                    model_name = 'vanilla'
                 else:
                     model_name = 'unknown'
                 
