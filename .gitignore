@@ -47,3 +47,9 @@ map_manager.py
 
 # Backup files
 backup_*.tar.gz
+
+# Porto evaluation directory
+hoser-distill-optuna-porto-eval-*/eval/
+hoser-distill-optuna-porto-eval-*/gene/
+hoser-distill-optuna-porto-eval-*/wandb/
+hoser-distill-optuna-porto-eval-*/models/
