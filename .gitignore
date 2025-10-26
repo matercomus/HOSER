@@ -48,8 +48,13 @@ map_manager.py
 # Backup files
 backup_*.tar.gz
 
+# Generated scenario analysis figures
+hoser-distill-optuna-6/figures/scenarios/
+*/figures/scenarios/
+
 # Porto evaluation directory
 hoser-distill-optuna-porto-eval-*/eval/
 hoser-distill-optuna-porto-eval-*/gene/
 hoser-distill-optuna-porto-eval-*/wandb/
 hoser-distill-optuna-porto-eval-*/models/
+hoser-distill-optuna-porto-eval-*/pipeline.log
