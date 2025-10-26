@@ -148,13 +148,16 @@ class ModelDetector:
             if "_25epoch_seed" in model_name:
                 # Pattern: vanilla_25epoch_seed42 -> vanilla
                 # Pattern: distilled_25epoch_seed44 -> distilled_seed44
-                model_type = model_name.split("_25epoch_seed")[0]
+                # Pattern: vanilla_25epoch_seed43 -> vanilla_seed43
+                base_model = model_name.split("_25epoch_seed")[0]
+                seed = model_name.split("_seed")[-1]
                 
-                # For multiple seeds of same model type, append seed to make unique
-                if "_25epoch_seed" in model_name:
-                    seed = model_name.split("_seed")[-1]
-                    if model_type == "distilled" and seed != "42":
-                        model_type = f"{model_type}_seed{seed}"
+                # For seed 42, use base name only (vanilla, distill)
+                # For other seeds, append seed to make unique (vanilla_seed43, distill_seed44)
+                if seed == "42":
+                    model_type = base_model
+                else:
+                    model_type = f"{base_model}_seed{seed}"
             else:
                 # Fallback: remove everything after first underscore
                 model_type = model_name.split("_")[0]
@@ -173,11 +176,15 @@ class ModelDetector:
             
             # Extract model type using same logic as detect_models
             if "_25epoch_seed" in model_name:
-                extracted_type = model_name.split("_25epoch_seed")[0]
-                if "_25epoch_seed" in model_name:
-                    seed = model_name.split("_seed")[-1]
-                    if extracted_type == "distilled" and seed != "42":
-                        extracted_type = f"{extracted_type}_seed{seed}"
+                base_model = model_name.split("_25epoch_seed")[0]
+                seed = model_name.split("_seed")[-1]
+                
+                # For seed 42, use base name only
+                # For other seeds, append seed to make unique
+                if seed == "42":
+                    extracted_type = base_model
+                else:
+                    extracted_type = f"{base_model}_seed{seed}"
             else:
                 extracted_type = model_name.split("_")[0]
             
@@ -532,6 +539,44 @@ class EvaluationPipeline:
         else:
             logger.warning("Non-critical error encountered, continuing with next operation")
     
+    def _build_file_to_model_mapping(self) -> Dict[str, tuple]:
+        """Build mapping of generated file -> (model_type, od_source) from eval results"""
+        import json
+        
+        mapping = {}
+        eval_dir = Path("./eval")
+        
+        if not eval_dir.exists():
+            logger.warning("No eval directory found, cannot build file mapping")
+            return mapping
+        
+        # Scan all evaluation result directories
+        for eval_subdir in eval_dir.iterdir():
+            if not eval_subdir.is_dir():
+                continue
+            
+            results_file = eval_subdir / "results.json"
+            if results_file.exists():
+                try:
+                    with open(results_file) as f:
+                        results = json.load(f)
+                    
+                    metadata = results.get('metadata', {})
+                    generated_file = metadata.get('generated_file', '')
+                    model_type = metadata.get('model_type', '')
+                    od_source = metadata.get('od_source', '')
+                    
+                    if generated_file and model_type and od_source:
+                        # Normalize path to just the filename
+                        file_path = Path(generated_file)
+                        mapping[file_path.name] = (model_type, od_source)
+                        logger.debug(f"Mapped {file_path.name} -> {model_type} ({od_source} OD)")
+                except Exception as e:
+                    logger.warning(f"Failed to read {results_file}: {e}")
+        
+        logger.info(f"Built mapping for {len(mapping)} generated files")
+        return mapping
+    
     def _run_scenario_analysis(self):
         """Run scenario-based analysis on all generated trajectories"""
         from tools.analyze_scenarios import run_scenario_analysis, run_cross_model_scenario_analysis
@@ -553,9 +598,17 @@ class EvaluationPipeline:
         # Copy config to eval directory for reproducibility
         config_copy = Path("./config") / scenarios_config.name
         config_copy.parent.mkdir(exist_ok=True)
+        
+        # Only copy if source and destination are different
         import shutil
-        shutil.copy(scenarios_config, config_copy)
-        logger.info(f"Copied scenarios config to {config_copy}")
+        if scenarios_config.resolve() != config_copy.resolve():
+            shutil.copy(scenarios_config, config_copy)
+            logger.info(f"Copied scenarios config to {config_copy}")
+        else:
+            logger.info(f"Using existing scenarios config: {config_copy}")
+        
+        # Build mapping of generated files to models
+        file_mapping = self._build_file_to_model_mapping()
         
         # Output directory for scenarios
         scenarios_output = Path("./scenarios")
@@ -563,20 +616,44 @@ class EvaluationPipeline:
         # Step 1: Run individual model analysis for each OD source
         logger.info("\n🎯 Step 1: Analyzing individual models...")
         for od_source in self.config.od_sources:
-            logger.info(f"Running scenario analysis for {od_source} OD...")
+            logger.info(f"\nRunning scenario analysis for {od_source} OD...")
             
             try:
                 # Find generated files for this OD source
                 gene_dir = Path(f'./gene/{self.config.dataset}/seed{self.config.seed}')
-                generated_files = list(gene_dir.glob(f'*{od_source}od*.csv'))
+                if not gene_dir.exists():
+                    logger.warning(f"Gene directory not found: {gene_dir}")
+                    continue
+                
+                generated_files = list(gene_dir.glob('*.csv'))
                 
                 if not generated_files:
+                    logger.warning(f"No generated files found in {gene_dir}")
+                    continue
+                
+                # Filter by OD source using the mapping
+                od_files = []
+                for gen_file in generated_files:
+                    if gen_file.name in file_mapping:
+                        _, file_od = file_mapping[gen_file.name]
+                        if file_od == od_source:
+                            od_files.append(gen_file)
+                
+                if not od_files:
                     logger.warning(f"No generated files found for {od_source} OD")
                     continue
                 
+                logger.info(f"Found {len(od_files)} files for {od_source} OD")
+                
                 # Run analysis on each generated file (one per model)
-                for gen_file in generated_files:
-                    model_name = self._extract_model_from_filename(gen_file.name)
+                for gen_file in od_files:
+                    # Get model name from mapping
+                    if gen_file.name in file_mapping:
+                        model_name, _ = file_mapping[gen_file.name]
+                    else:
+                        logger.warning(f"No model mapping for {gen_file.name}, skipping")
+                        continue
+                    
                     output_dir = scenarios_output / od_source / model_name
                     
                     logger.info(f"  Analyzing {model_name} ({od_source} OD)...")
@@ -594,6 +671,8 @@ class EvaluationPipeline:
             
             except Exception as e:
                 logger.error(f"Scenario analysis failed for {od_source} OD: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         # Step 2: Run cross-model aggregation analysis
