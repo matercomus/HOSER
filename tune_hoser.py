@@ -3,14 +3,15 @@
 Comprehensive hyperparameter tuning for HOSER with Optuna
 
 This script optimizes distillation hyperparameters for HOSER using CMA-ES.
+Supports config-based search space for refined tuning (Phase 2).
 Vanilla baseline runs separately for WandB comparison (Phase 0).
 
 TUNED HYPERPARAMETERS (all trials are distilled):
-- lambda: KL divergence weight (0.001-0.1, log scale)
+- lambda: KL divergence weight (configurable range, log scale)
          Controls balance between teacher guidance and student loss
-- temperature: Softmax temperature (1.0-5.0, linear)
+- temperature: Softmax temperature (configurable range, linear)
               Higher values create softer probability distributions
-- window: Context window size (2-8, integer)
+- window: Context window size (configurable: fixed value or range)
          Number of neighboring timesteps to consider for teacher guidance
 
 FIXED PARAMETERS (architectural choices):
@@ -73,20 +74,17 @@ CONFIGURATION:
   CLI args override YAML defaults.
 
 USAGE:
-  # Standard run (uses config defaults: 12 trials, 8 epochs)
+  # Phase 1: Standard run (broad search, uses config defaults)
   uv run python tune_hoser.py --config config/porto_hoser.yaml --data_dir /home/matt/Dev/HOSER-dataset-porto
 
-  # Skip Phase 0 vanilla baseline (faster start)
-  # Edit config: vanilla_baseline_pretune.enabled: false
-
-  # Quick 24-hour run (8-10 trials)
-  uv run python tune_hoser.py --n_trials 10 --data_dir /home/matt/Dev/HOSER-dataset
+  # Phase 2: Refined search (narrowed ranges, fixed window)
+  uv run python tune_hoser.py --config config/porto_hoser_phase2.yaml --data_dir /home/matt/Dev/HOSER-dataset-porto
 
   # Resume existing study
-  uv run python tune_hoser.py --study_name my_study --data_dir /home/matt/Dev/HOSER-dataset
+  uv run python tune_hoser.py --study_name my_study --config config/porto_hoser_phase2.yaml --data_dir /home/matt/Dev/HOSER-dataset-porto
 
-  # Override epochs per trial
-  uv run python tune_hoser.py --max_epochs 8 --data_dir /home/matt/Dev/HOSER-dataset
+  # Override number of trials or epochs
+  uv run python tune_hoser.py --n_trials 10 --max_epochs 8 --config config/porto_hoser.yaml --data_dir /home/matt/Dev/HOSER-dataset
 """
 
 import os
@@ -180,31 +178,69 @@ class HOSERObjective:
     
     def _suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
         """
-        Define the hyperparameter search space - all tunable parameters in one place.
+        Define the hyperparameter search space from config or defaults.
+        Supports config-based search space for refined tuning (Phase 2).
         
         All trials optimize distillation hyperparameters (vanilla baseline runs separately in Phase 0).
         
-        Search space includes:
+        Search space configuration:
+        - Can be customized in config YAML under optuna.search_space
+        - Supports fixed values (Phase 2: window=4) or ranges
+        - Defaults to broad search if not specified
+        
+        Default search space:
         - distill_lambda: KL divergence weight (log scale: 0.001 to 0.1)
                          Controls how much to weight teacher guidance vs student loss
         - distill_temperature: Softmax temperature (linear: 1.0 to 5.0)
                               Higher = softer distributions, more knowledge transfer
-        - distill_window: Context window size (integer: 2-8)
+        - distill_window: Context window size (integer: 2-8, or fixed value from config)
                          Number of neighboring road segments to consider for teacher guidance
         
         All parameters are continuous/integer - fully compatible with CmaEsSampler.
-        The consistent 3-parameter space allows CmaEsSampler to optimize from trial 0.
         
         Returns:
             Dict of hyperparameter names to suggested values
         """
+        # Get search space from config (if defined), otherwise use defaults
+        search_space = self.base_config.get('optuna', {}).get('search_space', {})
+        
         # All trials are distillation trials (vanilla baseline runs separately in Phase 0)
-        hparams = {
-            'distill_enable': True,
-            'distill_lambda': trial.suggest_float('distill_lambda', 0.001, 0.1, log=True),
-            'distill_temperature': trial.suggest_float('distill_temperature', 1.0, 5.0),
-            'distill_window': trial.suggest_int('distill_window', 2, 8)
-        }
+        hparams = {'distill_enable': True}
+        
+        # Lambda: KL divergence weight
+        lambda_min = search_space.get('lambda_min', 0.001)
+        lambda_max = search_space.get('lambda_max', 0.1)
+        lambda_log = search_space.get('lambda_log', True)
+        hparams['distill_lambda'] = trial.suggest_float(
+            'distill_lambda', lambda_min, lambda_max, log=lambda_log
+        )
+        
+        # Temperature: Softmax temperature
+        temp_min = search_space.get('temp_min', 1.0)
+        temp_max = search_space.get('temp_max', 5.0)
+        hparams['distill_temperature'] = trial.suggest_float(
+            'distill_temperature', temp_min, temp_max
+        )
+        
+        # Window: Context size (can be fixed or range)
+        window_param = search_space.get('window', None)
+        if window_param is None:
+            # Default: search range [2, 8]
+            hparams['distill_window'] = trial.suggest_int('distill_window', 2, 8)
+        elif isinstance(window_param, int):
+            # Fixed value (Phase 2 refinement)
+            hparams['distill_window'] = window_param
+        elif isinstance(window_param, dict):
+            # Range: {'min': 3, 'max': 5}
+            hparams['distill_window'] = trial.suggest_int(
+                'distill_window', 
+                window_param['min'], 
+                window_param['max']
+            )
+        else:
+            # Fallback to default range
+            hparams['distill_window'] = trial.suggest_int('distill_window', 2, 8)
+        
         return hparams
 
     def _create_trial_config(self, trial: optuna.Trial, hparams: Dict[str, Any]) -> Dict[str, Any]:

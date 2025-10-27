@@ -1,0 +1,139 @@
+road_network_encoder_config:
+  road_id_emb_dim: 64
+  len_emb_dim: 16
+  type_emb_dim: 16
+  lon_emb_dim: 16
+  lat_emb_dim: 16
+  intersection_emb_dim: 128
+  zone_id_emb_dim: 128
+  # determined at runtime
+  road_id_num_embeddings:
+  # determined at runtime
+  type_num_embeddings:
+  zone_id_num_embeddings: 300
+
+# determined at runtime
+road_network_encoder_feature:
+  road_attr:
+    len:
+    type:
+    lon:
+    lat:
+  road_edge_index:
+  intersection_attr:
+  zone_edge_index:
+  zone_edge_weight:
+
+trajectory_encoder_config:
+  hidden_dim: 128
+  num_heads: 2
+  num_layers: 2
+  dropout: 0.0
+  max_len: 1024
+  grad_checkpoint: true # Enabled: Porto trajectories are ~2x longer than Beijing, reducing activation memory
+
+navigator_config:
+  hidden_dim: 128
+
+optimizer_config:
+  max_epoch: 25
+  batch_size: 32  # Reduced from Beijing's 128 due to Porto's longer trajectories (memory scales O(T²))
+  accum_steps: 2  # Reduced from 8 to maintain similar effective batch size (64×4=256 vs Beijing 128×8=1024)
+  learning_rate: 0.001
+  weight_decay: 0.1
+  warmup_ratio: 0.1
+  max_norm: 1.0
+
+# Distillation settings (used by train_with_distill.py)
+distill:
+  enable: true
+  repo: /home/matt/Dev/LMTAD
+  ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
+  window: 4  # Fixed at Phase 1 optimal value
+  lambda: 0.01
+  temperature: 2.0
+  grid_size: 0.001  # Based on LM-TAD training: grip_size="46 134" (Porto grid)
+  downsample: 1     # No downsampling for this model
+
+# Point to the Porto HOSER dataset
+data_dir: /home/matt/Dev/HOSER-dataset-porto
+
+# Dataloader performance knobs - optimized for streaming large dataset
+dataloader:
+  num_workers: 4  # Reduced from 8 to prevent multiprocess deadlocks
+  pin_memory: false # Disabled: Relieves CPU memory pressure
+  prefetch_factor: 2  # Reduced from 8 to lower memory overhead and coordination
+  persistent_workers: false  # Disabled: Avoid memory leaks with repeated torch.load
+  timeout: 300  # Kill workers after 5min of no response (detects hangs)
+
+# Data-specific knobs
+data:
+  candidate_top_k: 64  # Cap candidates per timestep to prevent memory/collate explosion
+
+# Training performance knobs
+training:
+  seed: 44 # Base seed for Phase 2 (independent validation from Phase 1)
+  allow_tf32: true
+  cudnn_benchmark: true
+  torch_compile: true
+  torch_compile_mode: max-autotune  # Options: default, reduce-overhead, max-autotune
+  disable_cudagraphs: true
+
+# Performance profiling
+profiling:
+  enable: true        # Enable periodic performance logging
+  log_interval: 1000
+
+# Weights & Biases logging
+wandb:
+  enable: true
+  project: hoser-distill-porto  # Porto dataset distillation experiments
+  run_name: ''  # Auto-generated per trial: trial_{N:03d}_{vanilla|distilled}
+  tags: [porto, distillation, optuna, phase2]
+
+# Optuna hyperparameter tuning configuration - Phase 2 (refined search)
+optuna:
+  n_trials: 10  # Reduced from 12 (diminishing returns after trial 7)
+  max_epochs: 10  # Increased from 8 (better convergence signal)
+  
+  # Search space configuration (read by tune_hoser.py)
+  # Phase 2: Narrowed ranges based on Phase 1 analysis
+  search_space:
+    lambda_min: 0.003      # Narrowed from 0.001 (focus on optimal region)
+    lambda_max: 0.010      # Narrowed from 0.1 (eliminate poor region)
+    lambda_log: true       # Log scale
+    temp_min: 2.0          # Narrowed from 1.0 (Porto prefers sharper distributions)
+    temp_max: 3.5          # Narrowed from 5.0 (no benefit above 3.5)
+    window: 4              # FIXED at Phase 1 optimal (removes from search space)
+  
+  # Pruner configuration (HyperbandPruner with moderate early-stopping)
+  pruner:
+    min_resource: 6        # Increased from 5 (more signal before pruning)
+    reduction_factor: 3    # Keeps top 1/3 of trials at each rung
+  
+  # Sampler configuration (CmaEsSampler - optimal for continuous/integer params)
+  sampler:
+    sampler_type: "cmaes"  # CmaEsSampler: best for 10-100 trials, all continuous/integer params
+    seed: 44               # Changed from 43 (independent validation from Phase 1)
+    # Note: CmaEsSampler doesn't need n_startup_trials - starts optimizing from trial 0
+    # Phase 2: Effectively 2D search space (lambda, temperature) with fixed window
+  
+  # Vanilla baseline run BEFORE tuning (Phase 0) - for WandB comparison
+  vanilla_baseline_pretune:
+    enabled: false         # Skip for Phase 2 (already have Phase 1 baseline)
+    max_epochs: 10         # Same as tuning trials
+    seeds: [44]            # Single seed for quick baseline
+    
+  # Final evaluation run (after hyperparameter search completes)
+  final_run:
+    enabled: true        # Run final 25-epoch training with best hyperparameters
+    max_epochs: 25       # Full convergence for proper evaluation (25 × 54min = ~23h)
+    seeds: [42, 43, 44]  # Multiple seeds for statistical robustness
+  
+  # Vanilla baseline run (for fair comparison with distilled models)
+  vanilla_baseline:
+    enabled: true         # Run full vanilla baseline after Phase 2
+    max_epochs: 25        # Same as final distilled run
+    seeds: [42, 43, 44]   # Same seeds for direct comparison
+
+
