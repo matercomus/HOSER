@@ -221,7 +221,8 @@ class TrajectoryGenerator:
             enable_wandb=False,  # We'll handle WandB separately
             wandb_project=None,
             wandb_run_name=None,
-            wandb_tags=None
+            wandb_tags=None,
+            model_type=model_type
         )
         
         output_path = Path(result['output_file'])
@@ -287,6 +288,17 @@ class TrajectoryEvaluator:
         results["metadata"]["model_type"] = model_type
         results["metadata"]["od_source"] = od_source
         results["metadata"]["seed"] = self.config.seed
+        
+        # Re-save the results file with updated metadata
+        # Find the results file path from the eval directory structure
+        eval_dirs = sorted(Path("./eval").glob("20*"), key=lambda x: x.stat().st_mtime)
+        if eval_dirs:
+            latest_results_file = eval_dirs[-1] / "results.json"
+            if latest_results_file.exists():
+                import json
+                with open(latest_results_file, 'w') as f:
+                    json.dump(results, f, indent=4)
+                logger.debug(f"Updated results file with model metadata: {latest_results_file}")
         
         logger.info(f"Evaluation completed for {model_type} ({od_source} OD)")
         return results
@@ -694,7 +706,6 @@ class EvaluationPipeline:
     def _extract_model_from_filename(self, filename: str) -> str:
         """Extract model type from generated file name"""
         # Example: hoser_vanilla_testod_gene_20241024_123456.csv -> vanilla
-        parts = filename.split('_')
         if 'vanilla' in filename:
             return 'vanilla'
         elif 'distilled' in filename:
@@ -791,20 +802,31 @@ class EvaluationPipeline:
                                 failed_operations.append(f"Generation failed for {model_type} ({od_source} OD): {str(e)}")
                                 continue
                         else:
-                            # Find existing generated file
+                            # Find existing generated file by pattern
                             if existing_file:
                                 generated_file = existing_file
                             else:
                                 gene_dir = Path(f'./gene/{self.config.dataset}/seed{self.config.seed}')
-                                # Files are timestamped, just take the latest one
-                                generated_files = list(gene_dir.glob('*.csv'))
+                                
+                                # Try new naming pattern first: {timestamp}_{model_type}_{od_source}.csv
+                                pattern = f'*_{model_type}_{od_source}.csv'
+                                generated_files = list(gene_dir.glob(pattern))
+                                
                                 if not generated_files:
-                                    error_msg = f"No existing generated file found for {model_type} ({od_source} OD)"
-                                    logger.error(error_msg)
-                                    failed_operations.append(error_msg)
-                                    continue
-                                generated_file = max(generated_files, key=lambda x: x.stat().st_mtime)
-                                logger.warning(f"Cannot determine model/od_source from filename, using latest: {generated_file.name}")
+                                    # Fallback: try old timestamp-only pattern for backward compatibility
+                                    generated_files = list(gene_dir.glob('*.csv'))
+                                    if not generated_files:
+                                        error_msg = f"No existing generated file found for {model_type} ({od_source} OD)"
+                                        logger.error(error_msg)
+                                        failed_operations.append(error_msg)
+                                        continue
+                                    # Use latest if multiple matches
+                                    generated_file = max(generated_files, key=lambda x: x.stat().st_mtime)
+                                    logger.warning(f"Using legacy filename format: {generated_file.name}")
+                                else:
+                                    # Use most recent file matching pattern
+                                    generated_file = max(generated_files, key=lambda x: x.stat().st_mtime)
+                                    logger.info(f"Found existing file: {generated_file.name}")
                         
                         # Evaluation phase
                         if not self.config.skip_eval:

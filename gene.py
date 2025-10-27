@@ -111,9 +111,9 @@ def process_trajectory_mp(args_tuple):
                       data['timestamp_label_array_log1p_std'], device)
     
     if beam_search:
-        trace_road_id, trace_datetime = searcher.beam_search(origin_road_id, origin_datetime, destination_road_id, beam_width=beam_width)
+        trace_road_id, trace_datetime, _ = searcher.beam_search(origin_road_id, origin_datetime, destination_road_id, beam_width=beam_width)
     else:
-        trace_road_id, trace_datetime = searcher.search(origin_road_id, origin_datetime, destination_road_id)
+        trace_road_id, trace_datetime, _ = searcher.search(origin_road_id, origin_datetime, destination_road_id)
     
     return idx, trace_road_id, trace_datetime
 
@@ -1281,7 +1281,8 @@ def generate_trajectories_programmatic(
     enable_wandb: bool = False,
     wandb_project: str = None,
     wandb_run_name: str = None,
-    wandb_tags: list = None
+    wandb_tags: list = None,
+    model_type: str = None
 ) -> dict:
     """
     Programmatic interface for trajectory generation with performance profiling.
@@ -1501,7 +1502,12 @@ def generate_trajectories_programmatic(
     gene_dir = f'./gene/{dataset}/seed{seed}'
     os.makedirs(gene_dir, exist_ok=True)
     now = datetime.now()
-    output_path = os.path.join(gene_dir, f'{now.strftime("%Y-%m-%d_%H-%M-%S")}.csv')
+    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    if model_type:
+        filename = f'{timestamp}_{model_type}_{od_source}.csv'
+    else:
+        filename = f'{timestamp}.csv'  # Backward compatibility
+    output_path = os.path.join(gene_dir, filename)
     res_df.write_csv(output_path)
     print(f"🎉 Trajectory generation complete. Saved to {output_path}")
     

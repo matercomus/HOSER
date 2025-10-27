@@ -886,13 +886,21 @@ class LocalMetrics:
 
 
 def find_generated_file(directory):
-    """Finds the newest generated trajectory file in the directory by timestamp in filename."""
+    """Finds the newest generated trajectory file in the directory by timestamp in filename.
+    
+    Supports both formats:
+    - Old: {timestamp}.csv
+    - New: {timestamp}_{model_type}_{od_source}.csv
+    """
     import re
     from datetime import datetime
 
-    timestamp_pattern = re.compile(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.csv$")
+    # Pattern for old format: YYYY-MM-DD_HH-MM-SS.csv
+    old_pattern = re.compile(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.csv$")
+    # Pattern for new format: YYYY-MM-DD_HH-MM-SS_{model}_{od}.csv
+    new_pattern = re.compile(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})_\w+_\w+\.csv$")
 
-    # Collect all CSV files that match the timestamp pattern
+    # Collect all CSV files that match the timestamp patterns
     timestamped_files = []
     other_csv_files = []
 
@@ -903,10 +911,15 @@ def find_generated_file(directory):
             "test.csv",
             "road_id_mapping.csv",
         ]:
-            match = timestamp_pattern.match(filename)
+            # Try new format first
+            match = new_pattern.match(filename)
+            if not match:
+                # Try old format
+                match = old_pattern.match(filename)
+            
             if match:
                 try:
-                    # Parse timestamp from filename
+                    # Parse timestamp from filename (same position in both formats)
                     timestamp_str = match.group(1)
                     timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d_%H-%M-%S")
                     timestamped_files.append((timestamp, filename))
