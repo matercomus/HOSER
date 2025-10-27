@@ -726,7 +726,14 @@ class EvaluationPipeline:
             logger.info(f"Models to process: {self.config.models}")
             logger.info(f"OD sources: {self.config.od_sources}")
             
-            total_operations = len(self.config.models) * len(self.config.od_sources) * 2  # gene + eval
+            # Calculate total operations (only count enabled phases)
+            operations_per_combo = 0
+            if not self.config.skip_gene:
+                operations_per_combo += 1  # Generation
+            if not self.config.skip_eval:
+                operations_per_combo += 1  # Evaluation
+            
+            total_operations = len(self.config.models) * len(self.config.od_sources) * operations_per_combo
             current_operation = 0
             
             results_summary = {}
