@@ -203,21 +203,19 @@ def plot_improvement_heatmaps_individual(data: Dict, output_dir: Path, dpi: int)
                        ax=ax, cbar_kws={'label': '% Improvement'}, 
                        center=0, vmin=vmin, vmax=vmax)
             
-            # Create title with model names
+            # Create title with model names and average improvement
             distilled_label = distilled_model.replace('_', ' ').title()
             vanilla_label = vanilla_model.replace('_', ' ').title()
-            ax.set_title(f'Improvement of {distilled_label} over {vanilla_label}\nAcross Scenarios and Metrics',
+            
+            # Calculate average improvement for title
+            avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
+            avg_text = f' (Avg: {avg_improvement:.1f}%)' if not np.isnan(avg_improvement) else ''
+            
+            ax.set_title(f'Improvement of {distilled_label} over {vanilla_label}{avg_text}\n'
+                        f'Across Scenarios and Metrics',
                         fontsize=14, fontweight='bold', pad=15)
             ax.set_xlabel('Metric', fontsize=11, fontweight='bold')
             ax.set_ylabel('Scenario', fontsize=11, fontweight='bold')
-            
-            # Add average improvement annotation
-            avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
-            if not np.isnan(avg_improvement):
-                ax.text(0.02, 0.98, f'Average Improvement: {avg_improvement:.1f}%',
-                       transform=ax.transAxes, ha='left', va='top',
-                       bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.7),
-                       fontsize=11, fontweight='bold')
             
             plt.tight_layout()
             
@@ -336,11 +334,16 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int):
                        center=0, vmin=vmin, vmax=vmax,
                        annot_kws={'fontsize': annot_fontsize})
             
-            # Subplot title
+            # Subplot title with average improvement
             distilled_label = distilled_model.replace('_', ' ').title()
             vanilla_label = vanilla_model.replace('_', ' ').title()
+            
+            # Calculate average improvement for title
+            avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
+            avg_text = f' ({avg_improvement:.1f}%)' if not np.isnan(avg_improvement) else ''
+            
             title_fontsize = 10 if n_vanilla > 2 or n_distilled > 2 else 11
-            ax.set_title(f'{distilled_label}\nvs {vanilla_label}',
+            ax.set_title(f'{distilled_label} vs {vanilla_label}{avg_text}',
                         fontsize=title_fontsize, fontweight='bold', pad=8)
             
             # Labels
@@ -356,14 +359,6 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int):
             
             # Adjust tick label sizes
             ax.tick_params(axis='both', labelsize=8)
-            
-            # Add average improvement as text box
-            avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
-            if not np.isnan(avg_improvement):
-                ax.text(0.98, 0.02, f'Avg: {avg_improvement:.1f}%',
-                       transform=ax.transAxes, ha='right', va='bottom',
-                       bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.7),
-                       fontsize=8, fontweight='bold')
     
     plt.tight_layout(rect=[0, 0, 1, 0.99])
     
@@ -418,17 +413,15 @@ def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int):
                ax=ax, cbar_kws={'label': '% Improvement'}, 
                center=0, vmin=vmin, vmax=vmax)
     
-    ax.set_title('Improvement of Distilled (seed 44) over Vanilla\nAcross Scenarios and Metrics',
+    # Calculate average improvement for title
+    avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
+    avg_text = f' (Avg: {avg_improvement:.1f}%)' if not np.isnan(avg_improvement) else ''
+    
+    ax.set_title(f'Improvement of Distilled (seed 44) over Vanilla{avg_text}\n'
+                f'Across Scenarios and Metrics',
                 fontsize=14, fontweight='bold', pad=15)
     ax.set_xlabel('Metric', fontsize=11, fontweight='bold')
     ax.set_ylabel('Scenario', fontsize=11, fontweight='bold')
-    
-    # Add average improvement annotation
-    avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
-    ax.text(0.02, 0.98, f'Average Improvement: {avg_improvement:.1f}%',
-           transform=ax.transAxes, ha='left', va='top',
-           bbox=dict[str, str | float](boxstyle='round', facecolor='yellow', alpha=0.7),
-           fontsize=11, fontweight='bold')
     
     plt.tight_layout()
     
