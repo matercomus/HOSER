@@ -5,9 +5,14 @@ Data loading utilities for scenario analysis.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+import seaborn as sns
+
+# Consistent color palette for all model visualizations
+MODEL_COLOR_PALETTE = "husl"
 
 
 class ScenarioDataLoader:
@@ -104,4 +109,215 @@ def calculate_improvement(data: Dict, od_source: str, scenario: str, metric: str
     # For metrics where lower is better
     improvement = ((baseline_val - improved_val) / baseline_val) * 100
     return improvement
+
+
+def classify_models(data: Dict, od_source: str = 'train') -> Tuple[List[str], List[str]]:
+    """Classify models into vanilla and distilled lists
+    
+    Args:
+        data: Loaded scenario data
+        od_source: OD source to analyze (default: 'train')
+        
+    Returns:
+        Tuple of (vanilla_models, distilled_models), both sorted alphabetically
+    """
+    if od_source not in data:
+        logger.warning(f"OD source '{od_source}' not found in data")
+        return [], []
+    
+    models = sorted(data[od_source].keys())
+    vanilla_models = sorted([m for m in models if 'vanilla' in m.lower()])
+    distilled_models = sorted([m for m in models if 'distill' in m.lower()])
+    
+    logger.info(f"Detected {len(vanilla_models)} vanilla and {len(distilled_models)} distilled models")
+    
+    return vanilla_models, distilled_models
+
+
+def generate_model_colors(models: List[str]) -> Dict[str, str]:
+    """Generate distinct colors for models dynamically using consistent palette
+    
+    Args:
+        models: List of model names
+        
+    Returns:
+        Dictionary mapping model names to hex color codes
+    """
+    if not models:
+        return {}
+    
+    # Use consistent seaborn palette for all model counts
+    palette = sns.color_palette(MODEL_COLOR_PALETTE, len(models))
+    hex_colors = [f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}' 
+                 for r, g, b in palette]
+    
+    return {model: color for model, color in zip(models, hex_colors)}
+
+
+def generate_model_labels(models: List[str]) -> Dict[str, str]:
+    """Generate human-readable labels from model names
+    
+    Args:
+        models: List of model names
+        
+    Returns:
+        Dictionary mapping model names to display labels
+    """
+    if not models:
+        return {}
+    
+    labels = {}
+    for model in models:
+        # Convert underscores to spaces and title case
+        label = model.replace('_', ' ').title()
+        
+        # Preserve seed numbers in parentheses
+        if 'seed' in model.lower():
+            import re
+            match = re.search(r'seed(\d+)', model, re.IGNORECASE)
+            if match:
+                seed_num = match.group(1)
+                base_name = re.sub(r'_?seed\d+', '', model, flags=re.IGNORECASE)
+                base_label = base_name.replace('_', ' ').title()
+                label = f"{base_label} (seed {seed_num})"
+        
+        labels[model] = label
+    
+    return labels
+
+
+def get_available_scenarios(data: Dict, od_source: str = 'train') -> List[str]:
+    """Extract list of scenarios that actually exist in the data
+    
+    Args:
+        data: Loaded scenario data
+        od_source: OD source to analyze (default: 'train')
+        
+    Returns:
+        Sorted list of scenario names that exist across models
+    """
+    if od_source not in data:
+        logger.warning(f"OD source '{od_source}' not found in data")
+        return []
+    
+    # Collect all unique scenario names across all models
+    all_scenarios = set()
+    
+    for model, model_data in data[od_source].items():
+        if 'individual_scenarios' in model_data:
+            all_scenarios.update(model_data['individual_scenarios'].keys())
+    
+    scenarios = sorted(list(all_scenarios))
+    
+    if scenarios:
+        logger.info(f"Found {len(scenarios)} scenarios in data: {', '.join(scenarios[:5])}"
+                   + (f" ... and {len(scenarios)-5} more" if len(scenarios) > 5 else ""))
+    else:
+        logger.warning("No scenarios found in data")
+    
+    return scenarios
+
+
+def get_available_metrics(data: Dict, od_source: str = 'train') -> List[str]:
+    """Extract list of metrics that actually exist in the data
+    
+    Args:
+        data: Loaded scenario data
+        od_source: OD source to analyze (default: 'train')
+        
+    Returns:
+        Sorted list of metric names that exist across scenarios
+    """
+    if od_source not in data:
+        logger.warning(f"OD source '{od_source}' not found in data")
+        return []
+    
+    # Collect all unique metric names across all models and scenarios
+    all_metrics = set()
+    
+    for model, model_data in data[od_source].items():
+        if 'individual_scenarios' in model_data:
+            for scenario, scenario_data in model_data['individual_scenarios'].items():
+                if 'metrics' in scenario_data:
+                    all_metrics.update(scenario_data['metrics'].keys())
+    
+    metrics = sorted(list(all_metrics))
+    
+    if metrics:
+        logger.info(f"Found {len(metrics)} metrics in data: {', '.join(metrics)}")
+    else:
+        logger.warning("No metrics found in data")
+    
+    return metrics
+
+
+def get_metric_display_labels(metrics: List[str]) -> List[str]:
+    """Generate human-readable display labels for metrics dynamically
+    
+    Uses intelligent heuristics to format any metric name into a compact display label.
+    Handles common patterns like suffixes (JSD, km, mean) and splits long names.
+    
+    Args:
+        metrics: List of metric names
+        
+    Returns:
+        List of formatted labels for display (same order as input)
+    """
+    if not metrics:
+        return []
+    
+    # Common unit patterns to wrap in parentheses
+    unit_suffixes = {
+        '_km': '(km)',
+        '_m': '(m)',
+        '_ms': '(ms)',
+        '_s': '(s)',
+        '_pct': '(%)',
+        '_deg': '(°)',
+    }
+    
+    labels = []
+    for metric in metrics:
+        # Check for unit suffixes first
+        formatted = False
+        for suffix, unit in unit_suffixes.items():
+            if metric.endswith(suffix):
+                base = metric[:-len(suffix)]
+                # Convert base to readable form
+                readable_base = base.replace('_', ' ').title()
+                label = f"{readable_base}\n{unit}"
+                labels.append(label)
+                formatted = True
+                break
+        
+        if formatted:
+            continue
+        
+        # Handle underscores generically - split into max 2 parts for compactness
+        if '_' in metric:
+            parts = metric.split('_')
+            
+            # Special case: Keep common suffixes as-is (JSD, MAE, etc.)
+            if len(parts) >= 2 and parts[-1].isupper() and len(parts[-1]) <= 4:
+                # Distance_JSD -> Distance\nJSD
+                base = '_'.join(parts[:-1])
+                suffix = parts[-1]
+                readable_base = base.replace('_', ' ').title()
+                label = f"{readable_base}\n{suffix}"
+            elif len(parts) == 2:
+                # Simple two-part: Distance_mean -> Distance\nMean
+                label = f"{parts[0].title()}\n{parts[1].title()}"
+            else:
+                # Complex multi-part: Split in middle for balance
+                mid = len(parts) // 2
+                first_half = ' '.join(parts[:mid]).title()
+                second_half = ' '.join(parts[mid:]).title()
+                label = f"{first_half}\n{second_half}"
+            
+            labels.append(label)
+        else:
+            # No underscore - use as-is
+            labels.append(metric)
+    
+    return labels
 
