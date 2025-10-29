@@ -252,7 +252,10 @@ def get_available_metrics(data: Dict, od_source: str = 'train') -> List[str]:
 
 
 def get_metric_display_labels(metrics: List[str]) -> List[str]:
-    """Generate human-readable display labels for metrics
+    """Generate human-readable display labels for metrics dynamically
+    
+    Uses intelligent heuristics to format any metric name into a compact display label.
+    Handles common patterns like suffixes (JSD, km, mean) and splits long names.
     
     Args:
         metrics: List of metric names
@@ -263,33 +266,58 @@ def get_metric_display_labels(metrics: List[str]) -> List[str]:
     if not metrics:
         return []
     
+    # Common unit patterns to wrap in parentheses
+    unit_suffixes = {
+        '_km': '(km)',
+        '_m': '(m)',
+        '_ms': '(ms)',
+        '_s': '(s)',
+        '_pct': '(%)',
+        '_deg': '(°)',
+    }
+    
     labels = []
     for metric in metrics:
-        # Common metric formatting rules (order matters - check specific endings first)
-        if metric.endswith('_JSD'):
-            # Distance_JSD -> Distance\nJSD
-            base = metric[:-4]
-            label = f"{base}\nJSD"
-        elif metric.endswith('_mean'):
-            # Distance_mean -> Distance\nMean
-            base = metric[:-5]
-            label = f"{base}\nmean"
-        elif metric.endswith('_km'):
-            # Hausdorff_km -> Hausdorff\n(km)
-            base = metric[:-3]
-            label = f"{base}\n(km)"
-        elif '_' in metric:
-            # Generic: split on underscore
-            parts = metric.split('_')
-            if len(parts) == 2:
-                label = f"{parts[0]}\n{parts[1]}"
-            else:
-                label = metric.replace('_', '\n')
-        else:
-            # No special formatting
-            label = metric
+        # Check for unit suffixes first
+        formatted = False
+        for suffix, unit in unit_suffixes.items():
+            if metric.endswith(suffix):
+                base = metric[:-len(suffix)]
+                # Convert base to readable form
+                readable_base = base.replace('_', ' ').title()
+                label = f"{readable_base}\n{unit}"
+                labels.append(label)
+                formatted = True
+                break
         
-        labels.append(label)
+        if formatted:
+            continue
+        
+        # Handle underscores generically - split into max 2 parts for compactness
+        if '_' in metric:
+            parts = metric.split('_')
+            
+            # Special case: Keep common suffixes as-is (JSD, MAE, etc.)
+            if len(parts) >= 2 and parts[-1].isupper() and len(parts[-1]) <= 4:
+                # Distance_JSD -> Distance\nJSD
+                base = '_'.join(parts[:-1])
+                suffix = parts[-1]
+                readable_base = base.replace('_', ' ').title()
+                label = f"{readable_base}\n{suffix}"
+            elif len(parts) == 2:
+                # Simple two-part: Distance_mean -> Distance\nMean
+                label = f"{parts[0].title()}\n{parts[1].title()}"
+            else:
+                # Complex multi-part: Split in middle for balance
+                mid = len(parts) // 2
+                first_half = ' '.join(parts[:mid]).title()
+                second_half = ' '.join(parts[mid:]).title()
+                label = f"{first_half}\n{second_half}"
+            
+            labels.append(label)
+        else:
+            # No underscore - use as-is
+            labels.append(metric)
     
     return labels
 
