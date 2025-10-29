@@ -1,0 +1,152 @@
+# Scenario Plot Registry
+# Defines all available plots and their configurations
+version: "1.0"
+
+# Plot type definitions
+plot_types:
+  metrics:
+    module: metrics_plots
+    description: "Core metric visualizations"
+    plots:
+      scenario_heatmap:
+        function: plot_scenario_metrics_heatmap
+        description: "Scenario × Metric heatmap showing performance across scenarios"
+        enabled: true
+      
+      model_comparison:
+        function: plot_model_comparison_bars
+        description: "Cross-model bar chart comparison"
+        enabled: true
+      
+      aggregate_comparison:
+        function: plot_aggregate_comparison
+        description: "Aggregate metrics comparison across models"
+        enabled: true
+      
+      metric_distributions:
+        function: plot_metric_distributions
+        description: "Distribution plots for key metrics"
+        enabled: true
+  
+  temporal_spatial:
+    module: temporal_spatial_plots
+    description: "Temporal and spatial analysis"
+    plots:
+      temporal_patterns:
+        function: plot_temporal_patterns
+        description: "Time-based performance patterns"
+        enabled: true
+      
+      spatial_patterns:
+        function: plot_spatial_coverage
+        description: "Spatial coverage and performance"
+        enabled: true
+  
+  robustness:
+    module: robustness_plots
+    description: "Robustness and stability analysis"
+    plots:
+      scenario_robustness:
+        function: plot_scenario_robustness
+        description: "Performance stability across scenarios"
+        enabled: true
+      
+      metric_sensitivity:
+        function: plot_cross_scenario_stability
+        description: "Metric sensitivity analysis"
+        enabled: true
+  
+  analysis:
+    module: analysis_plots
+    description: "Statistical analysis plots"
+    plots:
+      difficulty_ranking:
+        function: plot_scenario_difficulty_ranking
+        description: "Scenario difficulty ranking by performance"
+        enabled: true
+      
+      metric_sensitivity_by_scenario:
+        function: plot_metric_sensitivity_by_scenario
+        description: "Which metrics are most sensitive per scenario"
+        enabled: true
+      
+      duration_ceiling:
+        function: plot_duration_ceiling_effect
+        description: "Duration prediction ceiling effect analysis"
+        enabled: true
+  
+  application:
+    module: application_plots
+    description: "Application-focused visualizations"
+    plots:
+      improvement_heatmaps:
+        functions:
+          - plot_improvement_heatmaps_individual
+          - plot_improvement_heatmap_grid
+        description: "Improvement comparison heatmaps (individual + grid)"
+        enabled: true
+        config:
+          colormap: "RdWhGn"
+          percentile_range: [5, 95]
+      
+      radar_charts:
+        function: plot_application_radars
+        description: "Application use case radar charts"
+        enabled: true
+
+# Plot groups for convenience
+groups:
+  all:
+    description: "All enabled plots"
+    plots: "*"
+  
+  core:
+    description: "Core visualizations for quick overview"
+    plots:
+      - metrics.scenario_heatmap
+      - application.improvement_heatmaps
+  
+  full_analysis:
+    description: "Complete analysis suite"
+    plots:
+      - metrics.*
+      - application.*
+      - analysis.*
+  
+  heatmaps_only:
+    description: "Only heatmap visualizations"
+    plots:
+      - metrics.scenario_heatmap
+      - application.improvement_heatmaps
+  
+  # Legacy compatibility groups (map to old PLOT_REGISTRY keys)
+  metrics:
+    description: "Metrics plots"
+    plots:
+      - metrics.*
+  
+  temporal:
+    description: "Temporal/Spatial plots"
+    plots:
+      - temporal_spatial.*
+  
+  robustness:
+    description: "Robustness plots"
+    plots:
+      - robustness.*
+  
+  analysis:
+    description: "Analysis plots"
+    plots:
+      - analysis.*
+  
+  application:
+    description: "Application plots"
+    plots:
+      - application.*
+  
+  radar:
+    description: "Application radar charts only"
+    plots:
+      - application.radar_charts
+

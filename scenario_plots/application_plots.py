@@ -31,32 +31,34 @@ sns.set_style("whitegrid")
 plt.rcParams["figure.facecolor"] = "white"
 
 
-def plot_all(data: Dict, output_dir: Path, dpi: int = 300, loader=None):
+def plot_all(data: Dict, output_dir: Path, dpi: int = 300, loader=None, config=None):
     """Generate all application plots
-
+    
     Args:
         data: Loaded scenario data
         output_dir: Directory to save plots
         dpi: Output resolution
         loader: Optional ScenarioDataLoader for config-based filtering
+        config: Optional plot-specific configuration
     """
     logger.info("  🎯 Application plots...")
-
-    plot_application_radars(data, output_dir, dpi, loader=loader)
-
+    
+    plot_application_radars(data, output_dir, dpi, loader=loader, config=config)
+    
     # Generate both individual and grid heatmaps
-    plot_improvement_heatmaps_individual(data, output_dir, dpi, loader=loader)
-    plot_improvement_heatmap_grid(data, output_dir, dpi, loader=loader)
+    plot_improvement_heatmaps_individual(data, output_dir, dpi, loader=loader, config=config)
+    plot_improvement_heatmap_grid(data, output_dir, dpi, loader=loader, config=config)
 
 
-def plot_application_radars(data: Dict, output_dir: Path, dpi: int, loader=None):
+def plot_application_radars(data: Dict, output_dir: Path, dpi: int, loader=None, config=None):
     """Plot #12: 3 radar charts for different applications
-
+    
     Args:
         data: Loaded scenario data
         output_dir: Directory to save plots
         dpi: Output resolution
         loader: Optional ScenarioDataLoader for config-based filtering
+        config: Optional plot-specific configuration
     """
     logger.info("    12. Application use case radars")
 
@@ -180,7 +182,7 @@ def plot_application_radars(data: Dict, output_dir: Path, dpi: int, loader=None)
 
 
 def plot_improvement_heatmaps_individual(
-    data: Dict, output_dir: Path, dpi: int, loader=None
+    data: Dict, output_dir: Path, dpi: int, loader=None, config=None
 ):
     """Plot #13a: Individual heatmaps for each distilled vs vanilla comparison
 
@@ -189,6 +191,7 @@ def plot_improvement_heatmaps_individual(
         output_dir: Directory to save plots
         dpi: Output resolution
         loader: Optional ScenarioDataLoader for config-based filtering
+        config: Optional plot-specific configuration
     """
     logger.info("    13a. Individual improvement heatmaps")
 
@@ -319,7 +322,7 @@ def plot_improvement_heatmaps_individual(
             logger.info(f"      ✓ {distilled_model} vs {vanilla_model}")
 
 
-def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int, loader=None):
+def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int, loader=None, config=None):
     """Plot #13b: Grid of heatmaps showing all model comparisons
 
     Args:
@@ -327,6 +330,7 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int, loader
         output_dir: Directory to save plots
         dpi: Output resolution
         loader: Optional ScenarioDataLoader for config-based filtering
+        config: Optional plot-specific configuration
     """
     logger.info("    13b. Improvement heatmap grid (comprehensive overview)")
 
@@ -506,7 +510,7 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int, loader
     logger.info(f"      ✓ Grid saved with {n_distilled * n_vanilla} comparisons")
 
 
-def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int, loader=None):
+def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int, loader=None, config=None):
     """Plot #13: Heatmap showing % improvement over vanilla (DEPRECATED - kept for compatibility)
 
     Args:
@@ -514,6 +518,7 @@ def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int, loader=None
         output_dir: Directory to save plots
         dpi: Output resolution
         loader: Optional ScenarioDataLoader for config-based filtering
+        config: Optional plot-specific configuration
     """
     logger.info("    13. Improvement percentage heatmap (legacy single comparison)")
 
