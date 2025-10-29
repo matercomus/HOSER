@@ -18,6 +18,8 @@ from .data_loader import (
     get_metric_value,
     calculate_improvement,
     classify_models,
+    get_model_colors,
+    get_model_labels,
     get_available_scenarios,
     get_available_metrics,
     get_metric_display_labels,
@@ -27,18 +29,6 @@ logger = logging.getLogger(__name__)
 
 sns.set_style("whitegrid")
 plt.rcParams['figure.facecolor'] = 'white'
-
-COLORS = {
-    'vanilla': '#e74c3c',
-    'distilled': '#3498db',
-    'distilled_seed44': '#2ecc71'
-}
-
-MODEL_LABELS = {
-    'vanilla': 'Vanilla',
-    'distilled': 'Distilled (seed 42)',
-    'distilled_seed44': 'Distilled (seed 44)'
-}
 
 
 def plot_all(data: Dict, output_dir: Path, dpi: int = 300):
@@ -75,9 +65,11 @@ def plot_application_radars(data: Dict, output_dir: Path, dpi: int):
         }
     }
     
-    # Dynamically detect all models
+    # Dynamically detect all models and get their colors/labels
     vanilla_models, distilled_models = classify_models(data, 'train')
     models = sorted(vanilla_models + distilled_models)
+    model_colors = get_model_colors(data, 'train')
+    model_labels = get_model_labels(data, 'train')
     
     if not models:
         logger.warning("    No models found for radar charts")
@@ -121,9 +113,9 @@ def plot_application_radars(data: Dict, output_dir: Path, dpi: int):
             
             norm_values += norm_values[:1]  # Complete the circle
             
-            ax.plot(angles, norm_values, 'o-', linewidth=2, label=MODEL_LABELS[model],
-                   color=COLORS[model])
-            ax.fill(angles, norm_values, alpha=0.15, color=COLORS[model])
+            ax.plot(angles, norm_values, 'o-', linewidth=2, label=model_labels[model],
+                   color=model_colors[model])
+            ax.fill(angles, norm_values, alpha=0.15, color=model_colors[model])
         
         # Fix axis
         ax.set_xticks(angles[:-1])
