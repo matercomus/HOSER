@@ -14,24 +14,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from .data_loader import get_metric_value
+from .data_loader import (
+    get_metric_value,
+    classify_models,
+    get_model_colors,
+    get_model_labels,
+    get_available_scenarios
+)
 
 logger = logging.getLogger(__name__)
 
 sns.set_style("whitegrid")
 plt.rcParams['figure.facecolor'] = 'white'
-
-COLORS = {
-    'vanilla': '#e74c3c',
-    'distilled': '#3498db',
-    'distilled_seed44': '#2ecc71'
-}
-
-MODEL_LABELS = {
-    'vanilla': 'Vanilla',
-    'distilled': 'Distilled (seed 42)',
-    'distilled_seed44': 'Distilled (seed 44)'
-}
 
 
 def plot_all(data: Dict, output_dir: Path, dpi: int = 300):
@@ -46,10 +40,23 @@ def plot_temporal_scenarios_comparison(data: Dict, output_dir: Path, dpi: int):
     """Plot #4: 3-row line plot comparing temporal scenarios"""
     logger.info("    4. Temporal scenarios comparison")
     
-    temporal_scenarios = ['off_peak', 'peak', 'weekday', 'weekend']
+    # Dynamic extraction of models and scenarios
+    vanilla_models, distilled_models = classify_models(data, 'train')
+    models = sorted(vanilla_models + distilled_models)
+    model_colors = get_model_colors(data, 'train')
+    model_labels = get_model_labels(data, 'train')
+    
+    # Get all scenarios and filter to temporal ones
+    all_scenarios = get_available_scenarios(data, 'train')
+    temporal_scenarios = [s for s in all_scenarios 
+                         if any(kw in s for kw in ['peak', 'weekday', 'weekend'])]
+    
+    if not temporal_scenarios:
+        logger.warning("No temporal scenarios found, skipping plot")
+        return
+    
     metrics = ['Distance_JSD', 'Duration_JSD', 'Radius_JSD']
     metric_labels = ['Distance JSD', 'Duration JSD', 'Radius of Gyration JSD']
-    models = ['vanilla', 'distilled', 'distilled_seed44']
     
     fig, axes = plt.subplots(3, 1, figsize=(12, 12))
     fig.suptitle('Temporal Scenario Performance Comparison', fontsize=16, fontweight='bold')
@@ -64,8 +71,8 @@ def plot_temporal_scenarios_comparison(data: Dict, output_dir: Path, dpi: int):
                 val = get_metric_value(data, 'train', model, s, metric)
                 values.append(val if val is not None else np.nan)
             
-            ax.plot(x, values, marker='o', label=MODEL_LABELS[model],
-                   color=COLORS[model], linewidth=2.5, markersize=8)
+            ax.plot(x, values, marker='o', label=model_labels[model],
+                   color=model_colors[model], linewidth=2.5, markersize=8)
         
         ax.set_xticks(x)
         ax.set_xticklabels([s.replace('_', ' ').title() for s in temporal_scenarios])
@@ -92,8 +99,20 @@ def plot_spatial_complexity_analysis(data: Dict, output_dir: Path, dpi: int):
     """Plot #5: 2-panel spatial analysis (bar chart + scatter)"""
     logger.info("    5. Spatial complexity analysis")
     
-    spatial_scenarios = ['city_center', 'suburban']
-    models = ['vanilla', 'distilled', 'distilled_seed44']
+    # Dynamic extraction of models and scenarios
+    vanilla_models, distilled_models = classify_models(data, 'train')
+    models = sorted(vanilla_models + distilled_models)
+    model_colors = get_model_colors(data, 'train')
+    model_labels = get_model_labels(data, 'train')
+    
+    # Get all scenarios and filter to spatial ones
+    all_scenarios = get_available_scenarios(data, 'train')
+    spatial_scenarios = [s for s in all_scenarios 
+                        if any(kw in s for kw in ['center', 'suburban'])]
+    
+    if not spatial_scenarios:
+        logger.warning("No spatial scenarios found, skipping plot")
+        return
     
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     fig.suptitle('Spatial Complexity Analysis', fontsize=16, fontweight='bold')
@@ -107,19 +126,19 @@ def plot_spatial_complexity_analysis(data: Dict, output_dir: Path, dpi: int):
         # Distance JSD
         dist_vals = [get_metric_value(data, 'train', model, s, 'Distance_JSD')
                      for s in spatial_scenarios]
-        ax1.bar(x + i*width, dist_vals, width, label=f'{MODEL_LABELS[model]} (Dist)',
-               color=COLORS[model], alpha=0.8, edgecolor='black', linewidth=0.5)
+        ax1.bar(x + i*width, dist_vals, width, label=f'{model_labels[model]} (Dist)',
+               color=model_colors[model], alpha=0.8, edgecolor='black', linewidth=0.5)
         
         # Radius JSD (offset)
         radius_vals = [get_metric_value(data, 'train', model, s, 'Radius_JSD')
                        for s in spatial_scenarios]
-        ax1.bar(x + (i+3)*width, radius_vals, width, label=f'{MODEL_LABELS[model]} (Radius)',
-               color=COLORS[model], alpha=0.5, edgecolor='black', linewidth=0.5, hatch='//')
+        ax1.bar(x + (i+len(models))*width, radius_vals, width, label=f'{model_labels[model]} (Radius)',
+               color=model_colors[model], alpha=0.5, edgecolor='black', linewidth=0.5, hatch='//')
     
     ax1.set_xlabel('Spatial Scenario', fontsize=11, fontweight='bold')
     ax1.set_ylabel('JSD Value', fontsize=11, fontweight='bold')
     ax1.set_title('Distance vs Radius JSD', fontsize=12, fontweight='bold')
-    ax1.set_xticks(x + 2.5*width)
+    ax1.set_xticks(x + (len(models)-1)*width/2 + len(models)*width/2)
     ax1.set_xticklabels([s.replace('_', ' ').title() for s in spatial_scenarios])
     ax1.legend(loc='upper right', framealpha=0.95, fontsize=9, ncol=2)
     ax1.grid(axis='y', alpha=0.3, linestyle='--')
@@ -141,8 +160,8 @@ def plot_spatial_complexity_analysis(data: Dict, output_dir: Path, dpi: int):
                 jsds.append(jsd)
                 labels_list.append(scenario)
         
-        ax2.scatter(distances, jsds, s=150, label=MODEL_LABELS[model],
-                   color=COLORS[model], alpha=0.7, edgecolors='black', linewidth=1.5)
+        ax2.scatter(distances, jsds, s=150, label=model_labels[model],
+                   color=model_colors[model], alpha=0.7, edgecolors='black', linewidth=1.5)
         
         # Add labels
         for x, y, lbl in zip(distances, jsds, labels_list):

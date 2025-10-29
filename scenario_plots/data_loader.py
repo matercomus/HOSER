@@ -186,6 +186,42 @@ def generate_model_labels(models: List[str]) -> Dict[str, str]:
     return labels
 
 
+def get_model_colors(data: Dict, od_source: str = 'train') -> Dict[str, str]:
+    """Get color mapping for all models in dataset
+    
+    Convenience wrapper that combines classify_models() and generate_model_colors()
+    for easy use in plotting functions.
+    
+    Args:
+        data: Loaded scenario data
+        od_source: OD source to analyze (default: 'train')
+        
+    Returns:
+        Dictionary mapping model names to hex color codes
+    """
+    vanilla_models, distilled_models = classify_models(data, od_source)
+    all_models = sorted(vanilla_models + distilled_models)
+    return generate_model_colors(all_models)
+
+
+def get_model_labels(data: Dict, od_source: str = 'train') -> Dict[str, str]:
+    """Get label mapping for all models in dataset
+    
+    Convenience wrapper that combines classify_models() and generate_model_labels()
+    for easy use in plotting functions.
+    
+    Args:
+        data: Loaded scenario data
+        od_source: OD source to analyze (default: 'train')
+        
+    Returns:
+        Dictionary mapping model names to display labels
+    """
+    vanilla_models, distilled_models = classify_models(data, od_source)
+    all_models = sorted(vanilla_models + distilled_models)
+    return generate_model_labels(all_models)
+
+
 def get_available_scenarios(data: Dict, od_source: str = 'train') -> List[str]:
     """Extract list of scenarios that actually exist in the data
     
