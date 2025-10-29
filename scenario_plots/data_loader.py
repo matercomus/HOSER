@@ -185,3 +185,111 @@ def generate_model_labels(models: List[str]) -> Dict[str, str]:
     
     return labels
 
+
+def get_available_scenarios(data: Dict, od_source: str = 'train') -> List[str]:
+    """Extract list of scenarios that actually exist in the data
+    
+    Args:
+        data: Loaded scenario data
+        od_source: OD source to analyze (default: 'train')
+        
+    Returns:
+        Sorted list of scenario names that exist across models
+    """
+    if od_source not in data:
+        logger.warning(f"OD source '{od_source}' not found in data")
+        return []
+    
+    # Collect all unique scenario names across all models
+    all_scenarios = set()
+    
+    for model, model_data in data[od_source].items():
+        if 'individual_scenarios' in model_data:
+            all_scenarios.update(model_data['individual_scenarios'].keys())
+    
+    scenarios = sorted(list(all_scenarios))
+    
+    if scenarios:
+        logger.info(f"Found {len(scenarios)} scenarios in data: {', '.join(scenarios[:5])}"
+                   + (f" ... and {len(scenarios)-5} more" if len(scenarios) > 5 else ""))
+    else:
+        logger.warning("No scenarios found in data")
+    
+    return scenarios
+
+
+def get_available_metrics(data: Dict, od_source: str = 'train') -> List[str]:
+    """Extract list of metrics that actually exist in the data
+    
+    Args:
+        data: Loaded scenario data
+        od_source: OD source to analyze (default: 'train')
+        
+    Returns:
+        Sorted list of metric names that exist across scenarios
+    """
+    if od_source not in data:
+        logger.warning(f"OD source '{od_source}' not found in data")
+        return []
+    
+    # Collect all unique metric names across all models and scenarios
+    all_metrics = set()
+    
+    for model, model_data in data[od_source].items():
+        if 'individual_scenarios' in model_data:
+            for scenario, scenario_data in model_data['individual_scenarios'].items():
+                if 'metrics' in scenario_data:
+                    all_metrics.update(scenario_data['metrics'].keys())
+    
+    metrics = sorted(list(all_metrics))
+    
+    if metrics:
+        logger.info(f"Found {len(metrics)} metrics in data: {', '.join(metrics)}")
+    else:
+        logger.warning("No metrics found in data")
+    
+    return metrics
+
+
+def get_metric_display_labels(metrics: List[str]) -> List[str]:
+    """Generate human-readable display labels for metrics
+    
+    Args:
+        metrics: List of metric names
+        
+    Returns:
+        List of formatted labels for display (same order as input)
+    """
+    if not metrics:
+        return []
+    
+    labels = []
+    for metric in metrics:
+        # Common metric formatting rules
+        if metric.endswith('_JSD'):
+            # Distance_JSD -> Distance\nJSD
+            base = metric[:-4]
+            label = f"{base}\nJSD"
+        elif metric.endswith('_km'):
+            # Hausdorff_km -> Hausdorff\n(km)
+            base = metric[:-3]
+            label = f"{base}\n(km)"
+        elif metric.endswith('_mean'):
+            # Distance_mean -> Distance\nMean
+            base = metric[:-5]
+            label = f"{base}\nMean"
+        elif '_' in metric:
+            # Generic: split on underscore
+            parts = metric.split('_')
+            if len(parts) == 2:
+                label = f"{parts[0]}\n{parts[1]}"
+            else:
+                label = metric.replace('_', '\n')
+        else:
+            # No special formatting
+            label = metric
+        
+        labels.append(label)
+    
+    return labels
+
