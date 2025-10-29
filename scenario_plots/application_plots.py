@@ -189,12 +189,16 @@ def plot_improvement_heatmaps_individual(data: Dict, output_dir: Path, dpi: int)
             
             fig, ax = plt.subplots(figsize=(10, 8))
             
+            # Calculate symmetric bounds for diverging colormap
+            abs_max = max(abs(improvement_matrix.min()), abs(improvement_matrix.max()))
+            vmin, vmax = -abs_max, abs_max
+            
             # Create heatmap
-            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='Greens',
+            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='RdYlGn',
                        xticklabels=metric_labels,
                        yticklabels=[s.replace('_', ' ').title() for s in scenarios],
                        ax=ax, cbar_kws={'label': '% Improvement'}, 
-                       vmin=0, vmax=100)
+                       center=0, vmin=vmin, vmax=vmax)
             
             # Create title with model names
             distilled_label = distilled_model.replace('_', ' ').title()
@@ -301,12 +305,12 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int):
             
             improvement_data[(i, j)] = improvement_matrix
     
-    # Determine colorbar range
+    # Determine colorbar range (symmetric around 0 for diverging colormap)
     if all_improvements:
-        vmin = 0
-        vmax = min(100, np.percentile(all_improvements, 95))  # Cap at 95th percentile or 100
+        abs_max = max(abs(min(all_improvements)), abs(max(all_improvements)))
+        vmin, vmax = -abs_max, abs_max
     else:
-        vmin, vmax = 0, 100
+        vmin, vmax = -100, 100
     
     # Second pass: create heatmaps
     for i, distilled_model in enumerate(distilled_models):
@@ -318,12 +322,12 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int):
             # Only show colorbar on rightmost column
             show_cbar = (j == n_vanilla - 1)
             
-            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='Greens',
+            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='RdYlGn',
                        xticklabels=metric_labels,
                        yticklabels=scenario_labels if j == 0 else [],
                        ax=ax, cbar=show_cbar,
                        cbar_kws={'label': '% Improvement'} if show_cbar else {},
-                       vmin=vmin, vmax=vmax,
+                       center=0, vmin=vmin, vmax=vmax,
                        annot_kws={'fontsize': annot_fontsize})
             
             # Subplot title
@@ -394,12 +398,16 @@ def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int):
     
     fig, ax = plt.subplots(figsize=(10, 8))
     
+    # Calculate symmetric bounds for diverging colormap
+    abs_max = max(abs(improvement_matrix.min()), abs(improvement_matrix.max()))
+    vmin, vmax = -abs_max, abs_max
+    
     # Create heatmap
-    sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='Greens',
+    sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='RdYlGn',
                xticklabels=metric_labels,
                yticklabels=[s.replace('_', ' ').title() for s in scenarios],
                ax=ax, cbar_kws={'label': '% Improvement'}, 
-               vmin=0, vmax=100)
+               center=0, vmin=vmin, vmax=vmax)
     
     ax.set_title('Improvement of Distilled (seed 44) over Vanilla\nAcross Scenarios and Metrics',
                 fontsize=14, fontweight='bold', pad=15)
