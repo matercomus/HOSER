@@ -212,7 +212,144 @@ scenario_cross_model/
         └── ...
 ```
 
-## 4. Analysis Figures (`create_analysis_figures.py`)
+## 4. Comprehensive Scenario Plots (`create_scenario_plots.py`)
+
+**NEW: YAML-driven plotting system** with configurable metric filtering and individual plot selection.
+
+### Features
+- 13 publication-quality analysis plots organized by type
+- YAML-based configuration for extensibility
+- Individual plot selection for fast iteration
+- Dataset-specific metric filtering
+- Plot groups for convenience
+- Self-documenting with `--list-plots`
+
+### Quick Start
+
+```bash
+# List all available plots and groups
+uv run python create_scenario_plots.py --list-plots
+
+# Generate all plots (default)
+uv run python create_scenario_plots.py --eval-dir hoser-distill-optuna-6
+
+# Generate only heatmap visualizations (fast)
+uv run python create_scenario_plots.py --eval-dir hoser-distill-optuna-6 --plots heatmaps_only
+
+# Generate a single plot (development/iteration)
+uv run python create_scenario_plots.py --eval-dir hoser-distill-optuna-6 \
+  --plots application.improvement_heatmaps
+
+# Generate multiple specific plots
+uv run python create_scenario_plots.py --eval-dir hoser-distill-optuna-6 \
+  --plots metrics.scenario_heatmap,application.radar_charts
+```
+
+### Available Plots
+
+**Metrics Plots (`metrics.*`)**
+- `metrics.scenario_heatmap` - Scenario × Metric performance heatmap
+- `metrics.model_comparison` - Cross-model bar chart comparison
+- `metrics.aggregate_comparison` - Aggregate metrics across models
+- `metrics.metric_distributions` - Distribution plots for key metrics
+
+**Temporal/Spatial Plots (`temporal_spatial.*`)**
+- `temporal_spatial.temporal_patterns` - Time-based performance patterns
+- `temporal_spatial.spatial_patterns` - Spatial coverage and performance
+
+**Robustness Plots (`robustness.*`)**
+- `robustness.scenario_robustness` - Performance stability across scenarios
+- `robustness.metric_sensitivity` - Metric sensitivity analysis
+
+**Analysis Plots (`analysis.*`)**
+- `analysis.difficulty_ranking` - Scenario difficulty ranking
+- `analysis.metric_sensitivity_by_scenario` - Most sensitive metrics per scenario
+- `analysis.duration_ceiling` - Duration prediction ceiling effect
+
+**Application Plots (`application.*`)**
+- `application.improvement_heatmaps` - Improvement comparison (individual + grid)
+- `application.radar_charts` - Application use case radar charts
+
+### Plot Groups
+
+Pre-defined groups for convenience:
+- `all` - All plots (default)
+- `core` - Quick overview (scenario_heatmap + improvement_heatmaps)
+- `heatmaps_only` - Only heatmap visualizations
+- `full_analysis` - Complete analysis suite
+- `application` - Application-focused plots
+- `metrics`, `analysis`, `robustness`, `temporal` - Type-specific groups
+
+### Configuration
+
+**Metric Filtering** (`eval_dir/config/scenarios_*.yaml`):
+```yaml
+plotting:
+  metrics:
+    exclude_patterns:
+      - "*_real_*"  # Exclude metrics mirroring input data
+    exclude:
+      - "total_generated_od_pairs"
+      - "matched_od_pairs"
+```
+
+**Plot-Specific Settings** (`config/scenario_plots.yaml`):
+```yaml
+plot_types:
+  application:
+    plots:
+      improvement_heatmaps:
+        config:
+          colormap: "RdWhGn"
+          percentile_range: [5, 95]
+```
+
+### Options
+
+```bash
+--eval-dir EVAL_DIR        # Required: evaluation directory
+--plots SELECTION          # Plot IDs, groups, or comma-separated (default: all)
+--dpi DPI                  # Output resolution (default: 300)
+--list-plots               # List all available plots and groups, then exit
+```
+
+### Output
+
+- Saved to: `{eval_dir}/figures/scenarios/`
+- Formats: PDF (publication-quality) and PNG
+- All 13 plots with consistent styling
+
+### Benefits
+
+1. **Fast iteration** - Generate only the plot you're working on
+2. **No code changes** - Add/remove plots via YAML configuration
+3. **Dataset-specific** - Different metric filtering per dataset
+4. **Self-documenting** - Use `--list-plots` to see all options
+5. **Extensible** - Easy to add new plots without touching main code
+
+### Examples
+
+```bash
+# Development: iterate on single plot
+uv run python create_scenario_plots.py --eval-dir DIR \
+  --plots application.improvement_heatmaps
+
+# Publication: high-DPI core visualizations
+uv run python create_scenario_plots.py --eval-dir DIR \
+  --plots core --dpi 600
+
+# Analysis: generate all heatmaps
+uv run python create_scenario_plots.py --eval-dir DIR \
+  --plots heatmaps_only
+
+# Custom: specific plots you need
+uv run python create_scenario_plots.py --eval-dir DIR \
+  --plots metrics.scenario_heatmap,application.radar_charts,analysis.difficulty_ranking
+```
+
+See `scenario_plots/README.md` for detailed documentation on adding new plots and configuration options.
+
+## 5. Analysis Figures (`create_analysis_figures.py`)
 
 ### Features
 - Publication-quality PDF and PNG figures
@@ -294,6 +431,7 @@ uv run python ../python_pipeline.py --run-scenarios
 cd ..
 uv run python visualize_trajectories.py --eval-dir eval_Beijing_20251024_123456 --sample_strategy scenario
 uv run python create_distribution_plots.py --eval-dir eval_Beijing_20251024_123456
+uv run python create_scenario_plots.py --eval-dir eval_Beijing_20251024_123456
 uv run python create_analysis_figures.py --eval-dir eval_Beijing_20251024_123456
 
 # 4. All figures are now in eval_Beijing_20251024_123456/figures/
@@ -310,7 +448,7 @@ eval_directory/
 │   │   ├── separate/          # Individual model plots
 │   │   ├── overlaid/          # Combined plots per model
 │   │   ├── cross_model/       # Same OD pair, different models
-│   │   └── scenario_cross_model/  # NEW: Scenario-based comparisons
+│   │   └── scenario_cross_model/  # Scenario-based comparisons
 │   │       ├── train/
 │   │       │   ├── off_peak_comparison.{pdf,png}
 │   │       │   ├── weekday_comparison.{pdf,png}
@@ -321,11 +459,18 @@ eval_directory/
 │   ├── distributions/         # From create_distribution_plots.py
 │   │   ├── distance_distribution.png
 │   │   └── duration_distribution.png
+│   ├── scenarios/             # NEW: From create_scenario_plots.py (13 plots)
+│   │   ├── improvement_heatmap_*.{pdf,png}
+│   │   ├── improvement_heatmap_grid.{pdf,png}
+│   │   ├── scenario_metrics_heatmap.{pdf,png}
+│   │   ├── application_use_case_radar.{pdf,png}
+│   │   ├── scenario_difficulty_ranking.{pdf,png}
+│   │   └── ... (all 13 scenario analysis plots)
 │   ├── analysis/              # From create_analysis_figures.py
 │   │   ├── metric_comparison.pdf
 │   │   ├── performance_radar.pdf
 │   │   └── ...
-│   └── scenarios/             # From ScenarioVisualizer (if scenarios run)
+│   └── old_scenarios/         # From ScenarioVisualizer (legacy, if scenarios run)
 │       ├── train/
 │       │   └── vanilla/
 │       │       ├── scenario_distribution.png
@@ -336,7 +481,7 @@ eval_directory/
     ├── train/
     │   └── vanilla/
     │       ├── scenario_analysis.json
-    │       └── trajectory_scenarios.json  # NEW: Trajectory-to-scenario mapping
+    │       └── trajectory_scenarios.json
     └── test/
 ```
 
@@ -374,12 +519,19 @@ eval_directory/
 ### Batch Processing Multiple Eval Directories
 
 ```bash
-# Process all eval directories
+# Process all eval directories with full visualization suite
 for eval_dir in eval_*/; do
     echo "Processing $eval_dir..."
     uv run python visualize_trajectories.py --eval-dir "$eval_dir"
     uv run python create_distribution_plots.py --eval-dir "$eval_dir"
+    uv run python create_scenario_plots.py --eval-dir "$eval_dir"
     uv run python create_analysis_figures.py --eval-dir "$eval_dir"
+done
+
+# Quick batch processing with only core plots
+for eval_dir in eval_*/; do
+    echo "Processing $eval_dir (core plots only)..."
+    uv run python create_scenario_plots.py --eval-dir "$eval_dir" --plots core
 done
 ```
 
