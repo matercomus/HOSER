@@ -191,6 +191,9 @@ def plot_improvement_heatmaps_individual(data: Dict, output_dir: Path, dpi: int)
             
             # Calculate symmetric bounds for diverging colormap
             abs_max = max(abs(improvement_matrix.min()), abs(improvement_matrix.max()))
+            # Handle case where all values are zero/None (avoid vmin==vmax)
+            if abs_max < 0.01:
+                abs_max = 10.0  # Use default range
             vmin, vmax = -abs_max, abs_max
             
             # Create red-white-green diverging colormap
@@ -309,6 +312,9 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int):
     # Determine colorbar range (symmetric around 0 for diverging colormap)
     if all_improvements:
         abs_max = max(abs(min(all_improvements)), abs(max(all_improvements)))
+        # Handle case where all values are zero/None (avoid vmin==vmax)
+        if abs_max < 0.01:
+            abs_max = 10.0  # Use default range
         vmin, vmax = -abs_max, abs_max
     else:
         vmin, vmax = -100, 100
@@ -401,6 +407,9 @@ def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int):
     
     # Calculate symmetric bounds for diverging colormap
     abs_max = max(abs(improvement_matrix.min()), abs(improvement_matrix.max()))
+    # Handle case where all values are zero/None (avoid vmin==vmax)
+    if abs_max < 0.01:
+        abs_max = 10.0  # Use default range
     vmin, vmax = -abs_max, abs_max
     
     # Create red-white-green diverging colormap
