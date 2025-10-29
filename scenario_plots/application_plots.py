@@ -14,7 +14,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from .data_loader import get_metric_value, calculate_improvement
+from .data_loader import (
+    get_metric_value,
+    calculate_improvement,
+    classify_models,
+    get_scenario_list,
+    get_available_scenarios,
+    get_available_metrics,
+    get_metric_display_labels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +47,10 @@ def plot_all(data: Dict, output_dir: Path, dpi: int = 300):
     logger.info("  🎯 Application plots...")
     
     plot_application_radars(data, output_dir, dpi)
-    plot_improvement_heatmap(data, output_dir, dpi)
+    
+    # Generate both individual and grid heatmaps
+    plot_improvement_heatmaps_individual(data, output_dir, dpi)
+    plot_improvement_heatmap_grid(data, output_dir, dpi)
 
 
 def plot_application_radars(data: Dict, output_dir: Path, dpi: int):
@@ -129,9 +140,237 @@ def plot_application_radars(data: Dict, output_dir: Path, dpi: int):
     plt.close()
 
 
+def plot_improvement_heatmaps_individual(data: Dict, output_dir: Path, dpi: int):
+    """Plot #13a: Individual heatmaps for each distilled vs vanilla comparison"""
+    logger.info("    13a. Individual improvement heatmaps")
+    
+    # Detect all vanilla and distilled models
+    vanilla_models, distilled_models = classify_models(data, 'train')
+    
+    if not vanilla_models:
+        logger.warning("    ⚠️  No vanilla models found, skipping individual heatmaps")
+        return
+    
+    if not distilled_models:
+        logger.warning("    ⚠️  No distilled models found, skipping individual heatmaps")
+        return
+    
+    logger.info(f"    Generating {len(distilled_models)} × {len(vanilla_models)} = {len(distilled_models) * len(vanilla_models)} comparison heatmaps")
+    
+    # DYNAMIC: Extract scenarios and metrics from actual data
+    scenarios = get_available_scenarios(data, 'train')
+    metrics = get_available_metrics(data, 'train')
+    metric_labels = get_metric_display_labels(metrics)
+    
+    # Validate we have data to plot
+    if not scenarios:
+        logger.warning("    ⚠️  No scenarios found in data, skipping individual heatmaps")
+        return
+    
+    if not metrics:
+        logger.warning("    ⚠️  No metrics found in data, skipping individual heatmaps")
+        return
+    
+    logger.info(f"    Using {len(scenarios)} scenarios and {len(metrics)} metrics from data")
+    
+    # Generate one heatmap for each (distilled, vanilla) pair
+    for distilled_model in distilled_models:
+        for vanilla_model in vanilla_models:
+            # Build improvement matrix
+            improvement_matrix = np.zeros((len(scenarios), len(metrics)))
+            
+            for i, scenario in enumerate(scenarios):
+                for j, metric in enumerate(metrics):
+                    improvement = calculate_improvement(data, 'train', scenario, metric,
+                                                       baseline=vanilla_model,
+                                                       improved=distilled_model)
+                    if improvement is not None:
+                        improvement_matrix[i, j] = improvement
+                    else:
+                        improvement_matrix[i, j] = 0
+            
+            fig, ax = plt.subplots(figsize=(10, 8))
+            
+            # Create heatmap
+            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='Greens',
+                       xticklabels=metric_labels,
+                       yticklabels=[s.replace('_', ' ').title() for s in scenarios],
+                       ax=ax, cbar_kws={'label': '% Improvement'}, 
+                       vmin=0, vmax=100)
+            
+            # Create title with model names
+            distilled_label = distilled_model.replace('_', ' ').title()
+            vanilla_label = vanilla_model.replace('_', ' ').title()
+            ax.set_title(f'Improvement of {distilled_label} over {vanilla_label}\nAcross Scenarios and Metrics',
+                        fontsize=14, fontweight='bold', pad=15)
+            ax.set_xlabel('Metric', fontsize=11, fontweight='bold')
+            ax.set_ylabel('Scenario', fontsize=11, fontweight='bold')
+            
+            # Add average improvement annotation
+            avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
+            if not np.isnan(avg_improvement):
+                ax.text(0.02, 0.98, f'Average Improvement: {avg_improvement:.1f}%',
+                       transform=ax.transAxes, ha='left', va='top',
+                       bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.7),
+                       fontsize=11, fontweight='bold')
+            
+            plt.tight_layout()
+            
+            # Save with descriptive filename
+            output_path = output_dir / f'improvement_heatmap_{distilled_model}_vs_{vanilla_model}'
+            plt.savefig(f"{output_path}.png", dpi=dpi, bbox_inches='tight')
+            plt.savefig(f"{output_path}.pdf", dpi=dpi, bbox_inches='tight')
+            plt.close()
+            
+            logger.info(f"      ✓ {distilled_model} vs {vanilla_model}")
+
+
+def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int):
+    """Plot #13b: Grid of heatmaps showing all model comparisons"""
+    logger.info("    13b. Improvement heatmap grid (comprehensive overview)")
+    
+    # Detect all vanilla and distilled models
+    vanilla_models, distilled_models = classify_models(data, 'train')
+    
+    if not vanilla_models:
+        logger.warning("    ⚠️  No vanilla models found, skipping grid heatmap")
+        return
+    
+    if not distilled_models:
+        logger.warning("    ⚠️  No distilled models found, skipping grid heatmap")
+        return
+    
+    n_vanilla = len(vanilla_models)
+    n_distilled = len(distilled_models)
+    
+    logger.info(f"    Creating {n_distilled}×{n_vanilla} grid of comparison heatmaps")
+    
+    # DYNAMIC: Extract scenarios and metrics from actual data
+    scenarios = get_available_scenarios(data, 'train')
+    metrics = get_available_metrics(data, 'train')
+    metric_labels = get_metric_display_labels(metrics)
+    scenario_labels = [s.replace('_', ' ').title() for s in scenarios]
+    
+    # Validate we have data to plot
+    if not scenarios:
+        logger.warning("    ⚠️  No scenarios found in data, skipping grid heatmap")
+        return
+    
+    if not metrics:
+        logger.warning("    ⚠️  No metrics found in data, skipping grid heatmap")
+        return
+    
+    logger.info(f"    Using {len(scenarios)} scenarios and {len(metrics)} metrics from data")
+    
+    # Calculate figure size: scale with number of subplots
+    # Base size per subplot, with some adjustment for larger grids
+    if n_vanilla <= 2 and n_distilled <= 2:
+        fig_width = 8 * n_vanilla
+        fig_height = 6 * n_distilled
+        annot_fontsize = 8
+    else:
+        fig_width = 6 * n_vanilla
+        fig_height = 5 * n_distilled
+        annot_fontsize = 7
+    
+    fig, axes = plt.subplots(n_distilled, n_vanilla, 
+                            figsize=(fig_width, fig_height),
+                            squeeze=False)
+    
+    # Overall title
+    fig.suptitle('Comprehensive Model Comparison: Distilled vs Vanilla Performance Improvement',
+                fontsize=16, fontweight='bold', y=0.995)
+    
+    # Store all improvement values for shared colorbar
+    all_improvements = []
+    
+    # First pass: calculate all improvements
+    improvement_data = {}
+    for i, distilled_model in enumerate(distilled_models):
+        for j, vanilla_model in enumerate(vanilla_models):
+            improvement_matrix = np.zeros((len(scenarios), len(metrics)))
+            
+            for s_idx, scenario in enumerate(scenarios):
+                for m_idx, metric in enumerate(metrics):
+                    improvement = calculate_improvement(data, 'train', scenario, metric,
+                                                       baseline=vanilla_model,
+                                                       improved=distilled_model)
+                    if improvement is not None:
+                        improvement_matrix[s_idx, m_idx] = improvement
+                        all_improvements.append(improvement)
+                    else:
+                        improvement_matrix[s_idx, m_idx] = 0
+            
+            improvement_data[(i, j)] = improvement_matrix
+    
+    # Determine colorbar range
+    if all_improvements:
+        vmin = 0
+        vmax = min(100, np.percentile(all_improvements, 95))  # Cap at 95th percentile or 100
+    else:
+        vmin, vmax = 0, 100
+    
+    # Second pass: create heatmaps
+    for i, distilled_model in enumerate(distilled_models):
+        for j, vanilla_model in enumerate(vanilla_models):
+            ax = axes[i, j]
+            improvement_matrix = improvement_data[(i, j)]
+            
+            # Create heatmap
+            # Only show colorbar on rightmost column
+            show_cbar = (j == n_vanilla - 1)
+            
+            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='Greens',
+                       xticklabels=metric_labels,
+                       yticklabels=scenario_labels if j == 0 else [],
+                       ax=ax, cbar=show_cbar,
+                       cbar_kws={'label': '% Improvement'} if show_cbar else {},
+                       vmin=vmin, vmax=vmax,
+                       annot_kws={'fontsize': annot_fontsize})
+            
+            # Subplot title
+            distilled_label = distilled_model.replace('_', ' ').title()
+            vanilla_label = vanilla_model.replace('_', ' ').title()
+            title_fontsize = 10 if n_vanilla > 2 or n_distilled > 2 else 11
+            ax.set_title(f'{distilled_label}\nvs {vanilla_label}',
+                        fontsize=title_fontsize, fontweight='bold', pad=8)
+            
+            # Labels
+            if i == n_distilled - 1:  # Bottom row
+                ax.set_xlabel('Metric', fontsize=9, fontweight='bold')
+            else:
+                ax.set_xlabel('')
+            
+            if j == 0:  # Leftmost column
+                ax.set_ylabel('Scenario', fontsize=9, fontweight='bold')
+            else:
+                ax.set_ylabel('')
+            
+            # Adjust tick label sizes
+            ax.tick_params(axis='both', labelsize=8)
+            
+            # Add average improvement as text box
+            avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
+            if not np.isnan(avg_improvement):
+                ax.text(0.98, 0.02, f'Avg: {avg_improvement:.1f}%',
+                       transform=ax.transAxes, ha='right', va='bottom',
+                       bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.7),
+                       fontsize=8, fontweight='bold')
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.99])
+    
+    # Save
+    output_path = output_dir / 'improvement_heatmap_grid'
+    plt.savefig(f"{output_path}.png", dpi=dpi, bbox_inches='tight')
+    plt.savefig(f"{output_path}.pdf", dpi=dpi, bbox_inches='tight')
+    plt.close()
+    
+    logger.info(f"      ✓ Grid saved with {n_distilled * n_vanilla} comparisons")
+
+
 def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int):
-    """Plot #13: Heatmap showing % improvement over vanilla"""
-    logger.info("    13. Improvement percentage heatmap")
+    """Plot #13: Heatmap showing % improvement over vanilla (DEPRECATED - kept for compatibility)"""
+    logger.info("    13. Improvement percentage heatmap (legacy single comparison)")
     
     scenarios = ['off_peak', 'peak', 'city_center', 'suburban', 'weekday', 'weekend']
     metrics = ['Distance_JSD', 'Duration_JSD', 'Radius_JSD', 
