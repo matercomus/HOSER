@@ -45,7 +45,7 @@ class MyCollateFn:
     def __call__(self, items):
         # Optimized collate using vectorized operations
         batch_size = len(items)
-        
+
         # Extract all components first
         components = list(zip(*items))
         (
@@ -64,98 +64,152 @@ class MyCollateFn:
             trace_grid_tokens,
             candidate_grid_tokens,
         ) = components
-        
+
         # Convert trace_lens to tensor once
         trace_lens_tensor = torch.tensor(trace_lens, dtype=torch.long)
         max_trace_len = int(trace_lens_tensor.max().item())
-        
+
         # Apply max_len constraint if needed
         if self.max_len is not None and max_trace_len > self.max_len:
             max_trace_len = self.max_len
-        
+
         # Find max candidate length efficiently - vectorized
         max_candidate_len = 1
         for cand_len_array in candidate_lens:
             if len(cand_len_array) > 0:
                 max_candidate_len = max(max_candidate_len, int(cand_len_array.max()))
-        
+
         # Pre-allocate output tensors
         batch_trace_road_id = torch.zeros((batch_size, max_trace_len), dtype=torch.long)
-        batch_temporal_info = torch.zeros((batch_size, max_trace_len), dtype=torch.float32)
-        batch_trace_distance_mat = torch.zeros((batch_size, max_trace_len, max_trace_len), dtype=torch.float32)
-        batch_trace_time_interval_mat = torch.zeros((batch_size, max_trace_len, max_trace_len), dtype=torch.float32)
-        batch_destination_road_id = torch.from_numpy(np.array(destination_road_ids, dtype=np.int64))
-        batch_candidate_road_id = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.long)
-        batch_metric_dis = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.float32)
-        batch_metric_angle = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.float32)
+        batch_temporal_info = torch.zeros(
+            (batch_size, max_trace_len), dtype=torch.float32
+        )
+        batch_trace_distance_mat = torch.zeros(
+            (batch_size, max_trace_len, max_trace_len), dtype=torch.float32
+        )
+        batch_trace_time_interval_mat = torch.zeros(
+            (batch_size, max_trace_len, max_trace_len), dtype=torch.float32
+        )
+        batch_destination_road_id = torch.from_numpy(
+            np.array(destination_road_ids, dtype=np.int64)
+        )
+        batch_candidate_road_id = torch.zeros(
+            (batch_size, max_trace_len, max_candidate_len), dtype=torch.long
+        )
+        batch_metric_dis = torch.zeros(
+            (batch_size, max_trace_len, max_candidate_len), dtype=torch.float32
+        )
+        batch_metric_angle = torch.zeros(
+            (batch_size, max_trace_len, max_candidate_len), dtype=torch.float32
+        )
         batch_candidate_len = torch.zeros((batch_size, max_trace_len), dtype=torch.long)
         batch_road_label = torch.zeros((batch_size, max_trace_len), dtype=torch.long)
-        batch_timestamp_label = torch.zeros((batch_size, max_trace_len), dtype=torch.float32)
-        batch_trace_grid_token = torch.zeros((batch_size, max_trace_len), dtype=torch.long)
-        batch_candidate_grid_token = torch.zeros((batch_size, max_trace_len, max_candidate_len), dtype=torch.long)
+        batch_timestamp_label = torch.zeros(
+            (batch_size, max_trace_len), dtype=torch.float32
+        )
+        batch_trace_grid_token = torch.zeros(
+            (batch_size, max_trace_len), dtype=torch.long
+        )
+        batch_candidate_grid_token = torch.zeros(
+            (batch_size, max_trace_len, max_candidate_len), dtype=torch.long
+        )
 
         # Vectorized filling for simple sequences
         for i in range(batch_size):
             trace_len = trace_lens[i]
-            
+
             # Handle cropping if needed
             if self.max_len is not None and trace_len > self.max_len:
                 crop_start = trace_len - self.max_len
                 trace_len = self.max_len
             else:
                 crop_start = 0
-            
+
             actual_len = min(trace_len, max_trace_len)
-            
+
             # Batch convert numpy to tensors and assign in one go
             # 1D sequences - use slice assignment (faster than item-by-item)
-            batch_trace_road_id[i, :actual_len] = torch.from_numpy(trace_road_ids[i][crop_start:crop_start+actual_len])
-            batch_temporal_info[i, :actual_len] = torch.from_numpy(temporal_infos[i][crop_start:crop_start+actual_len])
-            
+            batch_trace_road_id[i, :actual_len] = torch.from_numpy(
+                trace_road_ids[i][crop_start : crop_start + actual_len]
+            )
+            batch_temporal_info[i, :actual_len] = torch.from_numpy(
+                temporal_infos[i][crop_start : crop_start + actual_len]
+            )
+
             # 2D matrices - direct slice assignment
             batch_trace_distance_mat[i, :actual_len, :actual_len] = torch.from_numpy(
-                trace_distance_mats[i][crop_start:crop_start+actual_len, crop_start:crop_start+actual_len]
+                trace_distance_mats[i][
+                    crop_start : crop_start + actual_len,
+                    crop_start : crop_start + actual_len,
+                ]
             )
-            batch_trace_time_interval_mat[i, :actual_len, :actual_len] = torch.from_numpy(
-                trace_time_interval_mats[i][crop_start:crop_start+actual_len, crop_start:crop_start+actual_len]
+            batch_trace_time_interval_mat[i, :actual_len, :actual_len] = (
+                torch.from_numpy(
+                    trace_time_interval_mats[i][
+                        crop_start : crop_start + actual_len,
+                        crop_start : crop_start + actual_len,
+                    ]
+                )
             )
-            
+
             # Labels
-            batch_road_label[i, :actual_len] = torch.from_numpy(road_labels[i][crop_start:crop_start+actual_len])
-            batch_timestamp_label[i, :actual_len] = torch.from_numpy(timestamp_labels[i][crop_start:crop_start+actual_len])
-            
+            batch_road_label[i, :actual_len] = torch.from_numpy(
+                road_labels[i][crop_start : crop_start + actual_len]
+            )
+            batch_timestamp_label[i, :actual_len] = torch.from_numpy(
+                timestamp_labels[i][crop_start : crop_start + actual_len]
+            )
+
             # Grid tokens (may be None)
             if trace_grid_tokens[i] is not None:
-                batch_trace_grid_token[i, :actual_len] = torch.from_numpy(trace_grid_tokens[i][crop_start:crop_start+actual_len])
-            
+                batch_trace_grid_token[i, :actual_len] = torch.from_numpy(
+                    trace_grid_tokens[i][crop_start : crop_start + actual_len]
+                )
+
             # Candidate data - vectorized where possible
-            cand_road_ids_cropped = candidate_road_ids[i][crop_start:crop_start+actual_len]
-            cand_lens_cropped = candidate_lens[i][crop_start:crop_start+actual_len]
-            cand_metric_dis_cropped = metric_diss[i][crop_start:crop_start+actual_len]
-            cand_metric_angle_cropped = metric_angles[i][crop_start:crop_start+actual_len]
-            
+            cand_road_ids_cropped = candidate_road_ids[i][
+                crop_start : crop_start + actual_len
+            ]
+            cand_lens_cropped = candidate_lens[i][crop_start : crop_start + actual_len]
+            cand_metric_dis_cropped = metric_diss[i][
+                crop_start : crop_start + actual_len
+            ]
+            cand_metric_angle_cropped = metric_angles[i][
+                crop_start : crop_start + actual_len
+            ]
+
             batch_candidate_len[i, :actual_len] = torch.from_numpy(cand_lens_cropped)
-            
+
             # Batch process candidates using list comprehension and stacking
             for j in range(actual_len):
                 cand_len = int(cand_lens_cropped[j])
                 if cand_len > 0:
                     actual_cand_len = min(cand_len, max_candidate_len)
-                    
+
                     # Direct tensor creation and assignment (reduces overhead)
-                    batch_candidate_road_id[i, j, :actual_cand_len] = torch.from_numpy(cand_road_ids_cropped[j][:actual_cand_len])
-                    batch_metric_dis[i, j, :actual_cand_len] = torch.from_numpy(cand_metric_dis_cropped[j][:actual_cand_len])
-                    batch_metric_angle[i, j, :actual_cand_len] = torch.from_numpy(cand_metric_angle_cropped[j][:actual_cand_len])
-                    
+                    batch_candidate_road_id[i, j, :actual_cand_len] = torch.from_numpy(
+                        cand_road_ids_cropped[j][:actual_cand_len]
+                    )
+                    batch_metric_dis[i, j, :actual_cand_len] = torch.from_numpy(
+                        cand_metric_dis_cropped[j][:actual_cand_len]
+                    )
+                    batch_metric_angle[i, j, :actual_cand_len] = torch.from_numpy(
+                        cand_metric_angle_cropped[j][:actual_cand_len]
+                    )
+
                     # Grid tokens for candidates (if available)
                     if candidate_grid_tokens[i] is not None:
-                        cand_grid_tokens = candidate_grid_tokens[i][crop_start+j]
+                        cand_grid_tokens = candidate_grid_tokens[i][crop_start + j]
                         if cand_grid_tokens is not None:
-                            batch_candidate_grid_token[i, j, :actual_cand_len] = torch.from_numpy(cand_grid_tokens[:actual_cand_len])
-        
+                            batch_candidate_grid_token[i, j, :actual_cand_len] = (
+                                torch.from_numpy(cand_grid_tokens[:actual_cand_len])
+                            )
+
         # Normalize timestamp labels using vectorized PyTorch operations
-        batch_timestamp_label = (torch.log1p(batch_timestamp_label) - self.timestamp_label_log1p_mean) / self.timestamp_label_log1p_std
-        
+        batch_timestamp_label = (
+            torch.log1p(batch_timestamp_label) - self.timestamp_label_log1p_mean
+        ) / self.timestamp_label_log1p_std
+
         # Return trace lens as tensor (already created)
         batch_trace_len = trace_lens_tensor
 
@@ -298,8 +352,8 @@ def main(
         )
 
     # Determine suffix based on distillation mode (prevents directory collision)
-    distill_enabled = getattr(getattr(config, 'distill', {}), 'enable', False)
-    dir_suffix = 'distill' if distill_enabled else 'vanilla'
+    distill_enabled = getattr(getattr(config, "distill", {}), "enable", False)
+    dir_suffix = "distill" if distill_enabled else "vanilla"
 
     save_dir = f"./save/{dataset_name}/seed{seed}_{dir_suffix}"
     tensorboard_log_dir = f"./tensorboard_log/{dataset_name}/seed{seed}_{dir_suffix}"
@@ -535,45 +589,53 @@ def main(
     logger.info("[distill] Initialized HOSER model for distillation training")
 
     # Check for checkpoint BEFORE WandB init to get resume_wandb_id
-    checkpoint_path = os.path.join(save_dir, 'checkpoint_latest.pth')
+    checkpoint_path = os.path.join(save_dir, "checkpoint_latest.pth")
     resume_wandb_id = None
     checkpoint_exists = False
-    
+
     if os.path.exists(checkpoint_path):
         try:
             # Only extract wandb_run_id now, full load happens after optimizer created
-            checkpoint = torch.load(checkpoint_path, map_location='cpu')
-            
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+
             # Validate checkpoint metadata to prevent loading wrong checkpoint
-            ckpt_seed = checkpoint.get('seed', -1)
-            ckpt_dataset = checkpoint.get('dataset', '')
-            
+            ckpt_seed = checkpoint.get("seed", -1)
+            ckpt_dataset = checkpoint.get("dataset", "")
+
             if ckpt_seed == seed and ckpt_dataset == dataset_name:
                 # Validate distillation mode matches to prevent vanilla/distilled cross-contamination
-                ckpt_distill = checkpoint.get('distill_enabled', False)
+                ckpt_distill = checkpoint.get("distill_enabled", False)
                 current_distill = distill_enabled
-                
+
                 if ckpt_distill != current_distill:
-                    logger.warning(f'⚠️  Checkpoint mode mismatch (distill={ckpt_distill} vs {current_distill})')
-                    logger.warning(f'⚠️  Deleting mismatched checkpoint and starting fresh')
+                    logger.warning(
+                        f"⚠️  Checkpoint mode mismatch (distill={ckpt_distill} vs {current_distill})"
+                    )
+                    logger.warning(
+                        "⚠️  Deleting mismatched checkpoint and starting fresh"
+                    )
                     os.remove(checkpoint_path)
                     checkpoint_exists = False
                 else:
-                    resume_wandb_id = checkpoint.get('wandb_run_id')
+                    resume_wandb_id = checkpoint.get("wandb_run_id")
                     checkpoint_exists = True
-                    logger.info(f'✅ Valid checkpoint found: will resume from epoch {checkpoint["epoch"] + 1}')
+                    logger.info(
+                        f"✅ Valid checkpoint found: will resume from epoch {checkpoint['epoch'] + 1}"
+                    )
             else:
-                logger.warning(f'⚠️  Checkpoint mismatch (seed={ckpt_seed} vs {seed}, dataset={ckpt_dataset} vs {dataset_name})')
-                logger.warning(f'⚠️  Deleting invalid checkpoint and starting fresh')
+                logger.warning(
+                    f"⚠️  Checkpoint mismatch (seed={ckpt_seed} vs {seed}, dataset={ckpt_dataset} vs {dataset_name})"
+                )
+                logger.warning("⚠️  Deleting invalid checkpoint and starting fresh")
                 os.remove(checkpoint_path)
                 checkpoint_exists = False
         except Exception as e:
-            logger.warning(f'⚠️  Failed to read checkpoint: {e}. Starting fresh.')
+            logger.warning(f"⚠️  Failed to read checkpoint: {e}. Starting fresh.")
             # Delete corrupted checkpoint
             if os.path.exists(checkpoint_path):
                 try:
                     os.remove(checkpoint_path)
-                    logger.info('🧹 Deleted corrupted checkpoint')
+                    logger.info("🧹 Deleted corrupted checkpoint")
                 except:
                     pass
             checkpoint_exists = False
@@ -590,12 +652,12 @@ def main(
         # Log entire YAML config to wandb
         # Support resuming from checkpoint (uses same run ID if available)
         wandb.init(
-            project=wb_project, 
-            name=wb_run_name, 
-            tags=wb_tags, 
+            project=wb_project,
+            name=wb_run_name,
+            tags=wb_tags,
             config=raw_config,
             id=resume_wandb_id,  # Resume same run if checkpoint exists
-            resume='allow'  # Allow resuming if id matches existing run
+            resume="allow",  # Allow resuming if id matches existing run
         )
 
     # Training performance knobs
@@ -702,15 +764,19 @@ def main(
     # Load checkpoint state into model/optimizer (if checkpoint was found earlier)
     if checkpoint_exists:
         try:
-            checkpoint = torch.load(checkpoint_path, map_location='cpu')
-            model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            start_epoch = checkpoint['epoch'] + 1
-            best_val_acc = checkpoint['best_val_acc']
-            validation_metrics = checkpoint['validation_metrics']
-            logger.info(f'✅ Resumed from checkpoint: epoch {start_epoch}, best_val_acc={best_val_acc:.4f}')
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            model.load_state_dict(checkpoint["model_state_dict"])
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            start_epoch = checkpoint["epoch"] + 1
+            best_val_acc = checkpoint["best_val_acc"]
+            validation_metrics = checkpoint["validation_metrics"]
+            logger.info(
+                f"✅ Resumed from checkpoint: epoch {start_epoch}, best_val_acc={best_val_acc:.4f}"
+            )
         except Exception as e:
-            logger.warning(f'⚠️  Failed to load checkpoint state: {e}. Starting from scratch.')
+            logger.warning(
+                f"⚠️  Failed to load checkpoint state: {e}. Starting from scratch."
+            )
             start_epoch = 0
             best_val_acc = 0.0
             validation_metrics = []
@@ -718,7 +784,9 @@ def main(
     # Performance Profiling Setup
     profiling_enabled = getattr(getattr(config, "profiling", {}), "enable", False)
     if profiling_enabled:
-        log_interval = int(getattr(getattr(config, "profiling", {}), "log_interval", 200))
+        log_interval = int(
+            getattr(getattr(config, "profiling", {}), "log_interval", 200)
+        )
         timing_accumulator = {
             "Data Wait": 0.0,
             "Data Transfer": 0.0,
@@ -728,7 +796,6 @@ def main(
             "Optimizer Step": 0.0,
         }
         loop_end_time = time.time()
-
 
     for epoch_id in range(start_epoch, config.optimizer_config.max_epoch):
         model.train()
@@ -1027,26 +1094,39 @@ def main(
                 # Log performance if interval is reached
                 if (batch_id + 1) % log_interval == 0 and batch_id > 0:
                     # Calculate averages in ms
-                    avg_timings = {k: (v / log_interval) * 1000 for k, v in timing_accumulator.items()}
-                    
+                    avg_timings = {
+                        k: (v / log_interval) * 1000
+                        for k, v in timing_accumulator.items()
+                    }
+
                     # Calculate total time from accumulated components for percentage calculation
                     total_time_ms = sum(avg_timings.values())
-                    
+
                     # Calculate it/s over the last interval
                     interval_duration = time.time() - loop_end_time
-                    iter_per_sec = log_interval / (time.time() - (loop_end_time - sum(timing_accumulator.values())))
-                    
-                    
-                    logger.info(f"--- Performance Profile (Batches {batch_id + 1 - log_interval}-{batch_id + 1} | {iter_per_sec:.2f} it/s) ---")
+                    iter_per_sec = log_interval / (
+                        time.time() - (loop_end_time - sum(timing_accumulator.values()))
+                    )
+
+                    logger.info(
+                        f"--- Performance Profile (Batches {batch_id + 1 - log_interval}-{batch_id + 1} | {iter_per_sec:.2f} it/s) ---"
+                    )
                     for name, duration in avg_timings.items():
-                        percentage = (duration / total_time_ms) * 100 if total_time_ms > 0 else 0
-                        logger.info(f"{name:<25}: {duration:>8.2f} ms ({percentage:.1f}%)")
+                        percentage = (
+                            (duration / total_time_ms) * 100 if total_time_ms > 0 else 0
+                        )
+                        logger.info(
+                            f"{name:<25}: {duration:>8.2f} ms ({percentage:.1f}%)"
+                        )
                     logger.info(f"{'Total Step Time':<25}: {total_time_ms:>8.2f} ms")
                     logger.info("--------------------------------------------------")
 
                     # Log to Weights & Biases if enabled
                     if wb_enable:
-                        perf_metrics = {f"perf/{k.lower().replace(' ', '_')}_ms": v for k, v in avg_timings.items()}
+                        perf_metrics = {
+                            f"perf/{k.lower().replace(' ', '_')}_ms": v
+                            for k, v in avg_timings.items()
+                        }
                         perf_metrics["perf/total_step_time_ms"] = total_time_ms
                         perf_metrics["perf/iter_per_sec"] = iter_per_sec
                         wandb.log(perf_metrics, step=step_idx)
@@ -1054,10 +1134,9 @@ def main(
                     # Reset accumulator and timer
                     for key in timing_accumulator:
                         timing_accumulator[key] = 0.0
-                
+
                 # Mark end of loop for next iteration's data wait calculation
                 loop_end_time = time.time()
-
 
             if profile_max_batches and (batch_id + 1) >= profile_max_batches:
                 logger.info(
@@ -1320,10 +1399,12 @@ def main(
 
         writer.add_scalar("val/next_step_acc", val_acc, epoch_id)
         writer.add_scalar("val/time_pred_mape", val_mape, epoch_id)
-        
+
         # Log validation metrics to console for debugging
-        logger.info(f"[validation] epoch{epoch_id + 1}, val_acc {val_acc:.6f}, val_mape {val_mape:.4f}, best_val_acc {max(best_val_acc, val_acc):.6f}")
-        
+        logger.info(
+            f"[validation] epoch{epoch_id + 1}, val_acc {val_acc:.6f}, val_mape {val_mape:.4f}, best_val_acc {max(best_val_acc, val_acc):.6f}"
+        )
+
         if wb_enable:
             # Don't specify step - let WandB auto-increment to avoid monotonicity warnings
             wandb.log(
@@ -1351,22 +1432,25 @@ def main(
                 raise optuna.TrialPruned()
 
         # Save checkpoint after each epoch
-        checkpoint_path = os.path.join(save_dir, 'checkpoint_latest.pth')
+        checkpoint_path = os.path.join(save_dir, "checkpoint_latest.pth")
         try:
-            torch.save({
-                'epoch': epoch_id,
-                'seed': seed,  # For validation on resume
-                'dataset': dataset_name,  # For validation on resume
-                'distill_enabled': distill_enabled,  # For validation on resume (prevent vanilla/distilled cross-contamination)
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'best_val_acc': best_val_acc,
-                'validation_metrics': validation_metrics,
-                'wandb_run_id': wandb.run.id if wb_enable and wandb.run else None,
-            }, checkpoint_path)
-            logger.info(f'💾 Checkpoint saved: epoch {epoch_id + 1}')
+            torch.save(
+                {
+                    "epoch": epoch_id,
+                    "seed": seed,  # For validation on resume
+                    "dataset": dataset_name,  # For validation on resume
+                    "distill_enabled": distill_enabled,  # For validation on resume (prevent vanilla/distilled cross-contamination)
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "best_val_acc": best_val_acc,
+                    "validation_metrics": validation_metrics,
+                    "wandb_run_id": wandb.run.id if wb_enable and wandb.run else None,
+                },
+                checkpoint_path,
+            )
+            logger.info(f"💾 Checkpoint saved: epoch {epoch_id + 1}")
         except Exception as e:
-            logger.warning(f'⚠️  Failed to save checkpoint: {e}')
+            logger.warning(f"⚠️  Failed to save checkpoint: {e}")
 
         model.train()
 

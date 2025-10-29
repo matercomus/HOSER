@@ -56,12 +56,14 @@ def build_road_to_token_mapping(config: dict, data_dir: Path = None) -> np.ndarr
     max_lat = max(max(pt[1] for pt in coords) for coords in coords_series)
 
     # Road centroids (lat, lng)
-    road_centroids_lat = np.array([
-        np.mean([pt[1] for pt in coords]) for coords in coords_series
-    ], dtype=np.float32)
-    road_centroids_lng = np.array([
-        np.mean([pt[0] for pt in coords]) for coords in coords_series
-    ], dtype=np.float32)
+    road_centroids_lat = np.array(
+        [np.mean([pt[1] for pt in coords]) for coords in coords_series],
+        dtype=np.float32,
+    )
+    road_centroids_lng = np.array(
+        [np.mean([pt[0] for pt in coords]) for coords in coords_series],
+        dtype=np.float32,
+    )
 
     grid_size = float(config["distill"]["grid_size"])
     downsample = int(config["distill"].get("downsample", 1))
@@ -75,7 +77,9 @@ def build_road_to_token_mapping(config: dict, data_dir: Path = None) -> np.ndarr
         downsample_factor=downsample,
     )
 
-    mapper = GridMapper(grid_cfg, np.stack([road_centroids_lat, road_centroids_lng], axis=1))
+    mapper = GridMapper(
+        grid_cfg, np.stack([road_centroids_lat, road_centroids_lng], axis=1)
+    )
     road_to_token = mapper.map_all()
     return road_to_token.astype(np.int64)
 
@@ -126,34 +130,55 @@ def process_single_file(args: Tuple[str, str]) -> None:
 def augment_cache(cache_dir: Path, road_to_token: np.ndarray) -> None:
     """Process all cache files using multiprocessing for efficiency."""
 
-    pt_files = sorted(cache_dir.glob("data_*.pt"), key=lambda p: int(p.stem.split("_")[1]))
+    pt_files = sorted(
+        cache_dir.glob("data_*.pt"), key=lambda p: int(p.stem.split("_")[1])
+    )
     if not pt_files:
         print(f"No cache files found in {cache_dir}")
         return
 
-    print(f"🔄 Processing {len(pt_files)} files in {cache_dir} using {multiprocessing.cpu_count()} processes...")
+    print(
+        f"🔄 Processing {len(pt_files)} files in {cache_dir} using {multiprocessing.cpu_count()} processes..."
+    )
 
     # Prepare tasks for multiprocessing
     tasks = [(str(file_path), str(cache_dir)) for file_path in pt_files]
 
     # Use multiprocessing for efficient parallel processing (use all available cores like dataset.py)
-    with multiprocessing.Pool(
-        processes=multiprocessing.cpu_count(),  # Use all available cores like vanilla HOSER
-        initializer=init_worker,
-        initargs=(road_to_token,)
-    ) as pool:
+    with (
+        multiprocessing.Pool(
+            processes=multiprocessing.cpu_count(),  # Use all available cores like vanilla HOSER
+            initializer=init_worker,
+            initargs=(road_to_token,),
+        ) as pool
+    ):
         # Process files in parallel with progress tracking
-        for _ in tqdm(pool.imap_unordered(process_single_file, tasks), total=len(tasks), desc='Precomputing grid tokens'):
+        for _ in tqdm(
+            pool.imap_unordered(process_single_file, tasks),
+            total=len(tasks),
+            desc="Precomputing grid tokens",
+        ):
             pass
 
     print(f"✅ Completed processing {len(pt_files)} files in {cache_dir}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Precompute LM-TAD grid tokens for HOSER caches")
-    parser.add_argument("--config", default="config/Beijing.yaml", help="Path to training config YAML")
-    parser.add_argument("--data_dir", help="Override data directory (optional, defaults to config value)")
-    parser.add_argument("--splits", default="train,val", help="Comma separated splits to process (train,val)")
+    parser = argparse.ArgumentParser(
+        description="Precompute LM-TAD grid tokens for HOSER caches"
+    )
+    parser.add_argument(
+        "--config", default="config/Beijing.yaml", help="Path to training config YAML"
+    )
+    parser.add_argument(
+        "--data_dir",
+        help="Override data directory (optional, defaults to config value)",
+    )
+    parser.add_argument(
+        "--splits",
+        default="train,val",
+        help="Comma separated splits to process (train,val)",
+    )
     args = parser.parse_args()
 
     config_path = Path(args.config)

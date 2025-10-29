@@ -37,3 +37,8 @@ dependencies = [
 
 [tool.uv.sources]
 polars-timeseries = { git = "https://github.com/drumtorben/polars-ts.git" }
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+]

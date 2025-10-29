@@ -26,10 +26,12 @@ from datetime import datetime
 from pathlib import Path
 
 
-def run_geojson_conversion(run_dir: Path, generated_csv: Path, output_dir: Path) -> None:
+def run_geojson_conversion(
+    run_dir: Path, generated_csv: Path, output_dir: Path
+) -> None:
     """Invoke the GeoJSON converter with given inputs and output path."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    hoser_dir = run_dir / 'hoser_format'
+    hoser_dir = run_dir / "hoser_format"
     hoser_dir.mkdir(parents=True, exist_ok=True)
 
     # Ensure the generated CSV is available within hoser_format
@@ -66,35 +68,74 @@ def try_copy(src: Path, dst: Path) -> bool:
 
 
 def find_latest_eval_dir(run_dir: Path) -> Path | None:
-    eval_dirs = sorted(run_dir.glob('eval_*'), key=lambda p: p.stat().st_mtime, reverse=True)
+    eval_dirs = sorted(
+        run_dir.glob("eval_*"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
     return eval_dirs[0] if eval_dirs else None
 
 
 def find_wandb_run_dir(wandb_root: Path, run_name: str) -> Path | None:
     # Search metadata for matching name
-    for meta_path in wandb_root.glob('run-*/wandb-metadata.json'):
+    for meta_path in wandb_root.glob("run-*/wandb-metadata.json"):
         try:
-            with open(meta_path, 'r') as f:
+            with open(meta_path, "r") as f:
                 meta = json.load(f)
-            if meta.get('name') == run_name:
+            if meta.get("name") == run_name:
                 return meta_path.parent.parent
         except Exception:
             continue
     # Fallback to latest
-    runs = sorted(wandb_root.glob('run-*'), key=lambda p: p.stat().st_mtime, reverse=True)
+    runs = sorted(
+        wandb_root.glob("run-*"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
     return runs[0] if runs else None
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Collect artifacts for a distilled HOSER run')
-    parser.add_argument('--run_name', required=True, help='WandB run name of the training (e.g., Beijing_b24_acc4)')
-    parser.add_argument('--run_dir', required=True, help='Path to the dataset run directory with hoser_format')
-    parser.add_argument('--generated_csv', required=True, help='Path to the generated CSV file to convert')
-    parser.add_argument('--backup_root', required=True, help='Backup root directory to collect artifacts under')
-    parser.add_argument('--dataset', default='Beijing', help='Dataset name used for checkpoint path resolution')
-    parser.add_argument('--seed', type=int, default=0, help='Seed used in training (for checkpoint path)')
-    parser.add_argument('--wandb_root', default='/home/matt/Dev/HOSER/wandb', help='Path to local wandb runs')
-    parser.add_argument('--config_path', default='/home/matt/Dev/HOSER/config/Beijing.yaml', help='Config file to copy into backup/meta')
+    parser = argparse.ArgumentParser(
+        description="Collect artifacts for a distilled HOSER run"
+    )
+    parser.add_argument(
+        "--run_name",
+        required=True,
+        help="WandB run name of the training (e.g., Beijing_b24_acc4)",
+    )
+    parser.add_argument(
+        "--run_dir",
+        required=True,
+        help="Path to the dataset run directory with hoser_format",
+    )
+    parser.add_argument(
+        "--generated_csv",
+        required=True,
+        help="Path to the generated CSV file to convert",
+    )
+    parser.add_argument(
+        "--backup_root",
+        required=True,
+        help="Backup root directory to collect artifacts under",
+    )
+    parser.add_argument(
+        "--dataset",
+        default="Beijing",
+        help="Dataset name used for checkpoint path resolution",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Seed used in training (for checkpoint path)",
+    )
+    parser.add_argument(
+        "--wandb_root",
+        default="/home/matt/Dev/HOSER/wandb",
+        help="Path to local wandb runs",
+    )
+    parser.add_argument(
+        "--config_path",
+        default="/home/matt/Dev/HOSER/config/Beijing.yaml",
+        help="Config file to copy into backup/meta",
+    )
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir).resolve()
@@ -102,11 +143,11 @@ def main():
     backup_root = Path(args.backup_root).resolve()
 
     backup_dir = backup_root / args.run_name
-    geojson_dir = backup_dir / 'geojson_output'
-    model_dir = backup_dir / 'model'
-    eval_dir = backup_dir / 'eval'
-    wandb_dir = backup_dir / 'wandb'
-    meta_dir = backup_dir / 'meta'
+    geojson_dir = backup_dir / "geojson_output"
+    model_dir = backup_dir / "model"
+    eval_dir = backup_dir / "eval"
+    wandb_dir = backup_dir / "wandb"
+    meta_dir = backup_dir / "meta"
 
     # Create folder structure
     for p in (geojson_dir, model_dir, eval_dir, wandb_dir, meta_dir):
@@ -116,8 +157,10 @@ def main():
     run_geojson_conversion(run_dir, generated_csv, geojson_dir)
 
     # 2) Copy model checkpoint
-    ckpt_src = Path(f'/home/matt/Dev/HOSER/save/{args.dataset}/seed{args.seed}_distill/best.pth')
-    try_copy(ckpt_src, model_dir / 'best.pth')
+    ckpt_src = Path(
+        f"/home/matt/Dev/HOSER/save/{args.dataset}/seed{args.seed}_distill/best.pth"
+    )
+    try_copy(ckpt_src, model_dir / "best.pth")
 
     # 3) Copy latest evaluation directory if present
     latest_eval = find_latest_eval_dir(run_dir)
@@ -126,15 +169,19 @@ def main():
 
     # 4) Copy config and metadata
     try_copy(Path(args.config_path), meta_dir / Path(args.config_path).name)
-    with open(meta_dir / 'context.json', 'w') as f:
-        json.dump({
-            'run_name': args.run_name,
-            'run_dir': str(run_dir),
-            'generated_csv': str(generated_csv),
-            'timestamp': datetime.now().isoformat(),
-            'dataset': args.dataset,
-            'seed': args.seed,
-        }, f, indent=2)
+    with open(meta_dir / "context.json", "w") as f:
+        json.dump(
+            {
+                "run_name": args.run_name,
+                "run_dir": str(run_dir),
+                "generated_csv": str(generated_csv),
+                "timestamp": datetime.now().isoformat(),
+                "dataset": args.dataset,
+                "seed": args.seed,
+            },
+            f,
+            indent=2,
+        )
 
     # 5) Copy matching wandb run (or latest as fallback)
     wandb_root = Path(args.wandb_root)
@@ -146,7 +193,5 @@ def main():
     print(f"✅ Collected artifacts under: {backup_dir}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-
-

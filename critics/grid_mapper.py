@@ -12,7 +12,6 @@ This module is standalone to keep the training code clean and readable.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -71,7 +70,7 @@ class GridMapper:
             vh, vw = int(verify_hw[0]), int(verify_hw[1])
             if (self.grid_h, self.grid_w) != (vh, vw):
                 raise ValueError(
-                    f"Grid dimension mismatch: computed {(self.grid_h,self.grid_w)} vs teacher {(vh,vw)}"
+                    f"Grid dimension mismatch: computed {(self.grid_h, self.grid_w)} vs teacher {(vh, vw)}"
                 )
 
     def map_all(self) -> np.ndarray:
@@ -97,5 +96,3 @@ class GridMapper:
 
         tokens = gi * self.grid_w + gj
         return tokens.astype(np.int64, copy=False)
-
-

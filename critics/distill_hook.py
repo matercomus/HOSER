@@ -86,26 +86,36 @@ class DistillationManager:
 
         # Road centroids (lat,lng)
         road_centroids = np.stack(
-            [road_centroids_lat.astype(np.float64), road_centroids_lng.astype(np.float64)],
+            [
+                road_centroids_lat.astype(np.float64),
+                road_centroids_lng.astype(np.float64),
+            ],
             axis=1,
         )
 
         # Mapper
         self.mapper = GridMapper(grid_cfg, road_centroids, verify_hw=verify_hw)
-        self.road_to_token = torch.from_numpy(self.mapper.map_all()).to(device)  # Move to GPU immediately
+        self.road_to_token = torch.from_numpy(self.mapper.map_all()).to(
+            device
+        )  # Move to GPU immediately
 
         # Pre-resolve SOT token id if available
         self.sot_id = self.teacher.sot_token()
         if self.logger:
             if self.sot_id is not None:
-                self.logger.info(f"[distill] Initialized teacher; SOT token id: {self.sot_id}")
+                self.logger.info(
+                    f"[distill] Initialized teacher; SOT token id: {self.sot_id}"
+                )
             else:
-                self.logger.warning("[distill] SOT token not available - teacher may not be properly initialized")
-        
+                self.logger.warning(
+                    "[distill] SOT token not available - teacher may not be properly initialized"
+                )
+
         # Pre-allocate SOT tensor to avoid repeated creation during training
         if self.sot_id is not None:
-            self.sot_tensor = torch.tensor([self.sot_id], device=device, dtype=torch.long)
-
+            self.sot_tensor = torch.tensor(
+                [self.sot_id], device=device, dtype=torch.long
+            )
 
     @torch.no_grad()
     def _make_history_tokens(self, road_ids_1d: torch.Tensor) -> torch.LongTensor:
@@ -191,7 +201,6 @@ class DistillationManager:
         # 3. Reverse the padded sequences back to get left-padding
         history_tokens = padded_reversed.flip(1)
 
-
         # Optimized: Process all samples in single batched teacher inference with caching
         # Use cached version for better performance on repeated inputs
         teacher_logits = self.teacher.predict_next_distribution_cached(history_tokens)
@@ -208,7 +217,7 @@ class DistillationManager:
             b = batch_indices[row].item()  # Only convert single values when needed
             t = last_idx[row].item()
             cand = candidate_len[row].item()
-            candidate_ids = batch_candidate_road_id[b, t, : cand]
+            candidate_ids = batch_candidate_road_id[b, t, :cand]
             # Optimized: Use GPU indexing directly, no CPU round-trip
             candidate_tokens = self.road_to_token[candidate_ids]
             q_c = teacher_logits[row, candidate_tokens]
@@ -220,7 +229,7 @@ class DistillationManager:
 
             q_c = q_c / torch.clamp(q_c_sum, min=1e-9)
 
-            s_logits = logits[b, t, : cand]
+            s_logits = logits[b, t, :cand]
             T = float(self.cfg.temperature)
             p_tau = torch.softmax(s_logits / T, dim=-1)
 
@@ -250,5 +259,3 @@ class DistillationManager:
         if not kl_terms:
             return torch.tensor(0.0, device=device)
         return torch.stack(kl_terms).mean()
-
-

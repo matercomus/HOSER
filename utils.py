@@ -13,10 +13,14 @@ def set_seed(seed):
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
+
 def create_nested_namespace(data):
     if isinstance(data, dict):
-        return SimpleNamespace(**{k: create_nested_namespace(v) for k, v in data.items()})
+        return SimpleNamespace(
+            **{k: create_nested_namespace(v) for k, v in data.items()}
+        )
     return data
+
 
 def get_angle(lat1, lon1, lat2, lon2):
     dy = lat2 - lat1

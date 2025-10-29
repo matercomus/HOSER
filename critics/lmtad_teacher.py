@@ -78,38 +78,43 @@ class LMTADTeacher:
         def _load_module(module_name: str, module_path: str):
             spec = importlib.util.spec_from_file_location(module_name, module_path)
             if spec is None or spec.loader is None:
-                raise ImportError(f"Cannot load module {module_name} from {module_path}")
+                raise ImportError(
+                    f"Cannot load module {module_name} from {module_path}"
+                )
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)  # type: ignore[attr-defined]
             return mod
 
         # Load model from models/LMTAD.py
-        lmtad_model_py = _os.path.join(code_path, 'models', 'LMTAD.py')
-        lmtad_utils_py = _os.path.join(code_path, 'utils.py')
+        lmtad_model_py = _os.path.join(code_path, "models", "LMTAD.py")
+        lmtad_utils_py = _os.path.join(code_path, "utils.py")
         # We do not need datasets for distillation; skip importing datasets.py
         if not _os.path.exists(lmtad_model_py):
             raise ImportError(f"LM-TAD repo missing {lmtad_model_py}")
         # Ensure LM-TAD's 'utils' is used by model code
         import sys as _sys
-        prev_utils = _sys.modules.get('utils')
+
+        prev_utils = _sys.modules.get("utils")
         try:
             if _os.path.exists(lmtad_utils_py):
-                lmtad_utils = _load_module('lmtad_utils', lmtad_utils_py)
-                _sys.modules['utils'] = lmtad_utils
-            lmtad_models = _load_module('lmtad_models', lmtad_model_py)
+                lmtad_utils = _load_module("lmtad_utils", lmtad_utils_py)
+                _sys.modules["utils"] = lmtad_utils
+            lmtad_models = _load_module("lmtad_models", lmtad_model_py)
         finally:
             # Do not leave a broken state; restore previous utils if any
             if prev_utils is not None:
-                _sys.modules['utils'] = prev_utils
+                _sys.modules["utils"] = prev_utils
             else:
-                _sys.modules.pop('utils', None)
-        LMTAD = getattr(lmtad_models, 'LMTAD', None)
+                _sys.modules.pop("utils", None)
+        LMTAD = getattr(lmtad_models, "LMTAD", None)
         if LMTAD is None:
             raise ImportError("LMTAD class not found in LM-TAD model file")
 
         # Prefer weights-only checkpoints: {'state_dict','model_config' (plain dict)}
         try:
-            checkpoint = torch.load(self.ckpt_path, map_location=self.device, weights_only=False)
+            checkpoint = torch.load(
+                self.ckpt_path, map_location=self.device, weights_only=False
+            )
         except TypeError:
             checkpoint = torch.load(self.ckpt_path, map_location=self.device)
 
@@ -147,7 +152,7 @@ class LMTADTeacher:
         unwanted_prefix = "_orig_mod."
         for k in list(state_dict.keys()):
             if k.startswith(unwanted_prefix):
-                state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
+                state_dict[k[len(unwanted_prefix) :]] = state_dict.pop(k)
         self.model.load_state_dict(state_dict)
         self.model.eval().to(self.device)
 
@@ -165,7 +170,9 @@ class LMTADTeacher:
                 if "transformer.wte.weight" in state_dict:
                     vocab_size = state_dict["transformer.wte.weight"].shape[0]
                     self.sot_id = vocab_size - 1  # SOT is typically the last token
-                    print(f"[distill] Inferred SOT token ID: {self.sot_id} (vocab_size: {vocab_size})")
+                    print(
+                        f"[distill] Inferred SOT token ID: {self.sot_id} (vocab_size: {vocab_size})"
+                    )
                 else:
                     # Fallback: assume SOT is token 0
                     self.sot_id = 0
@@ -203,7 +210,9 @@ class LMTADTeacher:
         return self.sot_id
 
     @torch.no_grad()
-    def predict_next_distribution(self, history_tokens: torch.LongTensor) -> torch.Tensor:
+    def predict_next_distribution(
+        self, history_tokens: torch.LongTensor
+    ) -> torch.Tensor:
         """Return next-token probability distribution over the LM-TAD vocab.
 
         Parameters
@@ -223,7 +232,7 @@ class LMTADTeacher:
 
         # Truncate to window
         if x.size(1) > self.window:
-            x = x[:, -self.window:]
+            x = x[:, -self.window :]
 
         x = x.to(self.device)
         with self._ctx:
@@ -234,15 +243,15 @@ class LMTADTeacher:
             return probs[0]
         return probs
 
-    def predict_next_distribution_cached(self, history_tokens: torch.LongTensor) -> torch.Tensor:
+    def predict_next_distribution_cached(
+        self, history_tokens: torch.LongTensor
+    ) -> torch.Tensor:
         """Cached version of predict_next_distribution for repeated queries."""
         # Disable caching for now - the overhead of creating cache keys from GPU tensors
         # is likely more expensive than the teacher forward pass for unique sequences
         return self.predict_next_distribution(history_tokens)
-        
+
         # Original caching code (disabled due to performance concerns):
         # - Converting GPU tensors to Python tuples forces expensive GPU->CPU transfer
         # - With diverse training data, cache hit rate is likely very low
         # - The teacher forward pass is already optimized with torch.compile
-
-

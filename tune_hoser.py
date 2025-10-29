@@ -29,7 +29,7 @@ PRUNING STRATEGY (HyperbandPruner - Moderate):
   • min_resource=5: All trials run at least 5 epochs before pruning
   • reduction_factor=3: Keeps top 1/3 of trials at each evaluation rung
   • Adaptive: Allocates more resources to promising trials
-  
+
   Expected pruning rate: ~50-60% of trials stopped at 5-6 epochs
   This saves ~2h per pruned trial while gathering early performance data
 
@@ -47,26 +47,26 @@ STORAGE & CRASH RECOVERY:
 
 TIME ESTIMATE (3-Phase Approach):
   Baseline: 54 minutes/epoch (9835 batches @ 3 it/s)
-  
+
   PHASE 0: Vanilla Baseline (optional, for WandB comparison)
   • 1 run, 8 epochs, single seed: ~7.3 hours
   • Optional - can be disabled in config
-  
+
   PHASE 1: Hyperparameter Search (12 distilled trials, 8 max epochs)
   • Full trial (8 epochs): ~7.3 hours
   • Pruned trial (5 epochs avg): ~4.6 hours
   • Expected: 7 complete + 5 pruned
   • Total Phase 1: ~74 hours (~3.1 days)
-  
+
   PHASE 2: Final Evaluation (best config, 25 epochs)
   • 3 runs with different seeds: 3 × 23h = 69h (~2.9 days)
   • Or 1 run for quick results: 1 × 23h = 23h (~1 day)
-  
+
   TOTAL TIMELINE:
   • Phase 0 + Phase 1 + Phase 2 (1 seed): ~104 hours (~4.3 days)
   • Phase 0 + Phase 1 + Phase 2 (3 seeds): ~150 hours (~6.3 days)
   • Skip Phase 0: saves ~7 hours
-  
+
   CmaEsSampler optimizes all 12 trials - no random baseline needed!
 
 CONFIGURATION:
@@ -109,10 +109,16 @@ from datetime import datetime
 class HOSERObjective:
     """Objective function for Optuna optimization of HOSER distillation hyperparameters."""
 
-    def __init__(self, base_config_path: str, data_dir: str, max_epochs: int = 3, dataset: str = 'Beijing'):
+    def __init__(
+        self,
+        base_config_path: str,
+        data_dir: str,
+        max_epochs: int = 3,
+        dataset: str = "Beijing",
+    ):
         """
         Initialize HOSER distillation optimization objective.
-        
+
         Args:
             base_config_path: Path to base YAML config
             data_dir: Path to HOSER dataset
@@ -123,24 +129,24 @@ class HOSERObjective:
         self.data_dir = data_dir
         self.max_epochs = max_epochs
         self.dataset = dataset
-        
+
         # Load base config
-        with open(base_config_path, 'r') as f:
+        with open(base_config_path, "r") as f:
             self.base_config = yaml.safe_load(f)
-        self.base_seed = self.base_config.get('training', {}).get('seed', 42)
-    
+        self.base_seed = self.base_config.get("training", {}).get("seed", 42)
+
     def __call__(self, trial: optuna.Trial) -> float:
         """
         Objective function called by Optuna for each trial.
-        
+
         Suggests distillation hyperparameters and returns validation accuracy to maximize.
         All trials are distillation trials (vanilla baseline runs separately in Phase 0).
         """
         # Step 1: Suggest all hyperparameters (defines search space)
         hparams = self._suggest_hyperparameters(trial)
-        
+
         print(f"🔬 Running trial {trial.number} (distilled)")
-        
+
         # Step 2: Create trial config from hyperparameters
         config = self._create_trial_config(trial, hparams)
 
@@ -148,16 +154,18 @@ class HOSERObjective:
         temp_config_path = None
         trial_succeeded = False
         try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".yaml", delete=False
+            ) as f:
                 yaml.dump(config, f)
                 temp_config_path = f.name
 
             result = self._run_training_trial(trial, temp_config_path)
             trial_succeeded = True  # Mark trial as successful
-            
+
             # ✅ PRESERVE MODEL IMMEDIATELY AFTER SUCCESSFUL TRIAL
             self._preserve_trial_artifacts(trial.number, pruned=False)
-            
+
             return result
         except optuna.TrialPruned:
             # Pruned trials are also successful (completed some epochs)
@@ -167,27 +175,27 @@ class HOSERObjective:
         finally:
             if temp_config_path and os.path.exists(temp_config_path):
                 os.unlink(temp_config_path)
-            
+
             # Only cleanup if trial failed (not succeeded or pruned)
             if not trial_succeeded:
                 print(f"🧹 Trial {trial.number} failed - cleaning up artifacts")
                 self._cleanup_trial_artifacts(trial.number)
-            
+
             gc.collect()
             torch.cuda.empty_cache()
-    
+
     def _suggest_hyperparameters(self, trial: optuna.Trial) -> Dict[str, Any]:
         """
         Define the hyperparameter search space from config or defaults.
         Supports config-based search space for refined tuning (Phase 2).
-        
+
         All trials optimize distillation hyperparameters (vanilla baseline runs separately in Phase 0).
-        
+
         Search space configuration:
         - Can be customized in config YAML under optuna.search_space
         - Supports fixed values (Phase 2: window=4) or ranges
         - Defaults to broad search if not specified
-        
+
         Default search space:
         - distill_lambda: KL divergence weight (log scale: 0.001 to 0.1)
                          Controls how much to weight teacher guidance vs student loss
@@ -195,160 +203,175 @@ class HOSERObjective:
                               Higher = softer distributions, more knowledge transfer
         - distill_window: Context window size (integer: 2-8, or fixed value from config)
                          Number of neighboring road segments to consider for teacher guidance
-        
+
         All parameters are continuous/integer - fully compatible with CmaEsSampler.
-        
+
         Returns:
             Dict of hyperparameter names to suggested values
         """
         # Get search space from config (if defined), otherwise use defaults
-        search_space = self.base_config.get('optuna', {}).get('search_space', {})
-        
+        search_space = self.base_config.get("optuna", {}).get("search_space", {})
+
         # All trials are distillation trials (vanilla baseline runs separately in Phase 0)
-        hparams = {'distill_enable': True}
-        
+        hparams = {"distill_enable": True}
+
         # Lambda: KL divergence weight
-        lambda_min = search_space.get('lambda_min', 0.001)
-        lambda_max = search_space.get('lambda_max', 0.1)
-        lambda_log = search_space.get('lambda_log', True)
-        hparams['distill_lambda'] = trial.suggest_float(
-            'distill_lambda', lambda_min, lambda_max, log=lambda_log
+        lambda_min = search_space.get("lambda_min", 0.001)
+        lambda_max = search_space.get("lambda_max", 0.1)
+        lambda_log = search_space.get("lambda_log", True)
+        hparams["distill_lambda"] = trial.suggest_float(
+            "distill_lambda", lambda_min, lambda_max, log=lambda_log
         )
-        
+
         # Temperature: Softmax temperature
-        temp_min = search_space.get('temp_min', 1.0)
-        temp_max = search_space.get('temp_max', 5.0)
-        hparams['distill_temperature'] = trial.suggest_float(
-            'distill_temperature', temp_min, temp_max
+        temp_min = search_space.get("temp_min", 1.0)
+        temp_max = search_space.get("temp_max", 5.0)
+        hparams["distill_temperature"] = trial.suggest_float(
+            "distill_temperature", temp_min, temp_max
         )
-        
+
         # Window: Context size (can be fixed or range)
-        window_param = search_space.get('window', None)
+        window_param = search_space.get("window", None)
         if window_param is None:
             # Default: search range [2, 8]
-            hparams['distill_window'] = trial.suggest_int('distill_window', 2, 8)
+            hparams["distill_window"] = trial.suggest_int("distill_window", 2, 8)
         elif isinstance(window_param, int):
             # Fixed value (Phase 2 refinement)
-            hparams['distill_window'] = window_param
+            hparams["distill_window"] = window_param
         elif isinstance(window_param, dict):
             # Range: {'min': 3, 'max': 5}
-            hparams['distill_window'] = trial.suggest_int(
-                'distill_window', 
-                window_param['min'], 
-                window_param['max']
+            hparams["distill_window"] = trial.suggest_int(
+                "distill_window", window_param["min"], window_param["max"]
             )
         else:
             # Fallback to default range
-            hparams['distill_window'] = trial.suggest_int('distill_window', 2, 8)
-        
+            hparams["distill_window"] = trial.suggest_int("distill_window", 2, 8)
+
         return hparams
 
-    def _create_trial_config(self, trial: optuna.Trial, hparams: Dict[str, Any]) -> Dict[str, Any]:
+    def _create_trial_config(
+        self, trial: optuna.Trial, hparams: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Create trial configuration from suggested hyperparameters.
-        
+
         Args:
             trial: Optuna trial object
             hparams: Dict of hyperparameter names to values from _suggest_hyperparameters
-        
+
         Returns:
             Complete config dict for this trial
         """
         config = copy.deepcopy(self.base_config)
-        
+
         # Set training parameters
-        config['optimizer_config']['max_epoch'] = self.max_epochs
-        config['data_dir'] = self.data_dir
-        
+        config["optimizer_config"]["max_epoch"] = self.max_epochs
+        config["data_dir"] = self.data_dir
+
         # All trials use distillation (vanilla baseline runs separately in Phase 0)
-        config['distill']['enable'] = True
-        config['distill']['lambda'] = hparams['distill_lambda']
-        config['distill']['temperature'] = hparams['distill_temperature']
-        config['distill']['window'] = hparams['distill_window']
+        config["distill"]["enable"] = True
+        config["distill"]["lambda"] = hparams["distill_lambda"]
+        config["distill"]["temperature"] = hparams["distill_temperature"]
+        config["distill"]["window"] = hparams["distill_window"]
         # Keep grid_size and downsample fixed (architectural choices, not tuned)
-        
+
         # WandB config for trial
-        config['wandb']['run_name'] = f"trial_{trial.number:03d}_distilled"
-        existing_tags = config['wandb'].get('tags', [])
-        config['wandb']['tags'] = existing_tags + ['hoser-tuning', 'distilled']
-        
+        config["wandb"]["run_name"] = f"trial_{trial.number:03d}_distilled"
+        existing_tags = config["wandb"].get("tags", [])
+        config["wandb"]["tags"] = existing_tags + ["hoser-tuning", "distilled"]
+
         return config
-    
+
     def _run_training_trial(self, trial: optuna.Trial, config_path: str) -> float:
         """
         Run a single training trial and return the metric to optimize.
-        
+
         Args:
             trial: Optuna trial object (for intermediate reporting)
             config_path: Path to temporary config file for this trial
-        
+
         Returns:
             Validation accuracy (metric to maximize)
         """
         from train_with_distill import main as train_main
-        
+
         try:
             result = train_main(
                 dataset=self.dataset,
                 config_path=config_path,
-                seed=self.base_seed + trial.number,  # Deterministic but different per trial
+                seed=self.base_seed
+                + trial.number,  # Deterministic but different per trial
                 cuda=0,
                 data_dir=self.data_dir,
                 return_metrics=True,
-                optuna_trial=trial  # Pass trial for intermediate reporting & pruning
+                optuna_trial=trial,  # Pass trial for intermediate reporting & pruning
             )
 
             if result is None:
                 raise optuna.TrialPruned("Training returned no metrics")
 
             # Validate metrics (catch NaN/inf)
-            if (math.isnan(result['best_val_acc']) or math.isinf(result['best_val_acc']) or
-                math.isnan(result['final_val_acc']) or math.isinf(result['final_val_acc'])):
-                print(f"⚠️  Trial {trial.number}: Invalid validation metrics detected, pruning")
+            if (
+                math.isnan(result["best_val_acc"])
+                or math.isinf(result["best_val_acc"])
+                or math.isnan(result["final_val_acc"])
+                or math.isinf(result["final_val_acc"])
+            ):
+                print(
+                    f"⚠️  Trial {trial.number}: Invalid validation metrics detected, pruning"
+                )
                 raise optuna.TrialPruned("Invalid validation metrics (NaN/inf)")
 
             # Log additional metrics to trial
-            trial.set_user_attr('final_val_acc', result['final_val_acc'])
-            trial.set_user_attr('final_val_mape', result['final_val_mape'])
-            trial.set_user_attr('best_val_acc', result['best_val_acc'])
-            trial.set_user_attr('final_lr', result.get('final_lr', 0.0))
+            trial.set_user_attr("final_val_acc", result["final_val_acc"])
+            trial.set_user_attr("final_val_mape", result["final_val_mape"])
+            trial.set_user_attr("best_val_acc", result["best_val_acc"])
+            trial.set_user_attr("final_lr", result.get("final_lr", 0.0))
 
             # Return best validation accuracy (metric to maximize)
-            return result['best_val_acc']
+            return result["best_val_acc"]
 
         except optuna.TrialPruned:
             raise
         except Exception as e:
             print(f"❌ Trial {trial.number} failed: {e}")
             raise optuna.TrialPruned(str(e))
-    
+
     def _preserve_trial_artifacts(self, trial_number: int, pruned: bool = False):
         """
         Preserve model artifacts immediately after a successful or pruned trial.
         Creates a unique directory for each trial to avoid overwriting.
-        
+
         Args:
             trial_number: The trial number
             pruned: Whether this trial was pruned (still saved, just stopped early)
         """
         trial_seed = self.base_seed + trial_number
         status = "pruned" if pruned else "complete"
-        
+
         # All trials are distilled
-        trial_dir = os.path.abspath(f"./optuna_trials/trial_{trial_number:03d}_distilled_{status}")
+        trial_dir = os.path.abspath(
+            f"./optuna_trials/trial_{trial_number:03d}_distilled_{status}"
+        )
         os.makedirs(trial_dir, exist_ok=True)
-        
+
         # Source directories (where training saves models)
         # All Optuna trials are distilled (vanilla runs separately in Phase 0/3)
         dir_suffix = "distill"
         src_dirs = {
-            "model": os.path.abspath(f"./save/{self.dataset}/seed{trial_seed}_{dir_suffix}"),
-            "tensorboard": os.path.abspath(f"./tensorboard_log/{self.dataset}/seed{trial_seed}_{dir_suffix}"),
-            "logs": os.path.abspath(f"./log/{self.dataset}/seed{trial_seed}_{dir_suffix}")
+            "model": os.path.abspath(
+                f"./save/{self.dataset}/seed{trial_seed}_{dir_suffix}"
+            ),
+            "tensorboard": os.path.abspath(
+                f"./tensorboard_log/{self.dataset}/seed{trial_seed}_{dir_suffix}"
+            ),
+            "logs": os.path.abspath(
+                f"./log/{self.dataset}/seed{trial_seed}_{dir_suffix}"
+            ),
         }
-        
+
         print(f"💾 Preserving trial {trial_number} artifacts to {trial_dir}")
-        
+
         preserved_count = 0
         for artifact_type, src_path in src_dirs.items():
             if os.path.exists(src_path):
@@ -358,20 +381,24 @@ class HOSERObjective:
                     preserved_count += 1
                 except Exception as e:
                     print(f"⚠️  Warning: Could not preserve {artifact_type}: {e}")
-        
+
         if preserved_count > 0:
-            print(f"✅ Trial {trial_number}: Preserved {preserved_count} artifact type(s)")
+            print(
+                f"✅ Trial {trial_number}: Preserved {preserved_count} artifact type(s)"
+            )
         else:
             print(f"⚠️  Trial {trial_number}: No artifacts found to preserve")
-        
+
         # After preserving, clean up original directories and checkpoints to save space
         for src_path in src_dirs.values():
             if os.path.exists(src_path):
                 # This also removes checkpoint_latest.pth inside save_dir
                 shutil.rmtree(src_path, ignore_errors=True)
-        
-        print(f"🧹 Cleaned up trial {trial_number} working directories (checkpoints removed)")
-    
+
+        print(
+            f"🧹 Cleaned up trial {trial_number} working directories (checkpoints removed)"
+        )
+
     def _cleanup_trial_artifacts(self, trial_number: int):
         """
         Clean up artifacts from a FAILED trial only.
@@ -382,10 +409,12 @@ class HOSERObjective:
         dir_suffix = "distill"
         trial_dirs = [
             os.path.abspath(f"./save/{self.dataset}/seed{trial_seed}_{dir_suffix}"),
-            os.path.abspath(f"./tensorboard_log/{self.dataset}/seed{trial_seed}_{dir_suffix}"),
-            os.path.abspath(f"./log/{self.dataset}/seed{trial_seed}_{dir_suffix}")
+            os.path.abspath(
+                f"./tensorboard_log/{self.dataset}/seed{trial_seed}_{dir_suffix}"
+            ),
+            os.path.abspath(f"./log/{self.dataset}/seed{trial_seed}_{dir_suffix}"),
         ]
-        
+
         for dir_path in trial_dirs:
             if os.path.exists(dir_path):
                 shutil.rmtree(dir_path, ignore_errors=True)
@@ -394,31 +423,31 @@ class HOSERObjective:
 def validate_and_prepare_storage(storage_arg: str) -> Optional[str]:
     """
     Validate and prepare storage URL, ensuring paths are properly handled.
-    
+
     Args:
         storage_arg: Storage argument from CLI (can be 'memory' or SQLite URL)
-    
+
     Returns:
         Validated storage URL or None for in-memory
-        
+
     Raises:
         ValueError: If storage URL is invalid
     """
-    if storage_arg.lower() == 'memory':
+    if storage_arg.lower() == "memory":
         return None
-    
+
     # Handle SQLite URLs
-    if storage_arg.startswith('sqlite:///'):
+    if storage_arg.startswith("sqlite:///"):
         # Extract path after sqlite:///
         db_path = storage_arg[10:]  # Remove 'sqlite:///'
-        
+
         if not db_path:
             raise ValueError("SQLite database path cannot be empty")
-        
+
         # Convert to absolute path if relative
         if not os.path.isabs(db_path):
             db_path = os.path.abspath(db_path)
-            
+
         # Ensure parent directory exists
         db_dir = os.path.dirname(db_path)
         if db_dir and not os.path.exists(db_dir):
@@ -427,29 +456,31 @@ def validate_and_prepare_storage(storage_arg: str) -> Optional[str]:
                 print(f"📁 Created directory for database: {db_dir}")
             except OSError as e:
                 raise ValueError(f"Cannot create directory for database: {e}")
-        
+
         # Reconstruct URL with absolute path
         storage_url = f"sqlite:///{db_path}"
         return storage_url
-    
+
     # If it's another DB type (postgresql, mysql, etc.), pass through
-    if '://' in storage_arg:
+    if "://" in storage_arg:
         return storage_arg
-    
-    raise ValueError(f"Invalid storage URL: {storage_arg}. Use 'memory' or 'sqlite:///path/to/db.db'")
+
+    raise ValueError(
+        f"Invalid storage URL: {storage_arg}. Use 'memory' or 'sqlite:///path/to/db.db'"
+    )
 
 
 def create_study_with_wandb(
-    project_name: str, 
-    study_name: str, 
+    project_name: str,
+    study_name: str,
     max_epochs: int,
     storage_url: Optional[str] = None,
     pruner_cfg: Optional[Dict[str, Any]] = None,
-    sampler_cfg: Optional[Dict[str, Any]] = None
+    sampler_cfg: Optional[Dict[str, Any]] = None,
 ) -> tuple:
     """
     Create Optuna study with WandB integration and optional persistent storage.
-    
+
     Args:
         project_name: WandB project name
         study_name: Unique study identifier
@@ -458,10 +489,10 @@ def create_study_with_wandb(
                     If None, uses in-memory storage (not crash-safe!)
         pruner_cfg: Pruner configuration dict from YAML
         sampler_cfg: Sampler configuration dict from YAML
-    
+
     Returns:
         tuple: (study, wandb_callback)
-        
+
     Raises:
         RuntimeError: If study creation fails
     """
@@ -472,14 +503,14 @@ def create_study_with_wandb(
     wandb_kwargs = {
         "project": project_name,
         "group": study_name,
-        "job_type": "optuna-optimization"
+        "job_type": "optuna-optimization",
     }
 
     try:
         wandbc = WeightsAndBiasesCallback(
             wandb_kwargs=wandb_kwargs,
             as_multirun=True,
-            metric_name="best_val_acc"  # Must match the value returned by objective function
+            metric_name="best_val_acc",  # Must match the value returned by objective function
         )
     except Exception as e:
         print(f"⚠️  Warning: WandB callback creation failed: {e}")
@@ -487,32 +518,36 @@ def create_study_with_wandb(
         wandbc = None
 
     # Configure sampler based on config
-    seed = sampler_cfg.get('seed', 42)
-    sampler_type = sampler_cfg.get('sampler_type', 'tpe').lower()
+    seed = sampler_cfg.get("seed", 42)
+    sampler_type = sampler_cfg.get("sampler_type", "tpe").lower()
 
     try:
-        if sampler_type == 'cmaes':
+        if sampler_type == "cmaes":
             # CmaEsSampler: Best for continuous optimization with 10-100 trials
             # No need for n_startup_trials, works from trial 0
             sampler = optuna.samplers.CmaEsSampler(seed=seed)
             print(f"🔬 Using CmaES Sampler (seed={seed})")
-            print("   Optimized for continuous hyperparameters with limited trial budget")
-        elif sampler_type == 'random':
+            print(
+                "   Optimized for continuous hyperparameters with limited trial budget"
+            )
+        elif sampler_type == "random":
             sampler = optuna.samplers.RandomSampler(seed=seed)
             print(f"🔬 Using Random Sampler (seed={seed})")
         else:  # Default to TPE
-            tpe_startup = sampler_cfg.get('n_startup_trials', 10)
-            multivariate = sampler_cfg.get('multivariate', True)
-            group = sampler_cfg.get('group', True)
+            tpe_startup = sampler_cfg.get("n_startup_trials", 10)
+            multivariate = sampler_cfg.get("multivariate", True)
+            group = sampler_cfg.get("group", True)
             sampler = optuna.samplers.TPESampler(
                 seed=seed,
                 n_startup_trials=tpe_startup,
                 multivariate=multivariate,
-                group=group
+                group=group,
             )
             print(f"🔬 Using TPE Sampler (n_startup_trials={tpe_startup}, seed={seed})")
     except (ImportError, AttributeError) as e:
-        print(f"⚠️  Requested sampler not available ({e}), falling back to RandomSampler")
+        print(
+            f"⚠️  Requested sampler not available ({e}), falling back to RandomSampler"
+        )
         sampler = optuna.samplers.RandomSampler(seed=seed)
 
     # Configure storage with crash recovery
@@ -523,7 +558,9 @@ def create_study_with_wandb(
                 url=storage_url,
                 heartbeat_interval=60,  # Update heartbeat every 60 seconds
                 grace_period=120,  # Allow 120 seconds before marking trial as failed
-                failed_trial_callback=RetryFailedTrialCallback(max_retry=1)  # Retry failed trials once
+                failed_trial_callback=RetryFailedTrialCallback(
+                    max_retry=1
+                ),  # Retry failed trials once
             )
             print(f"💾 Using persistent storage: {storage_url}")
             print("   Heartbeat interval: 60s | Grace period: 120s | Retries: 1")
@@ -536,24 +573,26 @@ def create_study_with_wandb(
 
     # Create Optuna study with robust error handling
     # HyperbandPruner with settings from config
-    min_resource = pruner_cfg.get('min_resource', 1)
-    reduction_factor = pruner_cfg.get('reduction_factor', 3)
-    
+    min_resource = pruner_cfg.get("min_resource", 1)
+    reduction_factor = pruner_cfg.get("reduction_factor", 3)
+
     try:
         study = optuna.create_study(
             storage=storage,
-            direction='maximize',
+            direction="maximize",
             study_name=study_name,
             pruner=optuna.pruners.HyperbandPruner(
                 min_resource=min_resource,
                 max_resource=max_epochs,
-                reduction_factor=reduction_factor
+                reduction_factor=reduction_factor,
             ),
             sampler=sampler,
-            load_if_exists=True  # Resume existing study if found
+            load_if_exists=True,  # Resume existing study if found
         )
         print("🔪 HyperbandPruner configured from YAML:")
-        print(f"   min_resource={min_resource}, max_resource={max_epochs}, reduction_factor={reduction_factor}")
+        print(
+            f"   min_resource={min_resource}, max_resource={max_epochs}, reduction_factor={reduction_factor}"
+        )
     except Exception as e:
         raise RuntimeError(f"Failed to create Optuna study: {e}") from e
 
@@ -570,14 +609,20 @@ def create_study_with_wandb(
     return study, wandbc
 
 
-def _run_final_evaluation(study: optuna.Study, base_config: Dict[str, Any], data_dir: str, 
-                          final_run_cfg: Dict[str, Any], study_name: str, dataset: str = 'Beijing'):
+def _run_final_evaluation(
+    study: optuna.Study,
+    base_config: Dict[str, Any],
+    data_dir: str,
+    final_run_cfg: Dict[str, Any],
+    study_name: str,
+    dataset: str = "Beijing",
+):
     """
     Run final evaluation with best hyperparameters from the study.
-    
+
     This runs a full training (e.g., 25 epochs) with the optimized hyperparameters
     to get proper evaluation metrics for publication/reporting.
-    
+
     Args:
         study: Completed Optuna study with best trial
         base_config: Base configuration dict
@@ -586,10 +631,10 @@ def _run_final_evaluation(study: optuna.Study, base_config: Dict[str, Any], data
         study_name: Study name for organizing results
     """
     from train_with_distill import main as train_main
-    
-    max_epochs_final = final_run_cfg.get('max_epochs', 25)
-    seeds = final_run_cfg.get('seeds', [42])  # Default: single run with seed 42
-    
+
+    max_epochs_final = final_run_cfg.get("max_epochs", 25)
+    seeds = final_run_cfg.get("seeds", [42])  # Default: single run with seed 42
+
     print("\n📊 Running final evaluation with best hyperparameters:")
     print(f"   Best trial: {study.best_trial.number}")
     print(f"   Best val_acc (from search): {study.best_value:.4f}")
@@ -597,40 +642,44 @@ def _run_final_evaluation(study: optuna.Study, base_config: Dict[str, Any], data
     print(f"   Final epochs: {max_epochs_final}")
     print(f"   Seeds: {seeds}")
     print()
-    
+
     # Create config with best hyperparameters
     final_config = copy.deepcopy(base_config)
-    final_config['optimizer_config']['max_epoch'] = max_epochs_final
-    final_config['data_dir'] = data_dir
-    
+    final_config["optimizer_config"]["max_epoch"] = max_epochs_final
+    final_config["data_dir"] = data_dir
+
     # Apply best hyperparameters
-    if study.best_params.get('distill_enable', True):
-        final_config['distill']['enable'] = True
-        final_config['distill']['lambda'] = study.best_params['distill_lambda']
-        final_config['distill']['temperature'] = study.best_params['distill_temperature']
-        final_config['distill']['window'] = study.best_params['distill_window']
+    if study.best_params.get("distill_enable", True):
+        final_config["distill"]["enable"] = True
+        final_config["distill"]["lambda"] = study.best_params["distill_lambda"]
+        final_config["distill"]["temperature"] = study.best_params[
+            "distill_temperature"
+        ]
+        final_config["distill"]["window"] = study.best_params["distill_window"]
         mode = "distilled"
     else:
-        final_config['distill']['enable'] = False
+        final_config["distill"]["enable"] = False
         mode = "vanilla"
-    
+
     # Run training for each seed
     final_results = []
     for seed_idx, seed in enumerate(seeds):
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"🎯 Final Run {seed_idx + 1}/{len(seeds)} (seed={seed})")
-        print(f"{'='*60}")
-        
+        print(f"{'=' * 60}")
+
         # Update WandB config
-        final_config['wandb']['run_name'] = f"final_{mode}_seed{seed}"
-        final_config['wandb']['tags'] = ['beijing', 'distillation', 'final-eval', mode]
-        
+        final_config["wandb"]["run_name"] = f"final_{mode}_seed{seed}"
+        final_config["wandb"]["tags"] = ["beijing", "distillation", "final-eval", mode]
+
         # Save config
-        final_config_path = f"./optuna_results/{study_name}/final_config_seed{seed}.yaml"
+        final_config_path = (
+            f"./optuna_results/{study_name}/final_config_seed{seed}.yaml"
+        )
         os.makedirs(os.path.dirname(final_config_path), exist_ok=True)
-        with open(final_config_path, 'w') as f:
+        with open(final_config_path, "w") as f:
             yaml.dump(final_config, f)
-        
+
         try:
             result = train_main(
                 dataset=dataset,
@@ -639,111 +688,129 @@ def _run_final_evaluation(study: optuna.Study, base_config: Dict[str, Any], data
                 cuda=0,
                 data_dir=data_dir,
                 return_metrics=True,
-                optuna_trial=None  # No pruning for final run
+                optuna_trial=None,  # No pruning for final run
             )
-            
-            final_results.append({
-                'seed': seed,
-                'best_val_acc': result['best_val_acc'],
-                'final_val_acc': result['final_val_acc'],
-                'final_val_mape': result['final_val_mape']
-            })
-            
+
+            final_results.append(
+                {
+                    "seed": seed,
+                    "best_val_acc": result["best_val_acc"],
+                    "final_val_acc": result["final_val_acc"],
+                    "final_val_mape": result["final_val_mape"],
+                }
+            )
+
             print(f"\n✅ Final Run {seed_idx + 1} Complete:")
             print(f"   Best val_acc: {result['best_val_acc']:.4f}")
             print(f"   Final val_acc: {result['final_val_acc']:.4f}")
             print(f"   Final val_mape: {result['final_val_mape']:.4f}")
-            
+
         except Exception as e:
             print(f"\n❌ Final run {seed_idx + 1} failed: {e}")
-            final_results.append({'seed': seed, 'error': str(e)})
-    
+            final_results.append({"seed": seed, "error": str(e)})
+
     # Save final results summary
     results_file = f"./optuna_results/{study_name}/final_evaluation_results.json"
     try:
-        with open(results_file, 'w') as f:
-            json.dump({
-                'study_name': study_name,
-                'best_hyperparameters': study.best_params,
-                'search_phase_best_val_acc': study.best_value,
-                'final_evaluation_runs': final_results,
-                'final_config': {
-                    'max_epochs': max_epochs_final,
-                    'seeds': seeds
-                }
-            }, f, indent=2)
+        with open(results_file, "w") as f:
+            json.dump(
+                {
+                    "study_name": study_name,
+                    "best_hyperparameters": study.best_params,
+                    "search_phase_best_val_acc": study.best_value,
+                    "final_evaluation_runs": final_results,
+                    "final_config": {"max_epochs": max_epochs_final, "seeds": seeds},
+                },
+                f,
+                indent=2,
+            )
         print(f"\n💾 Final evaluation results saved to: {results_file}")
     except Exception as e:
         print(f"\n⚠️  Warning: Could not save final results: {e}")
-    
+
     # Print summary
-    successful_runs = [r for r in final_results if 'error' not in r]
+    successful_runs = [r for r in final_results if "error" not in r]
     if successful_runs:
-        avg_best_val_acc = sum(r['best_val_acc'] for r in successful_runs) / len(successful_runs)
-        avg_final_val_acc = sum(r['final_val_acc'] for r in successful_runs) / len(successful_runs)
-        avg_final_val_mape = sum(r['final_val_mape'] for r in successful_runs) / len(successful_runs)
-        
-        print("\n" + "="*60)
+        avg_best_val_acc = sum(r["best_val_acc"] for r in successful_runs) / len(
+            successful_runs
+        )
+        avg_final_val_acc = sum(r["final_val_acc"] for r in successful_runs) / len(
+            successful_runs
+        )
+        avg_final_val_mape = sum(r["final_val_mape"] for r in successful_runs) / len(
+            successful_runs
+        )
+
+        print("\n" + "=" * 60)
         print("📊 FINAL EVALUATION SUMMARY")
-        print("="*60)
+        print("=" * 60)
         print(f"Successful runs: {len(successful_runs)}/{len(seeds)}")
         print(f"Average best val_acc: {avg_best_val_acc:.4f}")
         print(f"Average final val_acc: {avg_final_val_acc:.4f}")
         print(f"Average final val_mape: {avg_final_val_mape:.4f}")
-        print("="*60)
+        print("=" * 60)
 
 
-def _run_vanilla_baseline(base_config: Dict[str, Any], data_dir: str, 
-                          vanilla_cfg: Dict[str, Any], study_name: str, dataset: str = 'Beijing'):
+def _run_vanilla_baseline(
+    base_config: Dict[str, Any],
+    data_dir: str,
+    vanilla_cfg: Dict[str, Any],
+    study_name: str,
+    dataset: str = "Beijing",
+):
     """
     Run full vanilla baseline for fair comparison with distilled models.
-    
+
     This runs vanilla HOSER (distill.enable=False) for the same number of epochs
     as the final distilled runs, using the base configuration without any tuned
     hyperparameters (since vanilla has no distillation hyperparameters to tune).
-    
+
     Args:
         base_config: Base configuration dict (uses optimizer_config as-is)
-        data_dir: Path to dataset  
+        data_dir: Path to dataset
         vanilla_cfg: Configuration for vanilla baseline (max_epochs, seeds)
         study_name: Study name for organizing results
         dataset: Dataset name (default 'Beijing')
     """
     from train_with_distill import main as train_main
-    
-    max_epochs = vanilla_cfg.get('max_epochs', 25)
-    seeds = vanilla_cfg.get('seeds', [42])
-    
+
+    max_epochs = vanilla_cfg.get("max_epochs", 25)
+    seeds = vanilla_cfg.get("seeds", [42])
+
     print("\n📊 Running vanilla baseline (no distillation):")
     print(f"   Dataset: {dataset}")
     print(f"   Epochs: {max_epochs} (same as final distilled runs)")
     print(f"   Seeds: {seeds}")
     print("   Config: Uses base optimizer_config (no tuned hyperparameters)")
     print()
-    
+
     # Create vanilla config
     vanilla_config = copy.deepcopy(base_config)
-    vanilla_config['optimizer_config']['max_epoch'] = max_epochs
-    vanilla_config['data_dir'] = data_dir
-    vanilla_config['distill']['enable'] = False  # Critical: disable distillation
-    
+    vanilla_config["optimizer_config"]["max_epoch"] = max_epochs
+    vanilla_config["data_dir"] = data_dir
+    vanilla_config["distill"]["enable"] = False  # Critical: disable distillation
+
     # Run training for each seed
     vanilla_results = []
     for seed_idx, seed in enumerate(seeds):
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"🎯 Vanilla Baseline {seed_idx + 1}/{len(seeds)} (seed={seed})")
-        print(f"{'='*60}")
-        
+        print(f"{'=' * 60}")
+
         # Update WandB config
-        vanilla_config['wandb']['run_name'] = f"vanilla_baseline_seed{seed}"
-        vanilla_config['wandb']['tags'] = vanilla_config['wandb']['tags'][:] + ['vanilla', 'baseline', 'full-training']
-        
+        vanilla_config["wandb"]["run_name"] = f"vanilla_baseline_seed{seed}"
+        vanilla_config["wandb"]["tags"] = vanilla_config["wandb"]["tags"][:] + [
+            "vanilla",
+            "baseline",
+            "full-training",
+        ]
+
         # Save config
         config_path = f"./optuna_results/{study_name}/vanilla_baseline/vanilla_config_seed{seed}.yaml"
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        with open(config_path, 'w') as f:
+        with open(config_path, "w") as f:
             yaml.dump(vanilla_config, f)
-        
+
         try:
             result = train_main(
                 dataset=dataset,
@@ -752,105 +819,160 @@ def _run_vanilla_baseline(base_config: Dict[str, Any], data_dir: str,
                 cuda=0,
                 data_dir=data_dir,
                 return_metrics=True,
-                optuna_trial=None  # No pruning for baseline run
+                optuna_trial=None,  # No pruning for baseline run
             )
-            
-            vanilla_results.append({
-                'seed': seed,
-                'best_val_acc': result['best_val_acc'],
-                'final_val_acc': result['final_val_acc'],
-                'final_val_mape': result['final_val_mape']
-            })
-            
+
+            vanilla_results.append(
+                {
+                    "seed": seed,
+                    "best_val_acc": result["best_val_acc"],
+                    "final_val_acc": result["final_val_acc"],
+                    "final_val_mape": result["final_val_mape"],
+                }
+            )
+
             print(f"\n✅ Vanilla Baseline {seed_idx + 1} Complete:")
             print(f"   Best val_acc: {result['best_val_acc']:.4f}")
             print(f"   Final val_acc: {result['final_val_acc']:.4f}")
             print(f"   Final val_mape: {result['final_val_mape']:.4f}")
-            
+
         except Exception as e:
             print(f"\n❌ Vanilla baseline {seed_idx + 1} failed: {e}")
-            vanilla_results.append({'seed': seed, 'error': str(e)})
-    
+            vanilla_results.append({"seed": seed, "error": str(e)})
+
     # Save results
     results_file = f"./optuna_results/{study_name}/vanilla_baseline_results.json"
     try:
-        with open(results_file, 'w') as f:
-            json.dump({
-                'study_name': study_name,
-                'dataset': dataset,
-                'vanilla_baseline_runs': vanilla_results,
-                'config': {
-                    'max_epochs': max_epochs,
-                    'seeds': seeds,
-                    'distillation_enabled': False
-                }
-            }, f, indent=2)
+        with open(results_file, "w") as f:
+            json.dump(
+                {
+                    "study_name": study_name,
+                    "dataset": dataset,
+                    "vanilla_baseline_runs": vanilla_results,
+                    "config": {
+                        "max_epochs": max_epochs,
+                        "seeds": seeds,
+                        "distillation_enabled": False,
+                    },
+                },
+                f,
+                indent=2,
+            )
         print(f"\n💾 Vanilla baseline results saved to: {results_file}")
     except Exception as e:
         print(f"\n⚠️  Warning: Could not save results: {e}")
-    
+
     # Print summary
-    successful_runs = [r for r in vanilla_results if 'error' not in r]
+    successful_runs = [r for r in vanilla_results if "error" not in r]
     if successful_runs:
-        avg_best_val_acc = sum(r['best_val_acc'] for r in successful_runs) / len(successful_runs)
-        avg_final_val_acc = sum(r['final_val_acc'] for r in successful_runs) / len(successful_runs)
-        avg_final_val_mape = sum(r['final_val_mape'] for r in successful_runs) / len(successful_runs)
-        
-        print("\n" + "="*60)
+        avg_best_val_acc = sum(r["best_val_acc"] for r in successful_runs) / len(
+            successful_runs
+        )
+        avg_final_val_acc = sum(r["final_val_acc"] for r in successful_runs) / len(
+            successful_runs
+        )
+        avg_final_val_mape = sum(r["final_val_mape"] for r in successful_runs) / len(
+            successful_runs
+        )
+
+        print("\n" + "=" * 60)
         print("📊 VANILLA BASELINE SUMMARY")
-        print("="*60)
+        print("=" * 60)
         print(f"Successful runs: {len(successful_runs)}/{len(seeds)}")
         print(f"Average best val_acc: {avg_best_val_acc:.4f}")
         print(f"Average final val_acc: {avg_final_val_acc:.4f}")
         print(f"Average final val_mape: {avg_final_val_mape:.4f}")
-        print("="*60)
+        print("=" * 60)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Distillation hyperparameter tuning for HOSER with Optuna')
-    parser.add_argument('--dataset', type=str, default='Beijing', help='Dataset name')
-    parser.add_argument('--data_dir', type=str, required=True, help='Path to HOSER dataset')
-    parser.add_argument('--config', type=str, default='config/Beijing.yaml', help='Base config file (contains optuna settings)')
-    parser.add_argument('--study_name', type=str, default=None, help='Optuna study name')
-    parser.add_argument('--storage', type=str, default='sqlite:////mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db', 
-                       help='Optuna storage URL (default: backup drive). Use "memory" for in-memory (no persistence)')
-    
+    parser = argparse.ArgumentParser(
+        description="Distillation hyperparameter tuning for HOSER with Optuna"
+    )
+    parser.add_argument("--dataset", type=str, default="Beijing", help="Dataset name")
+    parser.add_argument(
+        "--data_dir", type=str, required=True, help="Path to HOSER dataset"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config/Beijing.yaml",
+        help="Base config file (contains optuna settings)",
+    )
+    parser.add_argument(
+        "--study_name", type=str, default=None, help="Optuna study name"
+    )
+    parser.add_argument(
+        "--storage",
+        type=str,
+        default="sqlite:////mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil/optuna_hoser.db",
+        help='Optuna storage URL (default: backup drive). Use "memory" for in-memory (no persistence)',
+    )
+
     # Optional overrides (if not provided, read from config YAML)
-    parser.add_argument('--n_trials', type=int, default=None, help='Override number of trials (default: from config)')
-    parser.add_argument('--max_epochs', type=int, default=None, help='Override max epochs per trial (default: from config)')
-    
+    parser.add_argument(
+        "--n_trials",
+        type=int,
+        default=None,
+        help="Override number of trials (default: from config)",
+    )
+    parser.add_argument(
+        "--max_epochs",
+        type=int,
+        default=None,
+        help="Override max epochs per trial (default: from config)",
+    )
+
     # Phase control (skip completed phases)
-    parser.add_argument('--skip-phase0', action='store_true', 
-                       help='Skip Phase 0 (vanilla baseline pre-tuning)')
-    parser.add_argument('--skip-phase1', action='store_true', 
-                       help='Skip Phase 1 (hyperparameter search)')
-    parser.add_argument('--skip-phase2', action='store_true', 
-                       help='Skip Phase 2 (final distilled evaluation)')
-    parser.add_argument('--skip-phase3', action='store_true', 
-                       help='Skip Phase 3 (vanilla baseline post-tuning)')
-    
+    parser.add_argument(
+        "--skip-phase0",
+        action="store_true",
+        help="Skip Phase 0 (vanilla baseline pre-tuning)",
+    )
+    parser.add_argument(
+        "--skip-phase1",
+        action="store_true",
+        help="Skip Phase 1 (hyperparameter search)",
+    )
+    parser.add_argument(
+        "--skip-phase2",
+        action="store_true",
+        help="Skip Phase 2 (final distilled evaluation)",
+    )
+    parser.add_argument(
+        "--skip-phase3",
+        action="store_true",
+        help="Skip Phase 3 (vanilla baseline post-tuning)",
+    )
+
     args = parser.parse_args()
-    
+
     # Validate inputs
     if not os.path.exists(args.data_dir):
         raise FileNotFoundError(f"Dataset directory not found: {args.data_dir}")
-    
+
     if not os.path.exists(args.config):
         raise FileNotFoundError(f"Config file not found: {args.config}")
-    
+
     # Load config to get Optuna settings
-    with open(args.config, 'r') as f:
+    with open(args.config, "r") as f:
         config = yaml.safe_load(f)
-    
+
     # Get Optuna settings from config, with CLI overrides
-    optuna_cfg = config.get('optuna', {})
-    n_trials = args.n_trials if args.n_trials is not None else optuna_cfg.get('n_trials', 30)
-    max_epochs = args.max_epochs if args.max_epochs is not None else optuna_cfg.get('max_epochs', 3)
-    
+    optuna_cfg = config.get("optuna", {})
+    n_trials = (
+        args.n_trials if args.n_trials is not None else optuna_cfg.get("n_trials", 30)
+    )
+    max_epochs = (
+        args.max_epochs
+        if args.max_epochs is not None
+        else optuna_cfg.get("max_epochs", 3)
+    )
+
     # Get pruner and sampler settings from config
-    pruner_cfg = optuna_cfg.get('pruner', {})
-    sampler_cfg = optuna_cfg.get('sampler', {})
-    
+    pruner_cfg = optuna_cfg.get("pruner", {})
+    sampler_cfg = optuna_cfg.get("sampler", {})
+
     # Create study name with timestamp (if not provided)
     if args.study_name:
         study_name = args.study_name
@@ -859,19 +981,23 @@ def main():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         study_name = f"hoser_tuning_{timestamp}"
         print(f"📌 Generated study name: {study_name}")
-    
+
     # Validate and prepare storage URL with robust path handling
     try:
         storage_url = validate_and_prepare_storage(args.storage)
     except ValueError as e:
         print(f"❌ Storage validation error: {e}")
         sys.exit(1)
-    
+
     print()
     print(f"🔍 Starting Optuna study: {study_name}")
-    print("🧪 Mode: Distillation tuning (trial 0 = vanilla baseline, trials 1+ = distillation hyperparameters)")
+    print(
+        "🧪 Mode: Distillation tuning (trial 0 = vanilla baseline, trials 1+ = distillation hyperparameters)"
+    )
     print(f"📊 Trials: {n_trials} (from {'CLI' if args.n_trials else 'config'})")
-    print(f"📈 Epochs: {max_epochs} per trial (from {'CLI' if args.max_epochs else 'config'})")
+    print(
+        f"📈 Epochs: {max_epochs} per trial (from {'CLI' if args.max_epochs else 'config'})"
+    )
     print(f"📁 Dataset: {args.data_dir}")
     print(f"⚙️  Base config: {args.config}")
     print()
@@ -879,61 +1005,73 @@ def main():
     # Create study and WandB callback with error handling
     try:
         study, wandbc = create_study_with_wandb(
-            config.get('wandb', {}).get('project', 'hoser-optuna-tuning'),
+            config.get("wandb", {}).get("project", "hoser-optuna-tuning"),
             study_name,
             max_epochs,
             storage_url,
             pruner_cfg=pruner_cfg,
-            sampler_cfg=sampler_cfg
+            sampler_cfg=sampler_cfg,
         )
     except RuntimeError as e:
         print(f"❌ Failed to create study: {e}")
         sys.exit(1)
-    
+
     # Create objective function
     objective = HOSERObjective(
         base_config_path=args.config,
         data_dir=args.data_dir,
         max_epochs=max_epochs,
-        dataset=args.dataset
+        dataset=args.dataset,
     )
-    
+
     # Phase 0: Optional vanilla baseline (for WandB comparison)
-    pretune_vanilla_cfg = optuna_cfg.get('vanilla_baseline_pretune', {})
-    if not args.skip_phase0 and pretune_vanilla_cfg.get('enabled', True):  # Default: enabled
-        print("\n" + "="*60)
+    pretune_vanilla_cfg = optuna_cfg.get("vanilla_baseline_pretune", {})
+    if not args.skip_phase0 and pretune_vanilla_cfg.get(
+        "enabled", True
+    ):  # Default: enabled
+        print("\n" + "=" * 60)
         print("🚀 PHASE 0: VANILLA BASELINE (Pre-Tuning)")
-        print("="*60)
+        print("=" * 60)
         print("ℹ️  Running vanilla baseline before tuning for WandB comparison")
         print(f"   Epochs: {pretune_vanilla_cfg.get('max_epochs', max_epochs)}")
-        print(f"   Seeds: {pretune_vanilla_cfg.get('seeds', [config.get('training', {}).get('seed', 42)])}")
-        _run_vanilla_baseline(config, args.data_dir, pretune_vanilla_cfg, f"{study_name}_phase0", dataset=args.dataset)
+        print(
+            f"   Seeds: {pretune_vanilla_cfg.get('seeds', [config.get('training', {}).get('seed', 42)])}"
+        )
+        _run_vanilla_baseline(
+            config,
+            args.data_dir,
+            pretune_vanilla_cfg,
+            f"{study_name}_phase0",
+            dataset=args.dataset,
+        )
     elif args.skip_phase0:
         print("\n⏭️  Skipping Phase 0 (vanilla baseline pre-tuning)")
-    
+
     # Calculate remaining trials (only count successful ones)
-    completed_trials = len([t for t in study.trials 
-                            if t.state in [TrialState.COMPLETE, TrialState.PRUNED]])
+    completed_trials = len(
+        [t for t in study.trials if t.state in [TrialState.COMPLETE, TrialState.PRUNED]]
+    )
     remaining_trials = max(0, n_trials - completed_trials)
-    
+
     print(f"📊 Study progress: {completed_trials}/{n_trials} trials complete")
-    
+
     if args.skip_phase1:
         print("\n⏭️  Skipping Phase 1 (hyperparameter search)")
     elif remaining_trials == 0:
         print("✅ All trials already completed! Skipping Phase 1.")
     else:
         # Phase 1: Hyperparameter tuning (all trials are distilled)
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("🚀 PHASE 1: HYPERPARAMETER SEARCH")
-        print("="*60)
+        print("=" * 60)
         print(f"ℹ️  Running {remaining_trials} more trials with CmaEsSampler")
-        
+
         # Clean up stale/stuck trials before starting
         from optuna.storages import fail_stale_trials
-        print('🧹 Cleaning up stale trials...')
+
+        print("🧹 Cleaning up stale trials...")
         fail_stale_trials(study)
-        
+
         # Run optimization with proper callback handling
         callbacks = [wandbc] if wandbc is not None else []
         study.optimize(
@@ -941,33 +1079,39 @@ def main():
             n_trials=remaining_trials,  # ← FIXED: only remaining trials
             callbacks=callbacks,
             gc_after_trial=True,
-            show_progress_bar=True
+            show_progress_bar=True,
         )
-        
+
         # Print results
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("🏆 OPTIMIZATION COMPLETE!")
         print(f"📊 Best trial: {study.best_trial.number}")
         print(f"📈 Best value: {study.best_value:.4f}")
         print("🔧 Best parameters:")
         for key, value in study.best_params.items():
             print(f"   {key}: {value}")
-        print("="*60)
-        
+        print("=" * 60)
+
         # All successful trials are already preserved in optuna_trials/ directory
         # Create a summary directory with quick access to the best trial
         best_trial_num = study.best_trial.number
-        
+
         # Create results summary directory
         results_base = os.path.abspath(f"./optuna_results/{study_name}")
         os.makedirs(results_base, exist_ok=True)
-        
+
         # Find the preserved best trial directory
         best_trial_mode = "distilled"  # All trials are distilled now
-        best_trial_status = "pruned" if study.best_trial.state == optuna.trial.TrialState.PRUNED else "complete"
-        best_trial_src = os.path.abspath(f"./optuna_trials/trial_{best_trial_num:03d}_{best_trial_mode}_{best_trial_status}")
+        best_trial_status = (
+            "pruned"
+            if study.best_trial.state == optuna.trial.TrialState.PRUNED
+            else "complete"
+        )
+        best_trial_src = os.path.abspath(
+            f"./optuna_trials/trial_{best_trial_num:03d}_{best_trial_mode}_{best_trial_status}"
+        )
         best_trial_link = os.path.join(results_base, "best_trial")
-        
+
         # Create symlink or copy to best trial for quick access
         if os.path.exists(best_trial_src):
             try:
@@ -978,7 +1122,9 @@ def main():
                     else:
                         shutil.rmtree(best_trial_link)
                 os.symlink(best_trial_src, best_trial_link, target_is_directory=True)
-                print(f"✅ Created symlink to best trial: {best_trial_link} → trial_{best_trial_num:03d}")
+                print(
+                    f"✅ Created symlink to best trial: {best_trial_link} → trial_{best_trial_num:03d}"
+                )
             except (OSError, NotImplementedError) as e:
                 # Symlink failed (e.g., Windows without admin), fallback to copy
                 print(f"⚠️  Symlink not supported, copying instead: {e}")
@@ -989,64 +1135,84 @@ def main():
                     print(f"⚠️  Could not create best trial reference: {e2}")
         else:
             print(f"⚠️  Warning: Best trial artifacts not found at {best_trial_src}")
-        
+
         # Save study results with robust file handling
         try:
-            with open(os.path.join(results_base, "best_params.json"), 'w') as f:
+            with open(os.path.join(results_base, "best_params.json"), "w") as f:
                 json.dump(study.best_params, f, indent=2)
         except Exception as e:
             print(f"⚠️  Warning: Could not save best_params.json: {e}")
 
         # Count successful trials
-        n_complete = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
-        n_pruned = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
-        n_failed = len([t for t in study.trials if t.state == optuna.trial.TrialState.FAIL])
+        n_complete = len(
+            [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        )
+        n_pruned = len(
+            [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
+        )
+        n_failed = len(
+            [t for t in study.trials if t.state == optuna.trial.TrialState.FAIL]
+        )
 
         try:
-            with open(os.path.join(results_base, "study_summary.json"), 'w') as f:
-                json.dump({
-                    "study_name": study_name,
-                    "n_trials_total": len(study.trials),
-                    "n_trials_complete": n_complete,
-                    "n_trials_pruned": n_pruned,
-                    "n_trials_failed": n_failed,
-                    "best_value": study.best_value,
-                    "best_trial": study.best_trial.number,
-                    "best_params": study.best_params,
-                    "preserved_trials_dir": os.path.abspath("./optuna_trials"),
-                    "best_trial_link": best_trial_link,
-                    "storage_url": storage_url if storage_url else "in-memory"
-                }, f, indent=2)
+            with open(os.path.join(results_base, "study_summary.json"), "w") as f:
+                json.dump(
+                    {
+                        "study_name": study_name,
+                        "n_trials_total": len(study.trials),
+                        "n_trials_complete": n_complete,
+                        "n_trials_pruned": n_pruned,
+                        "n_trials_failed": n_failed,
+                        "best_value": study.best_value,
+                        "best_trial": study.best_trial.number,
+                        "best_params": study.best_params,
+                        "preserved_trials_dir": os.path.abspath("./optuna_trials"),
+                        "best_trial_link": best_trial_link,
+                        "storage_url": storage_url if storage_url else "in-memory",
+                    },
+                    f,
+                    indent=2,
+                )
         except Exception as e:
             print(f"⚠️  Warning: Could not save study_summary.json: {e}")
-        
+
         print(f"\n💾 Results saved to: {results_base}")
-        print(f"📁 Preserved trials: ./optuna_trials/ ({n_complete + n_pruned} successful trials)")
+        print(
+            f"📁 Preserved trials: ./optuna_trials/ ({n_complete + n_pruned} successful trials)"
+        )
         print(f"🏆 Best trial: {best_trial_link}")
-    
+
     # Phase 2: Run final evaluation with best hyperparameters
-    final_run_cfg = optuna_cfg.get('final_run', {})
+    final_run_cfg = optuna_cfg.get("final_run", {})
     if args.skip_phase2:
         print("\n⏭️  Skipping Phase 2 (final distilled evaluation)")
-    elif final_run_cfg.get('enabled', False):
-        print("\n" + "="*60)
+    elif final_run_cfg.get("enabled", False):
+        print("\n" + "=" * 60)
         print("🚀 PHASE 2: FINAL EVALUATION RUN")
-        print("="*60)
-        _run_final_evaluation(study, config, args.data_dir, final_run_cfg, study_name, dataset=args.dataset)
-    
+        print("=" * 60)
+        _run_final_evaluation(
+            study,
+            config,
+            args.data_dir,
+            final_run_cfg,
+            study_name,
+            dataset=args.dataset,
+        )
+
     # Phase 3: Run vanilla baseline for fair comparison
-    vanilla_cfg = optuna_cfg.get('vanilla_baseline', {})
+    vanilla_cfg = optuna_cfg.get("vanilla_baseline", {})
     if args.skip_phase3:
         print("\n⏭️  Skipping Phase 3 (vanilla baseline post-tuning)")
-    elif vanilla_cfg.get('enabled', True):  # Default: enabled
-        print("\n" + "="*60)
+    elif vanilla_cfg.get("enabled", True):  # Default: enabled
+        print("\n" + "=" * 60)
         print("🚀 PHASE 3: VANILLA BASELINE RUN")
-        print("="*60)
+        print("=" * 60)
         print("ℹ️  Running full vanilla baseline (no distillation) for fair comparison")
         print("   with Phase 2 distilled models (same epochs, same base config)")
-        _run_vanilla_baseline(config, args.data_dir, vanilla_cfg, study_name, dataset=args.dataset)
+        _run_vanilla_baseline(
+            config, args.data_dir, vanilla_cfg, study_name, dataset=args.dataset
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-

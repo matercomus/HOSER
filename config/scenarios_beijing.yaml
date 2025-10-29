@@ -63,3 +63,16 @@ analysis:
     significance_tests: true      # Test if scenarios have different performance
     control_confounding: true     # Attempt to isolate effects
     confidence_level: 0.95
+
+# Visualization configuration
+plotting:
+  # Metric filtering (applied to all plots)
+  metrics:
+    # Exclude by pattern (supports wildcards with * and ?)
+    exclude_patterns:
+      - "*_real_*"  # Real metrics mirror input data, not useful for comparison
+    
+    # Exclude specific metrics by exact name
+    exclude:
+      - "total_generated_od_pairs"
+      - "matched_od_pairs"
