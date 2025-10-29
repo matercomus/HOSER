@@ -83,7 +83,7 @@ plot_types:
         functions:
           - plot_improvement_heatmaps_individual
           - plot_improvement_heatmap_grid
-        description: "Improvement comparison heatmaps (individual + grid)"
+        description: "Model quality heatmaps (distance from real data, 0=perfect)"
         enabled: true
         config:
           colormap: "RdWhGn"

@@ -77,7 +77,7 @@ All plots are defined in `config/scenario_plots.yaml` and organized by type:
 - **analysis.duration_ceiling**: Duration prediction ceiling effect analysis
 
 ### Application Plots (`application.*`)
-- **application.improvement_heatmaps**: Improvement comparison (individual + grid)
+- **application.improvement_heatmaps**: Model quality heatmaps showing distance from real data (individual + grid)
 - **application.radar_charts**: Application use case radar charts
 
 ## Plot Groups
@@ -85,7 +85,7 @@ All plots are defined in `config/scenario_plots.yaml` and organized by type:
 Convenient groups for common use cases (defined in `config/scenario_plots.yaml`):
 
 - **all**: All enabled plots (default)
-- **core**: Quick overview (scenario_heatmap + improvement_heatmaps)
+- **core**: Quick overview (scenario_heatmap + model quality heatmaps)
 - **heatmaps_only**: Only heatmap visualizations
 - **full_analysis**: Complete analysis suite (metrics + application + analysis)
 - **application**: Application-focused plots (heatmaps + radars)
@@ -136,7 +136,7 @@ plot_types:
         functions:
           - plot_improvement_heatmaps_individual
           - plot_improvement_heatmap_grid
-        description: "Improvement comparison heatmaps (individual + grid)"
+        description: "Model quality heatmaps (distance from real data, 0=perfect)"
         enabled: true
         config:
           colormap: "RdWhGn"

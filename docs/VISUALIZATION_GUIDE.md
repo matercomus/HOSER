@@ -267,14 +267,14 @@ uv run python create_scenario_plots.py --eval-dir hoser-distill-optuna-6 \
 - `analysis.duration_ceiling` - Duration prediction ceiling effect
 
 **Application Plots (`application.*`)**
-- `application.improvement_heatmaps` - Improvement comparison (individual + grid)
+- `application.improvement_heatmaps` - Model quality heatmaps showing distance from real data (individual + grid)
 - `application.radar_charts` - Application use case radar charts
 
 ### Plot Groups
 
 Pre-defined groups for convenience:
 - `all` - All plots (default)
-- `core` - Quick overview (scenario_heatmap + improvement_heatmaps)
+- `core` - Quick overview (scenario_heatmap + model quality heatmaps)
 - `heatmaps_only` - Only heatmap visualizations
 - `full_analysis` - Complete analysis suite
 - `application` - Application-focused plots

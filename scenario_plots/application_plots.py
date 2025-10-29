@@ -16,7 +16,7 @@ import seaborn as sns
 
 from .data_loader import (
     get_metric_value,
-    calculate_improvement,
+    calculate_model_quality,
     classify_models,
     get_model_colors,
     get_model_labels,
@@ -239,91 +239,82 @@ def plot_improvement_heatmaps_individual(
         f"    Using {len(scenarios)} scenarios and {len(metrics)} metrics from data"
     )
 
-    # Generate one heatmap for each (distilled, vanilla) pair
+    # Generate one heatmap for each distilled model
     for distilled_model in distilled_models:
-        for vanilla_model in vanilla_models:
-            # Build improvement matrix
-            improvement_matrix = np.zeros((len(scenarios), len(metrics)))
+        # Build quality matrix showing distance from real data
+        quality_matrix = np.zeros((len(scenarios), len(metrics)))
 
-            for i, scenario in enumerate(scenarios):
-                for j, metric in enumerate(metrics):
-                    improvement = calculate_improvement(
-                        data,
-                        "train",
-                        scenario,
-                        metric,
-                        baseline=vanilla_model,
-                        improved=distilled_model,
-                    )
-                    if improvement is not None:
-                        improvement_matrix[i, j] = improvement
-                    else:
-                        improvement_matrix[i, j] = 0
+        for i, scenario in enumerate(scenarios):
+            for j, metric in enumerate(metrics):
+                quality = calculate_model_quality(
+                    data,
+                    "train",
+                    scenario,
+                    metric,
+                    model=distilled_model,
+                )
+                if quality is not None:
+                    quality_matrix[i, j] = quality
+                else:
+                    quality_matrix[i, j] = 0
 
-            fig, ax = plt.subplots(figsize=(10, 8))
+        fig, ax = plt.subplots(figsize=(10, 8))
 
-            # Calculate symmetric bounds using percentiles to exclude outliers
-            # Use 5th and 95th percentiles for robust range estimation
-            p5 = np.percentile(improvement_matrix, 5)
-            p95 = np.percentile(improvement_matrix, 95)
-            abs_max = max(abs(p5), abs(p95))
+        # Calculate symmetric bounds using percentiles to exclude outliers
+        # Use 5th and 95th percentiles for robust range estimation
+        p5 = np.percentile(quality_matrix, 5)
+        p95 = np.percentile(quality_matrix, 95)
+        abs_max = max(abs(p5), abs(p95))
 
-            # Handle case where all values are zero/None (avoid vmin==vmax)
-            if abs_max < 0.01:
-                abs_max = 10.0  # Use default range
-            vmin, vmax = -abs_max, abs_max
+        # Handle case where all values are zero/None (avoid vmin==vmax)
+        if abs_max < 0.01:
+            abs_max = 10.0  # Use default range
+        vmin, vmax = -abs_max, abs_max
 
-            # Create red-white-green diverging colormap
-            cmap = sns.diverging_palette(10, 130, s=80, l=55, as_cmap=True)
+        # Create red-white-green diverging colormap
+        cmap = sns.diverging_palette(10, 130, s=80, l=55, as_cmap=True)
 
-            # Create heatmap
-            sns.heatmap(
-                improvement_matrix,
-                annot=True,
-                fmt=".1f",
-                cmap=cmap,
-                xticklabels=metric_labels,
-                yticklabels=[s.replace("_", " ").title() for s in scenarios],
-                ax=ax,
-                cbar_kws={"label": "% Improvement"},
-                center=0,
-                vmin=vmin,
-                vmax=vmax,
-            )
+        # Create heatmap
+        sns.heatmap(
+            quality_matrix,
+            annot=True,
+            fmt=".1f",
+            cmap=cmap,
+            xticklabels=metric_labels,
+            yticklabels=[s.replace("_", " ").title() for s in scenarios],
+            ax=ax,
+            cbar_kws={"label": "Quality Score (%)\n(100 = Perfect Match)"},
+            center=0,
+            vmin=vmin,
+            vmax=vmax,
+        )
 
-            # Create title with model names and average improvement
-            distilled_label = distilled_model.replace("_", " ").title()
-            vanilla_label = vanilla_model.replace("_", " ").title()
+        # Create title with model name and average quality
+        distilled_label = distilled_model.replace("_", " ").title()
 
-            # Calculate average improvement for title
-            avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
-            avg_text = (
-                f" (Avg: {avg_improvement:.1f}%)"
-                if not np.isnan(avg_improvement)
-                else ""
-            )
+        # Calculate average quality for title
+        avg_quality = np.mean(quality_matrix)
+        avg_text = f" (Avg Quality: {avg_quality:.1f}%)" if not np.isnan(avg_quality) else ""
 
-            ax.set_title(
-                f"Improvement of {distilled_label} over {vanilla_label}{avg_text}\n"
-                f"Across Scenarios and Metrics",
-                fontsize=14,
-                fontweight="bold",
-                pad=15,
-            )
-            ax.set_xlabel("Metric", fontsize=11, fontweight="bold")
-            ax.set_ylabel("Scenario", fontsize=11, fontweight="bold")
+        ax.set_title(
+            f"Model Quality: {distilled_label} (Distance from Real Data){avg_text}\n"
+            f"Across Scenarios and Metrics",
+            fontsize=14,
+            fontweight="bold",
+            pad=15,
+        )
+        ax.set_xlabel("Metric", fontsize=11, fontweight="bold")
+        ax.set_ylabel("Scenario", fontsize=11, fontweight="bold")
 
-            plt.tight_layout()
+        plt.tight_layout()
 
-            # Save with descriptive filename
-            output_path = (
-                output_dir / f"improvement_heatmap_{distilled_model}_vs_{vanilla_model}"
-            )
-            plt.savefig(f"{output_path}.png", dpi=dpi, bbox_inches="tight")
-            plt.savefig(f"{output_path}.pdf", dpi=dpi, bbox_inches="tight")
-            plt.close()
+        # Save with descriptive filename
+        output_path = output_dir / f"quality_heatmap_{distilled_model}"
+        plt.savefig(f"{output_path}.png", dpi=dpi, bbox_inches="tight")
+        plt.savefig(f"{output_path}.pdf", dpi=dpi, bbox_inches="tight")
+        plt.close()
 
-            logger.info(f"      ✓ {distilled_model} vs {vanilla_model}")
+        logger.info(f"      ✓ {distilled_model}")
 
 
 def plot_improvement_heatmap_grid(
@@ -338,23 +329,19 @@ def plot_improvement_heatmap_grid(
         loader: Optional ScenarioDataLoader for config-based filtering
         config: Optional plot-specific configuration
     """
-    logger.info("    13b. Improvement heatmap grid (comprehensive overview)")
+    logger.info("    13b. Model quality heatmap grid (comprehensive overview)")
 
-    # Detect all vanilla and distilled models
+    # Detect all models
     vanilla_models, distilled_models = classify_models(data, "train")
+    all_models = vanilla_models + distilled_models
 
-    if not vanilla_models:
-        logger.warning("    ⚠️  No vanilla models found, skipping grid heatmap")
+    if not all_models:
+        logger.warning("    ⚠️  No models found, skipping grid heatmap")
         return
 
-    if not distilled_models:
-        logger.warning("    ⚠️  No distilled models found, skipping grid heatmap")
-        return
+    n_models = len(all_models)
 
-    n_vanilla = len(vanilla_models)
-    n_distilled = len(distilled_models)
-
-    logger.info(f"    Creating {n_distilled}×{n_vanilla} grid of comparison heatmaps")
+    logger.info(f"    Creating grid of quality heatmaps for {n_models} model(s)")
 
     # DYNAMIC: Extract scenarios and metrics from actual data
     scenarios = get_available_scenarios(data, "train")
@@ -380,61 +367,62 @@ def plot_improvement_heatmap_grid(
         f"    Using {len(scenarios)} scenarios and {len(metrics)} metrics from data"
     )
 
-    # Calculate figure size: scale with number of subplots
-    # Base size per subplot, with some adjustment for larger grids
-    if n_vanilla <= 2 and n_distilled <= 2:
-        fig_width = 8 * n_vanilla
-        fig_height = 6 * n_distilled
+    # Calculate figure size: scale with number of models
+    # Arrange in a grid layout (e.g., 2x2 for 4 models, 3x2 for 5-6 models)
+    n_cols = min(3, n_models)
+    n_rows = (n_models + n_cols - 1) // n_cols
+    
+    if n_models <= 2:
+        fig_width = 8 * n_cols
+        fig_height = 6 * n_rows
         annot_fontsize = 8
     else:
-        fig_width = 6 * n_vanilla
-        fig_height = 5 * n_distilled
+        fig_width = 6 * n_cols
+        fig_height = 5 * n_rows
         annot_fontsize = 7
 
     fig, axes = plt.subplots(
-        n_distilled, n_vanilla, figsize=(fig_width, fig_height), squeeze=False
+        n_rows, n_cols, figsize=(fig_width, fig_height), squeeze=False
     )
 
     # Overall title
     fig.suptitle(
-        "Comprehensive Model Comparison: Distilled vs Vanilla Performance Improvement",
+        "Model Quality Across Scenarios (Distance from Real Data)",
         fontsize=16,
         fontweight="bold",
         y=0.995,
     )
 
-    # Store all improvement values for shared colorbar
-    all_improvements = []
+    # Store all quality values for shared colorbar
+    all_qualities = []
 
-    # First pass: calculate all improvements
-    improvement_data = {}
-    for i, distilled_model in enumerate(distilled_models):
-        for j, vanilla_model in enumerate(vanilla_models):
-            improvement_matrix = np.zeros((len(scenarios), len(metrics)))
+    # First pass: calculate all quality scores
+    quality_data = {}
+    for idx, model in enumerate(all_models):
+        quality_matrix = np.zeros((len(scenarios), len(metrics)))
 
-            for s_idx, scenario in enumerate(scenarios):
-                for m_idx, metric in enumerate(metrics):
-                    improvement = calculate_improvement(
-                        data,
-                        "train",
-                        scenario,
-                        metric,
-                        baseline=vanilla_model,
-                        improved=distilled_model,
-                    )
-                    if improvement is not None:
-                        improvement_matrix[s_idx, m_idx] = improvement
-                        all_improvements.append(improvement)
-                    else:
-                        improvement_matrix[s_idx, m_idx] = 0
+        for s_idx, scenario in enumerate(scenarios):
+            for m_idx, metric in enumerate(metrics):
+                quality = calculate_model_quality(
+                    data,
+                    "train",
+                    scenario,
+                    metric,
+                    model=model,
+                )
+                if quality is not None:
+                    quality_matrix[s_idx, m_idx] = quality
+                    all_qualities.append(quality)
+                else:
+                    quality_matrix[s_idx, m_idx] = 0
 
-            improvement_data[(i, j)] = improvement_matrix
+        quality_data[idx] = quality_matrix
 
     # Determine colorbar range using percentiles to exclude outliers
-    if all_improvements:
+    if all_qualities:
         # Use 5th and 95th percentiles for robust range estimation
-        p5 = np.percentile(all_improvements, 5)
-        p95 = np.percentile(all_improvements, 95)
+        p5 = np.percentile(all_qualities, 5)
+        p95 = np.percentile(all_qualities, 95)
         abs_max = max(abs(p5), abs(p95))
 
         # Handle case where all values are zero/None (avoid vmin==vmax)
@@ -448,72 +436,76 @@ def plot_improvement_heatmap_grid(
     cmap = sns.diverging_palette(10, 130, s=80, l=55, as_cmap=True)
 
     # Second pass: create heatmaps
-    for i, distilled_model in enumerate(distilled_models):
-        for j, vanilla_model in enumerate(vanilla_models):
-            ax = axes[i, j]
-            improvement_matrix = improvement_data[(i, j)]
+    for idx, model in enumerate(all_models):
+        row = idx // n_cols
+        col = idx % n_cols
+        ax = axes[row, col]
+        quality_matrix = quality_data[idx]
 
-            # Create heatmap
-            # Only show colorbar on rightmost column
-            show_cbar = j == n_vanilla - 1
+        # Create heatmap
+        # Only show colorbar on rightmost column
+        show_cbar = col == n_cols - 1
 
-            sns.heatmap(
-                improvement_matrix,
-                annot=True,
-                fmt=".1f",
-                cmap=cmap,
-                xticklabels=metric_labels,
-                yticklabels=scenario_labels if j == 0 else [],
-                ax=ax,
-                cbar=show_cbar,
-                cbar_kws={"label": "% Improvement"} if show_cbar else {},
-                center=0,
-                vmin=vmin,
-                vmax=vmax,
-                annot_kws={"fontsize": annot_fontsize},
-            )
+        sns.heatmap(
+            quality_matrix,
+            annot=True,
+            fmt=".1f",
+            cmap=cmap,
+            xticklabels=metric_labels,
+            yticklabels=scenario_labels if col == 0 else [],
+            ax=ax,
+            cbar=show_cbar,
+            cbar_kws={"label": "Quality Score (%)\n(100 = Perfect Match)"} if show_cbar else {},
+            center=0,
+            vmin=vmin,
+            vmax=vmax,
+            annot_kws={"fontsize": annot_fontsize},
+        )
 
-            # Subplot title with average improvement
-            distilled_label = distilled_model.replace("_", " ").title()
-            vanilla_label = vanilla_model.replace("_", " ").title()
+        # Subplot title with average quality
+        model_label = model.replace("_", " ").title()
 
-            # Calculate average improvement for title
-            avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
-            avg_text = (
-                f" ({avg_improvement:.1f}%)" if not np.isnan(avg_improvement) else ""
-            )
+        # Calculate average quality for title
+        avg_quality = np.mean(quality_matrix)
+        avg_text = f" ({avg_quality:.1f}%)" if not np.isnan(avg_quality) else ""
 
-            title_fontsize = 10 if n_vanilla > 2 or n_distilled > 2 else 11
-            ax.set_title(
-                f"{distilled_label} vs {vanilla_label}{avg_text}",
-                fontsize=title_fontsize,
-                fontweight="bold",
-                pad=8,
-            )
+        title_fontsize = 10 if n_models > 2 else 11
+        ax.set_title(
+            f"Quality: {model_label}{avg_text}",
+            fontsize=title_fontsize,
+            fontweight="bold",
+            pad=8,
+        )
 
-            # Labels
-            if i == n_distilled - 1:  # Bottom row
-                ax.set_xlabel("Metric", fontsize=9, fontweight="bold")
-            else:
-                ax.set_xlabel("")
+        # Labels
+        if row == n_rows - 1:  # Bottom row
+            ax.set_xlabel("Metric", fontsize=9, fontweight="bold")
+        else:
+            ax.set_xlabel("")
 
-            if j == 0:  # Leftmost column
-                ax.set_ylabel("Scenario", fontsize=9, fontweight="bold")
-            else:
-                ax.set_ylabel("")
+        if col == 0:  # Leftmost column
+            ax.set_ylabel("Scenario", fontsize=9, fontweight="bold")
+        else:
+            ax.set_ylabel("")
 
-            # Adjust tick label sizes
-            ax.tick_params(axis="both", labelsize=8)
+        # Adjust tick label sizes
+        ax.tick_params(axis="both", labelsize=8)
+
+    # Hide any unused subplots
+    for idx in range(n_models, n_rows * n_cols):
+        row = idx // n_cols
+        col = idx % n_cols
+        axes[row, col].axis('off')
 
     plt.tight_layout(rect=[0, 0, 1, 0.99])
 
     # Save
-    output_path = output_dir / "improvement_heatmap_grid"
+    output_path = output_dir / "quality_heatmap_grid"
     plt.savefig(f"{output_path}.png", dpi=dpi, bbox_inches="tight")
     plt.savefig(f"{output_path}.pdf", dpi=dpi, bbox_inches="tight")
     plt.close()
 
-    logger.info(f"      ✓ Grid saved with {n_distilled * n_vanilla} comparisons")
+    logger.info(f"      ✓ Grid saved with {n_models} model(s)")
 
 
 def plot_improvement_heatmap(
@@ -528,7 +520,7 @@ def plot_improvement_heatmap(
         loader: Optional ScenarioDataLoader for config-based filtering
         config: Optional plot-specific configuration
     """
-    logger.info("    13. Improvement percentage heatmap (legacy single comparison)")
+    logger.info("    13. Model quality heatmap (legacy single model)")
 
     # Use dynamic extraction even for legacy function
     scenarios = get_available_scenarios(data, "train")
@@ -544,30 +536,39 @@ def plot_improvement_heatmap(
         logger.warning("    ⚠️  No scenarios/metrics found, skipping legacy heatmap")
         return
 
-    # Build improvement matrix
-    improvement_matrix = np.zeros((len(scenarios), len(metrics)))
+    # Default to first distilled model or fallback to any model
+    vanilla_models, distilled_models = classify_models(data, "train")
+    if distilled_models:
+        model = distilled_models[0]
+    elif vanilla_models:
+        model = vanilla_models[0]
+    else:
+        logger.warning("    ⚠️  No models found, skipping legacy heatmap")
+        return
+
+    # Build quality matrix showing distance from real data
+    quality_matrix = np.zeros((len(scenarios), len(metrics)))
 
     for i, scenario in enumerate(scenarios):
         for j, metric in enumerate(metrics):
-            improvement = calculate_improvement(
+            quality = calculate_model_quality(
                 data,
                 "train",
                 scenario,
                 metric,
-                baseline="vanilla",
-                improved="distilled_seed44",
+                model=model,
             )
-            if improvement is not None:
-                improvement_matrix[i, j] = improvement
+            if quality is not None:
+                quality_matrix[i, j] = quality
             else:
-                improvement_matrix[i, j] = 0
+                quality_matrix[i, j] = 0
 
     fig, ax = plt.subplots(figsize=(10, 8))
 
     # Calculate symmetric bounds using percentiles to exclude outliers
     # Use 5th and 95th percentiles for robust range estimation
-    p5 = np.percentile(improvement_matrix, 5)
-    p95 = np.percentile(improvement_matrix, 95)
+    p5 = np.percentile(quality_matrix, 5)
+    p95 = np.percentile(quality_matrix, 95)
     abs_max = max(abs(p5), abs(p95))
 
     # Handle case where all values are zero/None (avoid vmin==vmax)
@@ -580,27 +581,26 @@ def plot_improvement_heatmap(
 
     # Create heatmap
     sns.heatmap(
-        improvement_matrix,
+        quality_matrix,
         annot=True,
         fmt=".1f",
         cmap=cmap,
         xticklabels=metric_labels,
         yticklabels=[s.replace("_", " ").title() for s in scenarios],
         ax=ax,
-        cbar_kws={"label": "% Improvement"},
+        cbar_kws={"label": "Quality Score (%)\n(100 = Perfect Match)"},
         center=0,
         vmin=vmin,
         vmax=vmax,
     )
 
-    # Calculate average improvement for title
-    avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
-    avg_text = (
-        f" (Avg: {avg_improvement:.1f}%)" if not np.isnan(avg_improvement) else ""
-    )
+    # Calculate average quality for title
+    avg_quality = np.mean(quality_matrix)
+    avg_text = f" (Avg Quality: {avg_quality:.1f}%)" if not np.isnan(avg_quality) else ""
 
+    model_label = model.replace("_", " ").title()
     ax.set_title(
-        f"Improvement of Distilled (seed 44) over Vanilla{avg_text}\n"
+        f"Model Quality: {model_label} (Distance from Real Data){avg_text}\n"
         f"Across Scenarios and Metrics",
         fontsize=14,
         fontweight="bold",
@@ -611,7 +611,7 @@ def plot_improvement_heatmap(
 
     plt.tight_layout()
 
-    output_path = output_dir / "improvement_heatmap"
+    output_path = output_dir / "quality_heatmap"
     plt.savefig(f"{output_path}.png", dpi=dpi, bbox_inches="tight")
     plt.savefig(f"{output_path}.pdf", dpi=dpi, bbox_inches="tight")
     plt.close()
