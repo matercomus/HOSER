@@ -77,7 +77,13 @@ All plots are defined in `config/scenario_plots.yaml` and organized by type:
 - **analysis.duration_ceiling**: Duration prediction ceiling effect analysis
 
 ### Application Plots (`application.*`)
-- **application.improvement_heatmaps**: Model quality heatmaps showing distance from real data (individual + grid)
+- **application.improvement_heatmaps**: Distance heatmaps showing raw metric values (lower=better, individual + grid)
+  - Shows **raw distance metric values** (JSD, Hausdorff, DTW, EDR) from real data
+  - **Individual heatmaps**: One per distilled model showing distance across scenarios/metrics
+  - **Grid heatmap**: All models side-by-side for comparison
+  - **Per-metric color normalization**: Each metric column uses its own color scale (green=best, red=worst)
+  - **Annotations show raw values**: Numbers display actual metric values, colors show relative performance
+  - **Configurable colormap**: Default is `RdYlGn_r` (reversed Red-Yellow-Green)
 - **application.radar_charts**: Application use case radar charts
 
 ## Plot Groups
@@ -85,10 +91,10 @@ All plots are defined in `config/scenario_plots.yaml` and organized by type:
 Convenient groups for common use cases (defined in `config/scenario_plots.yaml`):
 
 - **all**: All enabled plots (default)
-- **core**: Quick overview (scenario_heatmap + model quality heatmaps)
+- **core**: Quick overview (scenario_heatmap + distance heatmaps)
 - **heatmaps_only**: Only heatmap visualizations
 - **full_analysis**: Complete analysis suite (metrics + application + analysis)
-- **application**: Application-focused plots (heatmaps + radars)
+- **application**: Application-focused plots (distance heatmaps + radars)
 - **metrics**: All metric plots
 - **analysis**: All analysis plots
 
@@ -136,10 +142,10 @@ plot_types:
         functions:
           - plot_improvement_heatmaps_individual
           - plot_improvement_heatmap_grid
-        description: "Model quality heatmaps (distance from real data, 0=perfect)"
+        description: "Distance heatmaps showing raw metric values (lower=better)"
         enabled: true
         config:
-          colormap: "RdWhGn"
+          colormap: "RdYlGn_r"  # Reversed Red-Yellow-Green (green=good, red=bad)
           percentile_range: [5, 95]
 ```
 

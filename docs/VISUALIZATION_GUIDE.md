@@ -267,17 +267,17 @@ uv run python create_scenario_plots.py --eval-dir hoser-distill-optuna-6 \
 - `analysis.duration_ceiling` - Duration prediction ceiling effect
 
 **Application Plots (`application.*`)**
-- `application.improvement_heatmaps` - Model quality heatmaps showing distance from real data (individual + grid)
+- `application.improvement_heatmaps` - Distance heatmaps showing raw metric values (lower=better, individual + grid)
 - `application.radar_charts` - Application use case radar charts
 
 ### Plot Groups
 
 Pre-defined groups for convenience:
 - `all` - All plots (default)
-- `core` - Quick overview (scenario_heatmap + model quality heatmaps)
+- `core` - Quick overview (scenario_heatmap + distance heatmaps)
 - `heatmaps_only` - Only heatmap visualizations
 - `full_analysis` - Complete analysis suite
-- `application` - Application-focused plots
+- `application` - Application-focused plots (distance heatmaps + radars)
 - `metrics`, `analysis`, `robustness`, `temporal` - Type-specific groups
 
 ### Configuration
@@ -300,9 +300,71 @@ plot_types:
     plots:
       improvement_heatmaps:
         config:
-          colormap: "RdWhGn"
+          colormap: "RdYlGn_r"  # Reversed Red-Yellow-Green (green=good, red=bad)
           percentile_range: [5, 95]
 ```
+
+## Distance Heatmaps (application.improvement_heatmaps)
+
+The distance heatmaps visualize how close each model's outputs are to real data across different scenarios and metrics.
+
+### Key Features
+
+**1. Raw Distance Values**
+- Shows actual metric values (JSD, Hausdorff, DTW, EDR)
+- Lower values = closer to real data (better performance)
+- All metrics measure distance from reality where 0 = perfect match
+
+**2. Per-Metric Color Normalization**
+- Each metric column has its own color scale
+- Green = best value for that metric (across all scenarios/models)
+- Red = worst value for that metric
+- Makes it easy to see relative performance within each metric
+- Example: JSD of 0.001 might be green, Hausdorff of 5.0 might also be green (both are best in their respective columns)
+
+**3. Two Visualization Modes**
+
+**Individual Heatmaps** (`plot_improvement_heatmaps_individual`):
+- One heatmap per distilled model
+- Rows = scenarios (e.g., peak, off_peak, city_center)
+- Columns = metrics (e.g., JSD, Hausdorff, DTW, EDR)
+- Annotations show actual metric values
+- Filename: `distance_heatmap_{model_name}.pdf`
+
+**Grid Heatmap** (`plot_improvement_heatmap_grid`):
+- All models shown side-by-side in a grid
+- Enables easy comparison between vanilla and distilled models
+- Same per-metric normalization applied consistently across all models
+- Filename: `distance_heatmap_grid.pdf`
+
+**4. Configurable Colormap**
+- Default: `RdYlGn_r` (reversed Red-Yellow-Green)
+- Can be changed via `config/scenario_plots.yaml`
+- Any matplotlib colormap name is valid (e.g., `Spectral_r`, `viridis`, `coolwarm`)
+
+### Interpretation
+
+- **Green cells**: Model performs well on this metric/scenario combination
+- **Yellow cells**: Model has average performance
+- **Red cells**: Model performs poorly on this metric/scenario combination
+- **Numbers**: Actual distance values for precise comparison
+- **Colors**: Relative performance for visual pattern recognition
+
+### Example Output
+
+```
+Distance heatmap showing Distill model:
+                  JSD    Hausdorff  DTW    EDR
+peak              0.012  4.5        3.2    0.15  (green/yellow/yellow/green)
+off_peak          0.008  3.8        2.9    0.12  (green/green/green/green)
+city_center       0.015  5.2        4.1    0.18  (yellow/red/red/yellow)
+```
+
+In this example:
+- JSD values range 0.008-0.015 (all green/yellow = good)
+- Hausdorff values range 3.8-5.2 (green to red = varies)
+- Model performs best during off_peak hours
+- City center scenarios are most challenging
 
 ### Options
 

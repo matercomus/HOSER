@@ -8,7 +8,6 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import seaborn as sns
 import yaml
 
@@ -201,63 +200,6 @@ def get_metric_value(
     except KeyError:
         logger.warning(f"Metric not found: {od_source}/{model}/{scenario}/{metric}")
         return None
-
-
-def calculate_model_quality(
-    data: Dict,
-    od_source: str,
-    scenario: str,
-    metric: str,
-    model: str,
-    reference_max: Optional[float] = None,
-) -> Optional[float]:
-    """Calculate model quality score based on distance from real data.
-    
-    All metrics (JSD, Hausdorff, DTW, EDR) measure distance from reality where:
-    - 0 = perfect match with real data
-    - Higher values = worse match
-    
-    Quality score: 100 = perfect, 0 = matches reference_max, negative = worse than reference
-    
-    Args:
-        data: Loaded scenario data
-        od_source: 'train' or 'test'
-        scenario: Scenario name
-        metric: Metric name
-        model: Model name to evaluate
-        reference_max: Maximum expected value for normalization (uses 95th percentile if None)
-    
-    Returns:
-        Quality score (100 = perfect, 0 = reference_max, can be negative)
-    """
-    metric_value = get_metric_value(data, od_source, model, scenario, metric)
-    
-    if metric_value is None:
-        return None
-    
-    # If no reference provided, calculate from all models' values for this metric/scenario
-    if reference_max is None:
-        all_values = []
-        for model_name in data[od_source].keys():
-            val = get_metric_value(data, od_source, model_name, scenario, metric)
-            if val is not None:
-                all_values.append(val)
-        
-        if not all_values:
-            return None
-        
-        # Use 95th percentile as reference maximum
-        reference_max = np.percentile(all_values, 95)
-        
-        # Avoid division by zero
-        if reference_max < 0.0001:
-            reference_max = 0.01
-    
-    # Calculate quality: 100 at metric_value=0, 0 at metric_value=reference_max
-    # Allow negative scores for values worse than reference_max
-    quality = (1 - (metric_value / reference_max)) * 100
-    
-    return quality
 
 
 def classify_models(
