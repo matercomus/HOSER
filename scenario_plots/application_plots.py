@@ -30,6 +30,42 @@ sns.set_style("whitegrid")
 plt.rcParams["figure.facecolor"] = "white"
 
 
+def _sort_metrics_by_type(metrics: list) -> list:
+    """Sort metrics to group global (JSD) and local (trajectory) metrics together.
+
+    Global metrics (distribution-based): Distance_JSD, Duration_JSD, Radius_JSD
+    Local metrics (trajectory-based): Hausdorff_km, DTW_km, EDR
+
+    Args:
+        metrics: List of metric names
+
+    Returns:
+        Sorted list with global metrics first, then local metrics
+    """
+    global_metrics = []
+    local_metrics = []
+    other_metrics = []
+
+    for metric in metrics:
+        if "JSD" in metric:
+            global_metrics.append(metric)
+        elif metric in ["Hausdorff_km", "DTW_km", "EDR"]:
+            local_metrics.append(metric)
+        else:
+            other_metrics.append(metric)
+
+    # Sort within each group for consistency
+    global_metrics.sort()
+    local_metrics.sort(
+        key=lambda x: ["DTW_km", "EDR", "Hausdorff_km"].index(x)
+        if x in ["DTW_km", "EDR", "Hausdorff_km"]
+        else 999
+    )
+    other_metrics.sort()
+
+    return global_metrics + local_metrics + other_metrics
+
+
 def plot_all(data: Dict, output_dir: Path, dpi: int = 300, loader=None, config=None):
     """Generate all application plots
 
@@ -219,6 +255,9 @@ def plot_improvement_heatmaps_individual(
     if loader:
         metrics = loader.get_filtered_metrics(metrics)
 
+    # Sort metrics to group global (JSD) and local (trajectory) metrics
+    metrics = _sort_metrics_by_type(metrics)
+
     metric_labels = get_metric_display_labels(metrics)
 
     # Validate we have data to plot
@@ -364,6 +403,9 @@ def plot_improvement_heatmap_grid(
     # Apply metric filtering if loader provided
     if loader:
         metrics = loader.get_filtered_metrics(metrics)
+
+    # Sort metrics to group global (JSD) and local (trajectory) metrics
+    metrics = _sort_metrics_by_type(metrics)
 
     metric_labels = get_metric_display_labels(metrics)
     scenario_labels = [s.replace("_", " ").title() for s in scenarios]
@@ -566,6 +608,9 @@ def plot_improvement_heatmap(
     # Apply metric filtering if loader provided
     if loader:
         metrics = loader.get_filtered_metrics(metrics)
+
+    # Sort metrics to group global (JSD) and local (trajectory) metrics
+    metrics = _sort_metrics_by_type(metrics)
 
     metric_labels = get_metric_display_labels(metrics)
 
