@@ -265,19 +265,19 @@ def get_metric_display_labels(metrics: List[str]) -> List[str]:
     
     labels = []
     for metric in metrics:
-        # Common metric formatting rules
+        # Common metric formatting rules (order matters - check specific endings first)
         if metric.endswith('_JSD'):
             # Distance_JSD -> Distance\nJSD
             base = metric[:-4]
             label = f"{base}\nJSD"
+        elif metric.endswith('_mean'):
+            # Distance_mean -> Distance\nMean
+            base = metric[:-5]
+            label = f"{base}\nmean"
         elif metric.endswith('_km'):
             # Hausdorff_km -> Hausdorff\n(km)
             base = metric[:-3]
             label = f"{base}\n(km)"
-        elif metric.endswith('_mean'):
-            # Distance_mean -> Distance\nMean
-            base = metric[:-5]
-            label = f"{base}\nMean"
         elif '_' in metric:
             # Generic: split on underscore
             parts = metric.split('_')
