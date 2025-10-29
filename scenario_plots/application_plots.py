@@ -189,8 +189,12 @@ def plot_improvement_heatmaps_individual(data: Dict, output_dir: Path, dpi: int)
             
             fig, ax = plt.subplots(figsize=(10, 8))
             
-            # Calculate symmetric bounds for diverging colormap
-            abs_max = max(abs(improvement_matrix.min()), abs(improvement_matrix.max()))
+            # Calculate symmetric bounds using percentiles to exclude outliers
+            # Use 5th and 95th percentiles for robust range estimation
+            p5 = np.percentile(improvement_matrix, 5)
+            p95 = np.percentile(improvement_matrix, 95)
+            abs_max = max(abs(p5), abs(p95))
+            
             # Handle case where all values are zero/None (avoid vmin==vmax)
             if abs_max < 0.01:
                 abs_max = 10.0  # Use default range
@@ -309,9 +313,13 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int):
             
             improvement_data[(i, j)] = improvement_matrix
     
-    # Determine colorbar range (symmetric around 0 for diverging colormap)
+    # Determine colorbar range using percentiles to exclude outliers
     if all_improvements:
-        abs_max = max(abs(min(all_improvements)), abs(max(all_improvements)))
+        # Use 5th and 95th percentiles for robust range estimation
+        p5 = np.percentile(all_improvements, 5)
+        p95 = np.percentile(all_improvements, 95)
+        abs_max = max(abs(p5), abs(p95))
+        
         # Handle case where all values are zero/None (avoid vmin==vmax)
         if abs_max < 0.01:
             abs_max = 10.0  # Use default range
@@ -405,8 +413,12 @@ def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int):
     
     fig, ax = plt.subplots(figsize=(10, 8))
     
-    # Calculate symmetric bounds for diverging colormap
-    abs_max = max(abs(improvement_matrix.min()), abs(improvement_matrix.max()))
+    # Calculate symmetric bounds using percentiles to exclude outliers
+    # Use 5th and 95th percentiles for robust range estimation
+    p5 = np.percentile(improvement_matrix, 5)
+    p95 = np.percentile(improvement_matrix, 95)
+    abs_max = max(abs(p5), abs(p95))
+    
     # Handle case where all values are zero/None (avoid vmin==vmax)
     if abs_max < 0.01:
         abs_max = 10.0  # Use default range
