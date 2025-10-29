@@ -15,24 +15,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from .data_loader import get_metric_value, get_scenario_list
+from .data_loader import (
+    get_metric_value,
+    classify_models,
+    get_model_colors,
+    get_model_labels,
+    get_available_scenarios,
+    get_available_metrics,
+    get_metric_display_labels
+)
 
 logger = logging.getLogger(__name__)
 
 sns.set_style("whitegrid")
 plt.rcParams['figure.facecolor'] = 'white'
-
-COLORS = {
-    'vanilla': '#e74c3c',
-    'distilled': '#3498db',
-    'distilled_seed44': '#2ecc71'
-}
-
-MODEL_LABELS = {
-    'vanilla': 'Vanilla',
-    'distilled': 'Distilled (seed 42)',
-    'distilled_seed44': 'Distilled (seed 44)'
-}
 
 
 def plot_all(data: Dict, output_dir: Path, dpi: int = 300):
@@ -48,14 +44,23 @@ def plot_duration_ceiling(data: Dict, output_dir: Path, dpi: int):
     """Plot #9: Box plots showing duration JSD ceiling effect"""
     logger.info("    9. Duration ceiling effect")
     
-    # Group scenarios by type
+    # Dynamic extraction
+    vanilla_models, distilled_models = classify_models(data, 'train')
+    models = sorted(vanilla_models + distilled_models)
+    model_colors_dict = get_model_colors(data, 'train')
+    model_labels_dict = get_model_labels(data, 'train')
+    
+    # Get all scenarios and group them dynamically
+    all_scenarios = get_available_scenarios(data, 'train')
+    
     scenario_groups = {
-        'Temporal': ['off_peak', 'peak', 'weekday', 'weekend'],
-        'Spatial': ['city_center', 'suburban'],
-        'Trip Type': ['to_center', 'from_center', 'within_center']
+        'Temporal': [s for s in all_scenarios if any(kw in s for kw in ['peak', 'weekday', 'weekend'])],
+        'Spatial': [s for s in all_scenarios if any(kw in s for kw in ['center', 'suburban'])],
+        'Trip Type': [s for s in all_scenarios if any(kw in s for kw in ['to_', 'from_', 'within_'])]
     }
     
-    models = ['vanilla', 'distilled', 'distilled_seed44']
+    # Filter out empty groups
+    scenario_groups = {k: v for k, v in scenario_groups.items() if v}
     
     fig, ax = plt.subplots(figsize=(12, 6))
     
@@ -68,14 +73,13 @@ def plot_duration_ceiling(data: Dict, output_dir: Path, dpi: int):
         for model in models:
             values = []
             for s in scenarios:
-                if s in get_scenario_list(data, 'train', model):
-                    val = get_metric_value(data, 'train', model, s, 'Duration_JSD')
-                    if val is not None:
-                        values.append(val)
+                val = get_metric_value(data, 'train', model, s, 'Duration_JSD')
+                if val is not None:
+                    values.append(val)
             
             if values:
                 all_data.append(values)
-                all_labels.append(f"{group_name}\n{MODEL_LABELS[model]}")
+                all_labels.append(f"{group_name}\n{model_labels_dict[model]}")
                 positions.append(pos)
                 pos += 1
         
@@ -116,15 +120,17 @@ def plot_spatial_differentiation(data: Dict, output_dir: Path, dpi: int):
     """Plot #10: Scatter plot with performance zones"""
     logger.info("    10. Spatial metrics differentiation")
     
-    scenarios = get_scenario_list(data, 'train', 'vanilla')
-    models = ['vanilla', 'distilled', 'distilled_seed44']
+    # Dynamic extraction
+    vanilla_models, distilled_models = classify_models(data, 'train')
+    models = sorted(vanilla_models + distilled_models)
+    model_colors_dict = get_model_colors(data, 'train')
+    model_labels_dict = get_model_labels(data, 'train')
     
-    # Scenario markers
-    scenario_markers = {
-        'off_peak': 'o', 'peak': 's', 'weekday': '^', 'weekend': 'v',
-        'city_center': 'D', 'suburban': 'p', 'to_center': '*',
-        'from_center': 'h', 'within_center': '+'
-    }
+    scenarios = get_available_scenarios(data, 'train')
+    
+    # Dynamic scenario markers
+    markers = ['o', 's', '^', 'v', 'D', 'p', '*', 'h', '+', 'x', 'd', '|', '_']
+    scenario_markers = {s: markers[i % len(markers)] for i, s in enumerate(scenarios)}
     
     fig, ax = plt.subplots(figsize=(12, 10))
     
@@ -141,8 +147,8 @@ def plot_spatial_differentiation(data: Dict, output_dir: Path, dpi: int):
             if dist_jsd is not None and radius_jsd is not None:
                 marker = scenario_markers.get(scenario, 'o')
                 ax.scatter(dist_jsd, radius_jsd, s=150, marker=marker,
-                          color=COLORS[model], alpha=0.7, edgecolors='black', linewidth=1.5,
-                          label=f'{MODEL_LABELS[model]}' if scenario == scenarios[0] else '')
+                          color=model_colors_dict[model], alpha=0.7, edgecolors='black', linewidth=1.5,
+                          label=f'{model_labels_dict[model]}' if scenario == scenarios[0] else '')
     
     ax.set_xlabel('Distance JSD', fontsize=11, fontweight='bold')
     ax.set_ylabel('Radius of Gyration JSD', fontsize=11, fontweight='bold')
@@ -171,12 +177,22 @@ def plot_variance_analysis(data: Dict, output_dir: Path, dpi: int):
     """Plot #11: Range plot showing variance across scenarios"""
     logger.info("    11. Scenario variance analysis")
     
-    scenarios = get_scenario_list(data, 'train', 'vanilla')
-    metrics = ['Distance_JSD', 'Duration_JSD', 'Radius_JSD', 
-               'Hausdorff_km', 'DTW_km', 'EDR']
-    metric_labels = ['Distance\nJSD', 'Duration\nJSD', 'Radius\nJSD',
-                     'Hausdorff\n(km)', 'DTW\n(km)', 'EDR']
-    models = ['vanilla', 'distilled', 'distilled_seed44']
+    # Dynamic extraction
+    vanilla_models, distilled_models = classify_models(data, 'train')
+    models = sorted(vanilla_models + distilled_models)
+    model_colors_dict = get_model_colors(data, 'train')
+    model_labels_dict = get_model_labels(data, 'train')
+    
+    scenarios = get_available_scenarios(data, 'train')
+    metrics = get_available_metrics(data, 'train')
+    
+    if not metrics:
+        logger.warning("No metrics found for variance analysis, skipping plot")
+        return
+    
+    # Use up to 6 metrics for display
+    metrics = metrics[:6]
+    metric_labels = get_metric_display_labels(metrics)
     
     fig, ax = plt.subplots(figsize=(14, 7))
     
@@ -208,13 +224,13 @@ def plot_variance_analysis(data: Dict, output_dir: Path, dpi: int):
                 cv = (std_val / mean_val * 100) if mean_val > 0 else 0
                 
                 # Plot range
-                ax.plot([pos, pos], [min_norm, max_norm], color=COLORS[model], linewidth=3, alpha=0.7)
-                ax.scatter(pos, mean_val, s=150, color=COLORS[model], zorder=5, 
+                ax.plot([pos, pos], [min_norm, max_norm], color=model_colors_dict[model], linewidth=3, alpha=0.7)
+                ax.scatter(pos, mean_val, s=150, color=model_colors_dict[model], zorder=5, 
                           edgecolors='black', linewidths=1.5)
                 
                 # Add CV annotation
                 ax.text(pos, max_norm + 0.03, f'{cv:.1f}%', ha='center', fontsize=8,
-                       color=COLORS[model], fontweight='bold')
+                       color=model_colors_dict[model], fontweight='bold')
                 
                 pos += 0.3
         
@@ -226,8 +242,8 @@ def plot_variance_analysis(data: Dict, output_dir: Path, dpi: int):
     
     # Create legend
     from matplotlib.lines import Line2D
-    legend_elements = [Line2D([0], [0], marker='o', color='w', markerfacecolor=COLORS[m],
-                             markersize=10, label=MODEL_LABELS[m], markeredgecolor='black')
+    legend_elements = [Line2D([0], [0], marker='o', color='w', markerfacecolor=model_colors_dict[m],
+                             markersize=10, label=model_labels_dict[m], markeredgecolor='black')
                       for m in models]
     ax.legend(handles=legend_elements, loc='upper left', framealpha=0.95, fontsize=10)
     

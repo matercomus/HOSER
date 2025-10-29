@@ -18,7 +18,6 @@ from .data_loader import (
     get_metric_value,
     calculate_improvement,
     classify_models,
-    get_scenario_list,
     get_available_scenarios,
     get_available_metrics,
     get_metric_display_labels,
@@ -76,10 +75,17 @@ def plot_application_radars(data: Dict, output_dir: Path, dpi: int):
         }
     }
     
-    models = ['vanilla', 'distilled', 'distilled_seed44']
+    # Dynamically detect all models
+    vanilla_models, distilled_models = classify_models(data, 'train')
+    models = sorted(vanilla_models + distilled_models)
     
-    # Use 'off_peak' scenario as representative
-    scenario = 'off_peak'
+    if not models:
+        logger.warning("    No models found for radar charts")
+        return
+    
+    # Use first available scenario as representative
+    scenarios = get_available_scenarios(data, 'train')
+    scenario = scenarios[0] if scenarios else 'off_peak'
     
     fig, axes = plt.subplots(1, 3, figsize=(18, 6), subplot_kw=dict(projection='polar'))
     fig.suptitle('Application-Specific Performance Profiles', fontsize=16, fontweight='bold')
@@ -372,11 +378,14 @@ def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int):
     """Plot #13: Heatmap showing % improvement over vanilla (DEPRECATED - kept for compatibility)"""
     logger.info("    13. Improvement percentage heatmap (legacy single comparison)")
     
-    scenarios = ['off_peak', 'peak', 'city_center', 'suburban', 'weekday', 'weekend']
-    metrics = ['Distance_JSD', 'Duration_JSD', 'Radius_JSD', 
-               'Hausdorff_km', 'DTW_km', 'EDR']
-    metric_labels = ['Distance\nJSD', 'Duration\nJSD', 'Radius\nJSD',
-                     'Hausdorff\n(km)', 'DTW\n(km)', 'EDR']
+    # Use dynamic extraction even for legacy function
+    scenarios = get_available_scenarios(data, 'train')
+    metrics = get_available_metrics(data, 'train')
+    metric_labels = get_metric_display_labels(metrics)
+    
+    if not scenarios or not metrics:
+        logger.warning("    ⚠️  No scenarios/metrics found, skipping legacy heatmap")
+        return
     
     # Build improvement matrix
     improvement_matrix = np.zeros((len(scenarios), len(metrics)))
