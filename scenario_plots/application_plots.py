@@ -303,15 +303,11 @@ def plot_improvement_heatmaps_individual(
             vmax=1,
         )
 
-        # Create title with model name and average distance
+        # Create title with model name
         distilled_label = distilled_model.replace("_", " ").title()
 
-        # Calculate average distance for title
-        avg_distance = np.nanmean(distance_matrix)
-        avg_text = f" (Avg: {avg_distance:.3f})" if not np.isnan(avg_distance) else ""
-
         ax.set_title(
-            f"Model Distance from Real Data: {distilled_label}{avg_text}\n"
+            f"Model Distance from Real Data: {distilled_label}\n"
             f"Across Scenarios and Metrics",
             fontsize=14,
             fontweight="bold",
@@ -507,16 +503,12 @@ def plot_improvement_heatmap_grid(
             annot_kws={"fontsize": annot_fontsize},
         )
 
-        # Subplot title with average distance
+        # Subplot title with model name
         model_label = model.replace("_", " ").title()
-
-        # Calculate average distance for title
-        avg_distance = np.nanmean(distance_matrix)
-        avg_text = f" ({avg_distance:.3f})" if not np.isnan(avg_distance) else ""
 
         title_fontsize = 10 if n_models > 2 else 11
         ax.set_title(
-            f"Distance: {model_label}{avg_text}",
+            f"Distance: {model_label}",
             fontsize=title_fontsize,
             fontweight="bold",
             pad=8,
@@ -654,14 +646,9 @@ def plot_improvement_heatmap(
         vmax=1,
     )
 
-    # Calculate average distance for title
-    avg_distance = np.nanmean(distance_matrix)
-    avg_text = f" (Avg: {avg_distance:.3f})" if not np.isnan(avg_distance) else ""
-
     model_label = model.replace("_", " ").title()
     ax.set_title(
-        f"Model Distance from Real Data: {model_label}{avg_text}\n"
-        f"Across Scenarios and Metrics",
+        f"Model Distance from Real Data: {model_label}\nAcross Scenarios and Metrics",
         fontsize=14,
         fontweight="bold",
         pad=15,
