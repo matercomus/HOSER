@@ -29,7 +29,7 @@ def generate_plots(
     data, output_dir, dpi, plot_selections, plot_config_loader, data_loader=None
 ):
     """Generate selected plots based on configuration
-    
+
     Args:
         data: Loaded scenario data
         output_dir: Directory to save plots
@@ -37,7 +37,7 @@ def generate_plots(
         plot_selections: List of plot groups or IDs to generate
         plot_config_loader: PlotConfigLoader instance
         data_loader: Optional ScenarioDataLoader for config-based filtering
-    
+
     Returns:
         List of generated plot IDs
     """
@@ -46,7 +46,7 @@ def generate_plots(
     for selection in plot_selections:
         plots = plot_config_loader.get_enabled_plots(selection)
         plots_to_generate.extend(plots)
-    
+
     # Remove duplicates while preserving order
     seen = set()
     unique_plots = []
@@ -54,35 +54,36 @@ def generate_plots(
         if plot.id not in seen:
             seen.add(plot.id)
             unique_plots.append(plot)
-    
+
     generated = []
-    
+
     for plot in unique_plots:
         logger.info(f"  📊 {plot.description} ({plot.id})")
-        
+
         try:
             # Dynamically import module
             module = importlib.import_module(f"scenario_plots.{plot.module_name}")
-            
+
             # Get dataset-specific overrides if available
             plot_config = plot.config.copy()
             if data_loader:
                 overrides = data_loader.get_plot_override(plot.id)
                 plot_config.update(overrides)
-            
+
             # Call each function for this plot
             for func_name in plot.functions:
                 func = getattr(module, func_name)
                 # Pass loader and config to function
                 func(data, output_dir, dpi, loader=data_loader, config=plot_config)
-            
+
             generated.append(plot.id)
-            
+
         except Exception as e:
             logger.error(f"    ❌ Error generating {plot.id}: {e}")
             import traceback
+
             logger.debug(traceback.format_exc())
-    
+
     return generated
 
 
@@ -91,19 +92,19 @@ def print_available_plots(config_loader: PlotConfigLoader):
     print("\n" + "=" * 70)
     print("Available Plot Groups")
     print("=" * 70)
-    
+
     groups = config_loader.list_available_groups()
     for name, desc in sorted(groups.items()):
         print(f"  {name:20} - {desc}")
-    
+
     print("\n" + "=" * 70)
     print("Available Individual Plots")
     print("=" * 70)
-    
+
     plots = config_loader.list_available_plots()
     for plot_id, desc in sorted(plots.items()):
         print(f"  {plot_id:40} - {desc}")
-    
+
     print("\n" + "=" * 70)
     print("Usage Examples")
     print("=" * 70)

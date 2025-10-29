@@ -67,7 +67,7 @@ def main():
         print("✅ Found individual cache files, building aggregate...")
 
         try:
-            dataset = Dataset(str(geo_file), str(rel_file), str(traj_file))
+            Dataset(str(geo_file), str(rel_file), str(traj_file))
             print(f"✅ Aggregate built successfully: {aggregate_file}")
         except Exception as e:
             print(f"❌ Failed to build aggregate: {e}")

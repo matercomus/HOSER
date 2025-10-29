@@ -23,7 +23,7 @@ def extract_od_pairs_from_trajectories(df, rid_col="rid_list"):
             if len(rid_list) >= 2:
                 od_pair = (rid_list[0], rid_list[-1])
                 od_pairs.add(od_pair)
-        except:
+        except Exception:
             continue
 
     return od_pairs

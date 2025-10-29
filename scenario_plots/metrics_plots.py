@@ -50,7 +50,6 @@ def plot_scenario_metrics_heatmap(data: Dict, output_dir: Path, dpi: int):
     # Dynamic extraction
     vanilla_models, distilled_models = classify_models(data, "train")
     models = sorted(vanilla_models + distilled_models)
-    model_colors_dict = get_model_colors(data, "train")
     model_labels_dict = get_model_labels(data, "train")
 
     scenarios = get_available_scenarios(data, "train")

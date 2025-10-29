@@ -222,4 +222,3 @@ class PlotConfigLoader:
                 plots[plot_id] = plot_data.get("description", "")
 
         return plots
-

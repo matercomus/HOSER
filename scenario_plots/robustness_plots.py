@@ -111,7 +111,7 @@ def plot_seed_robustness(data: Dict, output_dir: Path, dpi: int):
         ]
         model2_vals = [v if v is not None else 0 for v in model2_vals]
 
-        bars1 = ax.bar(
+        ax.bar(
             x - width / 2,
             model1_vals,
             width,
@@ -121,7 +121,7 @@ def plot_seed_robustness(data: Dict, output_dir: Path, dpi: int):
             edgecolor="black",
             linewidth=0.5,
         )
-        bars2 = ax.bar(
+        ax.bar(
             x + width / 2,
             model2_vals,
             width,

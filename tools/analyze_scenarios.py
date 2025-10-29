@@ -45,10 +45,8 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import existing evaluation metrics (reuse, don't rewrite)
-from evaluation import GlobalMetrics, LocalMetrics
-
-# Additional imports for geo processing
-from shapely.geometry import LineString
+from evaluation import GlobalMetrics, LocalMetrics  # noqa: E402
+from shapely.geometry import LineString  # noqa: E402
 
 # Configure logging
 logging.basicConfig(
@@ -634,7 +632,7 @@ class ScenarioAnalyzer:
                 ts = ts.strip('"')
                 try:
                     dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                except:
+                except ValueError:
                     dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
                 timestamps.append(dt)
 
@@ -662,7 +660,7 @@ class ScenarioAnalyzer:
             for ts in timestamps_str:
                 try:
                     dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                except:
+                except ValueError:
                     dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
                 timestamps.append(dt)
 
@@ -936,7 +934,7 @@ def run_scenario_analysis(
             try:
                 # Try to read normally first
                 sample_df.select(pl.col(col)).head()
-            except:
+            except Exception:
                 # If error, read as string
                 schema_overrides[col] = pl.Utf8
 
@@ -964,7 +962,7 @@ def run_scenario_analysis(
             center_coord = road_line.centroid
             # Store as (lat, lon) for consistency with haversine
             road_center_gps.append((center_coord.y, center_coord.x))
-        except:
+        except Exception:
             road_center_gps.append((None, None))
 
     # Add center_gps column
@@ -1490,7 +1488,7 @@ Examples:
             if col in sample_df.columns:
                 try:
                     sample_df.select(pl.col(col)).head()
-                except:
+                except Exception:
                     schema_overrides[col] = pl.Utf8
 
         # For Beijing, oneway can be lists

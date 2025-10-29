@@ -636,7 +636,7 @@ def main(
                 try:
                     os.remove(checkpoint_path)
                     logger.info("🧹 Deleted corrupted checkpoint")
-                except:
+                except Exception:
                     pass
             checkpoint_exists = False
 

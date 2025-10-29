@@ -47,7 +47,6 @@ def plot_duration_ceiling(data: Dict, output_dir: Path, dpi: int):
     # Dynamic extraction
     vanilla_models, distilled_models = classify_models(data, "train")
     models = sorted(vanilla_models + distilled_models)
-    model_colors_dict = get_model_colors(data, "train")
     model_labels_dict = get_model_labels(data, "train")
 
     # Get all scenarios and group them dynamically
@@ -96,7 +95,7 @@ def plot_duration_ceiling(data: Dict, output_dir: Path, dpi: int):
         pos += 0.5  # Gap between groups
 
     # Create box plots
-    bp = ax.boxplot(
+    ax.boxplot(
         all_data,
         positions=positions,
         widths=0.6,
