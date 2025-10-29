@@ -5,9 +5,14 @@ Data loading utilities for scenario analysis.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+import seaborn as sns
+
+# Consistent color palette for all model visualizations
+MODEL_COLOR_PALETTE = "husl"
 
 
 class ScenarioDataLoader:
@@ -104,4 +109,79 @@ def calculate_improvement(data: Dict, od_source: str, scenario: str, metric: str
     # For metrics where lower is better
     improvement = ((baseline_val - improved_val) / baseline_val) * 100
     return improvement
+
+
+def classify_models(data: Dict, od_source: str = 'train') -> Tuple[List[str], List[str]]:
+    """Classify models into vanilla and distilled lists
+    
+    Args:
+        data: Loaded scenario data
+        od_source: OD source to analyze (default: 'train')
+        
+    Returns:
+        Tuple of (vanilla_models, distilled_models), both sorted alphabetically
+    """
+    if od_source not in data:
+        logger.warning(f"OD source '{od_source}' not found in data")
+        return [], []
+    
+    models = sorted(data[od_source].keys())
+    vanilla_models = sorted([m for m in models if 'vanilla' in m.lower()])
+    distilled_models = sorted([m for m in models if 'distill' in m.lower()])
+    
+    logger.info(f"Detected {len(vanilla_models)} vanilla and {len(distilled_models)} distilled models")
+    
+    return vanilla_models, distilled_models
+
+
+def generate_model_colors(models: List[str]) -> Dict[str, str]:
+    """Generate distinct colors for models dynamically using consistent palette
+    
+    Args:
+        models: List of model names
+        
+    Returns:
+        Dictionary mapping model names to hex color codes
+    """
+    if not models:
+        return {}
+    
+    # Use consistent seaborn palette for all model counts
+    palette = sns.color_palette(MODEL_COLOR_PALETTE, len(models))
+    hex_colors = [f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}' 
+                 for r, g, b in palette]
+    
+    return {model: color for model, color in zip(models, hex_colors)}
+
+
+def generate_model_labels(models: List[str]) -> Dict[str, str]:
+    """Generate human-readable labels from model names
+    
+    Args:
+        models: List of model names
+        
+    Returns:
+        Dictionary mapping model names to display labels
+    """
+    if not models:
+        return {}
+    
+    labels = {}
+    for model in models:
+        # Convert underscores to spaces and title case
+        label = model.replace('_', ' ').title()
+        
+        # Preserve seed numbers in parentheses
+        if 'seed' in model.lower():
+            import re
+            match = re.search(r'seed(\d+)', model, re.IGNORECASE)
+            if match:
+                seed_num = match.group(1)
+                base_name = re.sub(r'_?seed\d+', '', model, flags=re.IGNORECASE)
+                base_label = base_name.replace('_', ' ').title()
+                label = f"{base_label} (seed {seed_num})"
+        
+        labels[model] = label
+    
+    return labels
 
