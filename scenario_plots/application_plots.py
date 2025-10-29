@@ -193,8 +193,11 @@ def plot_improvement_heatmaps_individual(data: Dict, output_dir: Path, dpi: int)
             abs_max = max(abs(improvement_matrix.min()), abs(improvement_matrix.max()))
             vmin, vmax = -abs_max, abs_max
             
+            # Create red-white-green diverging colormap
+            cmap = sns.diverging_palette(10, 130, s=80, l=55, as_cmap=True)
+            
             # Create heatmap
-            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='RdYlGn',
+            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap=cmap,
                        xticklabels=metric_labels,
                        yticklabels=[s.replace('_', ' ').title() for s in scenarios],
                        ax=ax, cbar_kws={'label': '% Improvement'}, 
@@ -312,6 +315,9 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int):
     else:
         vmin, vmax = -100, 100
     
+    # Create red-white-green diverging colormap
+    cmap = sns.diverging_palette(10, 130, s=80, l=55, as_cmap=True)
+    
     # Second pass: create heatmaps
     for i, distilled_model in enumerate(distilled_models):
         for j, vanilla_model in enumerate(vanilla_models):
@@ -322,7 +328,7 @@ def plot_improvement_heatmap_grid(data: Dict, output_dir: Path, dpi: int):
             # Only show colorbar on rightmost column
             show_cbar = (j == n_vanilla - 1)
             
-            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='RdYlGn',
+            sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap=cmap,
                        xticklabels=metric_labels,
                        yticklabels=scenario_labels if j == 0 else [],
                        ax=ax, cbar=show_cbar,
@@ -402,8 +408,11 @@ def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int):
     abs_max = max(abs(improvement_matrix.min()), abs(improvement_matrix.max()))
     vmin, vmax = -abs_max, abs_max
     
+    # Create red-white-green diverging colormap
+    cmap = sns.diverging_palette(10, 130, s=80, l=55, as_cmap=True)
+    
     # Create heatmap
-    sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap='RdYlGn',
+    sns.heatmap(improvement_matrix, annot=True, fmt='.1f', cmap=cmap,
                xticklabels=metric_labels,
                yticklabels=[s.replace('_', ' ').title() for s in scenarios],
                ax=ax, cbar_kws={'label': '% Improvement'}, 
