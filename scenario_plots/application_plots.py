@@ -8,7 +8,7 @@ Plots:
 
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -108,7 +108,7 @@ def plot_application_radars(data: Dict, output_dir: Path, dpi: int):
             # For JSD, Hausdorff, DTW, EDR: lower is better, so invert
             max_vals = [0.3, 0.3, 2.0, 50.0]  # Approximate max reasonable values
             norm_values = []
-            for v, max_v in zip(values, max_vals):
+            for v, max_v in zip[tuple[Any, float]](values, max_vals):
                 # Invert and normalize
                 norm = 1 - min(v / max_v, 1.0)
                 norm_values.append(norm)
@@ -409,7 +409,7 @@ def plot_improvement_heatmap(data: Dict, output_dir: Path, dpi: int):
     avg_improvement = np.mean(improvement_matrix[improvement_matrix > 0])
     ax.text(0.02, 0.98, f'Average Improvement: {avg_improvement:.1f}%',
            transform=ax.transAxes, ha='left', va='top',
-           bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.7),
+           bbox=dict[str, str | float](boxstyle='round', facecolor='yellow', alpha=0.7),
            fontsize=11, fontweight='bold')
     
     plt.tight_layout()
