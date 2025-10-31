@@ -1,0 +1,450 @@
+[
+  {
+    "total_time_mean": 0.5229421968327835,
+    "total_time_std": 0.371026802027301,
+    "forward_time_mean": 0.19857544653897288,
+    "forward_count_mean": 40.4086,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "train"
+    },
+    "metadata": {
+      "run_id": "qhfz2frx",
+      "run_name": "gene_distill_seed42_trainod",
+      "created_at": "2025-10-26T11:08:54Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "distill",
+        "generation",
+        "seed42",
+        "train_od"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5295947291080374,
+    "total_time_std": 0.37018005523236813,
+    "forward_time_mean": 0.20293331448917387,
+    "forward_count_mean": 40.4396,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "test"
+    },
+    "metadata": {
+      "run_id": "fb1wj99p",
+      "run_name": "gene_distill_seed42_testod",
+      "created_at": "2025-10-26T11:13:44Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "distill",
+        "generation",
+        "seed42",
+        "test_od"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5355689765235875,
+    "total_time_std": 0.3800149125099555,
+    "forward_time_mean": 0.20436042113966943,
+    "forward_count_mean": 41.1992,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "train"
+    },
+    "metadata": {
+      "run_id": "2pdkx2oy",
+      "run_name": "gene_vanilla_seed42_trainod",
+      "created_at": "2025-10-26T11:14:10Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "generation",
+        "seed42",
+        "train_od",
+        "vanilla"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5377336080790497,
+    "total_time_std": 0.3712826050916825,
+    "forward_time_mean": 0.2054984706605911,
+    "forward_count_mean": 41.279,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "test"
+    },
+    "metadata": {
+      "run_id": "z85iyc2f",
+      "run_name": "gene_vanilla_seed42_testod",
+      "created_at": "2025-10-26T11:14:31Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "generation",
+        "seed42",
+        "test_od",
+        "vanilla"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5234024043535813,
+    "total_time_std": 0.36814078011794416,
+    "forward_time_mean": 0.19875263370919227,
+    "forward_count_mean": 40.4086,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "train"
+    },
+    "metadata": {
+      "run_id": "4dvsg701",
+      "run_name": "gene_distill_seed42_trainod",
+      "created_at": "2025-10-27T07:12:44Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "distill",
+        "generation",
+        "seed42",
+        "train_od"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5278194162639789,
+    "total_time_std": 0.3682441430734189,
+    "forward_time_mean": 0.2011212990638256,
+    "forward_count_mean": 40.4396,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "test"
+    },
+    "metadata": {
+      "run_id": "x8aw8fu7",
+      "run_name": "gene_distill_seed42_testod",
+      "created_at": "2025-10-27T07:17:33Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "distill",
+        "generation",
+        "seed42",
+        "test_od"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5371827021610458,
+    "total_time_std": 0.3780310170452596,
+    "forward_time_mean": 0.20478971089289183,
+    "forward_count_mean": 41.0018,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "train"
+    },
+    "metadata": {
+      "run_id": "as9msuh0",
+      "run_name": "gene_distill_seed43_seed42_trainod",
+      "created_at": "2025-10-27T07:17:53Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "distill_seed43",
+        "generation",
+        "seed42",
+        "train_od"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5418542722983286,
+    "total_time_std": 0.37444349224467616,
+    "forward_time_mean": 0.20686424001336096,
+    "forward_count_mean": 41.2818,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "test"
+    },
+    "metadata": {
+      "run_id": "m940cji3",
+      "run_name": "gene_distill_seed43_seed42_testod",
+      "created_at": "2025-10-27T07:18:15Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "distill_seed43",
+        "generation",
+        "seed42",
+        "test_od"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5459334503922146,
+    "total_time_std": 0.3752060748699891,
+    "forward_time_mean": 0.20828769219741824,
+    "forward_count_mean": 41.6272,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "train"
+    },
+    "metadata": {
+      "run_id": "ksz5b7vc",
+      "run_name": "gene_distill_seed44_seed42_trainod",
+      "created_at": "2025-10-27T07:18:35Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "distill_seed44",
+        "generation",
+        "seed42",
+        "train_od"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5494841195559129,
+    "total_time_std": 0.3814879725793117,
+    "forward_time_mean": 0.2088484937016487,
+    "forward_count_mean": 41.978,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "test"
+    },
+    "metadata": {
+      "run_id": "jsztu7np",
+      "run_name": "gene_distill_seed44_seed42_testod",
+      "created_at": "2025-10-27T07:18:59Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "distill_seed44",
+        "generation",
+        "seed42",
+        "test_od"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5529100731045008,
+    "total_time_std": 0.3897451062050001,
+    "forward_time_mean": 0.2121329728410721,
+    "forward_count_mean": 41.8966,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "train"
+    },
+    "metadata": {
+      "run_id": "isbpnik6",
+      "run_name": "gene_vanilla_seed42_trainod",
+      "created_at": "2025-10-27T07:19:21Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "generation",
+        "seed42",
+        "train_od",
+        "vanilla"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5478308224316686,
+    "total_time_std": 0.3843639808714393,
+    "forward_time_mean": 0.2087842047795296,
+    "forward_count_mean": 41.6932,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "test"
+    },
+    "metadata": {
+      "run_id": "p8trcryk",
+      "run_name": "gene_vanilla_seed42_testod",
+      "created_at": "2025-10-27T07:19:46Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "generation",
+        "seed42",
+        "test_od",
+        "vanilla"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5384116706543136,
+    "total_time_std": 0.3823014885172137,
+    "forward_time_mean": 0.20488685023965836,
+    "forward_count_mean": 41.1992,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "train"
+    },
+    "metadata": {
+      "run_id": "737y2pm4",
+      "run_name": "gene_vanilla_seed43_seed42_trainod",
+      "created_at": "2025-10-27T07:20:05Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "generation",
+        "seed42",
+        "train_od",
+        "vanilla_seed43"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5420604319698177,
+    "total_time_std": 0.3764838072889088,
+    "forward_time_mean": 0.20688603148350712,
+    "forward_count_mean": 41.2788,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "test"
+    },
+    "metadata": {
+      "run_id": "fi4cc07x",
+      "run_name": "gene_vanilla_seed43_seed42_testod",
+      "created_at": "2025-10-27T07:20:24Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "generation",
+        "seed42",
+        "test_od",
+        "vanilla_seed43"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.5990304545487742,
+    "total_time_std": 0.4512150385974167,
+    "forward_time_mean": 0.231316129287529,
+    "forward_count_mean": 45.053,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "train"
+    },
+    "metadata": {
+      "run_id": "qoe4p5t3",
+      "run_name": "gene_vanilla_seed44_seed42_trainod",
+      "created_at": "2025-10-27T07:21:04Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "generation",
+        "seed42",
+        "train_od",
+        "vanilla_seed44"
+      ]
+    }
+  },
+  {
+    "total_time_mean": 0.6025559444129002,
+    "total_time_std": 0.44322276803314314,
+    "forward_time_mean": 0.23134891197819707,
+    "forward_count_mean": 45.3234,
+    "config": {
+      "dataset": "porto_hoser",
+      "seed": 42,
+      "num_gene": 5000,
+      "search_method": null,
+      "beam_width": 4,
+      "cuda": null,
+      "od_source": "test"
+    },
+    "metadata": {
+      "run_id": "vq6eagy5",
+      "run_name": "gene_vanilla_seed44_seed42_testod",
+      "created_at": "2025-10-27T07:21:25Z",
+      "state": "finished",
+      "tags": [
+        "beam4",
+        "generation",
+        "seed42",
+        "test_od",
+        "vanilla_seed44"
+      ]
+    }
+  }
+]
