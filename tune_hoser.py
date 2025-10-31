@@ -651,11 +651,15 @@ def _run_final_evaluation(
     # Apply best hyperparameters
     if study.best_params.get("distill_enable", True):
         final_config["distill"]["enable"] = True
-        final_config["distill"]["lambda"] = study.best_params["distill_lambda"]
-        final_config["distill"]["temperature"] = study.best_params[
-            "distill_temperature"
-        ]
-        final_config["distill"]["window"] = study.best_params["distill_window"]
+        final_config["distill"]["lambda"] = study.best_params.get(
+            "distill_lambda", base_config["distill"]["lambda"]
+        )
+        final_config["distill"]["temperature"] = study.best_params.get(
+            "distill_temperature", base_config["distill"]["temperature"]
+        )
+        final_config["distill"]["window"] = study.best_params.get(
+            "distill_window", base_config["distill"]["window"]
+        )
         mode = "distilled"
     else:
         final_config["distill"]["enable"] = False
