@@ -53,7 +53,12 @@ STUDY_PRESETS = {
     "porto": {
         "study_name": "hoser_tuning_20251014_145134",
         "output_dir": "hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/figures/optuna",
-        "description": "Porto Taxi Dataset (Oct 14-19, 2025)",
+        "description": "Porto Taxi Dataset Phase 1 (Oct 14-19, 2025)",
+    },
+    "porto_phase2": {
+        "study_name": "hoser_tuning_20251027_215322",
+        "output_dir": "hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/figures/optuna_phase2",
+        "description": "Porto Taxi Dataset Phase 2 Refined Search (Oct 27-31, 2025)",
     },
 }
 
@@ -80,7 +85,7 @@ Examples:
 
     parser.add_argument(
         "--preset",
-        choices=["beijing", "porto"],
+        choices=["beijing", "porto", "porto_phase2"],
         help="Use predefined study configuration",
     )
     parser.add_argument("--study", help="Optuna study name (overrides preset)")
