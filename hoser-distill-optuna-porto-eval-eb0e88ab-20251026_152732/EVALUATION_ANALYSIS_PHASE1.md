@@ -965,6 +965,22 @@ Aggregated Analysis:
 - `analysis/top_scenarios_test.csv` - Top-5 scenarios by metric improvement
 - `analysis/md/scenario_analysis.md` - Markdown tables and interpretations
 
+**How to Reproduce Scenario Analysis:**
+
+```bash
+uv run python scripts/analysis/aggregate_eval_scenarios.py \
+  --root /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
+  --dataset porto \
+  --out /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/analysis
+```
+
+This reusable script:
+- Aggregates metrics across seeds by model group (distilled vs vanilla)
+- Generates per-scenario comparison tables
+- Computes performance deltas
+- Exports CSV and JSON formats
+- Creates markdown fragments for documentation
+
 **Hyperparameter Optimization:**
 - `figures/optuna/` - Phase 1 search visualization (12 trials, broad search)
 - `figures/optuna_phase2/` - Phase 2 refined search visualization (10 trials, narrowed space)
