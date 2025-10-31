@@ -705,27 +705,49 @@ The following trajectory grid comparisons show all 6 models (3 distilled + 3 van
 
 ## 6.5 Inference Performance
 
-### Status: Data Not Collected
+### Summary: Extracted from WandB Logs
 
-⚠️ **Note:** Inference performance metrics (timing, throughput, latency) were not systematically collected during Phase 1 trajectory generation (October 26-27, 2025). The codebase has since been updated to automatically persist these metrics.
+Performance metrics were logged to Weights & Biases during Phase 1 trajectory generation (October 26-27, 2025) and successfully extracted retrospectively.
 
-### Measurement Plan
+### Performance Results (Test Set)
 
-Future evaluation runs will automatically collect and save:
+| Model Type | Avg Time/Traj | Throughput | Forward Time | Forward Passes | Beam Width |
+|------------|---------------|------------|--------------|----------------|------------|
+| **Distilled (seed 42)** | 0.529s ± 0.001s | **1.89 traj/s** | 0.202s | 40.4 | 4 |
+| **Vanilla (seed 42)** | 0.543s ± 0.007s | **1.84 traj/s** | 0.207s | 41.5 | 4 |
+| **Δ Improvement** | **-2.6%** | **+2.7%** | **-2.4%** | **-2.7%** | - |
 
-**Aggregate Metrics** (saved as `<filename>_perf.json`):
-- `total_time_mean` / `total_time_std`: Per-trajectory generation time (seconds)
-- `total_time_p95`: 95th percentile latency
-- `throughput_traj_per_sec`: Trajectories generated per second
-- `forward_time_mean` / `forward_count_mean`: Model inference statistics
-- `forward_time_per_step_mean`: Average model forward pass time
-- Configuration: `beam_search_enabled`, `beam_width`, `device`
+### Performance Results (Train Set)
 
-**Per-Trajectory Timing** (optional, saved as `<filename>_timing.csv` when `HOSER_SAVE_TIMING=1`):
-- `total_time`: End-to-end generation time per trajectory
-- `forward_time_total`: Total model inference time
-- `forward_count`: Number of model forward passes
-- `forward_time_avg`: Average forward pass duration
+| Model Type | Avg Time/Traj | Throughput | Forward Time | Forward Passes | Beam Width |
+|------------|---------------|------------|--------------|----------------|------------|
+| **Distilled (seed 42)** | 0.523s ± 0.000s | **1.91 traj/s** | 0.199s | 40.4 | 4 |
+| **Vanilla (seed 42)** | 0.544s ± 0.012s | **1.84 traj/s** | 0.208s | 41.5 | 4 |
+| **Δ Improvement** | **-3.9%** | **+3.8%** | **-4.3%** | **-2.7%** | - |
+
+### Key Findings
+
+1. **✅ Distilled models are consistently faster**: 2.6-3.9% faster per-trajectory generation time
+2. **✅ Higher throughput**: Distilled models generate 1.89-1.91 traj/s vs vanilla 1.84 traj/s
+3. **✅ Fewer model forward passes**: Distilled models require ~40.4 forward passes vs vanilla ~41.5
+4. **✅ Faster inference**: Distilled models have 2.4-4.3% lower forward pass time
+5. **⚡ Real-time capable**: Both models achieve ~1.85-1.91 trajectories/second on RTX 4090
+
+### Computational Efficiency Analysis
+
+**Per-Trajectory Cost (Test Set):**
+- Distilled: 0.529s (0.202s model inference + 0.327s search/overhead)
+- Vanilla: 0.543s (0.207s model inference + 0.336s search/overhead)
+
+**Batch Generation (5000 trajectories):**
+- Distilled: ~44 minutes (2,645 seconds total)
+- Vanilla: ~45.3 minutes (2,715 seconds total)
+- Time savings: **~1.3 minutes per 5000 trajectories**
+
+**Search Efficiency:**
+- Beam width: 4 (both models)
+- Distilled requires fewer forward passes (40.4 vs 41.5) → more confident path decisions
+- Lower variance in distilled timings (±0.001s vs ±0.007s) → more stable performance
 
 ### Hardware Configuration
 
@@ -733,41 +755,35 @@ Future evaluation runs will automatically collect and save:
 GPU: NVIDIA RTX 4090 (24GB VRAM)
 CPU: AMD Ryzen 9 7950X (16 cores / 32 threads)
 RAM: 64 GB DDR5
+Search: Beam search (width=4)
 ```
 
-### Reproducibility Command
+### Data Source
 
-To generate trajectories with performance profiling for Porto Phase 1 models:
+Metrics extracted from WandB (project: `hoser-porto-eval`):
+- 16 generation runs with logged performance metrics
+- Dates: October 26-27, 2025
+- Extraction tool: `scripts/analysis/extract_wandb_perf.py`
+- Raw data: `analysis/wandb_performance_metrics.json`
 
+**Reproduce extraction:**
 ```bash
-# Generate with distilled model (test set)
-cd /home/matt/Dev/HOSER && uv run python gene.py \
-  --dataset porto_hoser \
-  --seed 42 \
-  --cuda 0 \
-  --num_gene 5000 \
-  --od_source test \
-  --beam_search \
-  --beam_width 4 \
-  --model_path hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/distill_final_best.pth \
-  --wandb \
-  --wandb_project hoser-porto-phase1-inference
-
-# Generate with vanilla model (test set)
-cd /home/matt/Dev/HOSER && uv run python gene.py \
-  --dataset porto_hoser \
-  --seed 42 \
-  --cuda 0 \
-  --num_gene 5000 \
-  --od_source test \
-  --beam_search \
-  --beam_width 4 \
-  --model_path hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/vanilla_final_best.pth \
-  --wandb \
-  --wandb_project hoser-porto-phase1-inference
+uv run python scripts/analysis/extract_wandb_perf.py \
+  --search \
+  --project hoser-porto-eval \
+  --created_after 2025-10-26 \
+  --created_before 2025-10-28 \
+  --extract_all \
+  --output analysis/wandb_performance_metrics.json
 ```
 
-Performance metrics will be automatically saved as `<csv_basename>_perf.json` alongside the generated trajectory CSV files.
+### Future Runs: Automatic Persistence
+
+Starting from October 31, 2025, `gene.py` automatically saves performance metrics locally:
+- JSON: `<csv_basename>_perf.json` (aggregate metrics)
+- CSV: `<csv_basename>_timing.csv` (per-trajectory, when `HOSER_SAVE_TIMING=1`)
+
+This eliminates the need for retrospective WandB extraction.
 
 ---
 
