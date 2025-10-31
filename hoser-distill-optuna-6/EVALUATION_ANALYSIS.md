@@ -23,6 +23,7 @@
 5. [Why Vanilla Fails](#4-why-vanilla-fails)
 6. [What Distillation Transferred](#5-what-distillation-transferred)
 7. [Trajectory-Level Analysis](#6-trajectory-level-analysis)
+   - [Inference Performance](#65-inference-performance)
 8. [Statistical Summary](#7-statistical-summary)
 9. [Conclusions](#8-conclusions)
 10. [Appendix: Methodology Details](#9-appendix-methodology-details)
@@ -39,6 +40,7 @@ This analysis evaluates the performance of knowledge-distilled HOSER models agai
 - ✅ Radius JSD reduced by **98%** (0.198 → 0.003) - proper spatial complexity
 - ✅ Distilled models generate realistic trip distances (~6.4 km vs vanilla's 2.4 km)
 - ✅ Distilled models successfully reach target destinations in most cases, vanilla gets stuck or stops early
+- ✅ **Scenario-level analysis**: Distillation provides **dramatic benefits across ALL scenarios** (76-87% OD match improvement, 0.11-0.24 Distance JSD reduction), with largest gains in long-distance center navigation (`from_center`: Δ = -0.242, `to_center`: Δ = -0.196)
 
 ---
 
@@ -462,6 +464,110 @@ This section presents the main discoveries from our evaluation, organized by the
 2. **Distance consistency:** Distilled models maintain realistic distances on both train (6.34-6.68 km) and test (6.34-6.48 km), staying within 23-29% of real average.
 3. **Vanilla's failure persists:** Vanilla generates unrealistically short trips on both train (2.43 km) and test (2.33 km), consistently ~54% shorter than real data.
 
+### 3.5 Scenario-Level Analysis
+
+**Scenario Taxonomy:**
+
+Beijing trajectories are classified into multiple overlapping scenario dimensions:
+- **Temporal**: `weekday` (71%), `weekend` (29%), `peak` (8%), `off_peak` (92%)
+- **Spatial**: `city_center` (88%), `suburban` (12%), `within_center` (62%), `to_center` (16%), `from_center` (10%)
+
+![Test Scenario Distribution - Distilled](scenarios/test/distilled/scenario_distribution.png)
+
+![Test Scenario Distribution - Vanilla](scenarios/test/vanilla/scenario_distribution.png)
+
+**Scenario Coverage:** Both model types generate similar scenario distributions, though vanilla's trajectories are dramatically shorter and fail to reach destinations.
+
+#### 3.5.1 Per-Scenario Performance Comparison
+
+**Test Set Scenarios (Aggregated Across Seeds):**
+
+| Scenario | Distilled Match% | Vanilla Match% | Δ Match% | Distilled Dist JSD | Vanilla Dist JSD | Δ Dist JSD |
+|----------|------------------|----------------|----------|--------------------|------------------|------------|
+| `city_center` | 88.3% | 4.8% | **+83.4%** | 0.0321 | 0.2135 | **-0.1813** |
+| `from_center` | 83.3% | 2.5% | **+80.9%** | 0.0791 | 0.3210 | **-0.2419** |
+| `off_peak` | 86.0% | 7.4% | **+78.6%** | 0.0191 | 0.1546 | **-0.1356** |
+| `peak` | 88.8% | 7.6% | **+81.2%** | 0.0465 | 0.1782 | **-0.1318** |
+| `suburban` | 85.4% | 8.9% | **+76.5%** | 0.0186 | 0.1332 | **-0.1146** |
+| `to_center` | 89.6% | 2.9% | **+86.8%** | 0.0599 | 0.2561 | **-0.1962** |
+| `weekday` | 86.8% | 7.5% | **+79.4%** | 0.0208 | 0.1530 | **-0.1322** |
+| `weekend` | 85.0% | 7.2% | **+77.8%** | 0.0278 | 0.1735 | **-0.1458** |
+| `within_center` | 92.0% | 8.6% | **+83.4%** | 0.0411 | 0.1795 | **-0.1384** |
+
+![Test Metric Comparison - Distilled](scenarios/test/distilled/metric_comparison.png)
+
+![Test Metric Comparison - Vanilla](scenarios/test/vanilla/metric_comparison.png)
+
+#### 3.5.2 Key Scenario-Level Findings
+
+**1. Distillation Dramatically Outperforms Across ALL Scenarios:**
+- **OD completion:** Distilled 83-92% vs Vanilla 2-9% (+76 to +87 percentage points)
+- **Distance JSD:** Distilled 0.019-0.079 vs Vanilla 0.13-0.32 (-0.11 to -0.24 improvement)
+- **No scenario where vanilla competes**: Unlike Porto, Beijing vanilla catastrophically fails everywhere
+
+**2. Scenario-Specific Insights:**
+
+**`from_center` (Outbound from City Center):**
+- **Largest Distance JSD gap:** Distilled 0.079 vs Vanilla 0.321 (Δ = -0.242)
+- **Hardest scenario:** Long-distance trips leaving the city center
+- **Vanilla's worst case:** Only 2.5% OD match rate
+- **Interpretation:** Long-range navigation requires strongest spatial understanding
+
+**`to_center` (Inbound to City Center):**
+- **Second-largest gap:** Distilled 0.060 vs Vanilla 0.256 (Δ = -0.196)
+- **Similar pattern:** Long-distance inbound trips challenge vanilla
+- **Distilled success:** 89.6% OD match rate, nearly complete navigation
+
+**`within_center` (Short-Range Urban):**
+- **Highest distilled success:** 92.0% OD match rate
+- **Still dramatic gap:** Vanilla only 8.6% (Δ = +83.4%)
+- **Interpretation:** Even short trips in dense urban areas require learned spatial knowledge
+
+**`suburban` (Low-Density Areas):**
+- **Smallest Distance JSD gap** (but still huge): Δ = -0.115
+- **Vanilla's "best" scenario:** 8.9% OD match rate (still catastrophic failure)
+- **Interpretation:** Lower density may provide more obvious paths, but vanilla still can't navigate
+
+**`peak` vs `off_peak` (Temporal):**
+- **Peak:** Distilled 88.8% vs Vanilla 7.6% (Δ = +81.2%)
+- **Off-peak:** Distilled 86.0% vs Vanilla 7.4% (Δ = +78.6%)
+- **Similar gaps:** Time-of-day doesn't affect relative performance
+- **Interpretation:** Spatial knowledge, not temporal patterns, drives distillation benefit
+
+**3. Hierarchical Scenario Breakdown:**
+
+![Test Hierarchical City Center - Distilled](scenarios/test/distilled/hierarchical_city_center.png)
+
+![Test Hierarchical Weekday - Vanilla](scenarios/test/vanilla/hierarchical_weekday.png)
+
+Breaking down by spatial hierarchy (within_center → to_center → from_center) and temporal (weekday → weekend → peak/off_peak), distilled models show consistent 75-87% improvement in OD match rates and 0.11-0.24 reduction in Distance JSD across all subcategories.
+
+#### 3.5.3 Notable Scenarios Summary
+
+**Scenarios Where Distillation Has LARGEST Impact (Distance JSD, Test):**
+1. `from_center`: Δ = -0.242 (75% relative improvement) — long-distance outbound navigation
+2. `to_center`: Δ = -0.196 (77% relative improvement) — long-distance inbound navigation
+3. `city_center`: Δ = -0.181 (85% relative improvement) — dense urban navigation
+4. `weekend`: Δ = -0.146 (84% relative improvement) — off-peak long trips
+5. `within_center`: Δ = -0.138 (77% relative improvement) — short-range urban
+
+**Scenarios Where Distillation Has SMALLEST Impact (but still massive):**
+1. `suburban`: Δ = -0.115 (86% relative improvement) — low-density navigation
+2. `peak`: Δ = -0.132 (74% relative improvement) — rush hour navigation
+3. `weekday`: Δ = -0.132 (86% relative improvement) — regular workday
+
+**Critical Insight:**
+- **All deltas are large and negative** (distilled dramatically better)
+- **Smallest improvement still 74% relative reduction** in Distance JSD
+- **Largest impact in long-distance and center-related scenarios** (±center navigation)
+- **Contrasts sharply with Porto**: Beijing vanilla fails catastrophically in ALL scenarios, while Porto vanilla succeeds comparably to distilled
+
+**Interpretation:**
+- Beijing's **longer average trip distance** (5.2 km) and **complex urban topology** create higher navigation difficulty
+- Vanilla's MLE-only training **insufficient** for any Beijing scenario type
+- Teacher's spatial knowledge **universally valuable** across all contexts
+- Distillation benefit is **consistent and dramatic**, not scenario-dependent like Porto
+
 ---
 
 ## 4. Why Vanilla Fails
@@ -577,6 +683,74 @@ Even accounting for length, distilled models are competitive, but the key insigh
 
 ---
 
+## 6.5 Inference Performance
+
+### Status: Data Not Collected
+
+⚠️ **Note:** Inference performance metrics (timing, throughput, latency) were not systematically collected during Beijing trajectory generation. The codebase has since been updated to automatically persist these metrics.
+
+### Measurement Plan
+
+Future evaluation runs will automatically collect and save:
+
+**Aggregate Metrics** (saved as `<filename>_perf.json`):
+- `total_time_mean` / `total_time_std`: Per-trajectory generation time (seconds)
+- `total_time_p95`: 95th percentile latency
+- `throughput_traj_per_sec`: Trajectories generated per second
+- `forward_time_mean` / `forward_count_mean`: Model inference statistics
+- `forward_time_per_step_mean`: Average model forward pass time
+- Configuration: `beam_search_enabled`, `beam_width`, `device`
+
+**Per-Trajectory Timing** (optional, saved as `<filename>_timing.csv` when `HOSER_SAVE_TIMING=1`):
+- `total_time`: End-to-end generation time per trajectory
+- `forward_time_total`: Total model inference time
+- `forward_count`: Number of model forward passes
+- `forward_time_avg`: Average forward pass duration
+
+### Hardware Configuration
+
+```
+GPU: NVIDIA RTX 4090 (24GB VRAM)
+CPU: AMD Ryzen 9 7950X (16 cores / 32 threads)
+RAM: 64 GB DDR5
+```
+
+### Reproducibility Command
+
+To generate trajectories with performance profiling for Beijing models:
+
+```bash
+# Generate with distilled model (test set)
+cd /home/matt/Dev/HOSER && uv run python gene.py \
+  --dataset Beijing \
+  --seed 42 \
+  --cuda 0 \
+  --num_gene 5000 \
+  --od_source test \
+  --beam_search \
+  --beam_width 4 \
+  --model_path hoser-distill-optuna-6/best_distilled_model.pth \
+  --wandb \
+  --wandb_project hoser-beijing-inference
+
+# Generate with vanilla model (test set)
+cd /home/matt/Dev/HOSER && uv run python gene.py \
+  --dataset Beijing \
+  --seed 42 \
+  --cuda 0 \
+  --num_gene 5000 \
+  --od_source test \
+  --beam_search \
+  --beam_width 4 \
+  --model_path hoser-distill-optuna-6/best_vanilla_model.pth \
+  --wandb \
+  --wandb_project hoser-beijing-inference
+```
+
+Performance metrics will be automatically saved as `<csv_basename>_perf.json` alongside the generated trajectory CSV files.
+
+---
+
 ## 7. Statistical Summary
 
 ### 7.1 Performance Metrics
@@ -623,6 +797,13 @@ Even accounting for length, distilled models are competitive, but the key insigh
    - High path completion success (85-89%) - successfully reaches target destinations
    - Better generalization on test set than train set
    - Robust navigation even to unseen OD pairs
+
+4. **Scenario-level analysis reveals universal distillation benefits**
+   - **All 9 scenarios**: Distilled dramatically outperforms vanilla (+76 to +87% OD match improvement)
+   - **Largest impact**: Long-distance center navigation (`from_center`: Δ = -0.242, `to_center`: Δ = -0.196 Distance JSD)
+   - **Consistent advantage**: 74-86% relative Distance JSD improvements across all scenario types
+   - **Spatial vs temporal**: Distillation benefits driven by spatial understanding, not temporal patterns
+   - **Beijing specificity**: Longer average trips (5.2 km) and complex urban topology make vanilla insufficient for ANY scenario
 
 ### 8.2 Contributions to LM-TAD Literature
 
@@ -691,6 +872,50 @@ All figures are available in `figures/` directory:
 10. `distributions/distance_distribution_test_od.pdf` - Test OD distance comparison (histograms + statistics)
 11. `distributions/radius_distribution_train_od.pdf` - Train OD radius of gyration (histograms + box plots)
 12. `distributions/radius_distribution_test_od.pdf` - Test OD radius of gyration (histograms + box plots)
+
+**Scenario Analysis Assets:**
+
+*Per-model scenario metrics and visualizations (3 models × 2 OD sources)*
+
+Train Set:
+- `scenarios/train/vanilla/scenario_metrics.json` - Vanilla (seed 42) scenario metrics
+- `scenarios/train/distilled/scenario_metrics.json` - Distilled (seed 42) scenario metrics
+- `scenarios/train/distilled_seed44/scenario_metrics.json` - Distilled (seed 44) scenario metrics
+
+Test Set:
+- `scenarios/test/vanilla/scenario_metrics.json` - Vanilla (seed 42) scenario metrics
+- `scenarios/test/distilled/scenario_metrics.json` - Distilled (seed 42) scenario metrics
+- `scenarios/test/distilled_seed44/scenario_metrics.json` - Distilled (seed 44) scenario metrics
+
+Visualization Types (per model):
+- `scenario_distribution.png` - Bar chart of scenario frequency distribution
+- `metric_comparison.png` - Heatmap/bar chart of metrics across scenarios
+- `hierarchical_city_center.png` - Hierarchical breakdown by spatial location
+- `hierarchical_weekday.png` - Hierarchical breakdown by temporal period
+
+Aggregated Analysis:
+- `analysis/scenarios_train.csv` - Per-scenario aggregates (train set, distilled vs vanilla)
+- `analysis/scenarios_test.csv` - Per-scenario aggregates (test set, distilled vs vanilla)
+- `analysis/top_scenarios_train.csv` - Top-5 scenarios by metric improvement
+- `analysis/top_scenarios_test.csv` - Top-5 scenarios by metric improvement
+- `analysis/aggregates.json` - Complete structured data
+- `analysis/md/scenario_analysis.md` - Markdown tables and interpretations
+
+**How to Reproduce Scenario Analysis:**
+
+```bash
+uv run python scripts/analysis/aggregate_eval_scenarios.py \
+  --root /home/matt/Dev/HOSER/hoser-distill-optuna-6 \
+  --dataset beijing \
+  --out /home/matt/Dev/HOSER/hoser-distill-optuna-6/analysis
+```
+
+This reusable script:
+- Aggregates metrics across seeds by model group (distilled vs vanilla)
+- Computes per-scenario statistics with deltas and CV%
+- Identifies top scenarios where each model type excels
+- Generates CSV, JSON, and Markdown outputs
+- Works for any evaluation bundle (Beijing, Porto, future datasets)
 
 ### 9.2 OD Pair Matching Algorithm
 

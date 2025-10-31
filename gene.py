@@ -1515,6 +1515,40 @@ class Searcher:
 # Removed multiprocessing functions - no longer needed
 
 
+def _save_performance_metrics(
+    output_path: str, performance_metrics: dict, timing_stats: list
+):
+    """Save performance metrics to JSON and optionally detailed timing to CSV.
+
+    Args:
+        output_path: Path to the generated CSV file (e.g., './gene/Beijing/seed42/2025-10-31_12-34-56_distilled_test.csv')
+        performance_metrics: Aggregate performance metrics dictionary
+        timing_stats: List of per-trajectory timing dictionaries
+    """
+    if not performance_metrics:
+        print("⚠️  No performance metrics to save")
+        return
+
+    # Derive base path from CSV output path
+    base_path = output_path.rsplit(".", 1)[0]  # Remove '.csv'
+
+    # Always save aggregate metrics as JSON
+    perf_json_path = f"{base_path}_perf.json"
+    with open(perf_json_path, "w") as f:
+        json.dump(performance_metrics, f, indent=2)
+    print(f"📊 Saved performance metrics: {perf_json_path}")
+
+    # Optionally save per-trajectory timing as CSV
+    save_timing_csv = os.environ.get("HOSER_SAVE_TIMING", "0") == "1"
+    if save_timing_csv and timing_stats:
+        import polars as pl
+
+        timing_csv_path = f"{base_path}_timing.csv"
+        timing_df = pl.DataFrame(timing_stats)
+        timing_df.write_csv(timing_csv_path)
+        print(f"📊 Saved per-trajectory timing: {timing_csv_path}")
+
+
 def load_and_preprocess_data(dataset, od_source="train"):
     """Load and preprocess data for trajectory generation.
 
@@ -2129,6 +2163,9 @@ def generate_trajectories_programmatic(
     else:
         performance_metrics = {}
 
+    # Save performance metrics to file
+    _save_performance_metrics(output_path, performance_metrics, timing_stats)
+
     # Log to wandb if enabled
     if enable_wandb:
         wandb_log = {
@@ -2401,6 +2438,7 @@ if __name__ == "__main__":
 
     gene_trace_road_id = [None] * args.num_gene
     gene_trace_datetime = [None] * args.num_gene
+    timing_stats = []  # Collect performance metrics per trajectory
 
     print(f"🧬 Starting trajectory generation for {args.num_gene} trajectories...")
 
@@ -2518,9 +2556,11 @@ if __name__ == "__main__":
         for i, (trace_road_id, trace_datetime) in enumerate(results):
             # Fallback: if vectorized search failed to produce a valid path (path length < 2)
             if trace_road_id is None or len(trace_road_id) < 2:
-                trace_road_id, trace_datetime = searcher.search(
+                trace_road_id, trace_datetime, perf_metrics = searcher.search(
                     od_coords[i][0], origin_datetime_list[i], od_coords[i][1]
                 )
+                if perf_metrics:
+                    timing_stats.append(perf_metrics)
             gene_trace_road_id[i] = trace_road_id
             gene_trace_datetime[i] = [
                 t.strftime("%Y-%m-%dT%H:%M:%SZ") for t in trace_datetime
@@ -2542,13 +2582,15 @@ if __name__ == "__main__":
                 desc="Generating trajectories",
             )
         ):
-            trace_road_id, trace_datetime = search_fn(
+            trace_road_id, trace_datetime, perf_metrics = search_fn(
                 origin_road_id, origin_datetime, destination_road_id
             )
             gene_trace_road_id[i] = trace_road_id
             gene_trace_datetime[i] = [
                 t.strftime("%Y-%m-%dT%H:%M:%SZ") for t in trace_datetime
             ]
+            if perf_metrics:
+                timing_stats.append(perf_metrics)
 
     # Prepare provenance columns for comparison with real trips
     origin_road_ids = [od[0] for od in od_coords]
@@ -2582,14 +2624,66 @@ if __name__ == "__main__":
     res_df.write_csv(output_path)
     print(f"🎉 Trajectory generation complete. Saved to {output_path}")
 
+    # Calculate aggregate performance statistics
+    if timing_stats:
+        total_times = [t["total_time"] for t in timing_stats]
+        forward_times = [t["forward_time_total"] for t in timing_stats]
+        forward_counts = [t["forward_count"] for t in timing_stats]
+
+        performance_metrics = {
+            # Per-trajectory statistics
+            "total_time_mean": float(np.mean(total_times)),
+            "total_time_std": float(np.std(total_times)),
+            "total_time_min": float(np.min(total_times)),
+            "total_time_max": float(np.max(total_times)),
+            "total_time_median": float(np.median(total_times)),
+            "total_time_p95": float(np.percentile(total_times, 95)),
+            # Forward pass statistics
+            "forward_time_mean": float(np.mean(forward_times)),
+            "forward_time_std": float(np.std(forward_times)),
+            "forward_count_mean": float(np.mean(forward_counts)),
+            "forward_count_std": float(np.std(forward_counts)),
+            # Throughput
+            "total_generation_time": float(np.sum(total_times)),
+            "throughput_traj_per_sec": len(total_times) / float(np.sum(total_times)),
+            "num_trajectories": len(total_times),
+            # Model forward pass efficiency
+            "forward_time_per_step_mean": float(
+                np.mean([t["forward_time_avg"] for t in timing_stats])
+            ),
+            # Configuration
+            "beam_search_enabled": args.beam_search,
+            "beam_width": args.beam_width if args.beam_search else 1,
+            "device": device,
+        }
+    else:
+        performance_metrics = {}
+
+    # Save performance metrics to file
+    _save_performance_metrics(output_path, performance_metrics, timing_stats)
+
     # Log to wandb if enabled
     if args.wandb:
-        wandb.log(
-            {
-                "num_trajectories_generated": len(res_df),
-                "output_file": output_path,
-            }
-        )
+        wandb_log = {
+            "num_trajectories_generated": len(res_df),
+            "output_file": output_path,
+        }
+
+        # Add performance metrics to WandB
+        if performance_metrics:
+            wandb_log.update(
+                {
+                    "perf/total_time_mean": performance_metrics["total_time_mean"],
+                    "perf/total_time_std": performance_metrics["total_time_std"],
+                    "perf/throughput": performance_metrics["throughput_traj_per_sec"],
+                    "perf/forward_time_mean": performance_metrics["forward_time_mean"],
+                    "perf/forward_count_mean": performance_metrics[
+                        "forward_count_mean"
+                    ],
+                }
+            )
+
+        wandb.log(wandb_log)
         wandb.save(output_path, base_path="./")
         print("📊 Results logged to WandB")
         wandb.finish()
