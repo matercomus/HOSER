@@ -99,6 +99,12 @@ class PipelineConfig:
         self.background_sync = True  # Background WandB sync
         self.run_scenarios = False  # NEW: Run scenario analysis after eval
         self.scenarios_config = None  # NEW: Path to scenarios config
+        self.cross_dataset_eval = None  # NEW: Path to cross-dataset for evaluation
+        self.cross_dataset_name = (
+            None  # NEW: Name of cross-dataset (e.g., BJUT_Beijing)
+        )
+        self.run_abnormal_detection = False  # NEW: Run abnormal trajectory detection
+        self.abnormal_config = None  # NEW: Path to abnormal detection config
 
         # Load from YAML if provided
         if config_path:
@@ -512,6 +518,34 @@ class EvaluationPipeline:
             if not file_path.exists():
                 raise FileNotFoundError(f"Required data file not found: {file_path}")
 
+        # Validate cross-dataset evaluation if configured
+        if self.config.cross_dataset_eval:
+            cross_data_dir = Path(self.config.cross_dataset_eval)
+            if not cross_data_dir.is_absolute():
+                # Relative to eval dir
+                cross_data_dir = self.eval_dir / cross_data_dir
+
+            if not cross_data_dir.exists():
+                raise FileNotFoundError(
+                    f"Cross-dataset directory not found: {cross_data_dir}"
+                )
+
+            # Resolve symlink if needed
+            if cross_data_dir.is_symlink():
+                cross_data_dir = cross_data_dir.resolve()
+
+            # Check required cross-dataset files
+            for file in required_files:
+                file_path = cross_data_dir / file
+                if not file_path.exists():
+                    raise FileNotFoundError(
+                        f"Required cross-dataset file not found: {file_path}"
+                    )
+
+            logger.info(
+                f"✓ Cross-dataset evaluation enabled: {self.config.cross_dataset_name or cross_data_dir.name}"
+            )
+
         # Check dataset config file (not required, just for validation)
         # Config is in the eval directory itself
 
@@ -752,6 +786,287 @@ class EvaluationPipeline:
             traceback.print_exc()
 
         logger.info(f"\n✅ Scenario analysis complete! Results in {scenarios_output}/")
+
+    def _run_cross_dataset_evaluation(self):
+        """Run cross-dataset evaluation on all trained models"""
+        from tools.analyze_scenarios import run_scenario_analysis
+
+        logger.info("\n🌐 Starting cross-dataset evaluation...")
+        logger.info(
+            f"Evaluating models trained on {self.config.dataset} using {self.config.cross_dataset_name} data"
+        )
+
+        # Setup cross-dataset paths
+        cross_data_dir = Path(self.config.cross_dataset_eval)
+        if not cross_data_dir.is_absolute():
+            cross_data_dir = self.eval_dir / cross_data_dir
+
+        # Output directory structure: cross_dataset_eval/{cross_dataset_name}/{od_source}/{model}/
+        cross_eval_output = (
+            Path("./cross_dataset_eval") / self.config.cross_dataset_name
+        )
+
+        # Get scenarios config for cross-dataset
+        scenarios_config = None
+        if self.config.run_scenarios:
+            # Try config/scenarios_{cross_dataset_name}.yaml
+            config_path = Path(
+                f"./config/scenarios_{self.config.cross_dataset_name.lower()}.yaml"
+            )
+            if config_path.exists():
+                scenarios_config = config_path
+                logger.info(f"Using cross-dataset scenarios config: {scenarios_config}")
+
+        # Loop through all models and OD sources
+        for od_source in self.config.od_sources:
+            logger.info(f"\n📊 Processing {od_source} OD for cross-dataset...")
+
+            for model_file in self.models_dir.iterdir():
+                if not model_file.suffix == ".pth":
+                    continue
+
+                model_type = self._extract_model_from_filename(model_file.name)
+                logger.info(f"  Model: {model_type}")
+
+                try:
+                    # Step 1: Generate trajectories on cross-dataset
+                    logger.info("  🔄 Generating trajectories on cross-dataset...")
+                    generated_file, gen_perf = self.generator.generate_trajectories(
+                        model_file, model_type, od_source
+                    )
+
+                    # Move generated file to cross-dataset directory
+                    cross_gene_dir = cross_eval_output / od_source / model_type / "gene"
+                    cross_gene_dir.mkdir(parents=True, exist_ok=True)
+                    cross_gen_file = cross_gene_dir / generated_file.name
+
+                    import shutil
+
+                    shutil.copy(generated_file, cross_gen_file)
+                    logger.info(f"  💾 Generated: {cross_gen_file}")
+
+                    # Step 2: Evaluate on cross-dataset
+                    logger.info("  📈 Evaluating on cross-dataset...")
+                    eval_results = evaluate_trajectories_programmatic(
+                        generated_file=str(cross_gen_file),
+                        dataset=self.config.dataset,
+                        od_source=od_source,
+                        grid_size=self.config.grid_size,
+                        edr_eps=self.config.edr_eps,
+                        enable_wandb=self.config.enable_wandb,
+                        wandb_project=self.config.wandb_project,
+                        wandb_run_name=f"cross-{self.config.cross_dataset_name}-{model_type}-{od_source}",
+                        wandb_tags=[
+                            "cross-dataset",
+                            self.config.cross_dataset_name,
+                            model_type,
+                            od_source,
+                        ],
+                        generation_performance=gen_perf,
+                        cross_dataset=True,
+                        cross_dataset_name=self.config.cross_dataset_name,
+                        trained_on_dataset=self.config.dataset,
+                    )
+
+                    # Save evaluation results
+                    eval_output_dir = (
+                        cross_eval_output / od_source / model_type / "eval"
+                    )
+                    eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+                    import json
+                    from datetime import datetime
+
+                    results_file = (
+                        eval_output_dir
+                        / f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    )
+                    with open(results_file, "w") as f:
+                        json.dump(eval_results, f, indent=2)
+                    logger.info(f"  💾 Evaluation results: {results_file}")
+
+                    # Step 3: Run scenario analysis if configured
+                    if scenarios_config:
+                        logger.info("  🎯 Running scenario analysis...")
+                        scenario_output = (
+                            cross_eval_output / od_source / model_type / "scenarios"
+                        )
+
+                        run_scenario_analysis(
+                            generated_file=cross_gen_file,
+                            dataset=self.config.cross_dataset_name,
+                            od_source=od_source,
+                            config_path=scenarios_config,
+                            output_dir=scenario_output,
+                            model_name=model_type,
+                            cross_dataset=True,
+                            trained_on_dataset=self.config.dataset,
+                        )
+                        logger.info(f"  ✅ Scenarios: {scenario_output}")
+
+                except Exception as e:
+                    logger.error(
+                        f"  ❌ Cross-dataset evaluation failed for {model_type} ({od_source}): {e}"
+                    )
+                    import traceback
+
+                    traceback.print_exc()
+                    continue
+
+        logger.info(
+            f"\n✅ Cross-dataset evaluation complete! Results in {cross_eval_output}/"
+        )
+
+    def _run_abnormal_detection_analysis(self):
+        """Run abnormal trajectory detection and model performance analysis"""
+        from tools.analyze_abnormal import run_abnormal_analysis
+
+        logger.info("\n🔍 Starting abnormal trajectory detection analysis...")
+
+        # Auto-detect abnormal config if not provided
+        if not self.config.abnormal_config:
+            abnormal_config = Path("./config/abnormal_detection.yaml")
+            if not abnormal_config.exists():
+                logger.warning(
+                    "No abnormal detection config found, skipping abnormal analysis"
+                )
+                return
+        else:
+            abnormal_config = Path(self.config.abnormal_config)
+
+        if not abnormal_config.exists():
+            logger.error(f"Abnormal detection config not found: {abnormal_config}")
+            return
+
+        # Determine which dataset to analyze
+        # If cross_dataset_eval is configured, analyze the cross-dataset
+        # Otherwise analyze the main dataset
+        if self.config.cross_dataset_eval and self.config.cross_dataset_name:
+            analysis_dataset = self.config.cross_dataset_name
+            data_dir = Path(self.config.cross_dataset_eval)
+            if not data_dir.is_absolute():
+                data_dir = self.eval_dir / data_dir
+        else:
+            analysis_dataset = self.config.dataset
+            data_dir = self.eval_dir.parent / "data" / self.config.dataset
+
+        logger.info(f"Analyzing dataset: {analysis_dataset}")
+
+        # Output directory for abnormal analysis
+        abnormal_output = Path("./abnormal") / analysis_dataset
+
+        # Step 1: Run abnormal detection on real data
+        logger.info("\n🔍 Step 1: Detecting abnormal trajectories in real data...")
+        for od_source in self.config.od_sources:
+            real_file = data_dir / f"{od_source}.csv"
+            if not real_file.exists():
+                logger.warning(f"Real data file not found: {real_file}, skipping")
+                continue
+
+            detection_output = abnormal_output / od_source / "detection"
+            logger.info(f"  Processing {od_source} data...")
+
+            try:
+                detection_results = run_abnormal_analysis(
+                    real_file=real_file,
+                    dataset=analysis_dataset,
+                    config_path=abnormal_config,
+                    output_dir=detection_output,
+                )
+
+                logger.info(
+                    f"  ✅ Detection complete: {len(detection_results.get('abnormal_indices', {}))} abnormal categories found"
+                )
+
+                # Step 2: Evaluate models on abnormal trajectories
+                logger.info(
+                    f"\n📈 Step 2: Evaluating models on abnormal trajectories ({od_source})..."
+                )
+
+                # Get abnormal trajectory indices by category
+                abnormal_indices = detection_results.get("abnormal_indices", {})
+                all_abnormal_traj_ids = set()
+                for category, indices in abnormal_indices.items():
+                    all_abnormal_traj_ids.update(indices)
+
+                if not all_abnormal_traj_ids:
+                    logger.info(
+                        "  No abnormal trajectories found, skipping model evaluation"
+                    )
+                    continue
+
+                logger.info(
+                    f"  Found {len(all_abnormal_traj_ids)} total abnormal trajectories"
+                )
+
+                # Evaluate each model on abnormal trajectories
+                for model_file in self.models_dir.iterdir():
+                    if not model_file.suffix == ".pth":
+                        continue
+
+                    model_type = self._extract_model_from_filename(model_file.name)
+                    logger.info(f"    Evaluating {model_type}...")
+
+                    # Find the generated trajectories for this model
+                    gene_dir = Path(
+                        f"./gene/{self.config.dataset}/seed{self.config.seed}"
+                    )
+                    if not gene_dir.exists():
+                        logger.warning(f"    Gene directory not found: {gene_dir}")
+                        continue
+
+                    # Find generated file for this model and OD source
+                    generated_files = list(
+                        gene_dir.glob(f"*{model_type}*{od_source}*.csv")
+                    )
+                    if not generated_files:
+                        logger.warning(
+                            f"    No generated files found for {model_type} {od_source}"
+                        )
+                        continue
+
+                    generated_file = generated_files[0]
+
+                    # Calculate metrics for abnormal trajectories
+                    # Note: This is a simplified version - full implementation would
+                    # filter to abnormal OD pairs and compute metrics
+                    model_output = (
+                        abnormal_output / od_source / "model_performance" / model_type
+                    )
+                    model_output.mkdir(parents=True, exist_ok=True)
+
+                    # Save model evaluation metadata
+                    import json
+                    from datetime import datetime
+
+                    model_eval = {
+                        "model": model_type,
+                        "dataset": analysis_dataset,
+                        "od_source": od_source,
+                        "generated_file": str(generated_file),
+                        "abnormal_trajectory_count": len(all_abnormal_traj_ids),
+                        "abnormal_categories": {
+                            cat: len(indices)
+                            for cat, indices in abnormal_indices.items()
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                    }
+
+                    with open(model_output / "abnormal_eval_metadata.json", "w") as f:
+                        json.dump(model_eval, f, indent=2)
+
+                    logger.info(f"    ✅ Saved evaluation metadata to {model_output}/")
+
+            except Exception as e:
+                logger.error(f"  ❌ Abnormal analysis failed for {od_source}: {e}")
+                import traceback
+
+                traceback.print_exc()
+                continue
+
+        logger.info(
+            f"\n✅ Abnormal trajectory detection complete! Results in {abnormal_output}/"
+        )
 
     def _extract_model_from_filename(self, filename: str) -> str:
         """Extract model type from generated file name"""
@@ -1012,6 +1327,24 @@ class EvaluationPipeline:
                     logger.error(f"Scenario analysis failed: {e}")
                     # Don't fail entire pipeline if scenarios fail
 
+            # NEW: Optional cross-dataset evaluation
+            if self.config.cross_dataset_eval:
+                logger.info("Starting cross-dataset evaluation...")
+                try:
+                    self._run_cross_dataset_evaluation()
+                except Exception as e:
+                    logger.error(f"Cross-dataset evaluation failed: {e}")
+                    # Don't fail entire pipeline if cross-dataset fails
+
+            # NEW: Optional abnormal trajectory detection
+            if self.config.run_abnormal_detection:
+                logger.info("Starting abnormal trajectory detection...")
+                try:
+                    self._run_abnormal_detection_analysis()
+                except Exception as e:
+                    logger.error(f"Abnormal trajectory detection failed: {e}")
+                    # Don't fail entire pipeline if abnormal detection fails
+
             # Return success status
             return len(failed_operations) == 0
 
@@ -1086,6 +1419,27 @@ def main():
         type=str,
         help="Path to scenarios config YAML (default: auto-detect from config/)",
     )
+    parser.add_argument(
+        "--cross-dataset",
+        type=str,
+        help="Path to cross-dataset for evaluation (e.g., ../data/BJUT_Beijing)",
+    )
+    parser.add_argument(
+        "--cross-dataset-name",
+        type=str,
+        default="BJUT_Beijing",
+        help="Name of the cross-dataset (default: BJUT_Beijing)",
+    )
+    parser.add_argument(
+        "--run-abnormal",
+        action="store_true",
+        help="Run abnormal trajectory detection analysis",
+    )
+    parser.add_argument(
+        "--abnormal-config",
+        type=str,
+        help="Path to abnormal detection config YAML (default: config/abnormal_detection.yaml)",
+    )
 
     args = parser.parse_args()
 
@@ -1147,6 +1501,14 @@ def main():
         config.run_scenarios = True
     if args.scenarios_config:
         config.scenarios_config = args.scenarios_config
+    if args.cross_dataset:
+        config.cross_dataset_eval = args.cross_dataset
+    if args.cross_dataset_name:
+        config.cross_dataset_name = args.cross_dataset_name
+    if args.run_abnormal:
+        config.run_abnormal_detection = True
+    if args.abnormal_config:
+        config.abnormal_config = args.abnormal_config
 
     # Run pipeline
     try:

@@ -855,17 +855,21 @@ def run_scenario_analysis(
     config_path: Path,
     output_dir: Path,
     model_name: str = None,
+    cross_dataset: bool = False,
+    trained_on_dataset: str = None,
 ):
     """
     Main entry point for scenario analysis (called from python_pipeline.py)
 
     Args:
         generated_file: Path to generated trajectories CSV
-        dataset: Dataset name (Beijing, porto_hoser)
+        dataset: Dataset name (Beijing, porto_hoser) - for cross-dataset, this is the real data dataset
         od_source: OD source (train, test)
         config_path: Path to scenarios config YAML
         output_dir: Output directory for results
         model_name: Model name (vanilla, distilled, etc.). If None, extracted from filename
+        cross_dataset: Whether this is a cross-dataset analysis
+        trained_on_dataset: Name of the dataset the model was trained on (for cross-dataset)
     """
     # Extract model name from filename if not provided
     # Order matters: check for more specific patterns first
@@ -980,14 +984,19 @@ def run_scenario_analysis(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Save trajectory metadata
+    metadata_output = {
+        "model": model_name,
+        "od_source": od_source,
+        "dataset": dataset,
+        "trajectories": results["trajectory_metadata"],
+    }
+    if cross_dataset:
+        metadata_output["cross_dataset"] = True
+        metadata_output["trained_on_dataset"] = trained_on_dataset
+
     with open(output_dir / "trajectory_metadata.json", "w") as f:
         json.dump(
-            {
-                "model": model_name,
-                "od_source": od_source,
-                "dataset": dataset,
-                "trajectories": results["trajectory_metadata"],
-            },
+            metadata_output,
             f,
             indent=2,
             default=str,
@@ -997,14 +1006,19 @@ def run_scenario_analysis(
     )
 
     # Save scenario metrics (without bloated _scenario_data)
+    metrics_output = {
+        "model": model_name,
+        "od_source": od_source,
+        "dataset": dataset,
+        **results["scenario_metrics"],
+    }
+    if cross_dataset:
+        metrics_output["cross_dataset"] = True
+        metrics_output["trained_on_dataset"] = trained_on_dataset
+
     with open(output_dir / "scenario_metrics.json", "w") as f:
         json.dump(
-            {
-                "model": model_name,
-                "od_source": od_source,
-                "dataset": dataset,
-                **results["scenario_metrics"],
-            },
+            metrics_output,
             f,
             indent=2,
             default=str,
@@ -1012,14 +1026,19 @@ def run_scenario_analysis(
     logger.info("💾 Saved scenario metrics")
 
     # Save combinations analysis
+    combinations_output = {
+        "model": model_name,
+        "od_source": od_source,
+        "dataset": dataset,
+        "combinations": results["scenario_combinations"],
+    }
+    if cross_dataset:
+        combinations_output["cross_dataset"] = True
+        combinations_output["trained_on_dataset"] = trained_on_dataset
+
     with open(output_dir / "scenario_combinations.json", "w") as f:
         json.dump(
-            {
-                "model": model_name,
-                "od_source": od_source,
-                "dataset": dataset,
-                "combinations": results["scenario_combinations"],
-            },
+            combinations_output,
             f,
             indent=2,
             default=str,
