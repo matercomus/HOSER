@@ -1,0 +1,113 @@
+---
+alwaysApply: false
+---
+# Plan File Best Practices
+
+## Naming Convention
+Format: `feature-name-[uuid].plan.md`
+
+Examples:
+- `cross-dataset-eval-b9d687a5.plan.md`
+- `add-authentication-f4e3c2a1.plan.md`
+
+UUID suffix prevents conflicts if multiple plans have similar names.
+
+## File Location
+Always in: `.cursor/plans/`
+
+This directory is:
+- Symlinked to all worktrees
+- Tracked in git (not ignored)
+- Shared across all agents in real-time
+
+## Task Numbering
+Format: `Phase.Task`
+
+Examples:
+- Task 1.1, 1.2, 1.3 (Phase 1)
+- Task 2.1, 2.2 (Phase 2)
+
+Benefits:
+- Clear phase grouping
+- Easy to reference in dependencies
+- Natural ordering
+
+## Status Markers
+Required format:
+
+Available: `### Task 1.1: Name [ ]`
+In Progress: `### Task 1.1: Name [IN PROGRESS - Agent1 - 2025-11-02 14:30]`
+Done: `### Task 1.1: Name [DONE - Agent1 - 2025-11-02 15:45]`
+Blocked: `### Task 1.1: Name [BLOCKED - Waiting for Task 1.2]`
+
+Always include:
+- Agent identifier (Agent1, Agent2, etc.)
+- ISO timestamp (YYYY-MM-DD HH:MM)
+- Reason if blocked
+
+## File Listing
+CRITICAL: Always list files each task will create/modify
+
+Format:
+```markdown
+**Files:** `path/to/file1.py`, `path/to/file2.yaml`
+```
+
+This enables:
+- Conflict detection by other agents
+- Clear scope understanding
+- Easier code review
+
+## Dependencies
+Explicitly list task dependencies:
+
+```markdown
+**Dependencies:** None
+**Dependencies:** Task 1.2
+**Dependencies:** Tasks 1.3, 2.1 (must both be [DONE])
+```
+
+Agents must verify dependencies before starting task.
+
+## Validation Commands
+Include verification commands in each task:
+
+```markdown
+**Validation:**
+```bash
+# Check file exists
+ls -la config/new_file.yaml
+
+# Check syntax
+uv tool run ruff check tools/new_tool.py
+
+# Run quick test
+uv run python -c "from tools import new_tool; new_tool.test()"
+```
+```
+
+These help agents verify their work is correct.
+
+## Status Summary Updates
+Update after EVERY task completion:
+
+```markdown
+## Current Status Summary
+**Last Updated:** 2025-11-02 16:45 by Agent2
+**Completed Tasks:** 5/18
+```
+
+This gives all agents quick overview of progress.
+
+## Agent Notes
+Encourage agents to add notes for important decisions:
+
+```markdown
+**Agent1 Note**: Using z-score threshold of 2.5 per config spec.
+Implemented haversine distance calculation for speed profiles.
+```
+
+Benefits:
+- Knowledge sharing
+- Decision documentation
+- Helps with debugging later

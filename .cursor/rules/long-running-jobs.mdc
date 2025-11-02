@@ -1,0 +1,81 @@
+---
+alwaysApply: true
+---
+# Long-Running Job Execution Policy
+
+## Critical Rule: Never Auto-Start Long-Running Jobs
+
+The user works in a **tmux/screen environment** and needs to **disconnect their laptop**. Therefore:
+
+### ❌ NEVER Do This:
+```bash
+# DON'T run long-running jobs in background
+run_terminal_cmd(command="python train.py", is_background=true)
+```
+
+### ✅ ALWAYS Do This Instead:
+
+When the user needs to run a long-running job (training, tuning, processing large datasets):
+
+1. **Detect long-running jobs**: Training scripts, Optuna tuning, large data processing, jobs that take >5 minutes
+2. **Provide the command in a code block** for the user to copy-paste
+3. **Include context** about what the command does and estimated runtime
+
+**Example response format:**
+```
+I've prepared the command to start the Optuna tuning study. 
+
+Since this will run for ~8-12 hours, please run this in your tmux session:
+
+\`\`\`bash
+cd /home/matt/Dev/HOSER && uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
+\`\`\`
+
+This will:
+- Run 25 trials at ~30min each
+- Auto-save to the Optuna database
+- Log to WandB
+- You can safely detach tmux and disconnect your laptop
+```
+
+## What Qualifies as "Long-Running"?
+
+- Training/tuning scripts (>5 minutes)
+- Data preprocessing on large datasets
+- Batch inference
+- Multi-epoch training runs
+- Optuna hyperparameter optimization
+- Any process the user explicitly marks as long-running
+
+## Short Commands Are OK to Run
+
+You CAN use `run_terminal_cmd` for:
+- Quick checks: `git status`, `ls`, `cat file.txt`
+- Database queries: Optuna CLI commands
+- File operations: creating/editing files
+- Package installation: `uv add package`
+- Short scripts: `python -c "print('hello')"`
+
+## Tmux Usage Tips to Include
+
+When providing long-running commands, optionally remind the user:
+
+```bash
+# Start a named tmux session (if not already in one)
+tmux new-session -s hoser-tune
+
+# Run the command
+cd /home/matt/Dev/HOSER && uv run python tune_hoser.py ...
+
+# Detach: Ctrl+b, then d
+# Reattach later: tmux attach-session -t hoser-tune
+# List sessions: tmux ls
+```
+
+## Checking Running Jobs
+
+After providing a command, explain how to monitor it:
+- Optuna database queries to check progress
+- WandB dashboard links
+- Log file locations
+- How to check if the process is still running (`ps aux | grep script_name`)

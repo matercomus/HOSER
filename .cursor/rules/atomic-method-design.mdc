@@ -1,0 +1,166 @@
+---
+globs: *.py
+description: Atomic method design and single responsibility patterns for maintainable code
+---
+
+# Atomic Method Design Patterns
+
+Following the clean method breakdown from [gps_preprocessor.py](mdc:gps_preprocessor.py):
+
+## Single Responsibility Principle
+Break down large methods (>30 lines) into focused atomic methods:
+
+```python
+# ❌ AVOID: Large monolithic methods
+def process_data_badly(self, df):
+    """One huge method doing everything (100+ lines)"""
+    # Data loading logic (20 lines)
+    # Data cleaning logic (30 lines)  
+    # Validation logic (25 lines)
+    # Transformation logic (40 lines)
+    # Reporting logic (15 lines)
+    return df
+
+# ✅ PREFERRED: Atomic methods with single responsibility
+def process_data(self, df: pl.DataFrame) -> pl.DataFrame:
+    """Main coordination method with clear steps"""
+    print("🧹 Processing data...")
+    
+    df = self._load_and_prepare(df)
+    df = self._clean_data(df)
+    df = self._validate_data(df)  
+    df = self._transform_data(df)
+    self._report_results(df)
+    
+    return df
+
+def _load_and_prepare(self, df: pl.DataFrame) -> pl.DataFrame:
+    """Single purpose: data loading and preparation"""
+    # 10-15 lines of focused logic
+    
+def _clean_data(self, df: pl.DataFrame) -> pl.DataFrame:
+    """Single purpose: data cleaning"""
+    # 10-20 lines of focused logic
+    
+def _validate_data(self, df: pl.DataFrame) -> pl.DataFrame:
+    """Single purpose: data validation"""
+    # 10-15 lines of focused logic
+```
+
+## Method Organization Patterns
+```python
+class DataProcessor:
+    """Organize methods by visibility and purpose"""
+    
+    # ============================================================================
+    # PUBLIC INTERFACE (Main functionality)
+    # ============================================================================
+    
+    def process(self) -> pl.DataFrame:
+        """Main public method - clear interface"""
+        return self._execute_pipeline()
+    
+    def validate(self) -> bool:
+        """Secondary public method"""
+        return self._run_validation()
+    
+    # ============================================================================
+    # PRIVATE IMPLEMENTATION (Atomic helper methods)
+    # ============================================================================
+    
+    def _execute_pipeline(self) -> pl.DataFrame:
+        """Private: Pipeline coordination"""
+        df = self._load_data()
+        df = self._apply_filters(df)
+        return df
+    
+    def _load_data(self) -> pl.DataFrame:
+        """Private: Data loading logic"""
+        # Focused implementation
+    
+    def _apply_filters(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Private: Apply all filters in sequence"""
+        df = self._remove_duplicates(df)
+        df = self._remove_nulls(df)
+        df = self._validate_bounds(df)
+        return df
+    
+    def _remove_duplicates(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Private: Remove duplicate records"""
+        # Single, focused responsibility
+    
+    def _remove_nulls(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Private: Remove null values"""
+        # Single, focused responsibility
+    
+    def _validate_bounds(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Private: Validate geographic bounds"""
+        # Single, focused responsibility
+```
+
+## Method Naming Conventions
+```python
+# ✅ CLEAR: Method names describe exact purpose
+def _remove_duplicate_records(self, df: pl.DataFrame) -> pl.DataFrame:
+def _validate_timestamp_format(self, df: pl.DataFrame) -> pl.DataFrame:
+def _apply_geographic_bounds_filter(self, df: pl.DataFrame) -> pl.DataFrame:
+def _calculate_haversine_distances(self, group: pd.DataFrame) -> List[float]:
+def _report_processing_statistics(self, original: int, final: int) -> None:
+
+# ❌ UNCLEAR: Vague or generic names
+def _process(self, df):        # Too generic
+def _filter(self, df):         # What kind of filter?
+def _handle_data(self, df):    # Handle how?
+def _do_work(self, df):        # What work?
+```
+
+## Class Method Organization
+```python
+class WellOrganizedProcessor:
+    """Methods grouped by functionality"""
+    
+    def __init__(self, config: Config):
+        """Constructor with dependency injection"""
+    
+    # ============================================================================
+    # MAIN WORKFLOW METHODS (3-5 methods)
+    # ============================================================================
+    
+    def process(self) -> Result:
+        """Main public interface"""
+    
+    def validate(self) -> bool:
+        """Validation workflow"""
+    
+    # ============================================================================
+    # DATA LOADING (3-4 atomic methods)
+    # ============================================================================
+    
+    def _create_lazy_dataframe(self) -> pl.LazyFrame:
+    def _apply_row_limit(self, df: pl.LazyFrame) -> pl.LazyFrame:
+    def _apply_agent_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+    
+    # ============================================================================
+    # DATA CLEANING (5-8 atomic methods)
+    # ============================================================================
+    
+    def _remove_duplicates(self, df: pl.DataFrame) -> pl.DataFrame:
+    def _remove_null_values(self, df: pl.DataFrame) -> pl.DataFrame:
+    def _validate_timestamps(self, df: pl.DataFrame) -> pl.DataFrame:
+    def _convert_numeric_columns(self, df: pl.DataFrame) -> pl.DataFrame:
+    
+    # ============================================================================
+    # REPORTING AND UTILITIES (2-3 methods)
+    # ============================================================================
+    
+    def _report_results(self, original: int, final: int) -> None:
+    def _create_result_dict(self, status: str, data: Any) -> Dict[str, Any]:
+```
+
+## Benefits of Atomic Design
+- **Testability**: Each method can be tested independently
+- **Readability**: Clear, focused purpose for each method
+- **Maintainability**: Easy to modify specific functionality
+- **Reusability**: Atomic methods can be reused in different contexts
+- **Debugging**: Easier to identify where issues occur
+- **Documentation**: Self-documenting through clear method names

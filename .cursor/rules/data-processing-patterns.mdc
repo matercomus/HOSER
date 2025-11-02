@@ -1,0 +1,93 @@
+---
+globs: *.py
+description: Data processing patterns and efficiency guidelines for Polars-based pipelines
+---
+
+# Data Processing Efficiency Patterns
+
+Based on patterns from [gps_preprocessor.py](mdc:gps_preprocessor.py):
+
+## Polars-First Approach
+```python
+# ✅ PREFERRED: Use Polars throughout pipeline
+import polars as pl
+
+# Lazy loading for memory efficiency
+df = pl.scan_csv(file_path).select(essential_columns)
+
+# Stream processing for large files
+result = df.collect(engine="streaming")
+
+# ❌ AVOID: Unnecessary pandas conversions
+# Only convert to pandas when absolutely required (e.g., third-party libraries)
+```
+
+## Memory Optimization Patterns
+```python
+# ✅ Essential columns only
+ESSENTIAL_COLUMNS = ["id", "timestamp", "lat", "lon"] 
+df = df.select(ESSENTIAL_COLUMNS)
+
+# ✅ Filter during read (most efficient)
+df = df.filter(pl.col("agent_id").is_in(target_agents))
+
+# ✅ Use lazy evaluation
+lazy_df = pl.scan_csv(file_path)
+result = lazy_df.filter(...).group_by(...).collect()
+
+# ❌ AVOID: Loading all data then filtering
+# df = pl.read_csv(file_path)  # Loads everything into memory
+# df = df.filter(...)  # Too late - memory already used
+```
+
+## Data Pipeline Patterns
+```python
+class DataProcessor:
+    def process(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Apply processing pipeline with clear steps"""
+        print("🧹 Processing data...")
+        
+        original_len = len(df)
+        
+        # Apply steps in logical sequence
+        df = self._step_1_clean(df)
+        df = self._step_2_validate(df) 
+        df = self._step_3_transform(df)
+        
+        self._report_results(original_len, len(df))
+        return df
+    
+    def _report_results(self, original: int, final: int) -> None:
+        """Always report processing statistics"""
+        retention = final / original * 100
+        print(f"📊 Processing: {original:,} → {final:,} ({retention:.1f}% retained)")
+```
+
+## Pandas Conversion Guidelines
+```python
+# Only convert when absolutely necessary
+def _detect_problematic_patterns(self, df: pl.DataFrame) -> Set[str]:
+    """Convert to pandas only for complex operations"""
+    # Convert for complex groupby operations not available in Polars
+    pandas_df = df.to_pandas()
+    
+    # Do pandas-specific work
+    results = complex_pandas_operation(pandas_df)
+    
+    # Return results, don't keep pandas df
+    return results
+```
+
+## Agent/Entity Filtering Efficiency
+```python
+# ✅ Filter during data loading
+def load_data(self, target_agents: Set[str]) -> pl.DataFrame:
+    df = pl.scan_csv(file_path)
+    if target_agents:
+        df = df.filter(pl.col("agent_id").is_in(list(target_agents)))
+    return df.collect(engine="streaming")
+
+# ❌ AVOID: Random sampling patterns that load all data first
+# Don't: all_agents = df.unique().collect(); sample(all_agents)
+# Do: Use specific filters or row limits for development
+```

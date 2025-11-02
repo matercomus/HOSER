@@ -9,7 +9,10 @@ __pycache__/
 HOSER_paper.pdf
 HOSER_paper.txt
 EVAL_NOTES.md
-.cursor/
+.cursor/*
+!.cursor/plans/
+!.cursor/rules/
+!.cursor/worktrees.json
 *.pdf
 # Weights & Biases
 wandb/
