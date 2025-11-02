@@ -12,6 +12,7 @@ EVAL_NOTES.md
 .cursor/*
 !.cursor/plans/
 !.cursor/rules/
+!.cursor/docs/
 !.cursor/worktrees.json
 *.pdf
 # Weights & Biases
