@@ -108,10 +108,10 @@ def run_abnormal_analysis(
     logger.info(f"✅ Loaded {len(trajectories)} trajectories")
 
     # Convert trajectories to DataFrame format expected by detector
-    # trajectories is list of (road_id_list, timestamp_list) tuples
+    # trajectories is list of trajectories, where each trajectory is list of (road_id, timestamp) tuples
     traj_data = []
-    for traj_idx, (road_ids, timestamps) in enumerate(trajectories):
-        for road_id, timestamp in zip(road_ids, timestamps):
+    for traj_idx, trajectory in enumerate(trajectories):
+        for road_id, timestamp in trajectory:
             traj_data.append(
                 {"traj_id": traj_idx, "road_id": road_id, "timestamp": timestamp}
             )

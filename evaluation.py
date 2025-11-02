@@ -955,6 +955,9 @@ def evaluate_trajectories_programmatic(
     wandb_run_name: str = None,
     wandb_tags: list = None,
     generation_performance: dict = None,
+    cross_dataset: bool = False,
+    cross_dataset_name: str = None,
+    trained_on_dataset: str = None,
 ) -> dict:
     """
     Programmatic interface for trajectory evaluation with optional performance metrics.
@@ -970,6 +973,9 @@ def evaluate_trajectories_programmatic(
         wandb_run_name: WandB run name
         wandb_tags: WandB tags
         generation_performance: Optional dict with generation timing metrics from gene.py
+        cross_dataset: Whether this is a cross-dataset evaluation
+        cross_dataset_name: Name of the cross-dataset (e.g., 'BJUT_Beijing')
+        trained_on_dataset: Name of the dataset the model was trained on
 
     Returns:
         Dictionary containing evaluation results including optional performance metrics
@@ -979,7 +985,12 @@ def evaluate_trajectories_programmatic(
     import json
 
     # Set up data paths (handle symlink)
-    data_dir = Path(f"../data/{dataset}")
+    # For cross-dataset evaluation, use cross_dataset_name for real data
+    if cross_dataset and cross_dataset_name:
+        data_dir = Path(f"../data/{cross_dataset_name}")
+    else:
+        data_dir = Path(f"../data/{dataset}")
+
     if data_dir.is_symlink():
         data_dir = data_dir.resolve()
 
@@ -1037,6 +1048,9 @@ def evaluate_trajectories_programmatic(
         "generated_trajectories_count": len(generated_trajectories),
         "grid_size": grid_size,
         "edr_eps": edr_eps,
+        "cross_dataset": cross_dataset,
+        "cross_dataset_name": cross_dataset_name if cross_dataset else None,
+        "trained_on_dataset": trained_on_dataset if cross_dataset else None,
     }
 
     print("\n--- Evaluation Results ---")
@@ -1098,6 +1112,9 @@ def evaluate_trajectories_programmatic(
             "generated_trajectories_count": len(generated_trajectories),
             "grid_size": grid_size,
             "edr_eps": edr_eps,
+            "cross_dataset": cross_dataset,
+            "cross_dataset_name": cross_dataset_name if cross_dataset else None,
+            "trained_on_dataset": trained_on_dataset if cross_dataset else None,
         }
 
         wandb.init(

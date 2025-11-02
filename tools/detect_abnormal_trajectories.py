@@ -100,11 +100,16 @@ class TrajectoryAnalyzer:
         Returns:
             Dictionary mapping road_id to coordinate tuple
         """
+        import json
+
         mapping = {}
-        for row in self.geo_df.iter_rows(named=True):
-            road_id = row["geo_id"]
-            # Assuming coordinates field contains "[lon, lat]" format
-            coords = eval(row["coordinates"])  # Parse coordinate string
+        # geo_df is a Pandas DataFrame from load_road_network()
+        for idx, row in self.geo_df.iterrows():
+            road_id = row[
+                "road_id"
+            ]  # Changed from geo_id to road_id (renamed in load_road_network)
+            # Parse coordinates field which is JSON string
+            coords = json.loads(row["coordinates"])
             if len(coords) >= 2:
                 origin_lon, origin_lat = coords[0]
                 dest_lon, dest_lat = coords[-1]
@@ -170,7 +175,9 @@ class TrajectoryAnalyzer:
 
             # Calculate distance and time
             distance_km = self.haversine_distance(lat1, lon1, lat2, lon2)
-            time_diff_sec = time2 - time1
+            time_diff_sec = (
+                time2 - time1
+            ).total_seconds()  # Convert timedelta to seconds
 
             if time_diff_sec > 0:
                 speed_kmh = (distance_km / time_diff_sec) * 3600  # Convert to km/h
