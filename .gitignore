@@ -27,8 +27,7 @@ optuna_results/
 hoser-distill-optuna-6/eval/
 hoser-distill-optuna-6/gene/
 hoser-distill-optuna-6/wandb/
-hoser-distill-optuna-6/pipeline.log
-hoser-distill-optuna-6/eval_test.log
+hoser-distill-optuna-6/*.log
 
 # Test directories for visualization experiments
 hoser-distill-optuna-6/figures/test_*/
