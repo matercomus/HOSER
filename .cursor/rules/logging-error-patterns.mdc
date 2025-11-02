@@ -1,0 +1,134 @@
+---
+globs: *.py  
+description: Logging, error handling, and user feedback patterns for data processing pipelines
+---
+
+# Logging and Error Handling Patterns
+
+Based on user-friendly patterns from [gps_preprocessor.py](mdc:gps_preprocessor.py):
+
+## Informative Progress Logging
+```python
+# ✅ Use emojis and descriptive messages for clarity
+def process_data(self):
+    print("🧹 Applying data quality filters...")
+    print("📂 Loading GPS data...")
+    print("🔍 Filtering for specific agents...")
+    print("✅ Processing complete!")
+
+# ✅ Show progress with numbers and percentages  
+def report_results(self, original: int, final: int):
+    retention = final / original * 100
+    print(f"📊 Results: {original:,} → {final:,} records ({retention:.1f}% retained)")
+
+# ✅ Display detailed statistics
+def show_filtering_results(self, stats: Dict[str, int]):
+    print("📊 Data Quality Filtering Results:")
+    print(f"  Original records: {stats['original']:,}")
+    print(f"  After deduplication: {stats['after_dedup']:,} (-{stats['removed_dupes']})")
+    print(f"  After validation: {stats['after_valid']:,} (-{stats['removed_invalid']})")
+    print(f"  Overall retention: {stats['retention']:.1f}%")
+```
+
+## Warning and Error Messages
+```python
+# ✅ Clear warnings with context
+def check_data_quality(self, df: pl.DataFrame):
+    retention_rate = len(df) / self.original_count * 100
+    
+    if retention_rate < 50:
+        print(f"⚠️  WARNING: {100 - retention_rate:.1f}% data loss during processing")
+        print("💡 Consider adjusting filter parameters")
+    
+    if retention_rate < 10:
+        print("🚨 CRITICAL: Very high data loss - check input data quality")
+
+# ✅ Helpful error messages with suggestions  
+def validate_agents(self, agent_filter: str):
+    try:
+        int(agent_filter)
+        print("❌ Random agent selection removed for efficiency.")
+        print("💡 Use specific license plates: --filter_agents 'plate1,plate2'")
+        print("💡 Or use --nrows for development/testing")
+        return None
+    except ValueError:
+        # Valid string input
+        pass
+```
+
+## Structured Error Handling
+```python
+def load_data(self) -> Dict[str, Any]:
+    """Return structured results instead of raising exceptions"""
+    try:
+        df = self._load_csv_file()
+        return {"status": "success", "data": df, "records": len(df)}
+        
+    except FileNotFoundError:
+        return {"status": "failed", "reason": "file_not_found", "data": None}
+        
+    except Exception as e:
+        return {"status": "failed", "reason": str(e), "data": None}
+
+def process_pipeline(self) -> Dict[str, Any]:
+    """Handle pipeline failures gracefully"""
+    try:
+        result = self._run_processing()
+        return self._create_success_result(result)
+        
+    except Exception as e:
+        print(f"❌ Pipeline failed: {e}")
+        return {"status": "failed", "reason": str(e)}
+```
+
+## Progress Reporting Patterns
+```python
+# ✅ Report problems found during processing
+def detect_problematic_data(self, problematic_items: List[str]):
+    if not problematic_items:
+        print("✅ No problematic data detected")
+        return
+    
+    print(f"\n⚠️  DETECTED {len(problematic_items)} PROBLEMATIC ITEMS:")
+    print("-" * 60)
+    
+    # Show first few items, summarize rest
+    for i, item in enumerate(sorted(problematic_items)):
+        if i < 5:  # Limit display for readability
+            print(f"🚨 {item}: Issue description")
+    
+    if len(problematic_items) > 5:
+        print(f"   ... and {len(problematic_items) - 5} more items")
+
+# ✅ Summary reporting
+def print_pipeline_summary(self, results: Dict[str, Any]):
+    print("\n" + "=" * 60)
+    print("📋 PIPELINE EXECUTION SUMMARY")
+    print("=" * 60)
+    
+    status_emoji = "✅ SUCCESS" if results["status"] == "success" else "❌ FAILED"
+    print(f"Status: {status_emoji}")
+    
+    if "final_records" in results:
+        print(f"Records processed: {results['final_records']:,}")
+        print(f"Processing time: {results.get('duration', 'N/A')}")
+    
+    print("=" * 60)
+```
+
+## Debugging and Development Support
+```python
+# ✅ Conditional debug output
+def _debug_log(self, message: str, debug: bool = False):
+    if debug or os.getenv("DEBUG"):
+        print(f"🐛 DEBUG: {message}")
+
+# ✅ Helpful development guidance
+def handle_no_data_found(self):
+    print("📊 Loaded 0 GPS records")
+    print("💡 Troubleshooting:")
+    print("   - Check if license plates exist in dataset")
+    print("   - Try removing --nrows limit")
+    print("   - Verify file path and format")
+    print("   - Use --filter_agents without --nrows for testing")
+```

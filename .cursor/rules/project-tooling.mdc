@@ -1,0 +1,86 @@
+---
+alwaysApply: true
+description: Project tooling and dependency management standards using uv CLI
+---
+
+# Project Tooling and Dependency Management
+
+## UV Package Management (Required)
+Always use `uv` CLI tool for Python dependency and project management:
+
+```bash
+# ✅ REQUIRED: Use uv for all Python operations
+uv add package-name              # Add dependencies
+uv remove package-name           # Remove dependencies  
+uv sync                         # Sync dependencies
+uv run python script.py         # Run Python scripts
+uv run python -m module         # Run Python modules
+
+# ❌ NEVER use these tools directly:
+# pip install package-name      # Don't use pip
+# pip-tools                     # Don't use pip-tools
+# poetry add package-name       # Don't use poetry
+# python script.py              # Always use 'uv run python'
+```
+
+## Script Execution Patterns
+```bash
+# ✅ Always prefix with 'uv run'
+uv run python gps_preprocessor.py --nrows 10000
+uv run python -m pytest tests/
+uv run python mapmatching_data_preprocessor.py --filter_agents "京BT8527"
+
+# ✅ For long-running scripts, provide clear examples
+uv run python gps_preprocessor.py --filter_agents "plate1,plate2,plate3"
+uv run python beijing_taxi_mapmatch_pipeline.py input.csv links.csv nodes.csv
+```
+
+## Development Workflow
+```bash
+# ✅ Testing and development commands
+uv run python script.py --nrows 1000    # Limited data for testing
+uv run python script.py --skip_segmentation  # Skip expensive operations
+uv run python script.py --debug              # Enable debug output
+
+# ✅ Add dependencies when needed
+uv add polars          # For data processing
+uv add pandas          # Only when required for compatibility
+uv add gotrackit       # For map matching
+```
+
+## Script Creation Guidelines
+When creating reusable scripts (user preference):
+
+```python
+#!/usr/bin/env python3
+"""
+Script description with clear purpose.
+Designed for execution with: uv run python script_name.py
+"""
+
+def main():
+    """Main entry point with argument parsing"""
+    # Include comprehensive CLI with help text
+    parser = argparse.ArgumentParser(
+        description="Clear description",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  uv run python script.py --option1 value1
+  uv run python script.py --option2 value2
+        """,
+    )
+    # Implementation...
+
+if __name__ == "__main__":
+    main()
+```
+
+## Memory Reference: User Preferences
+- **Prefer reusable script files over direct terminal commands**
+- **Use bash tools for fast operations when appropriate**  
+- **Always use 'uv' CLI for Python operations**
+- **Commit code changes between implementation phases**
+- **Use Polars instead of Pandas throughout the project**
+- **Ensure scripts save output in libcity-compatible format**
+- **Test new code with appropriate test cases**

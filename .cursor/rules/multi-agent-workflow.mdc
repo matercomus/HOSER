@@ -1,0 +1,237 @@
+---
+alwaysApply: true
+---
+# Multi-Agent Git Worktree Workflow
+
+For complete documentation, see `.cursor/docs/MULTI_AGENT_QUICKSTART.md` and `.cursor/docs/WORKTREE_COMMANDS.md`
+
+## When to Use This Workflow
+- Large features with 10+ independent tasks
+- Multiple modules with clear boundaries
+- Parallel development needed (2-4 agents optimal)
+- Tasks can be split into phases with clear dependencies
+
+## When NOT to Use
+- Small features (1-3 tasks)
+- Tightly coupled changes requiring constant coordination
+- Single agent projects
+- Rapid prototyping where structure overhead slows down
+
+## Optimal Worktree Structure
+Use 2-4 strategic worktrees, not 7+:
+
+Good:
+- PROJECT-backend (core logic changes)
+- PROJECT-frontend (UI/config changes)
+- PROJECT-integration (testing and final integration)
+
+Bad:
+- 7+ worktrees for 18 tasks (too granular)
+- One worktree per task (defeats parallel work purpose)
+- Mixed unrelated features in one worktree
+
+## Naming Convention
+Always use semantic names:
+```bash
+git worktree add ../PROJECT-phase1-config -b feat/phase1-config
+git worktree add ../PROJECT-phase2-detection -b feat/phase2-detection
+```
+
+Never use: PROJECT__SSH__dell-wsl_/At3SH (cryptic auto-generated)
+
+Pattern: PROJECT-phase-description
+- Clear what phase/module it's for
+- Easy to remember
+- Sorts logically in file listings
+
+## Incremental Merge Strategy
+Merge by phase, not all at once:
+
+1. Complete Phase 1 → merge to main → test
+2. Complete Phase 2 → merge to main → test
+3. Continue phase by phase
+
+Benefits:
+- Catch bugs earlier (integration testing after each phase)
+- Cleaner git history (logical commits grouped by phase)
+- Easier rollback if needed (can revert single phase)
+- Other agents can start next phase while previous merges
+
+## Before Starting ANY Work
+
+1. Check you're in a worktree:
+```bash
+ls -la .cursor/plans/  # Should show symlink to root worktree
+```
+
+2. Read the plan file completely:
+```bash
+cat .cursor/plans/*.plan.md
+```
+
+3. Verify task dependencies are met:
+```markdown
+# Look for:
+### Task X.Y: Name [ ]
+**Dependencies:** Task 1.3 (must be [DONE])
+```
+
+4. Check no other agent is editing same files:
+```bash
+grep "filename.py" .cursor/plans/*.plan.md | grep "IN PROGRESS"
+```
+
+5. Update plan status:
+```markdown
+### Task X.Y: Name [IN PROGRESS - Agent1 - 2025-11-02 14:30]
+```
+
+## Task Claiming Protocol
+Before claiming a task, validate:
+
+```bash
+# 1. Check current task status
+grep "Task X.Y:" .cursor/plans/*.plan.md
+
+# 2. Identify files this task will modify (in task description)
+# Files: python_pipeline.py, tools/new_tool.py
+
+# 3. Search plan for those filenames
+grep -n "python_pipeline.py" .cursor/plans/*.plan.md
+
+# 4. If any show "IN PROGRESS" by another agent → choose different task
+```
+
+## File Conflict Prevention Rules
+CRITICAL RULE: Only ONE agent per file at a time.
+
+Safe (parallel work):
+- Agent1: config/dataset_a.yaml (new file)
+- Agent2: config/dataset_b.yaml (new file)
+- Agent3: tools/new_tool.py (new file)
+
+Unsafe (conflicts):
+- Agent1: python_pipeline.py lines 100-200
+- Agent2: python_pipeline.py lines 300-400
+Result: Even different lines can conflict during merge
+
+Exception: If file is large (1000+ lines) and changes are in completely separate sections, add note to plan:
+```markdown
+**Agent1 Note**: Editing python_pipeline.py lines 76-126 (PipelineConfig class)
+**Agent2 Note**: Editing python_pipeline.py lines 500-600 (EvaluationPipeline.run method)
+```
+
+## Integration Testing Checkpoints
+After completing each phase (before merge):
+
+```bash
+# 1. Lint check
+uv tool run ruff check .
+
+# 2. Run tests
+uv run pytest tests/
+
+# 3. Quick smoke test
+uv run python -c "import module; module.basic_test()"
+
+# 4. Check uncommitted changes
+git status
+```
+
+## Commit Strategy
+Commit early and often (every 30-60 minutes or logical milestone):
+
+```bash
+# Small, focused commits
+git add specific_file.py
+git commit -m "feat: implement calculate_speed_profile method"
+git push origin feat/phase2-detection
+```
+
+Update plan file after each commit to show progress:
+```markdown
+**Subtasks:**
+- [x] Implement helper method A
+- [x] Implement main method B
+- [ ] Add tests for method B
+```
+
+Other agents see your progress in real-time via symlinked plan.
+
+## Pre-Merge Checklist
+Before merging your phase to main:
+
+- [ ] All tasks in phase marked [DONE]
+- [ ] All code committed and pushed
+- [ ] Linting passes: `uv tool run ruff check .`
+- [ ] Tests pass: `uv run pytest`
+- [ ] Plan status summary updated
+- [ ] No uncommitted changes: `git status`
+- [ ] Reviewed changes: `git log --oneline main..HEAD`
+
+## Merge Commands
+```bash
+# 1. From your worktree, switch to main
+git checkout main
+git pull origin main
+
+# 2. Merge your phase branch (no fast-forward for clear history)
+git merge feat/phase2-detection --no-ff -m "Merge phase 2: detection module
+
+- Implemented core detection algorithms
+- Added CLI wrapper
+- All tests passing"
+
+# 3. Push to origin
+git push origin main
+
+# 4. Return to feature branch for continued work
+git checkout feat/phase2-detection
+```
+
+## Cleanup After Project Completion
+```bash
+# 1. List all worktrees
+git worktree list
+
+# 2. Remove each worktree (--force handles untracked files)
+git worktree remove --force /path/to/PROJECT-phase1-config
+
+# 3. Delete merged branches
+git branch -d feat/phase1-config
+
+# 4. Or force delete if has alternate commits
+git branch -D feat/phase1-config
+
+# 5. Verify cleanup
+git worktree list  # Should only show main worktree
+git branch | wc -l  # Check branch count
+```
+
+## Troubleshooting
+
+**Problem:** Symlink not working
+```bash
+# Check symlink
+ls -la .cursor/plans/
+# Should show: .cursor/plans -> /path/to/root/.cursor/plans
+
+# Recreate if broken
+rm -rf .cursor/plans
+ln -s $(git rev-parse --show-toplevel)/.cursor/plans .cursor/plans
+```
+
+**Problem:** Task conflicts (two agents claim same task)
+- First agent to update plan file wins
+- Second agent should refresh plan and choose different task
+- Communication via plan notes if coordination needed
+
+**Problem:** Merge conflicts
+- Avoid by following "one agent per file" rule
+- If conflicts occur, coordinate with other agent
+- Resolve conflicts, test thoroughly, then complete merge
+
+**Problem:** Lost work in worktree
+- All worktrees share same git repository
+- Commits are safe even if worktree is deleted
+- Find commits: `git log --all --oneline | grep "your feature"`

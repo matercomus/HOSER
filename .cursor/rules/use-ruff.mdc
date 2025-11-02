@@ -1,0 +1,103 @@
+---
+alwaysApply: true
+---
+# Code Quality with Ruff
+
+## Required: Use Ruff for Linting and Formatting
+
+Always use `ruff` via `uv tool run` for code quality checks and fixes.
+
+### Check for Errors
+```bash
+# Check single file
+uv tool run ruff check script.py
+
+# Check entire directory
+uv tool run ruff check .
+
+# Check with output format
+uv tool run ruff check --output-format=full script.py
+```
+
+### Auto-Fix Issues
+```bash
+# Fix auto-fixable issues in a file
+uv tool run ruff check --fix script.py
+
+# Fix all files in directory
+uv tool run ruff check --fix .
+```
+
+### Format Code
+```bash
+# Format a file
+uv tool run ruff format script.py
+
+# Format entire directory
+uv tool run ruff format .
+```
+
+## When to Use Ruff
+
+### Always Check Before:
+- Committing code changes
+- Creating pull requests
+- Marking tasks as complete
+- Finalizing script implementations
+
+### During Development:
+- After making significant code changes
+- When debugging syntax or import errors
+- Before running long-running scripts
+- When code behavior seems unexpected
+
+### Common Error Categories:
+- **Syntax errors**: Indentation, missing colons, bracket mismatches
+- **Import errors**: Unused imports, import ordering
+- **Style issues**: Line length, whitespace, naming conventions
+- **Code quality**: Unused variables, undefined names, complexity
+
+## Workflow Integration
+
+```bash
+# 1. Make code changes
+# 2. Check for issues
+uv tool run ruff check script.py
+
+# 3. Auto-fix what's possible
+uv tool run ruff check --fix script.py
+
+# 4. Format code
+uv tool run ruff format script.py
+
+# 5. Final verification
+uv tool run ruff check script.py
+```
+
+## Configuration
+
+Ruff configuration should be in `pyproject.toml` or `ruff.toml` at project root. Common settings:
+
+```toml
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]  # Line too long (if desired)
+```
+
+## Error Output Format
+
+Ruff provides clear error locations:
+```
+invalid-syntax: Unexpected indentation
+   --> script.py:792:1
+    |
+791 |                 # Comment
+792 |                     wrong_indentation = True
+    | ^^^^^^^^^^^^^^^^^^^^
+```
+
+The `^` symbols indicate the exact problem location. Fix these before proceeding with execution.

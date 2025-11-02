@@ -1,0 +1,8 @@
+{
+  "setup-worktree": [
+    "uv sync",
+    "rm -rf .cursor/plans",
+    "ln -s $ROOT_WORKTREE_PATH/.cursor/plans .cursor/plans"
+  ]
+}
+
