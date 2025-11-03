@@ -179,6 +179,27 @@ class ModelDetector:
     def __init__(self, models_dir: Path):
         self.models_dir = models_dir
 
+    @staticmethod
+    def _extract_model_type_from_filename(filename: str) -> str:
+        """Robust model type extraction supporting multiple naming patterns"""
+        stem = filename.replace(".pth", "")
+
+        # Pattern 1: _25epoch_seed (old naming convention)
+        if "_25epoch_seed" in stem:
+            base = stem.split("_25epoch_seed")[0]
+            seed = stem.split("_seed")[-1]
+            return base if seed == "42" else f"{base}_seed{seed}"
+
+        # Pattern 2: _phase{N}_seed (new phase-based naming)
+        elif "_phase" in stem and "_seed" in stem:
+            base_with_phase = stem.split("_seed")[0]
+            seed = stem.split("_seed")[1]
+            return base_with_phase if seed == "42" else f"{base_with_phase}_seed{seed}"
+
+        # Pattern 3: Fallback for simple names
+        else:
+            return stem.split("_")[0]
+
     def detect_models(self) -> List[str]:
         """Detect all available models and return unique model types"""
         if not self.models_dir.exists():
@@ -190,25 +211,7 @@ class ModelDetector:
 
         model_types = []
         for model_file in model_files:
-            model_name = model_file.stem
-            # Extract model type (handle naming patterns)
-            if "_25epoch_seed" in model_name:
-                # Pattern: vanilla_25epoch_seed42 -> vanilla
-                # Pattern: distilled_25epoch_seed44 -> distilled_seed44
-                # Pattern: vanilla_25epoch_seed43 -> vanilla_seed43
-                base_model = model_name.split("_25epoch_seed")[0]
-                seed = model_name.split("_seed")[-1]
-
-                # For seed 42, use base name only (vanilla, distill)
-                # For other seeds, append seed to make unique (vanilla_seed43, distill_seed44)
-                if seed == "42":
-                    model_type = base_model
-                else:
-                    model_type = f"{base_model}_seed{seed}"
-            else:
-                # Fallback: remove everything after first underscore
-                model_type = model_name.split("_")[0]
-
+            model_type = self._extract_model_type_from_filename(model_file.name)
             model_types.append(model_type)
 
         # Remove duplicates and sort
@@ -219,21 +222,7 @@ class ModelDetector:
     def find_model_file(self, model_type: str) -> Optional[Path]:
         """Find the actual model file for a given model type"""
         for model_file in self.models_dir.glob("*.pth"):
-            model_name = model_file.stem
-
-            # Extract model type using same logic as detect_models
-            if "_25epoch_seed" in model_name:
-                base_model = model_name.split("_25epoch_seed")[0]
-                seed = model_name.split("_seed")[-1]
-
-                # For seed 42, use base name only
-                # For other seeds, append seed to make unique
-                if seed == "42":
-                    extracted_type = base_model
-                else:
-                    extracted_type = f"{base_model}_seed{seed}"
-            else:
-                extracted_type = model_name.split("_")[0]
+            extracted_type = self._extract_model_type_from_filename(model_file.name)
 
             if extracted_type == model_type:
                 return model_file

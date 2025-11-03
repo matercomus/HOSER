@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 import polars as pl
 import numpy as np
+from scipy.spatial import cKDTree
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -130,7 +131,10 @@ def load_road_network_with_coords(geo_file: Path) -> pl.DataFrame:
 def find_nearest_road_batch(
     source_roads: pl.DataFrame, target_roads: pl.DataFrame, max_distance_m: float = 50.0
 ) -> Dict:
-    """Create road ID mapping using nearest neighbor search
+    """Create road ID mapping using KD-tree nearest neighbor search (optimized)
+
+    Uses scipy KD-tree for O(n log m) performance instead of O(n×m) brute force.
+    Runtime: ~3 minutes instead of ~12 hours for 40k source × 87k target roads.
 
     Args:
         source_roads: Source road network DataFrame
@@ -149,40 +153,41 @@ def find_nearest_road_batch(
     source_coords = source_roads.select(["geo_id", "lat", "lon"]).to_numpy()
     target_coords = target_roads.select(["geo_id", "lat", "lon"]).to_numpy()
 
+    # Build KD-tree spatial index for target roads (O(m log m) - very fast!)
+    logger.info("  🏗️  Building spatial index (KD-tree)...")
+    tree = cKDTree(target_coords[:, 1:3])  # Only lat/lon columns
+    logger.info("  ✅ Spatial index built")
+
+    # Query nearest neighbors for all source roads at once (O(n log m))
+    logger.info("  🔍 Querying nearest neighbors...")
+    euclidean_dists, nearest_indices = tree.query(
+        source_coords[:, 1:3], k=1, workers=-1
+    )
+    logger.info("  ✅ Query complete")
+
+    # Refine with exact haversine distances and apply threshold
+    logger.info("  📏 Computing exact haversine distances...")
     mapping = {}
     distances = []
     unmapped_roads = []
     many_to_one = {}  # target_id -> [source_ids]
 
-    logger.info("  🔍 Finding nearest matches...")
-
     for idx, (source_id, source_lat, source_lon) in enumerate(source_coords):
-        if idx % 1000 == 0 and idx > 0:
-            logger.info(f"    Mapped {idx:,} / {len(source_coords):,} roads...")
+        if idx % 5000 == 0 and idx > 0:
+            logger.info(f"    Processed {idx:,} / {len(source_coords):,} roads...")
 
         source_id = int(source_id)
+        nearest_idx = nearest_indices[idx]
+        target_id, target_lat, target_lon = target_coords[nearest_idx]
+        target_id = int(target_id)
 
-        # Calculate distances to all target roads
-        target_lats = target_coords[:, 1]
-        target_lons = target_coords[:, 2]
+        # Compute exact haversine distance
+        dist_m = haversine_distance(source_lat, source_lon, target_lat, target_lon)
 
-        dists = np.array(
-            [
-                haversine_distance(source_lat, source_lon, tlat, tlon)
-                for tlat, tlon in zip(target_lats, target_lons)
-            ]
-        )
-
-        # Find nearest
-        min_idx = np.argmin(dists)
-        min_dist = dists[min_idx]
-        target_id = int(target_coords[min_idx, 0])
-
-        if min_dist <= max_distance_m:
+        if dist_m <= max_distance_m:
             mapping[source_id] = target_id
-            distances.append(min_dist)
+            distances.append(dist_m)
 
-            # Track one-to-many (multiple targets for one source - shouldn't happen with nearest)
             # Track many-to-one (multiple sources map to same target)
             if target_id not in many_to_one:
                 many_to_one[target_id] = []
@@ -192,7 +197,7 @@ def find_nearest_road_batch(
                 {
                     "road_id": source_id,
                     "nearest_target_id": target_id,
-                    "distance_m": float(min_dist),
+                    "distance_m": float(dist_m),
                     "lat": float(source_lat),
                     "lon": float(source_lon),
                 }
