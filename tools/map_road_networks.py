@@ -89,7 +89,8 @@ def load_road_network_with_coords(geo_file: Path) -> pl.DataFrame:
     """
     logger.info(f"📂 Loading road network from {geo_file}")
 
-    df = pl.read_csv(geo_file)
+    # Only read columns we need to avoid parsing errors in other columns
+    df = pl.read_csv(geo_file, columns=["geo_id", "coordinates"])
     logger.info(f"  Loaded {len(df)} roads")
 
     # Extract centerpoints
