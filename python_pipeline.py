@@ -1311,6 +1311,16 @@ class EvaluationPipeline:
 
         return results_summary
 
+    @phase("cross_dataset", critical=False)
+    def run_cross_dataset(self):
+        """Evaluate on cross-dataset (BJUT)"""
+        if not self.config.cross_dataset_eval:
+            logger.info("Cross-dataset not configured, skipping")
+            return
+
+        logger.info("🌐 Evaluating on cross-dataset...")
+        self._run_cross_dataset_evaluation()
+
     @phase("abnormal", critical=False)
     def run_abnormal(self):
         """Detect abnormal trajectories"""
