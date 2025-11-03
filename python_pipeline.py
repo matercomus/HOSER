@@ -121,6 +121,9 @@ class PipelineConfig:
             "base_eval",
             "cross_dataset",
             "abnormal",
+            "abnormal_od_extract",
+            "abnormal_od_generate",
+            "abnormal_od_evaluate",
             "scenarios",
         }
 
@@ -1432,6 +1435,340 @@ class EvaluationPipeline:
         logger.info("🔍 Running abnormal detection...")
         self._run_abnormal_detection_analysis()
 
+    @phase("abnormal_od_extract", critical=False)
+    def run_abnormal_od_extract(self):
+        """Extract abnormal OD pairs from cross-dataset detection results"""
+        logger.info("📊 Extracting abnormal OD pairs from cross-dataset...")
+
+        # Check dependency: Need abnormal detection results
+        if not self.config.cross_dataset_name:
+            logger.warning(
+                "No cross-dataset configured, skipping abnormal OD extraction"
+            )
+            return
+
+        abnormal_results_dir = Path(f"./abnormal/{self.config.cross_dataset_name}")
+        if not abnormal_results_dir.exists():
+            logger.error(
+                f"❌ Dependency not met: Run 'abnormal' phase first. "
+                f"Missing: {abnormal_results_dir}"
+            )
+            return
+
+        # Find detection result files
+        detection_files = list(
+            abnormal_results_dir.glob("*/real_data/detection_results.json")
+        )
+        if not detection_files:
+            logger.error(f"❌ No detection results found in {abnormal_results_dir}")
+            return
+
+        logger.info(f"  Found {len(detection_files)} detection result files")
+
+        # Prepare data file paths
+        data_dir = Path(self.config.cross_dataset_eval)
+        if not data_dir.is_absolute():
+            data_dir = self.eval_dir / data_dir
+
+        data_files = []
+        for det_file in detection_files:
+            # Extract split name (train/test) from path
+            split = det_file.parent.parent.name
+            data_file = data_dir / f"{split}.csv"
+            if data_file.exists():
+                data_files.append(data_file)
+
+        if len(data_files) != len(detection_files):
+            logger.warning(
+                "⚠️  Some data files not found, continuing with available files"
+            )
+
+        # Import and run extraction
+        from tools.extract_abnormal_od_pairs import extract_abnormal_od_pairs
+
+        output_file = Path(
+            f"./abnormal_od_pairs_{self.config.cross_dataset_name.lower().replace(' ', '_')}.json"
+        )
+
+        try:
+            result = extract_abnormal_od_pairs(
+                detection_results_files=detection_files,
+                real_data_files=data_files,
+                dataset_name=self.config.cross_dataset_name,
+            )
+
+            # Save result
+            import json
+
+            with open(output_file, "w") as f:
+                json.dump(result, f, indent=2)
+
+            logger.info(
+                f"✅ Extracted {result['total_unique_od_pairs']} abnormal OD pairs"
+            )
+            logger.info(f"💾 Saved to {output_file}")
+
+        except Exception as e:
+            logger.error(f"❌ OD pair extraction failed: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+    @phase("abnormal_od_generate", critical=False)
+    def run_abnormal_od_generate(self):
+        """Generate trajectories for abnormal OD pairs"""
+        logger.info("🤖 Generating trajectories for abnormal OD pairs...")
+
+        # Check dependency: Need OD pairs file
+        od_pairs_files = list(Path(".").glob("abnormal_od_pairs_*.json"))
+        if not od_pairs_files:
+            logger.error(
+                "❌ Dependency not met: Run 'abnormal_od_extract' phase first. "
+                "Missing: abnormal_od_pairs_*.json"
+            )
+            return
+
+        od_pairs_file = od_pairs_files[0]
+        logger.info(f"  Using OD pairs: {od_pairs_file}")
+
+        # Load OD pairs
+        import json
+
+        with open(od_pairs_file, "r") as f:
+            od_pairs_data = json.load(f)
+
+        # Create flat list of OD pairs
+        all_pairs = []
+        for category, pairs in od_pairs_data.get("od_pairs_by_category", {}).items():
+            # Limit to 20 pairs per category for reasonable runtime
+            pairs_limited = pairs[:20]
+            all_pairs.extend(pairs_limited)
+            logger.info(f"  {category}: {len(pairs_limited)} OD pairs")
+
+        # Deduplicate
+        unique_pairs = list(set(tuple(p) for p in all_pairs))
+        logger.info(f"  Total unique OD pairs: {len(unique_pairs)}")
+
+        if not unique_pairs:
+            logger.warning("No OD pairs to generate for")
+            return
+
+        # Output directory
+        output_dir = Path(
+            f"./gene_abnormal/{self.config.dataset}/seed{self.config.seed}"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate for each model
+        from gene import generate_trajectories_programmatic
+
+        num_traj_per_od = 50  # Reasonable default
+
+        for model_type in self.config.models:
+            try:
+                model_file = self.detector.find_model_file(model_type)
+                if not model_file:
+                    logger.warning(f"  ⚠️  Model file not found for {model_type}")
+                    continue
+
+                logger.info(f"\n  {'=' * 60}")
+                logger.info(f"  🚀 Generating with {model_type}")
+                logger.info(f"  {'=' * 60}")
+
+                # Expand OD pairs (repeat each pair num_traj_per_od times)
+                od_list_expanded = []
+                for origin, dest in unique_pairs:
+                    for _ in range(num_traj_per_od):
+                        od_list_expanded.append((origin, dest))
+
+                logger.info(f"    Generating {len(od_list_expanded)} trajectories...")
+
+                output_file = output_dir / f"{model_type}_abnormal_od.csv"
+
+                result = generate_trajectories_programmatic(
+                    model_path=str(model_file),
+                    dataset=self.config.dataset,
+                    num_generate=len(od_list_expanded),
+                    od_list=od_list_expanded,
+                    output_file=str(output_file),
+                    seed=self.config.seed,
+                    cuda_device=self.config.cuda_device,
+                )
+
+                if result.get("status") == "success":
+                    traj_count = result.get("trajectories_generated", 0)
+                    logger.info(
+                        f"    ✅ Generated {traj_count} trajectories → {output_file}"
+                    )
+                else:
+                    logger.error(f"    ❌ Generation failed: {result.get('message')}")
+
+            except Exception as e:
+                logger.error(f"  ❌ Error generating with {model_type}: {e}")
+                import traceback
+
+                traceback.print_exc()
+                continue
+
+        logger.info(f"\n✅ Abnormal OD generation complete! Results in {output_dir}/")
+
+    @phase("abnormal_od_evaluate", critical=False)
+    def run_abnormal_od_evaluate(self):
+        """Evaluate model performance on abnormal OD pairs"""
+        logger.info("📊 Evaluating performance on abnormal OD pairs...")
+
+        # Check dependency: Need generated files
+        gen_dir = Path(f"./gene_abnormal/{self.config.dataset}/seed{self.config.seed}")
+        if not gen_dir.exists():
+            logger.error(
+                "❌ Dependency not met: Run 'abnormal_od_generate' phase first. "
+                f"Missing: {gen_dir}"
+            )
+            return
+
+        gen_files = list(gen_dir.glob("*_abnormal_od.csv"))
+        if not gen_files:
+            logger.error(f"❌ No generated files found in {gen_dir}")
+            return
+
+        logger.info(f"  Found {len(gen_files)} generated files")
+
+        # Check dependency: Need OD pairs file
+        od_pairs_files = list(Path(".").glob("abnormal_od_pairs_*.json"))
+        if not od_pairs_files:
+            logger.error("❌ Missing abnormal OD pairs file")
+            return
+
+        od_pairs_file = od_pairs_files[0]
+
+        # Get real abnormal data file
+        if not self.config.cross_dataset_eval:
+            logger.error("❌ No cross-dataset configured")
+            return
+
+        data_dir = Path(self.config.cross_dataset_eval)
+        if not data_dir.is_absolute():
+            data_dir = self.eval_dir / data_dir
+
+        real_abnormal_file = data_dir / "train.csv"
+        if not real_abnormal_file.exists():
+            logger.error(f"❌ Real abnormal file not found: {real_abnormal_file}")
+            return
+
+        # Output directory
+        output_dir = Path(f"./eval_abnormal/{self.config.dataset}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Import evaluation functions
+        import json
+        from tools.analyze_abnormal import run_abnormal_analysis
+        from evaluation import evaluate_trajectories_programmatic
+
+        # Evaluate each model
+        all_results = {}
+
+        for gen_file in gen_files:
+            model_name = gen_file.stem.replace("_abnormal_od", "")
+            logger.info(f"\n  {'=' * 60}")
+            logger.info(f"  📊 Evaluating {model_name}")
+            logger.info(f"  {'=' * 60}")
+
+            try:
+                # Step 1: Abnormal detection
+                logger.info("    🔍 Running abnormal detection...")
+                detection_output = output_dir / model_name / "detection"
+                detection_output.mkdir(parents=True, exist_ok=True)
+
+                detection_results = run_abnormal_analysis(
+                    real_file=gen_file,
+                    dataset=self.config.dataset,
+                    config_path=Path("config/abnormal_detection.yaml"),
+                    output_dir=detection_output,
+                )
+
+                # Calculate rates
+                total_traj = detection_results.get("total_trajectories", 0)
+                abnormal_by_category = {}
+
+                for category, indices in detection_results.get(
+                    "abnormal_indices", {}
+                ).items():
+                    count = len(indices)
+                    rate = (count / total_traj * 100) if total_traj > 0 else 0
+                    abnormal_by_category[category] = {"count": count, "rate": rate}
+                    logger.info(f"      {category}: {count}/{total_traj} ({rate:.2f}%)")
+
+                # Step 2: Similarity metrics
+                logger.info("    📏 Computing similarity metrics...")
+                eval_output = output_dir / model_name / "metrics"
+                eval_output.mkdir(parents=True, exist_ok=True)
+
+                eval_results = evaluate_trajectories_programmatic(
+                    real_file=str(real_abnormal_file),
+                    generated_file=str(gen_file),
+                    dataset=self.config.dataset,
+                    output_dir=str(eval_output),
+                )
+
+                metrics = {}
+                if eval_results.get("status") == "success":
+                    eval_data = eval_results.get("results", {})
+                    metrics = {
+                        "edr": eval_data.get("edr", 0.0),
+                        "dtw": eval_data.get("dtw", 0.0),
+                        "hausdorff": eval_data.get("hausdorff", 0.0),
+                    }
+                    logger.info(f"      EDR: {metrics['edr']:.4f}")
+
+                # Save results
+                model_results = {
+                    "model": model_name,
+                    "total_trajectories": total_traj,
+                    "abnormality_detection": abnormal_by_category,
+                    "similarity_metrics": metrics,
+                }
+
+                all_results[model_name] = model_results
+
+                result_file = output_dir / model_name / "abnormal_od_evaluation.json"
+                with open(result_file, "w") as f:
+                    json.dump(model_results, f, indent=2)
+
+            except Exception as e:
+                logger.error(f"    ❌ Evaluation failed: {e}")
+                import traceback
+
+                traceback.print_exc()
+                continue
+
+        # Comparison report
+        logger.info(f"\n  {'=' * 60}")
+        logger.info("  📊 Comparison Report")
+        logger.info(f"  {'=' * 60}")
+
+        for model_name, results in all_results.items():
+            total_abnormal = sum(
+                cat["count"] for cat in results["abnormality_detection"].values()
+            )
+            total_traj = results["total_trajectories"]
+            rate = (total_abnormal / total_traj * 100) if total_traj > 0 else 0
+            logger.info(
+                f"    {model_name:15s}: {total_abnormal:4d}/{total_traj:4d} ({rate:5.2f}%)"
+            )
+
+        # Save comparison
+        comparison_report = {
+            "dataset": self.config.dataset,
+            "od_pairs_file": str(od_pairs_file),
+            "model_results": all_results,
+        }
+
+        comparison_file = output_dir / "comparison_report.json"
+        with open(comparison_file, "w") as f:
+            json.dump(comparison_report, f, indent=2)
+
+        logger.info(f"\n✅ Evaluation complete! Results in {output_dir}/")
+
     @phase("scenarios", critical=False)
     def run_scenarios(self):
         """Run scenario analysis"""
@@ -1528,6 +1865,9 @@ class EvaluationPipeline:
             "base_eval",
             "cross_dataset",
             "abnormal",
+            "abnormal_od_extract",
+            "abnormal_od_generate",
+            "abnormal_od_evaluate",
             "scenarios",
         ]
         extras = [phase for phase in self.config.phases if phase not in default_order]
@@ -1583,7 +1923,8 @@ def main():
         type=str,
         help=(
             "Run only these phases (comma-separated). Available: "
-            "generation,base_eval,cross_dataset,abnormal,scenarios."
+            "generation,base_eval,cross_dataset,abnormal,"
+            "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,scenarios."
         ),
     )
     parser.add_argument(
