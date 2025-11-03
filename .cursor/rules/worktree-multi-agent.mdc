@@ -8,43 +8,37 @@ alwaysApply: true
 
 **IF YOU JUST CREATED A WORKTREE, YOU MUST WAIT 1-4 MINUTES FOR AUTOMATIC SETUP TO COMPLETE!**
 
-### MANDATORY WAITING PROCEDURE
+### MANDATORY: Run This Command IMMEDIATELY After Creating Worktree
 
-After creating a worktree, **DO NOT START WORK** until setup completes. Choose one method:
-
-**Method 1: Watch setup log (RECOMMENDED)**
 ```bash
 cd your-worktree
-tail -f .cursor/worktree-setup.log
-# Wait for "✅ Worktree setup complete!" then press Ctrl+C
+bash .cursor/wait-for-setup.sh
 ```
 
-**Method 2: Poll for symlink**
-```bash
-while [ ! -L .cursor/plans ]; do 
-  echo "⏳ Waiting for setup..."; 
-  sleep 10; 
-done && echo "✅ Ready to work!"
-```
+**This script will:**
+- ⏳ Block until setup completes (you cannot skip this)
+- 📊 Show setup progress in real-time
+- ✅ Verify everything is ready before proceeding
+- 🤖 Display your agent ID when complete
 
-**Method 3: Wait fixed time**
-```bash
-sleep 240  # Wait 4 minutes
-```
+**DO NOT:**
+- ❌ Skip running this script
+- ❌ Try to work before script completes
+- ❌ Manually run setup-worktree-unix.sh (wait-for-setup.sh handles it)
 
-### Verify Setup Complete BEFORE Starting Work
+### What the Script Does
 
-```bash
-# ALL of these MUST succeed before you start:
-ls -la .cursor/plans/              # Must show symlink (not directory)
-cat .cursor/worktree-agent-id      # Must show your agent ID
-tail -5 .cursor/worktree-setup.log # Must show "✅ Worktree setup complete!"
-```
+The `wait-for-setup.sh` script:
+1. Waits for Cursor's automatic setup to start
+2. Shows setup progress (uv sync, symlink creation, etc.)
+3. Verifies all requirements:
+   - `.cursor/plans/` symlink exists
+   - `.cursor/worktree-agent-id` file exists
+   - Virtual environment created
+   - Python works
+4. Only exits when worktree is 100% ready
 
-**If setup hasn't completed after 5 minutes, ONLY THEN run manually:**
-```bash
-bash .cursor/setup-worktree-unix.sh
-```
+**You cannot proceed until this script completes successfully!**
 
 ---
 

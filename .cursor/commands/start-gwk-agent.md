@@ -92,61 +92,62 @@ Suggest command:
 git worktree add ../HOSER-phase1-foundation -b feat/phase-decorator-foundation
 ```
 
-### 7. 🚨 MANDATORY: Wait for Automatic Setup (1-4 Minutes) 🚨
+### 7. 🚨 MANDATORY: Wait for Setup (Run This Command!) 🚨
 
-**YOU MUST NOT SKIP THIS STEP!** 
-
-After creating worktree, **STOP and WAIT** for Cursor's automatic setup to complete.
-
-**DO NOT:**
-- ❌ Try to access `.cursor/plans/` immediately
-- ❌ Try to read plan files before setup completes
-- ❌ Start implementing code before verifying setup
-- ❌ Assume setup is instant
-
-**YOU MUST WAIT** using one of these methods:
+**REQUIRED**: After creating worktree, run this ONE command:
 
 ```bash
 cd ../HOSER-phase1-foundation
-
-# STEP 1: Wait for setup to complete (choose one method)
-
-# Method A: Watch setup progress in real-time (RECOMMENDED)
-tail -f .cursor/worktree-setup.log
-# Wait until you see "✅ Worktree setup complete!" then press Ctrl+C
-
-# Method B: Poll until symlink appears
-while [ ! -L .cursor/plans ]; do 
-  echo "⏳ Waiting for automatic setup..."; 
-  sleep 10; 
-done && echo "✅ Setup complete!"
-
-# Method C: Wait 4 minutes then verify
-echo "⏳ Waiting 4 minutes for automatic setup..."
-sleep 240
-
-# STEP 2: Verify setup completed successfully
-ls -la .cursor/plans/  # Should show symlink to root repo
-tail -10 .cursor/worktree-setup.log  # Should show "✅ Worktree setup complete!"
-uv run python -c "print('✅ Setup verified!')"
+bash .cursor/wait-for-setup.sh
 ```
 
-**⏱️ Expected timeline:**
-- Worktree created at T+0
-- Cursor queues setup: T+30s to T+3m
-- Setup runs (uv sync): ~30 seconds
-- Total: 1-4 minutes
+**This script will:**
+- ⏳ **Block until setup completes** (you cannot skip)
+- 📊 Show setup progress in real-time
+- ✅ Verify everything is ready
+- 🤖 Display your agent ID
 
-**Only if symlink missing after 5+ minutes:**
-```bash
-# Check Cursor's setup output first
-# View → Output → "Worktrees Setup" dropdown
+**DO NOT:**
+- ❌ Skip running `wait-for-setup.sh`
+- ❌ Try to work before script completes
+- ❌ Assume setup is instant
+- ❌ Manually run other setup scripts
 
-# Then manually run if needed
-bash .cursor/setup-worktree-unix.sh
+**The script handles everything - just run it and wait!**
+
+Expected output:
 ```
+=========================================
+⏳ Waiting for worktree setup to complete...
+=========================================
 
-**Note:** Cursor automatically runs `.cursor/setup-worktree-unix.sh`. Manual setup is rarely needed.
+This will take 1-4 minutes. Please be patient.
+
+⏳ Waiting for setup to start...
+✅ Setup started, waiting for completion...
+
+[... setup progress shown here ...]
+
+=========================================
+✅ Setup complete! Verifying...
+=========================================
+
+✅ Symlink: .cursor/plans exists
+✅ Agent ID: PdPfi
+✅ Virtual environment: .venv exists
+✅ Python: Working
+
+=========================================
+🎉 Worktree is ready! You can start working.
+=========================================
+
+Your agent ID: PdPfi
+
+Next steps:
+1. Read the plan: cat .cursor/plans/*.plan.md
+2. Claim a task using your agent ID: PdPfi
+3. Start implementing!
+```
 
 ### 8. Claim Task in Plan
 
