@@ -1,7 +1,16 @@
 #!/bin/bash
 set -e  # Exit on any error
 
+# Setup logging to file
+LOG_FILE=".cursor/worktree-setup.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "========================================="
 echo "🔧 Setting up worktree environment..."
+echo "Date: $(date)"
+echo "PWD: $(pwd)"
+echo "ROOT_WORKTREE_PATH: ${ROOT_WORKTREE_PATH:-'(not set)'}"
+echo "========================================="
 
 # Step 1: Sync dependencies
 echo "📦 Syncing dependencies with uv..."
@@ -46,4 +55,6 @@ else
 fi
 
 echo "✅ Worktree setup complete!"
+echo "========================================="
+echo ""
 
