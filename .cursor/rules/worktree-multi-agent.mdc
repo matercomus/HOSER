@@ -1,7 +1,6 @@
 ---
-alwaysApply: true
+alwaysApply: false
 ---
-
 # Worktree Multi-Agent Coordination Rules
 
 ## 🚨 CRITICAL: RUN SETUP BEFORE DOING ANYTHING 🚨

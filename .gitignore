@@ -32,6 +32,16 @@ hoser-distill-optuna-6/gene/
 hoser-distill-optuna-6/wandb/
 hoser-distill-optuna-6/*.log
 
+# Abnormal OD workflow outputs
+hoser-distill-optuna-6/abnormal/
+hoser-distill-optuna-6/abnormal_od_pairs_*.json
+hoser-distill-optuna-6/gene_abnormal/
+hoser-distill-optuna-6/eval_abnormal/
+*/abnormal/
+*/abnormal_od_pairs_*.json
+*/gene_abnormal/
+*/eval_abnormal/
+
 # Test directories for visualization experiments
 hoser-distill-optuna-6/figures/test_*/
 hoser-distill-optuna-6/figures/trajectories_final/
