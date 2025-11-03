@@ -1321,6 +1321,16 @@ class EvaluationPipeline:
         logger.info("🔍 Running abnormal detection...")
         self._run_abnormal_detection_analysis()
 
+    @phase("scenarios", critical=False)
+    def run_scenarios(self):
+        """Run scenario analysis"""
+        if not self.config.run_scenarios:
+            logger.info("Scenarios not configured, skipping")
+            return
+
+        logger.info("🎯 Running scenario analysis...")
+        self._run_scenario_analysis()
+
     def run(self):
         """Run the complete evaluation pipeline"""
         logger.info("Starting HOSER Distillation Evaluation Pipeline")
