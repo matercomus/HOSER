@@ -1,5 +1,7 @@
 ---
-alwaysApply: true
+description: Multi-agent git worktree workflow coordination
+globs: ["**/.cursor/plans/*.plan.md"]
+alwaysApply: false
 ---
 # Multi-Agent Git Worktree Workflow
 

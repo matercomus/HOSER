@@ -43,3 +43,11 @@ performance:
   batch_size: 32
   num_workers: 4
   pin_memory: false
+
+# Cross-dataset evaluation (optional)
+cross_dataset_eval: ../data/BJUT_Beijing  # Path to cross-dataset
+cross_dataset_name: BJUT_Beijing           # Name of cross-dataset
+
+# Abnormal trajectory detection (optional)
+run_abnormal_detection: true                      # Enable abnormal detection
+abnormal_config: config/abnormal_detection.yaml   # Path relative to eval_dir

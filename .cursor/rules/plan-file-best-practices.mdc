@@ -1,4 +1,6 @@
 ---
+description: Plan file structure and best practices for multi-agent coordination
+globs: ["**/.cursor/plans/*.plan.md"]
 alwaysApply: false
 ---
 # Plan File Best Practices

@@ -10,10 +10,13 @@ HOSER_paper.pdf
 HOSER_paper.txt
 EVAL_NOTES.md
 .cursor/*
-!.cursor/plans/
 !.cursor/rules/
 !.cursor/docs/
 !.cursor/worktrees.json
+!.cursor/setup-worktree-unix.sh
+!.cursor/fix-existing-worktrees.sh
+.cursor/*.log
+# Note: .cursor/plans/ is NOT tracked - it's symlinked in worktrees for multi-agent coordination
 *.pdf
 # Weights & Biases
 wandb/
@@ -27,8 +30,7 @@ optuna_results/
 hoser-distill-optuna-6/eval/
 hoser-distill-optuna-6/gene/
 hoser-distill-optuna-6/wandb/
-hoser-distill-optuna-6/pipeline.log
-hoser-distill-optuna-6/eval_test.log
+hoser-distill-optuna-6/*.log
 
 # Test directories for visualization experiments
 hoser-distill-optuna-6/figures/test_*/
