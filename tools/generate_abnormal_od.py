@@ -146,12 +146,12 @@ def generate_for_abnormal_od_pairs(
                 cuda_device=cuda_device,
             )
 
-            if result.get("status") == "success":
-                traj_count = result.get("trajectories_generated", 0)
+            if result.get("output_file"):
+                traj_count = result.get("num_generated", 0)
                 logger.info(f"  ✅ Generated {traj_count} trajectories")
-                logger.info(f"  💾 Saved to {output_file}")
+                logger.info(f"  💾 Saved to {result['output_file']}")
             else:
-                logger.error(f"  ❌ Generation failed: {result.get('message')}")
+                logger.error("  ❌ Generation failed: No output file produced")
 
         except Exception as e:
             logger.error(f"  ❌ Error generating with {model_name}: {e}")
