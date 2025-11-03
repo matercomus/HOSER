@@ -38,7 +38,7 @@ import signal
 import threading
 from functools import wraps
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Set
 import logging
 
 # Detect if we're running from inside an eval directory or from project root
@@ -114,6 +114,17 @@ class PipelineConfig:
         self.seed = 42
         self.models = []  # Auto-detect
         self.od_sources = ["train", "test"]
+
+        # NEW: Phase-based control (replaces skip_* flags)
+        self.phases: Set[str] = {
+            "generation",
+            "base_eval",
+            "cross_dataset",
+            "abnormal",
+            "scenarios",
+        }
+
+        # DEPRECATED: Keep for backward compatibility
         self.skip_gene = False
         self.skip_eval = False
         self.force = False
