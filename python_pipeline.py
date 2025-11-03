@@ -124,9 +124,7 @@ class PipelineConfig:
             "scenarios",
         }
 
-        # DEPRECATED: Keep for backward compatibility
-        self.skip_gene = False
-        self.skip_eval = False
+        # Other settings
         self.force = False
         self.enable_wandb = True
         self.verbose = False
@@ -1373,39 +1371,13 @@ class EvaluationPipeline:
         logger.info(f"OD sources: {self.config.od_sources}")
 
     def _normalize_phase_configuration(self) -> None:
-        """Ensure phase configuration is consistent and apply compatibility overrides."""
+        """Ensure phase configuration is consistent."""
         phases = getattr(self.config, "phases", set())
         if phases is None:
             phases = set()
 
         self.config.phases = set(phases)
-        self._apply_backward_compatibility_flags()
         logger.info(f"Enabled phases: {sorted(self.config.phases)}")
-
-    def _apply_backward_compatibility_flags(self) -> None:
-        """Map legacy skip flags onto the phase-based configuration."""
-        if getattr(self.config, "skip_gene", False):
-            self.config.phases.discard("generation")
-
-        if getattr(self.config, "skip_eval", False):
-            self.config.phases -= {
-                "base_eval",
-                "cross_dataset",
-                "abnormal",
-                "scenarios",
-            }
-
-        if getattr(self.config, "skip_base_eval", False):
-            self.config.phases.discard("base_eval")
-
-        if getattr(self.config, "skip_cross_dataset", False):
-            self.config.phases.discard("cross_dataset")
-
-        if getattr(self.config, "skip_abnormal", False):
-            self.config.phases.discard("abnormal")
-
-        if getattr(self.config, "skip_scenarios", False):
-            self.config.phases.discard("scenarios")
 
     def _ensure_models_loaded(self) -> None:
         """Populate model list if necessary before executing phases."""
@@ -1624,10 +1596,6 @@ def main():
         config.models = args.models.split(",")
     if args.od_source is not None:
         config.od_sources = args.od_source.split(",")
-    if args.skip_gene:
-        config.skip_gene = True
-    if args.skip_eval:
-        config.skip_eval = True
     if args.force:
         config.force = True
     if args.cuda is not None:
