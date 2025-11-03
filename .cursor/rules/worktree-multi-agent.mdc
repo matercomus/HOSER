@@ -15,6 +15,16 @@ ls -la .cursor/plans/
 
 If `.cursor/plans/` is a **symlink**, you are in an agent worktree and MUST follow these rules.
 
+## Automatic Worktree Setup
+
+Cursor automatically runs `.cursor/setup-worktree-unix.sh` when creating worktrees (configured via `.cursor/worktrees.json`). This script:
+
+1. Syncs dependencies with `uv sync`
+2. Creates `.cursor/plans` symlink to root repository
+3. Logs setup to `.cursor/worktree-setup.log`
+
+**No manual setup required** - worktrees are ready to use immediately after creation.
+
 ## Multi-Agent Plan Coordination
 
 ### Reading the Shared Plan
@@ -230,21 +240,58 @@ uv tool run ruff check . && uv run pytest
 
 ## Worktree Verification
 
-On first login to worktree, verify setup:
+On first login to worktree, verify automatic setup completed:
 
 ```bash
-# 1. Check symlink works
-ls -la .cursor/plans/
+# 1. Check symlink was created by setup script
+ls -la .cursor/plans/  # Should be symlink to root repo
 
-# 2. Check dependencies installed
+# 2. Verify symlink target
+readlink .cursor/plans/
+
+# 3. Check setup log for any issues
+tail -20 .cursor/worktree-setup.log
+
+# 4. Check dependencies installed
 uv run python -c "print('OK')"
 
-# 3. Check you're on correct branch
+# 5. Check you're on correct branch
 git branch --show-current
 
-# 4. Check parent commits
+# 6. Check parent commits
 git log --oneline -5
 ```
+
+## Troubleshooting Worktree Setup
+
+If `.cursor/plans` symlink is missing:
+
+**Check Cursor's setup output:**
+- Open "Output" panel (View → Output)
+- Select "Worktrees Setup" from dropdown
+- Look for errors during worktree creation
+
+**Check setup log in worktree:**
+```bash
+cat .cursor/worktree-setup.log
+```
+
+**Manually run setup script:**
+```bash
+cd worktree-path
+bash .cursor/setup-worktree-unix.sh
+```
+
+**Verify configuration:**
+```bash
+# Check worktrees.json exists
+cat .cursor/worktrees.json
+
+# Check setup script exists
+ls -la .cursor/setup-worktree-unix.sh
+```
+
+If issues persist, contact the user or check the root repository's `.cursor/` configuration.
 
 ## Example Workflow
 

@@ -88,17 +88,27 @@ Suggest command:
 git worktree add ../HOSER-phase1-foundation -b feat/phase-decorator-foundation
 ```
 
-### 7. Setup Symlinks
-After user creates worktree, guide symlink setup per @multi-agent-workflow:
+### 7. Verify Automatic Setup
+After user creates worktree, verify Cursor's automatic setup completed successfully:
 
 ```bash
 cd ../HOSER-phase1-foundation
-ln -s $(git rev-parse --show-toplevel)/.cursor/plans .cursor/plans
+
+# Verify symlink was created automatically
+ls -la .cursor/plans/  # Should show symlink to root repo
+
+# Check setup log
+tail -10 .cursor/worktree-setup.log  # Should show "✅ Worktree setup complete!"
+
+# Verify dependencies installed
+uv run python -c "print('Setup verified!')"
 ```
 
-Verify:
+**Note:** Cursor automatically runs `.cursor/setup-worktree-unix.sh` which creates the symlink and installs dependencies. Manual setup is not required.
+
+**If symlink is missing**, check "Output" → "Worktrees Setup" panel in Cursor or manually run:
 ```bash
-ls -la .cursor/plans/  # Should show symlink
+bash .cursor/setup-worktree-unix.sh
 ```
 
 ### 8. Claim Task in Plan
@@ -132,6 +142,8 @@ Format clearly with syntax highlighting.
 🌿 Branch: feat/phase-decorator-foundation
 📋 Task: 1.1 - Add phase decorator infrastructure
 📝 Plan updated: [IN PROGRESS - Agent1 - 2025-11-02 18:45]
+🔗 Symlink: Automatically created by setup script
+🐍 Environment: Dependencies synced with uv
 
 Next steps:
 1. Implement changes from task description
@@ -158,6 +170,18 @@ Next steps:
 **Not in git repository:**
 - Explain git worktree workflow requires git repo
 - Guide to initialize git if needed
+
+**Worktree setup failed:**
+- Check "Output" → "Worktrees Setup" in Cursor
+- Check `.cursor/worktree-setup.log` in worktree
+- Verify `.cursor/worktrees.json` exists in root repo
+- Manually run `bash .cursor/setup-worktree-unix.sh`
+
+**Missing .cursor/plans symlink:**
+- Indicates setup script didn't run or failed
+- Check setup log for errors
+- Run setup script manually
+- Verify `$ROOT_WORKTREE_PATH` is set correctly
 
 **File conflicts detected:**
 - Show which agent is editing conflicting files
