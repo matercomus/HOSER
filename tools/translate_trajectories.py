@@ -98,9 +98,15 @@ def translate_trajectory_file(
 
         translation_stats["trajectories_processed"] += 1
 
-        # Parse road ID sequence
+        # Parse road ID sequence (handle JSON array format)
         road_ids_str = str(row["gene_trace_road_id"][0])
-        road_ids = [int(r) for r in road_ids_str.split(",")]
+
+        # Check if it's a JSON array string
+        if road_ids_str.startswith("["):
+            road_ids = json.loads(road_ids_str)
+        else:
+            # Fallback: comma-separated string
+            road_ids = [int(r) for r in road_ids_str.split(",")]
 
         translation_stats["total_road_points"] += len(road_ids)
 
