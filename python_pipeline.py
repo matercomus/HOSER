@@ -1115,6 +1115,93 @@ class EvaluationPipeline:
         else:
             return "unknown"
 
+    @phase("generation", critical=True)
+    def run_generation(self):
+        """Generate trajectories for all models"""
+        logger.info("🔄 Generating trajectories...")
+
+        for model_type in self.config.models:
+            try:
+                model_file = self.detector.find_model_file(model_type)
+                if not model_file:
+                    error_msg = f"Model file not found for type: {model_type}"
+                    logger.error(error_msg)
+                    continue
+
+                logger.info(f"Processing model: {model_type} ({model_file.name})")
+
+                for od_source in self.config.od_sources:
+                    # Check for interruption
+                    if self.interrupted:
+                        logger.info("Pipeline interrupted by user")
+                        raise KeyboardInterrupt()
+
+                    # Check for existing results
+                    existing_file = self._check_existing_results(model_type, od_source)
+
+                    # Generation logic
+                    try:
+                        if existing_file:
+                            generated_file = existing_file
+                            logger.info(
+                                f"Using existing generated file: {generated_file}"
+                            )
+                        else:
+                            generated_file, generation_performance = (
+                                self.generator.generate_trajectories(
+                                    model_file, model_type, od_source
+                                )
+                            )
+
+                            # Log to WandB
+                            if self.config.enable_wandb:
+                                run_name = f"gene_{model_type}_seed{self.config.seed}_{od_source}od"
+                                tags = [
+                                    model_type,
+                                    f"seed{self.config.seed}",
+                                    f"{od_source}_od",
+                                    "generation",
+                                    "beam4",
+                                ]
+                                config_dict = {
+                                    "dataset": self.config.dataset,
+                                    "seed": self.config.seed,
+                                    "num_gene": self.config.num_gene,
+                                    "model_type": model_type,
+                                    "od_source": od_source,
+                                    "beam_width": self.config.beam_width,
+                                }
+
+                                self.wandb_manager.init_run(run_name, tags, config_dict)
+
+                                # Log generation metrics including performance
+                                log_data = {
+                                    "num_trajectories_generated": self.config.num_gene,
+                                    "output_file": str(generated_file),
+                                }
+                                if generation_performance:
+                                    # Add performance metrics with 'perf/' prefix
+                                    perf_log = {
+                                        f"perf/{k}": v
+                                        for k, v in generation_performance.items()
+                                        if isinstance(v, (int, float))
+                                    }
+                                    log_data.update(perf_log)
+
+                                self.wandb_manager.log_metrics(run_name, log_data)
+                                self.wandb_manager.finish_run(run_name)
+
+                    except Exception as e:
+                        self._handle_error(e, "generation", model_type, od_source)
+                        logger.error(
+                            f"Generation failed for {model_type} ({od_source} OD): {str(e)}"
+                        )
+                        continue
+
+            except Exception as e:
+                logger.error(f"Error processing model {model_type}: {str(e)}")
+                continue
+
     @phase("base_eval", critical=True)
     def run_base_eval(self):
         """Evaluate on base dataset (Beijing)"""
@@ -1222,7 +1309,6 @@ class EvaluationPipeline:
             for op in failed_operations:
                 logger.warning(f"  - {op}")
 
-        logger.info("✅ Base dataset evaluation complete!")
         return results_summary
 
     def run(self):
