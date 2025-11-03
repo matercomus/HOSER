@@ -4,6 +4,10 @@
 
 Initialize a git worktree agent and claim a task from a plan file following multi-agent workflow best practices.
 
+## 🚨 CRITICAL: You MUST wait 1-4 minutes after creating worktree for setup to complete! 🚨
+
+**DO NOT skip this step!** See Step 7 below for waiting instructions.
+
 ## Workflow
 
 ### 1. Identify and Read Plan
@@ -88,9 +92,19 @@ Suggest command:
 git worktree add ../HOSER-phase1-foundation -b feat/phase-decorator-foundation
 ```
 
-### 7. Wait for Automatic Setup (1-4 Minutes)
+### 7. 🚨 MANDATORY: Wait for Automatic Setup (1-4 Minutes) 🚨
 
-**CRITICAL**: After creating worktree, **WAIT** for Cursor's automatic setup to complete.
+**YOU MUST NOT SKIP THIS STEP!** 
+
+After creating worktree, **STOP and WAIT** for Cursor's automatic setup to complete.
+
+**DO NOT:**
+- ❌ Try to access `.cursor/plans/` immediately
+- ❌ Try to read plan files before setup completes
+- ❌ Start implementing code before verifying setup
+- ❌ Assume setup is instant
+
+**YOU MUST WAIT** using one of these methods:
 
 ```bash
 cd ../HOSER-phase1-foundation

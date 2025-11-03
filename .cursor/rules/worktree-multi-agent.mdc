@@ -4,6 +4,50 @@ alwaysApply: true
 
 # Worktree Multi-Agent Coordination Rules
 
+## 🚨 CRITICAL: WAIT FOR SETUP BEFORE DOING ANYTHING 🚨
+
+**IF YOU JUST CREATED A WORKTREE, YOU MUST WAIT 1-4 MINUTES FOR AUTOMATIC SETUP TO COMPLETE!**
+
+### MANDATORY WAITING PROCEDURE
+
+After creating a worktree, **DO NOT START WORK** until setup completes. Choose one method:
+
+**Method 1: Watch setup log (RECOMMENDED)**
+```bash
+cd your-worktree
+tail -f .cursor/worktree-setup.log
+# Wait for "✅ Worktree setup complete!" then press Ctrl+C
+```
+
+**Method 2: Poll for symlink**
+```bash
+while [ ! -L .cursor/plans ]; do 
+  echo "⏳ Waiting for setup..."; 
+  sleep 10; 
+done && echo "✅ Ready to work!"
+```
+
+**Method 3: Wait fixed time**
+```bash
+sleep 240  # Wait 4 minutes
+```
+
+### Verify Setup Complete BEFORE Starting Work
+
+```bash
+# ALL of these MUST succeed before you start:
+ls -la .cursor/plans/              # Must show symlink (not directory)
+cat .cursor/worktree-agent-id      # Must show your agent ID
+tail -5 .cursor/worktree-setup.log # Must show "✅ Worktree setup complete!"
+```
+
+**If setup hasn't completed after 5 minutes, ONLY THEN run manually:**
+```bash
+bash .cursor/setup-worktree-unix.sh
+```
+
+---
+
 ## Critical: Worktree Environment Detection
 
 Before doing ANY work, check if you're in a worktree:
@@ -15,21 +59,16 @@ ls -la .cursor/plans/
 
 If `.cursor/plans/` is a **symlink**, you are in an agent worktree and MUST follow these rules.
 
-## Automatic Worktree Setup
+## Why Setup Takes Time
 
-Cursor automatically runs `.cursor/setup-worktree-unix.sh` when creating worktrees (configured via `.cursor/worktrees.json`). This script:
+Cursor automatically runs `.cursor/setup-worktree-unix.sh` when creating worktrees. This script:
 
-1. Syncs dependencies with `uv sync`
+1. Syncs dependencies with `uv sync` (~30 seconds)
 2. Creates `.cursor/plans` symlink to root repository
-3. Logs setup to `.cursor/worktree-setup.log`
+3. Assigns unique agent ID
+4. Logs everything to `.cursor/worktree-setup.log`
 
-**⏱️ Important: Setup delay is 1-4 minutes after worktree creation**
-
-- Cursor queues setup execution (not immediate)
-- Check `.cursor/worktree-setup.log` to verify completion
-- If symlink is missing after 5 minutes, run setup manually
-
-**No manual setup required** - but allow time for automatic setup to complete.
+**Timeline:** Cursor queues setup T+30s to T+3m after creation, then script runs ~30s = Total 1-4 minutes
 
 ## Multi-Agent Plan Coordination
 
