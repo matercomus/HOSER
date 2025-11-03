@@ -45,15 +45,20 @@ logger = logging.getLogger(__name__)
 
 
 def run_abnormal_analysis(
-    real_file: Path, dataset: str, config_path: Path, output_dir: Path
+    real_file: Path,
+    dataset: str,
+    config_path: Path,
+    output_dir: Path,
+    is_real_data: bool = True,
 ) -> Dict[str, Any]:
-    """Run abnormal trajectory analysis on real data.
+    """Run abnormal trajectory analysis on trajectory data.
 
     Args:
-        real_file: Path to real trajectory CSV file
+        real_file: Path to trajectory CSV file (real or generated)
         dataset: Dataset name (used to locate road network files)
         config_path: Path to abnormal detection configuration YAML
         output_dir: Directory to save results
+        is_real_data: True for real data format, False for generated data format
 
     Returns:
         Dictionary with detection results and statistics
@@ -98,11 +103,12 @@ def run_abnormal_analysis(
     if not real_file.exists():
         raise FileNotFoundError(f"Real trajectory file not found: {real_file}")
 
-    logger.info("📂 Loading real trajectories...")
+    data_type = "real" if is_real_data else "generated"
+    logger.info(f"📂 Loading {data_type} trajectories...")
     # Get max road_id from geo_df for validation
     max_road_id = geo_df["road_id"].max()
     trajectories = load_trajectories(
-        str(real_file), is_real_data=True, max_road_id=max_road_id
+        str(real_file), is_real_data=is_real_data, max_road_id=max_road_id
     )
 
     logger.info(f"✅ Loaded {len(trajectories)} trajectories")

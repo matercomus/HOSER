@@ -1118,6 +1118,7 @@ class EvaluationPipeline:
                             dataset=dataset_name,
                             config_path=config_path,
                             output_dir=detection_output_gen,
+                            is_real_data=False,  # Generated data format
                         )
 
                         gen_abnormal_count = sum(
@@ -1690,6 +1691,7 @@ class EvaluationPipeline:
                     dataset=self.config.dataset,
                     config_path=Path("config/abnormal_detection.yaml"),
                     output_dir=detection_output,
+                    is_real_data=False,  # Analyzing generated abnormal OD data
                 )
 
                 # Calculate rates

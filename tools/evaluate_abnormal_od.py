@@ -94,6 +94,7 @@ def evaluate_abnormal_od_trajectories(
                 dataset=dataset,
                 config_path=Path("config/abnormal_detection.yaml"),
                 output_dir=detection_output,
+                is_real_data=False,  # Analyzing generated data
             )
 
             # Calculate abnormality rates by category
