@@ -1587,7 +1587,7 @@ def main():
     if args.skip_gene:
         config.phases.discard("generation")
     if args.skip_eval:
-        config.phases -= {"base_eval", "cross_dataset", "abnormal"}
+        config.phases -= {"base_eval", "cross_dataset", "abnormal", "scenarios"}
 
     # Override with command line arguments if provided
     if args.seed is not None:
