@@ -1115,6 +1115,116 @@ class EvaluationPipeline:
         else:
             return "unknown"
 
+    @phase("base_eval", critical=True)
+    def run_base_eval(self):
+        """Evaluate on base dataset (Beijing)"""
+        logger.info("📊 Evaluating on base dataset...")
+
+        results_summary = {}
+        failed_operations = []
+
+        for model_type in self.config.models:
+            for od_source in self.config.od_sources:
+                # Check for interruption
+                if self.interrupted:
+                    logger.info("Pipeline interrupted by user")
+                    raise KeyboardInterrupt()
+
+                logger.info(f"Evaluating {model_type} ({od_source} OD)")
+
+                # Find generated file
+                gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
+
+                # Try new naming pattern first: {timestamp}_{model_type}_{od_source}.csv
+                pattern = f"*_{model_type}_{od_source}.csv"
+                generated_files = list(gene_dir.glob(pattern))
+
+                if not generated_files:
+                    # Fallback: try old timestamp-only pattern for backward compatibility
+                    generated_files = list(gene_dir.glob("*.csv"))
+                    if not generated_files:
+                        error_msg = f"No existing generated file found for {model_type} ({od_source} OD)"
+                        logger.error(error_msg)
+                        failed_operations.append(error_msg)
+                        continue
+                    # Use latest if multiple matches
+                    generated_file = max(
+                        generated_files, key=lambda x: x.stat().st_mtime
+                    )
+                    logger.warning(
+                        f"Using legacy filename format: {generated_file.name}"
+                    )
+                else:
+                    # Use most recent file matching pattern
+                    generated_file = max(
+                        generated_files, key=lambda x: x.stat().st_mtime
+                    )
+                    logger.info(f"Found existing file: {generated_file.name}")
+
+                # Evaluation phase
+                try:
+                    eval_results = self.evaluator.evaluate_trajectories(
+                        generated_file,
+                        model_type,
+                        od_source,
+                        None,  # generation_performance not available in standalone eval
+                    )
+
+                    # Log to WandB
+                    if self.config.enable_wandb:
+                        run_name = (
+                            f"eval_{model_type}_seed{self.config.seed}_{od_source}od"
+                        )
+                        tags = [
+                            model_type,
+                            f"seed{self.config.seed}",
+                            f"{od_source}_od",
+                            "evaluation",
+                        ]
+                        config_dict = {
+                            "dataset": self.config.dataset,
+                            "seed": self.config.seed,
+                            "model_type": model_type,
+                            "od_source": od_source,
+                            "generated_file": str(generated_file),
+                        }
+
+                        self.wandb_manager.init_run(run_name, tags, config_dict)
+                        self.wandb_manager.log_metrics(run_name, eval_results)
+                        self.wandb_manager.finish_run(run_name)
+
+                    # Store results for summary
+                    key = f"{model_type}_{od_source}"
+                    results_summary[key] = {
+                        "generated_file": str(generated_file),
+                        "metrics": eval_results,
+                    }
+
+                    logger.info(
+                        f"✅ Evaluation complete for {model_type} ({od_source} OD)"
+                    )
+
+                except Exception as e:
+                    self._handle_error(e, "evaluation", model_type, od_source)
+                    failed_operations.append(
+                        f"Evaluation failed for {model_type} ({od_source} OD): {str(e)}"
+                    )
+                    continue
+
+        # Log summary
+        if results_summary:
+            logger.info("\n=== Base Dataset Evaluation Results ===")
+            for key, result in results_summary.items():
+                logger.info(f"{key}: {result['metrics']}")
+
+        if failed_operations:
+            logger.warning(f"\n⚠️  {len(failed_operations)} operations failed:")
+            for op in failed_operations:
+                logger.warning(f"  - {op}")
+
+        logger.info("✅ Base dataset evaluation complete!")
+        return results_summary
+
     def run(self):
         """Run the complete evaluation pipeline"""
         logger.info("Starting HOSER Distillation Evaluation Pipeline")
