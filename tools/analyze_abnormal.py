@@ -44,16 +44,47 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def ensure_json_serializable(obj):
+    """Recursively convert object to JSON-serializable types
+
+    Handles numpy types, booleans, and nested structures.
+    """
+    import numpy as np
+
+    if isinstance(obj, dict):
+        return {k: ensure_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [ensure_json_serializable(item) for item in obj]
+    elif isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    elif isinstance(obj, (np.integer, int)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, float)):
+        return float(obj)
+    elif isinstance(obj, str):
+        return obj
+    elif obj is None:
+        return None
+    else:
+        # Last resort: convert to string
+        return str(obj)
+
+
 def run_abnormal_analysis(
-    real_file: Path, dataset: str, config_path: Path, output_dir: Path
+    real_file: Path,
+    dataset: str,
+    config_path: Path,
+    output_dir: Path,
+    is_real_data: bool = True,
 ) -> Dict[str, Any]:
-    """Run abnormal trajectory analysis on real data.
+    """Run abnormal trajectory analysis on trajectory data.
 
     Args:
-        real_file: Path to real trajectory CSV file
+        real_file: Path to trajectory CSV file (real or generated)
         dataset: Dataset name (used to locate road network files)
         config_path: Path to abnormal detection configuration YAML
         output_dir: Directory to save results
+        is_real_data: True for real data format, False for generated data format
 
     Returns:
         Dictionary with detection results and statistics
@@ -98,11 +129,12 @@ def run_abnormal_analysis(
     if not real_file.exists():
         raise FileNotFoundError(f"Real trajectory file not found: {real_file}")
 
-    logger.info("📂 Loading real trajectories...")
+    data_type = "real" if is_real_data else "generated"
+    logger.info(f"📂 Loading {data_type} trajectories...")
     # Get max road_id from geo_df for validation
     max_road_id = geo_df["road_id"].max()
     trajectories = load_trajectories(
-        str(real_file), is_real_data=True, max_road_id=max_road_id
+        str(real_file), is_real_data=is_real_data, max_road_id=max_road_id
     )
 
     logger.info(f"✅ Loaded {len(trajectories)} trajectories")
@@ -144,13 +176,13 @@ def run_abnormal_analysis(
             },
             "statistics": results["statistics"],
         }
-        json.dump(json_results, f, indent=2)
+        json.dump(ensure_json_serializable(json_results), f, indent=2)
     logger.info(f"✅ Saved detection results to {results_file}")
 
     # Save statistics summary
     stats_file = output_dir / "statistics_by_category.json"
     with open(stats_file, "w") as f:
-        json.dump(results["statistics"], f, indent=2)
+        json.dump(ensure_json_serializable(results["statistics"]), f, indent=2)
     logger.info(f"✅ Saved statistics to {stats_file}")
 
     # Save trajectory samples if enabled
@@ -180,7 +212,7 @@ def run_abnormal_analysis(
             # Save samples for this category
             sample_file = samples_dir / f"{category}_samples.json"
             with open(sample_file, "w") as f:
-                json.dump(category_samples, f, indent=2)
+                json.dump(ensure_json_serializable(category_samples), f, indent=2)
 
             logger.info(
                 f"  ✅ Saved {len(category_samples)} {category} samples to {sample_file}"

@@ -1,0 +1,46 @@
+# Abnormal Trajectory Detection Configuration - Porto
+# Sensitive thresholds optimized for Porto dataset
+
+dataset: porto_hoser
+
+# Detection method configuration
+detection:
+  method: "z_score"
+  threshold: 2.0
+
+# Category-specific detection parameters
+categories:
+  # Speeding detection
+  speeding:
+    enabled: true
+    speed_limit_kmh: 50      # Porto urban speed limit
+    percentile_threshold: 85  # Top 15%
+
+  # Detour detection
+  detour:
+    enabled: true
+    detour_ratio_threshold: 1.3
+    min_trip_length_km: 1.0
+
+  # Suspicious stops detection
+  suspicious_stops:
+    enabled: true
+    min_stop_duration_sec: 120  # 2 minutes
+    max_stop_count: 3
+
+  # Unusual duration detection
+  unusual_duration:
+    enabled: true
+    duration_ratio_threshold: 1.5
+
+  # Circuitous routes
+  circuitous:
+    enabled: true
+    straightness_threshold: 0.6
+
+# Analysis and output configuration
+analysis:
+  min_samples_per_category: 5
+  save_trajectory_samples: true
+  max_samples_per_category: 50
+

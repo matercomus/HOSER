@@ -36,8 +36,9 @@ import sys
 import argparse
 import signal
 import threading
+from functools import wraps
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable, Set
 import logging
 
 # Detect if we're running from inside an eval directory or from project root
@@ -73,6 +74,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# Phase Decorator Infrastructure
+# Phase registry - auto-populated by decorator
+PHASE_REGISTRY: Dict[str, Callable] = {}
+
+
+def phase(name: str, critical: bool = False):
+    """Decorator to register a pipeline phase
+
+    Args:
+        name: Phase identifier (used in CLI)
+        critical: If True, pipeline stops on failure
+    """
+
+    def decorator(func):
+        PHASE_REGISTRY[name] = {"func": func, "critical": critical, "name": name}
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 class PipelineConfig:
     """Configuration for the evaluation pipeline"""
 
@@ -88,8 +114,21 @@ class PipelineConfig:
         self.seed = 42
         self.models = []  # Auto-detect
         self.od_sources = ["train", "test"]
-        self.skip_gene = False
-        self.skip_eval = False
+
+        # NEW: Phase-based control (replaces skip_* flags)
+        self.phases: Set[str] = {
+            "generation",
+            "base_eval",
+            "cross_dataset",
+            "road_network_translate",
+            "abnormal",
+            "abnormal_od_extract",
+            "abnormal_od_generate",
+            "abnormal_od_evaluate",
+            "scenarios",
+        }
+
+        # Other settings
         self.force = False
         self.enable_wandb = True
         self.verbose = False
@@ -127,6 +166,9 @@ class PipelineConfig:
             elif key == "logging":
                 logging_config = value
                 self.verbose = logging_config.get("verbose", self.verbose)
+            elif key == "phases":
+                # Ensure phases is always a set (YAML may load as list)
+                self.phases = set(value) if isinstance(value, (list, set)) else value
             elif hasattr(self, key):
                 setattr(self, key, value)
 
@@ -136,6 +178,27 @@ class ModelDetector:
 
     def __init__(self, models_dir: Path):
         self.models_dir = models_dir
+
+    @staticmethod
+    def _extract_model_type_from_filename(filename: str) -> str:
+        """Robust model type extraction supporting multiple naming patterns"""
+        stem = filename.replace(".pth", "")
+
+        # Pattern 1: _25epoch_seed (old naming convention)
+        if "_25epoch_seed" in stem:
+            base = stem.split("_25epoch_seed")[0]
+            seed = stem.split("_seed")[-1]
+            return base if seed == "42" else f"{base}_seed{seed}"
+
+        # Pattern 2: _phase{N}_seed (new phase-based naming)
+        elif "_phase" in stem and "_seed" in stem:
+            base_with_phase = stem.split("_seed")[0]
+            seed = stem.split("_seed")[1]
+            return base_with_phase if seed == "42" else f"{base_with_phase}_seed{seed}"
+
+        # Pattern 3: Fallback for simple names
+        else:
+            return stem.split("_")[0]
 
     def detect_models(self) -> List[str]:
         """Detect all available models and return unique model types"""
@@ -148,25 +211,7 @@ class ModelDetector:
 
         model_types = []
         for model_file in model_files:
-            model_name = model_file.stem
-            # Extract model type (handle naming patterns)
-            if "_25epoch_seed" in model_name:
-                # Pattern: vanilla_25epoch_seed42 -> vanilla
-                # Pattern: distilled_25epoch_seed44 -> distilled_seed44
-                # Pattern: vanilla_25epoch_seed43 -> vanilla_seed43
-                base_model = model_name.split("_25epoch_seed")[0]
-                seed = model_name.split("_seed")[-1]
-
-                # For seed 42, use base name only (vanilla, distill)
-                # For other seeds, append seed to make unique (vanilla_seed43, distill_seed44)
-                if seed == "42":
-                    model_type = base_model
-                else:
-                    model_type = f"{base_model}_seed{seed}"
-            else:
-                # Fallback: remove everything after first underscore
-                model_type = model_name.split("_")[0]
-
+            model_type = self._extract_model_type_from_filename(model_file.name)
             model_types.append(model_type)
 
         # Remove duplicates and sort
@@ -177,21 +222,7 @@ class ModelDetector:
     def find_model_file(self, model_type: str) -> Optional[Path]:
         """Find the actual model file for a given model type"""
         for model_file in self.models_dir.glob("*.pth"):
-            model_name = model_file.stem
-
-            # Extract model type using same logic as detect_models
-            if "_25epoch_seed" in model_name:
-                base_model = model_name.split("_25epoch_seed")[0]
-                seed = model_name.split("_seed")[-1]
-
-                # For seed 42, use base name only
-                # For other seeds, append seed to make unique
-                if seed == "42":
-                    extracted_type = base_model
-                else:
-                    extracted_type = f"{base_model}_seed{seed}"
-            else:
-                extracted_type = model_name.split("_")[0]
+            extracted_type = self._extract_model_type_from_filename(model_file.name)
 
             if extracted_type == model_type:
                 return model_file
@@ -919,7 +950,6 @@ class EvaluationPipeline:
 
     def _run_abnormal_detection_analysis(self):
         """Run abnormal trajectory detection and model performance analysis"""
-        from tools.analyze_abnormal import run_abnormal_analysis
 
         logger.info("\n🔍 Starting abnormal trajectory detection analysis...")
 
@@ -938,124 +968,282 @@ class EvaluationPipeline:
             logger.error(f"Abnormal detection config not found: {abnormal_config}")
             return
 
-        # Determine which dataset to analyze
-        # If cross_dataset_eval is configured, analyze the cross-dataset
-        # Otherwise analyze the main dataset
+        # Analyze BOTH datasets: main evaluation dataset AND cross-dataset
+        datasets_to_analyze = []
+
+        # Always analyze the main evaluation dataset (Beijing/HOSER)
+        main_data_dir = self.eval_dir.parent / "data" / self.config.dataset
+        if main_data_dir.exists():
+            datasets_to_analyze.append(
+                {
+                    "name": self.config.dataset,
+                    "data_dir": main_data_dir,
+                    "is_main": True,
+                }
+            )
+
+        # Also analyze cross-dataset if configured (BJUT_Beijing)
         if self.config.cross_dataset_eval and self.config.cross_dataset_name:
-            analysis_dataset = self.config.cross_dataset_name
-            data_dir = Path(self.config.cross_dataset_eval)
-            if not data_dir.is_absolute():
-                data_dir = self.eval_dir / data_dir
-        else:
-            analysis_dataset = self.config.dataset
-            data_dir = self.eval_dir.parent / "data" / self.config.dataset
+            cross_data_dir = Path(self.config.cross_dataset_eval)
+            if not cross_data_dir.is_absolute():
+                cross_data_dir = self.eval_dir / cross_data_dir
 
-        logger.info(f"Analyzing dataset: {analysis_dataset}")
+            if cross_data_dir.exists():
+                datasets_to_analyze.append(
+                    {
+                        "name": self.config.cross_dataset_name,
+                        "data_dir": cross_data_dir,
+                        "is_main": False,
+                    }
+                )
 
-        # Output directory for abnormal analysis
-        abnormal_output = Path("./abnormal") / analysis_dataset
+        if not datasets_to_analyze:
+            logger.error("No datasets found for abnormal analysis")
+            return
 
-        # Step 1: Run abnormal detection on real data
-        logger.info("\n🔍 Step 1: Detecting abnormal trajectories in real data...")
+        logger.info(
+            f"Will analyze {len(datasets_to_analyze)} dataset(s): {[d['name'] for d in datasets_to_analyze]}"
+        )
+
+        # Analyze each dataset
+        for dataset_info in datasets_to_analyze:
+            analysis_dataset = dataset_info["name"]
+            data_dir = dataset_info["data_dir"]
+            is_main = dataset_info["is_main"]
+
+            logger.info(f"\n{'=' * 70}")
+            logger.info(
+                f"📊 Analyzing dataset: {analysis_dataset} ({'main' if is_main else 'cross-dataset'})"
+            )
+            logger.info(f"{'=' * 70}")
+
+            # Output directory for abnormal analysis
+            abnormal_output = Path("./abnormal") / analysis_dataset
+
+            # Step 1: Run abnormal detection on real data
+            logger.info("\n🔍 Step 1: Detecting abnormal trajectories in real data...")
+            self._analyze_dataset_abnormalities(
+                analysis_dataset, data_dir, abnormal_config, abnormal_output
+            )
+
+    def _get_generated_file_for_analysis(
+        self, model_type: str, od_source: str, analysis_dataset: str
+    ) -> Optional[Path]:
+        """Get appropriate generated file (translated if cross-dataset, original otherwise)
+
+        Args:
+            model_type: Model type identifier
+            od_source: train or test
+            analysis_dataset: Dataset being analyzed (Beijing, BJUT_Beijing, Porto, etc.)
+
+        Returns:
+            Path to generated file, or None if not found
+        """
+        # Determine if this is cross-dataset analysis
+        is_cross_dataset = analysis_dataset != self.config.dataset
+
+        if is_cross_dataset:
+            # Check for translated files
+            translated_dir = Path(
+                f"./gene_translated/{analysis_dataset}/seed{self.config.seed}"
+            )
+
+            if translated_dir.exists():
+                translated_files = list(
+                    translated_dir.glob(f"*{model_type}*{od_source}*.csv")
+                )
+                if translated_files:
+                    logger.info(
+                        f"      ✅ Using translated file for cross-dataset: {translated_files[0].name}"
+                    )
+                    return translated_files[0]
+                else:
+                    logger.warning(
+                        f"      ⚠️  No translated file for {model_type}/{od_source}. "
+                        f"Run 'road_network_translate' phase first!"
+                    )
+                    return None
+            else:
+                logger.warning(
+                    f"      ⚠️  Translated directory not found: {translated_dir}. "
+                    f"Cross-dataset analysis will use original files (may cause ID mismatch!)"
+                )
+                # Fall through to original files with warning
+
+        # Same-dataset analysis OR fallback: use original generated files
+        gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
+        if not gene_dir.exists():
+            logger.error(f"      ❌ Gene directory not found: {gene_dir}")
+            return None
+
+        generated_files = list(gene_dir.glob(f"*{model_type}*{od_source}*.csv"))
+        if not generated_files:
+            logger.warning(f"      ⚠️  No generated file for {model_type}/{od_source}")
+            return None
+
+        if not is_cross_dataset:
+            logger.debug(
+                f"      Using original file (same dataset): {generated_files[0].name}"
+            )
+
+        return generated_files[0]
+
+    def _analyze_dataset_abnormalities(
+        self, dataset_name: str, data_dir: Path, config_path: Path, output_dir: Path
+    ):
+        """Analyze abnormal trajectories for a single dataset (real + generated)"""
+        from tools.analyze_abnormal import run_abnormal_analysis
+
+        import json
+        from datetime import datetime
+
+        # Step 1: Detect abnormal trajectories in real data
         for od_source in self.config.od_sources:
             real_file = data_dir / f"{od_source}.csv"
             if not real_file.exists():
                 logger.warning(f"Real data file not found: {real_file}, skipping")
                 continue
 
-            detection_output = abnormal_output / od_source / "detection"
-            logger.info(f"  Processing {od_source} data...")
+            logger.info(f"\n  📂 Processing {od_source} data...")
+
+            # 1A: Run detection on real data
+            detection_output_real = output_dir / od_source / "real_data"
+            logger.info("    🔍 Detecting abnormal trajectories in REAL data...")
 
             try:
-                detection_results = run_abnormal_analysis(
+                real_results = run_abnormal_analysis(
                     real_file=real_file,
-                    dataset=analysis_dataset,
-                    config_path=abnormal_config,
-                    output_dir=detection_output,
+                    dataset=dataset_name,
+                    config_path=config_path,
+                    output_dir=detection_output_real,
+                )
+
+                real_abnormal_count = sum(
+                    len(indices)
+                    for indices in real_results.get("abnormal_indices", {}).values()
+                )
+                real_total = real_results.get("total_trajectories", 0)
+                real_rate = (
+                    (real_abnormal_count / real_total * 100) if real_total > 0 else 0
                 )
 
                 logger.info(
-                    f"  ✅ Detection complete: {len(detection_results.get('abnormal_indices', {}))} abnormal categories found"
+                    f"    ✅ Real data: {real_abnormal_count}/{real_total} ({real_rate:.2f}%) abnormal"
                 )
 
-                # Step 2: Evaluate models on abnormal trajectories
+                # Step 2: Detect abnormal trajectories in GENERATED data
                 logger.info(
-                    f"\n📈 Step 2: Evaluating models on abnormal trajectories ({od_source})..."
+                    "\n    🤖 Detecting abnormal trajectories in GENERATED data..."
                 )
 
-                # Get abnormal trajectory indices by category
-                abnormal_indices = detection_results.get("abnormal_indices", {})
-                all_abnormal_traj_ids = set()
-                for category, indices in abnormal_indices.items():
-                    all_abnormal_traj_ids.update(indices)
+                # Store results for comparison
+                model_results = {}
 
-                if not all_abnormal_traj_ids:
-                    logger.info(
-                        "  No abnormal trajectories found, skipping model evaluation"
+                for model_type in self.config.models:
+                    # Get appropriate file (translated for cross-dataset, original otherwise)
+                    generated_file = self._get_generated_file_for_analysis(
+                        model_type=model_type,
+                        od_source=od_source,
+                        analysis_dataset=dataset_name,
                     )
-                    continue
 
-                logger.info(
-                    f"  Found {len(all_abnormal_traj_ids)} total abnormal trajectories"
-                )
-
-                # Evaluate each model on abnormal trajectories
-                for model_file in self.models_dir.iterdir():
-                    if not model_file.suffix == ".pth":
+                    if not generated_file:
+                        # Helper already logged appropriate warning
                         continue
 
-                    model_type = self._extract_model_from_filename(model_file.name)
-                    logger.info(f"    Evaluating {model_type}...")
+                    logger.info(f"      Analyzing {model_type}...")
 
-                    # Find the generated trajectories for this model
-                    gene_dir = Path(
-                        f"./gene/{self.config.dataset}/seed{self.config.seed}"
+                    # Run detection on generated trajectories
+                    detection_output_gen = (
+                        output_dir / od_source / "generated" / model_type
                     )
-                    if not gene_dir.exists():
-                        logger.warning(f"    Gene directory not found: {gene_dir}")
-                        continue
 
-                    # Find generated file for this model and OD source
-                    generated_files = list(
-                        gene_dir.glob(f"*{model_type}*{od_source}*.csv")
-                    )
-                    if not generated_files:
-                        logger.warning(
-                            f"    No generated files found for {model_type} {od_source}"
+                    try:
+                        gen_results = run_abnormal_analysis(
+                            real_file=generated_file,
+                            dataset=dataset_name,
+                            config_path=config_path,
+                            output_dir=detection_output_gen,
+                            is_real_data=False,  # Generated data format
+                        )
+
+                        gen_abnormal_count = sum(
+                            len(indices)
+                            for indices in gen_results.get(
+                                "abnormal_indices", {}
+                            ).values()
+                        )
+                        gen_total = gen_results.get("total_trajectories", 0)
+                        gen_rate = (
+                            (gen_abnormal_count / gen_total * 100)
+                            if gen_total > 0
+                            else 0
+                        )
+
+                        logger.info(
+                            f"        Generated: {gen_abnormal_count}/{gen_total} ({gen_rate:.2f}%) abnormal"
+                        )
+
+                        # Store for comparison
+                        model_results[model_type] = {
+                            "abnormal_count": gen_abnormal_count,
+                            "total_trajectories": gen_total,
+                            "abnormal_rate": gen_rate,
+                            "abnormal_by_category": {
+                                cat: len(indices)
+                                for cat, indices in gen_results.get(
+                                    "abnormal_indices", {}
+                                ).items()
+                            },
+                        }
+
+                    except Exception as e:
+                        logger.error(
+                            f"        ❌ Detection failed for {model_type}: {e}"
                         )
                         continue
 
-                    generated_file = generated_files[0]
+                # Step 3: Compare and report
+                logger.info(f"\n    📊 Comparison Report ({od_source}):")
+                logger.info(f"    {'=' * 60}")
+                logger.info(
+                    f"    Real data:   {real_abnormal_count}/{real_total} ({real_rate:.2f}%)"
+                )
 
-                    # Calculate metrics for abnormal trajectories
-                    # Note: This is a simplified version - full implementation would
-                    # filter to abnormal OD pairs and compute metrics
-                    model_output = (
-                        abnormal_output / od_source / "model_performance" / model_type
+                for model_type, results in model_results.items():
+                    diff = results["abnormal_rate"] - real_rate
+                    symbol = "⚠️ " if diff > 5 else "✅"
+                    logger.info(
+                        f"    {symbol} {model_type:12s}: {results['abnormal_count']}/{results['total_trajectories']} "
+                        f"({results['abnormal_rate']:.2f}%, {diff:+.2f}% vs real)"
                     )
-                    model_output.mkdir(parents=True, exist_ok=True)
 
-                    # Save model evaluation metadata
-                    import json
-                    from datetime import datetime
+                # Save comparison report
+                comparison_output = output_dir / od_source / "comparison_report.json"
+                comparison_output.parent.mkdir(parents=True, exist_ok=True)
 
-                    model_eval = {
-                        "model": model_type,
-                        "dataset": analysis_dataset,
-                        "od_source": od_source,
-                        "generated_file": str(generated_file),
-                        "abnormal_trajectory_count": len(all_abnormal_traj_ids),
-                        "abnormal_categories": {
+                comparison_data = {
+                    "dataset": dataset_name,
+                    "od_source": od_source,
+                    "timestamp": datetime.now().isoformat(),
+                    "real_data": {
+                        "abnormal_count": real_abnormal_count,
+                        "total_trajectories": real_total,
+                        "abnormal_rate": real_rate,
+                        "abnormal_by_category": {
                             cat: len(indices)
-                            for cat, indices in abnormal_indices.items()
+                            for cat, indices in real_results.get(
+                                "abnormal_indices", {}
+                            ).items()
                         },
-                        "timestamp": datetime.now().isoformat(),
-                    }
+                    },
+                    "generated_data": model_results,
+                }
 
-                    with open(model_output / "abnormal_eval_metadata.json", "w") as f:
-                        json.dump(model_eval, f, indent=2)
+                with open(comparison_output, "w") as f:
+                    json.dump(comparison_data, f, indent=2)
 
-                    logger.info(f"    ✅ Saved evaluation metadata to {model_output}/")
+                logger.info(f"    💾 Saved comparison report to {comparison_output}")
 
             except Exception as e:
                 logger.error(f"  ❌ Abnormal analysis failed for {od_source}: {e}")
@@ -1065,7 +1253,7 @@ class EvaluationPipeline:
                 continue
 
         logger.info(
-            f"\n✅ Abnormal trajectory detection complete! Results in {abnormal_output}/"
+            f"\n✅ Abnormal analysis complete for {dataset_name}! Results in {output_dir}/"
         )
 
     def _extract_model_from_filename(self, filename: str) -> str:
@@ -1078,276 +1266,711 @@ class EvaluationPipeline:
         else:
             return "unknown"
 
+    @phase("generation", critical=True)
+    def run_generation(self):
+        """Generate trajectories for all models"""
+        logger.info("🔄 Generating trajectories...")
+
+        for model_type in self.config.models:
+            try:
+                model_file = self.detector.find_model_file(model_type)
+                if not model_file:
+                    error_msg = f"Model file not found for type: {model_type}"
+                    logger.error(error_msg)
+                    continue
+
+                logger.info(f"Processing model: {model_type} ({model_file.name})")
+
+                for od_source in self.config.od_sources:
+                    # Check for interruption
+                    if self.interrupted:
+                        logger.info("Pipeline interrupted by user")
+                        raise KeyboardInterrupt()
+
+                    # Check for existing results
+                    existing_file = self._check_existing_results(model_type, od_source)
+
+                    # Generation logic
+                    try:
+                        if existing_file:
+                            generated_file = existing_file
+                            logger.info(
+                                f"Using existing generated file: {generated_file}"
+                            )
+                        else:
+                            generated_file, generation_performance = (
+                                self.generator.generate_trajectories(
+                                    model_file, model_type, od_source
+                                )
+                            )
+
+                            # Log to WandB
+                            if self.config.enable_wandb:
+                                run_name = f"gene_{model_type}_seed{self.config.seed}_{od_source}od"
+                                tags = [
+                                    model_type,
+                                    f"seed{self.config.seed}",
+                                    f"{od_source}_od",
+                                    "generation",
+                                    "beam4",
+                                ]
+                                config_dict = {
+                                    "dataset": self.config.dataset,
+                                    "seed": self.config.seed,
+                                    "num_gene": self.config.num_gene,
+                                    "model_type": model_type,
+                                    "od_source": od_source,
+                                    "beam_width": self.config.beam_width,
+                                }
+
+                                self.wandb_manager.init_run(run_name, tags, config_dict)
+
+                                # Log generation metrics including performance
+                                log_data = {
+                                    "num_trajectories_generated": self.config.num_gene,
+                                    "output_file": str(generated_file),
+                                }
+                                if generation_performance:
+                                    # Add performance metrics with 'perf/' prefix
+                                    perf_log = {
+                                        f"perf/{k}": v
+                                        for k, v in generation_performance.items()
+                                        if isinstance(v, (int, float))
+                                    }
+                                    log_data.update(perf_log)
+
+                                self.wandb_manager.log_metrics(run_name, log_data)
+                                self.wandb_manager.finish_run(run_name)
+
+                    except Exception as e:
+                        self._handle_error(e, "generation", model_type, od_source)
+                        logger.error(
+                            f"Generation failed for {model_type} ({od_source} OD): {str(e)}"
+                        )
+                        continue
+
+            except Exception as e:
+                logger.error(f"Error processing model {model_type}: {str(e)}")
+                continue
+
+    @phase("base_eval", critical=True)
+    def run_base_eval(self):
+        """Evaluate on base dataset (Beijing)"""
+        logger.info("📊 Evaluating on base dataset...")
+
+        results_summary = {}
+        failed_operations = []
+
+        for model_type in self.config.models:
+            for od_source in self.config.od_sources:
+                # Check for interruption
+                if self.interrupted:
+                    logger.info("Pipeline interrupted by user")
+                    raise KeyboardInterrupt()
+
+                logger.info(f"Evaluating {model_type} ({od_source} OD)")
+
+                # Find generated file
+                gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
+
+                # Try new naming pattern first: {timestamp}_{model_type}_{od_source}.csv
+                pattern = f"*_{model_type}_{od_source}.csv"
+                generated_files = list(gene_dir.glob(pattern))
+
+                if not generated_files:
+                    # Fallback: try old timestamp-only pattern for backward compatibility
+                    generated_files = list(gene_dir.glob("*.csv"))
+                    if not generated_files:
+                        error_msg = f"No existing generated file found for {model_type} ({od_source} OD)"
+                        logger.error(error_msg)
+                        failed_operations.append(error_msg)
+                        continue
+                    # Use latest if multiple matches
+                    generated_file = max(
+                        generated_files, key=lambda x: x.stat().st_mtime
+                    )
+                    logger.warning(
+                        f"Using legacy filename format: {generated_file.name}"
+                    )
+                else:
+                    # Use most recent file matching pattern
+                    generated_file = max(
+                        generated_files, key=lambda x: x.stat().st_mtime
+                    )
+                    logger.info(f"Found existing file: {generated_file.name}")
+
+                # Evaluation phase
+                try:
+                    eval_results = self.evaluator.evaluate_trajectories(
+                        generated_file,
+                        model_type,
+                        od_source,
+                        None,  # generation_performance not available in standalone eval
+                    )
+
+                    # Log to WandB
+                    if self.config.enable_wandb:
+                        run_name = (
+                            f"eval_{model_type}_seed{self.config.seed}_{od_source}od"
+                        )
+                        tags = [
+                            model_type,
+                            f"seed{self.config.seed}",
+                            f"{od_source}_od",
+                            "evaluation",
+                        ]
+                        config_dict = {
+                            "dataset": self.config.dataset,
+                            "seed": self.config.seed,
+                            "model_type": model_type,
+                            "od_source": od_source,
+                            "generated_file": str(generated_file),
+                        }
+
+                        self.wandb_manager.init_run(run_name, tags, config_dict)
+                        self.wandb_manager.log_metrics(run_name, eval_results)
+                        self.wandb_manager.finish_run(run_name)
+
+                    # Store results for summary
+                    key = f"{model_type}_{od_source}"
+                    results_summary[key] = {
+                        "generated_file": str(generated_file),
+                        "metrics": eval_results,
+                    }
+
+                    logger.info(
+                        f"✅ Evaluation complete for {model_type} ({od_source} OD)"
+                    )
+
+                except Exception as e:
+                    self._handle_error(e, "evaluation", model_type, od_source)
+                    failed_operations.append(
+                        f"Evaluation failed for {model_type} ({od_source} OD): {str(e)}"
+                    )
+                    continue
+
+        # Log summary
+        if results_summary:
+            logger.info("\n=== Base Dataset Evaluation Results ===")
+            for key, result in results_summary.items():
+                logger.info(f"{key}: {result['metrics']}")
+
+        if failed_operations:
+            logger.warning(f"\n⚠️  {len(failed_operations)} operations failed:")
+            for op in failed_operations:
+                logger.warning(f"  - {op}")
+
+        return results_summary
+
+    @phase("cross_dataset", critical=False)
+    def run_cross_dataset(self):
+        """Evaluate on cross-dataset (BJUT)"""
+        if not self.config.cross_dataset_eval:
+            logger.info("Cross-dataset not configured, skipping")
+            return
+
+        logger.info("🌐 Evaluating on cross-dataset...")
+        self._run_cross_dataset_evaluation()
+
+    @phase("road_network_translate", critical=False)
+    def run_road_network_translate(self):
+        """Translate generated trajectories to cross-dataset road network"""
+        logger.info("🗺️  Translating road networks for cross-dataset analysis...")
+
+        # Only needed when cross-dataset is configured
+        if not self.config.cross_dataset_eval:
+            logger.info("No cross-dataset configured, skipping translation")
+            return
+
+        # Check if mapping exists, create if not
+        mapping_file = Path(
+            f"road_mapping_{self.config.dataset.lower()}_to_{self.config.cross_dataset_name.lower().replace(' ', '_')}.json"
+        )
+
+        if not mapping_file.exists():
+            logger.info(f"  📍 Mapping file not found, creating: {mapping_file}")
+
+            # Import mapping tool
+            from tools.map_road_networks import (
+                load_road_network_with_coords,
+                find_nearest_road_batch,
+                save_comprehensive_output,
+            )
+
+            # Determine .geo file paths
+            source_geo = Path(f"data/{self.config.dataset}/roadmap.geo")
+            if not source_geo.exists():
+                source_geo = (
+                    self.eval_dir.parent / "data" / self.config.dataset / "roadmap.geo"
+                )
+
+            target_data_dir = Path(self.config.cross_dataset_eval)
+            if not target_data_dir.is_absolute():
+                target_data_dir = self.eval_dir / target_data_dir
+            target_geo = target_data_dir / "roadmap.geo"
+
+            if not source_geo.exists():
+                logger.error(f"❌ Source .geo file not found: {source_geo}")
+                return
+            if not target_geo.exists():
+                logger.error(f"❌ Target .geo file not found: {target_geo}")
+                return
+
+            # Create mapping
+            source_roads = load_road_network_with_coords(source_geo)
+            target_roads = load_road_network_with_coords(target_geo)
+
+            result = find_nearest_road_batch(
+                source_roads=source_roads,
+                target_roads=target_roads,
+                max_distance_m=50.0,
+            )
+
+            save_comprehensive_output(
+                result=result,
+                source_dataset=self.config.dataset,
+                target_dataset=self.config.cross_dataset_name,
+                source_geo=source_geo,
+                target_geo=target_geo,
+                max_distance=50.0,
+                output_file=mapping_file,
+            )
+
+            # Check mapping quality
+            mapping_rate = result["statistics"]["mapping_rate_pct"]
+            if mapping_rate < 70:
+                logger.error(
+                    f"❌ Poor mapping quality ({mapping_rate:.1f}%), aborting translation"
+                )
+                return
+            elif mapping_rate < 85:
+                logger.warning(f"⚠️  Fair mapping quality ({mapping_rate:.1f}%)")
+        else:
+            logger.info(f"  ✅ Using existing mapping: {mapping_file}")
+
+        # Load mapping
+        import json
+
+        with open(mapping_file, "r") as f:
+            mapping = json.load(f)
+        mapping_int = {int(k): int(v) for k, v in mapping.items()}
+
+        # Translate all generated files
+        from tools.translate_trajectories import translate_trajectory_file
+
+        gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
+        if not gene_dir.exists():
+            logger.warning(
+                f"Gene directory not found: {gene_dir}, skipping translation"
+            )
+            return
+
+        gene_files = list(gene_dir.glob("*.csv"))
+        if not gene_files:
+            logger.warning("No generated files to translate")
+            return
+
+        logger.info(f"\n  📦 Found {len(gene_files)} generated files to translate")
+
+        output_dir = Path(
+            f"./gene_translated/{self.config.cross_dataset_name}/seed{self.config.seed}"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for gene_file in gene_files:
+            output_file = output_dir / gene_file.name
+
+            try:
+                translate_trajectory_file(
+                    input_file=gene_file,
+                    mapping=mapping_int,
+                    output_file=output_file,
+                )
+            except Exception as e:
+                logger.error(f"  ❌ Translation failed for {gene_file.name}: {e}")
+                import traceback
+
+                traceback.print_exc()
+                continue
+
+        logger.info(f"\n✅ Translation complete! Files in {output_dir}/")
+
+    @phase("abnormal", critical=False)
+    def run_abnormal(self):
+        """Detect abnormal trajectories"""
+        if not self.config.run_abnormal_detection:
+            logger.info("Abnormal detection not configured, skipping")
+            return
+
+        logger.info("🔍 Running abnormal detection...")
+        self._run_abnormal_detection_analysis()
+
+    @phase("abnormal_od_extract", critical=False)
+    def run_abnormal_od_extract(self):
+        """Extract abnormal OD pairs from cross-dataset detection results"""
+        logger.info("📊 Extracting abnormal OD pairs from cross-dataset...")
+
+        # Check dependency: Need abnormal detection results
+        if not self.config.cross_dataset_name:
+            logger.warning(
+                "No cross-dataset configured, skipping abnormal OD extraction"
+            )
+            return
+
+        abnormal_results_dir = Path(f"./abnormal/{self.config.cross_dataset_name}")
+        if not abnormal_results_dir.exists():
+            logger.error(
+                f"❌ Dependency not met: Run 'abnormal' phase first. "
+                f"Missing: {abnormal_results_dir}"
+            )
+            return
+
+        # Find detection result files (try both old and new directory structures)
+        detection_files = list(
+            abnormal_results_dir.glob("*/real_data/detection_results.json")
+        )
+        if not detection_files:
+            # Try old directory structure
+            detection_files = list(
+                abnormal_results_dir.glob("*/detection/detection_results.json")
+            )
+
+        if not detection_files:
+            logger.error(f"❌ No detection results found in {abnormal_results_dir}")
+            return
+
+        logger.info(f"  Found {len(detection_files)} detection result files")
+
+        # Prepare data file paths
+        data_dir = Path(self.config.cross_dataset_eval)
+        if not data_dir.is_absolute():
+            data_dir = self.eval_dir / data_dir
+
+        data_files = []
+        for det_file in detection_files:
+            # Extract split name (train/test) from path
+            split = det_file.parent.parent.name
+            data_file = data_dir / f"{split}.csv"
+            if data_file.exists():
+                data_files.append(data_file)
+
+        if len(data_files) != len(detection_files):
+            logger.warning(
+                "⚠️  Some data files not found, continuing with available files"
+            )
+
+        # Import and run extraction
+        from tools.extract_abnormal_od_pairs import extract_abnormal_od_pairs
+
+        output_file = Path(
+            f"./abnormal_od_pairs_{self.config.cross_dataset_name.lower().replace(' ', '_')}.json"
+        )
+
+        try:
+            result = extract_abnormal_od_pairs(
+                detection_results_files=detection_files,
+                real_data_files=data_files,
+                dataset_name=self.config.cross_dataset_name,
+            )
+
+            # Save result
+            import json
+
+            with open(output_file, "w") as f:
+                json.dump(result, f, indent=2)
+
+            logger.info(
+                f"✅ Extracted {result['total_unique_od_pairs']} abnormal OD pairs"
+            )
+            logger.info(f"💾 Saved to {output_file}")
+
+        except Exception as e:
+            logger.error(f"❌ OD pair extraction failed: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+    @phase("abnormal_od_generate", critical=False)
+    def run_abnormal_od_generate(self):
+        """Generate trajectories for abnormal OD pairs"""
+        logger.info("🤖 Generating trajectories for abnormal OD pairs...")
+
+        # Check dependency: Need OD pairs file
+        od_pairs_files = list(Path(".").glob("abnormal_od_pairs_*.json"))
+        if not od_pairs_files:
+            logger.error(
+                "❌ Dependency not met: Run 'abnormal_od_extract' phase first. "
+                "Missing: abnormal_od_pairs_*.json"
+            )
+            return
+
+        od_pairs_file = od_pairs_files[0]
+        logger.info(f"  Using OD pairs: {od_pairs_file}")
+
+        # Load OD pairs
+        import json
+
+        with open(od_pairs_file, "r") as f:
+            od_pairs_data = json.load(f)
+
+        # Create flat list of OD pairs
+        all_pairs = []
+        for category, pairs in od_pairs_data.get("od_pairs_by_category", {}).items():
+            # Limit to 20 pairs per category for reasonable runtime
+            pairs_limited = pairs[:20]
+            all_pairs.extend(pairs_limited)
+            logger.info(f"  {category}: {len(pairs_limited)} OD pairs")
+
+        # Deduplicate
+        unique_pairs = list(set(tuple(p) for p in all_pairs))
+        logger.info(f"  Total unique OD pairs: {len(unique_pairs)}")
+
+        if not unique_pairs:
+            logger.warning("No OD pairs to generate for")
+            return
+
+        # Output directory
+        output_dir = Path(
+            f"./gene_abnormal/{self.config.dataset}/seed{self.config.seed}"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate for each model
+        from gene import generate_trajectories_programmatic
+
+        num_traj_per_od = 50  # Reasonable default
+
+        for model_type in self.config.models:
+            try:
+                model_file = self.detector.find_model_file(model_type)
+                if not model_file:
+                    logger.warning(f"  ⚠️  Model file not found for {model_type}")
+                    continue
+
+                logger.info(f"\n  {'=' * 60}")
+                logger.info(f"  🚀 Generating with {model_type}")
+                logger.info(f"  {'=' * 60}")
+
+                # Expand OD pairs (repeat each pair num_traj_per_od times)
+                od_list_expanded = []
+                for origin, dest in unique_pairs:
+                    for _ in range(num_traj_per_od):
+                        od_list_expanded.append((origin, dest))
+
+                logger.info(f"    Generating {len(od_list_expanded)} trajectories...")
+
+                output_file = output_dir / f"{model_type}_abnormal_od.csv"
+
+                result = generate_trajectories_programmatic(
+                    model_path=str(model_file),
+                    dataset=self.config.dataset,
+                    num_generate=len(od_list_expanded),
+                    od_list=od_list_expanded,
+                    output_file=str(output_file),
+                    seed=self.config.seed,
+                    cuda_device=self.config.cuda_device,
+                )
+
+                if result.get("output_file"):
+                    traj_count = result.get("num_generated", 0)
+                    logger.info(
+                        f"    ✅ Generated {traj_count} trajectories → {result['output_file']}"
+                    )
+                else:
+                    logger.error("    ❌ Generation failed: No output file produced")
+
+            except Exception as e:
+                logger.error(f"  ❌ Error generating with {model_type}: {e}")
+                import traceback
+
+                traceback.print_exc()
+                continue
+
+        logger.info(f"\n✅ Abnormal OD generation complete! Results in {output_dir}/")
+
+    @phase("abnormal_od_evaluate", critical=False)
+    def run_abnormal_od_evaluate(self):
+        """Evaluate model performance on abnormal OD pairs"""
+        logger.info("📊 Evaluating performance on abnormal OD pairs...")
+
+        # Check dependency: Need generated files
+        gen_dir = Path(f"./gene_abnormal/{self.config.dataset}/seed{self.config.seed}")
+        if not gen_dir.exists():
+            logger.error(
+                "❌ Dependency not met: Run 'abnormal_od_generate' phase first. "
+                f"Missing: {gen_dir}"
+            )
+            return
+
+        gen_files = list(gen_dir.glob("*_abnormal_od.csv"))
+        if not gen_files:
+            logger.error(f"❌ No generated files found in {gen_dir}")
+            return
+
+        logger.info(f"  Found {len(gen_files)} generated files")
+
+        # Check dependency: Need OD pairs file
+        od_pairs_files = list(Path(".").glob("abnormal_od_pairs_*.json"))
+        if not od_pairs_files:
+            logger.error("❌ Missing abnormal OD pairs file")
+            return
+
+        od_pairs_file = od_pairs_files[0]
+
+        # Get real abnormal data file
+        if not self.config.cross_dataset_eval:
+            logger.error("❌ No cross-dataset configured")
+            return
+
+        data_dir = Path(self.config.cross_dataset_eval)
+        if not data_dir.is_absolute():
+            data_dir = self.eval_dir / data_dir
+
+        real_abnormal_file = data_dir / "train.csv"
+        if not real_abnormal_file.exists():
+            logger.error(f"❌ Real abnormal file not found: {real_abnormal_file}")
+            return
+
+        # Output directory
+        output_dir = Path(f"./eval_abnormal/{self.config.dataset}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Import evaluation functions
+        import json
+        from tools.analyze_abnormal import run_abnormal_analysis
+        from evaluation import evaluate_trajectories_programmatic
+
+        # Evaluate each model
+        all_results = {}
+
+        for gen_file in gen_files:
+            model_name = gen_file.stem.replace("_abnormal_od", "")
+            logger.info(f"\n  {'=' * 60}")
+            logger.info(f"  📊 Evaluating {model_name}")
+            logger.info(f"  {'=' * 60}")
+
+            try:
+                # Step 1: Abnormal detection
+                logger.info("    🔍 Running abnormal detection...")
+                detection_output = output_dir / model_name / "detection"
+                detection_output.mkdir(parents=True, exist_ok=True)
+
+                detection_results = run_abnormal_analysis(
+                    real_file=gen_file,
+                    dataset=self.config.dataset,
+                    config_path=Path("config/abnormal_detection.yaml"),
+                    output_dir=detection_output,
+                    is_real_data=False,  # Analyzing generated abnormal OD data
+                )
+
+                # Calculate rates
+                total_traj = detection_results.get("total_trajectories", 0)
+                abnormal_by_category = {}
+
+                for category, indices in detection_results.get(
+                    "abnormal_indices", {}
+                ).items():
+                    count = len(indices)
+                    rate = (count / total_traj * 100) if total_traj > 0 else 0
+                    abnormal_by_category[category] = {"count": count, "rate": rate}
+                    logger.info(f"      {category}: {count}/{total_traj} ({rate:.2f}%)")
+
+                # Step 2: Similarity metrics
+                logger.info("    📏 Computing similarity metrics...")
+                eval_output = output_dir / model_name / "metrics"
+                eval_output.mkdir(parents=True, exist_ok=True)
+
+                eval_results = evaluate_trajectories_programmatic(
+                    real_file=str(real_abnormal_file),
+                    generated_file=str(gen_file),
+                    dataset=self.config.dataset,
+                    output_dir=str(eval_output),
+                )
+
+                metrics = {}
+                if eval_results.get("status") == "success":
+                    eval_data = eval_results.get("results", {})
+                    metrics = {
+                        "edr": eval_data.get("edr", 0.0),
+                        "dtw": eval_data.get("dtw", 0.0),
+                        "hausdorff": eval_data.get("hausdorff", 0.0),
+                    }
+                    logger.info(f"      EDR: {metrics['edr']:.4f}")
+
+                # Save results
+                model_results = {
+                    "model": model_name,
+                    "total_trajectories": total_traj,
+                    "abnormality_detection": abnormal_by_category,
+                    "similarity_metrics": metrics,
+                }
+
+                all_results[model_name] = model_results
+
+                result_file = output_dir / model_name / "abnormal_od_evaluation.json"
+                with open(result_file, "w") as f:
+                    json.dump(model_results, f, indent=2)
+
+            except Exception as e:
+                logger.error(f"    ❌ Evaluation failed: {e}")
+                import traceback
+
+                traceback.print_exc()
+                continue
+
+        # Comparison report
+        logger.info(f"\n  {'=' * 60}")
+        logger.info("  📊 Comparison Report")
+        logger.info(f"  {'=' * 60}")
+
+        for model_name, results in all_results.items():
+            total_abnormal = sum(
+                cat["count"] for cat in results["abnormality_detection"].values()
+            )
+            total_traj = results["total_trajectories"]
+            rate = (total_abnormal / total_traj * 100) if total_traj > 0 else 0
+            logger.info(
+                f"    {model_name:15s}: {total_abnormal:4d}/{total_traj:4d} ({rate:5.2f}%)"
+            )
+
+        # Save comparison
+        comparison_report = {
+            "dataset": self.config.dataset,
+            "od_pairs_file": str(od_pairs_file),
+            "model_results": all_results,
+        }
+
+        comparison_file = output_dir / "comparison_report.json"
+        with open(comparison_file, "w") as f:
+            json.dump(comparison_report, f, indent=2)
+
+        logger.info(f"\n✅ Evaluation complete! Results in {output_dir}/")
+
+    @phase("scenarios", critical=False)
+    def run_scenarios(self):
+        """Run scenario analysis"""
+        if not self.config.run_scenarios:
+            logger.info("Scenarios not configured, skipping")
+            return
+
+        logger.info("🎯 Running scenario analysis...")
+        self._run_scenario_analysis()
+
     def run(self):
-        """Run the complete evaluation pipeline"""
+        """Execute all enabled phases in order"""
         logger.info("Starting HOSER Distillation Evaluation Pipeline")
         logger.info(f"Configuration: {self.config.__dict__}")
 
         try:
-            # Auto-detect models if not specified
-            if not self.config.models:
-                self.config.models = self.detector.detect_models()
+            self._prepare_execution_context()
+            failures = self._execute_phases()
 
-            logger.info(f"Models to process: {self.config.models}")
-            logger.info(f"OD sources: {self.config.od_sources}")
+            if failures:
+                self._log_phase_failures(failures)
+                return False
 
-            # Calculate total operations (only count enabled phases)
-            operations_per_combo = 0
-            if not self.config.skip_gene:
-                operations_per_combo += 1  # Generation
-            if not self.config.skip_eval:
-                operations_per_combo += 1  # Evaluation
-
-            total_operations = (
-                len(self.config.models)
-                * len(self.config.od_sources)
-                * operations_per_combo
-            )
-            current_operation = 0
-
-            results_summary = {}
-            failed_operations = []
-
-            for model_type in self.config.models:
-                try:
-                    model_file = self.detector.find_model_file(model_type)
-                    if not model_file:
-                        error_msg = f"Model file not found for type: {model_type}"
-                        logger.error(error_msg)
-                        failed_operations.append(error_msg)
-                        continue
-
-                    logger.info(f"Processing model: {model_type} ({model_file.name})")
-
-                    for od_source in self.config.od_sources:
-                        # Check for interruption
-                        if self.interrupted:
-                            logger.info("Pipeline interrupted by user")
-                            raise KeyboardInterrupt()
-
-                        current_operation += 1
-                        logger.info(
-                            f"[{current_operation}/{total_operations}] Processing {model_type} ({od_source} OD)"
-                        )
-
-                        # Check for existing results
-                        existing_file = self._check_existing_results(
-                            model_type, od_source
-                        )
-
-                        # Generation phase
-                        generation_performance = (
-                            None  # Store performance metrics for evaluation
-                        )
-                        if not self.config.skip_gene:
-                            try:
-                                if existing_file:
-                                    generated_file = existing_file
-                                    generation_performance = (
-                                        None  # No metrics for existing files
-                                    )
-                                    logger.info(
-                                        f"Using existing generated file: {generated_file}"
-                                    )
-                                else:
-                                    generated_file, generation_performance = (
-                                        self.generator.generate_trajectories(
-                                            model_file, model_type, od_source
-                                        )
-                                    )
-
-                                # Log to WandB
-                                if self.config.enable_wandb:
-                                    run_name = f"gene_{model_type}_seed{self.config.seed}_{od_source}od"
-                                    tags = [
-                                        model_type,
-                                        f"seed{self.config.seed}",
-                                        f"{od_source}_od",
-                                        "generation",
-                                        "beam4",
-                                    ]
-                                    config_dict = {
-                                        "dataset": self.config.dataset,
-                                        "seed": self.config.seed,
-                                        "num_gene": self.config.num_gene,
-                                        "model_type": model_type,
-                                        "od_source": od_source,
-                                        "beam_width": self.config.beam_width,
-                                    }
-
-                                    self.wandb_manager.init_run(
-                                        run_name, tags, config_dict
-                                    )
-
-                                    # Log generation metrics including performance
-                                    log_data = {
-                                        "num_trajectories_generated": self.config.num_gene,
-                                        "output_file": str(generated_file),
-                                    }
-                                    if generation_performance:
-                                        # Add performance metrics with 'perf/' prefix
-                                        perf_log = {
-                                            f"perf/{k}": v
-                                            for k, v in generation_performance.items()
-                                            if isinstance(v, (int, float))
-                                        }
-                                        log_data.update(perf_log)
-
-                                    self.wandb_manager.log_metrics(run_name, log_data)
-                                    self.wandb_manager.finish_run(run_name)
-
-                            except Exception as e:
-                                self._handle_error(
-                                    e, "generation", model_type, od_source
-                                )
-                                failed_operations.append(
-                                    f"Generation failed for {model_type} ({od_source} OD): {str(e)}"
-                                )
-                                continue
-                        else:
-                            # Find existing generated file by pattern
-                            if existing_file:
-                                generated_file = existing_file
-                            else:
-                                gene_dir = Path(
-                                    f"./gene/{self.config.dataset}/seed{self.config.seed}"
-                                )
-
-                                # Try new naming pattern first: {timestamp}_{model_type}_{od_source}.csv
-                                pattern = f"*_{model_type}_{od_source}.csv"
-                                generated_files = list(gene_dir.glob(pattern))
-
-                                if not generated_files:
-                                    # Fallback: try old timestamp-only pattern for backward compatibility
-                                    generated_files = list(gene_dir.glob("*.csv"))
-                                    if not generated_files:
-                                        error_msg = f"No existing generated file found for {model_type} ({od_source} OD)"
-                                        logger.error(error_msg)
-                                        failed_operations.append(error_msg)
-                                        continue
-                                    # Use latest if multiple matches
-                                    generated_file = max(
-                                        generated_files, key=lambda x: x.stat().st_mtime
-                                    )
-                                    logger.warning(
-                                        f"Using legacy filename format: {generated_file.name}"
-                                    )
-                                else:
-                                    # Use most recent file matching pattern
-                                    generated_file = max(
-                                        generated_files, key=lambda x: x.stat().st_mtime
-                                    )
-                                    logger.info(
-                                        f"Found existing file: {generated_file.name}"
-                                    )
-
-                        # Evaluation phase
-                        if not self.config.skip_eval:
-                            try:
-                                eval_results = self.evaluator.evaluate_trajectories(
-                                    generated_file,
-                                    model_type,
-                                    od_source,
-                                    generation_performance,
-                                )
-
-                                # Log to WandB
-                                if self.config.enable_wandb:
-                                    run_name = f"eval_{model_type}_seed{self.config.seed}_{od_source}od"
-                                    tags = [
-                                        model_type,
-                                        f"seed{self.config.seed}",
-                                        f"{od_source}_od",
-                                        "evaluation",
-                                    ]
-                                    config_dict = {
-                                        "dataset": self.config.dataset,
-                                        "seed": self.config.seed,
-                                        "model_type": model_type,
-                                        "od_source": od_source,
-                                        "generated_file": str(generated_file),
-                                    }
-
-                                    self.wandb_manager.init_run(
-                                        run_name, tags, config_dict
-                                    )
-                                    self.wandb_manager.log_metrics(
-                                        run_name, eval_results
-                                    )
-                                    self.wandb_manager.finish_run(run_name)
-
-                                # Store results for summary
-                                key = f"{model_type}_{od_source}"
-                                results_summary[key] = {
-                                    "generated_file": str(generated_file),
-                                    "metrics": eval_results,
-                                }
-
-                            except Exception as e:
-                                self._handle_error(
-                                    e, "evaluation", model_type, od_source
-                                )
-                                failed_operations.append(
-                                    f"Evaluation failed for {model_type} ({od_source} OD): {str(e)}"
-                                )
-                                continue
-
-                except Exception as e:
-                    self._handle_error(e, f"model processing for {model_type}")
-                    failed_operations.append(
-                        f"Model processing failed for {model_type}: {str(e)}"
-                    )
-                    continue
-
-            # Print summary
-            logger.info("Pipeline completed!")
-            logger.info(f"Successful operations: {len(results_summary)}")
-            logger.info(f"Failed operations: {len(failed_operations)}")
-
-            if results_summary:
-                logger.info("Results summary:")
-                for key, result in results_summary.items():
-                    logger.info(f"  {key}: {result['generated_file']}")
-                    metrics = result["metrics"]
-                    for metric, value in metrics.items():
-                        if isinstance(value, float) and metric != "metadata":
-                            logger.info(f"    {metric}: {value:.4f}")
-
-            if failed_operations:
-                logger.warning("Failed operations:")
-                for failure in failed_operations:
-                    logger.warning(f"  - {failure}")
-
-            # NEW: Optional scenario analysis
-            if self.config.run_scenarios:
-                logger.info("Starting scenario analysis...")
-                try:
-                    self._run_scenario_analysis()
-                except Exception as e:
-                    logger.error(f"Scenario analysis failed: {e}")
-                    # Don't fail entire pipeline if scenarios fail
-
-            # NEW: Optional cross-dataset evaluation
-            if self.config.cross_dataset_eval:
-                logger.info("Starting cross-dataset evaluation...")
-                try:
-                    self._run_cross_dataset_evaluation()
-                except Exception as e:
-                    logger.error(f"Cross-dataset evaluation failed: {e}")
-                    # Don't fail entire pipeline if cross-dataset fails
-
-            # NEW: Optional abnormal trajectory detection
-            if self.config.run_abnormal_detection:
-                logger.info("Starting abnormal trajectory detection...")
-                try:
-                    self._run_abnormal_detection_analysis()
-                except Exception as e:
-                    logger.error(f"Abnormal trajectory detection failed: {e}")
-                    # Don't fail entire pipeline if abnormal detection fails
-
-            # Return success status
-            return len(failed_operations) == 0
-
+            logger.info("\n✅ Pipeline completed successfully!")
+            return True
         except Exception as e:
             logger.error(f"Pipeline failed with critical error: {str(e)}")
             import traceback
@@ -1355,14 +1978,96 @@ class EvaluationPipeline:
             logger.error(f"Stack trace:\n{traceback.format_exc()}")
             raise
         finally:
-            # Cleanup: finish all WandB runs
-            try:
-                self.wandb_manager.finish_all_runs()
+            self._cleanup_after_run()
 
-                # Start background sync (non-blocking)
-                self.wandb_manager.start_background_sync()
-            except Exception as e:
-                logger.warning(f"Error during WandB cleanup: {e}")
+    def _prepare_execution_context(self) -> None:
+        """Prepare models and phase configuration before execution."""
+        self._normalize_phase_configuration()
+        self._ensure_models_loaded()
+        logger.info(f"Models to process: {self.config.models}")
+        logger.info(f"OD sources: {self.config.od_sources}")
+
+    def _normalize_phase_configuration(self) -> None:
+        """Ensure phase configuration is consistent."""
+        phases = getattr(self.config, "phases", set())
+        if phases is None:
+            phases = set()
+
+        self.config.phases = set(phases)
+        logger.info(f"Enabled phases: {sorted(self.config.phases)}")
+
+    def _ensure_models_loaded(self) -> None:
+        """Populate model list if necessary before executing phases."""
+        if not self.config.models:
+            self.config.models = self.detector.detect_models()
+
+        if not self.config.models:
+            raise ValueError("No models configured for evaluation")
+
+    def _execute_phases(self) -> List[str]:
+        """Execute phases in defined order and collect non-critical failures."""
+        failures: List[str] = []
+        for phase_name in self._phase_execution_order():
+            if not self._should_run_phase(phase_name):
+                logger.info(f"⏭️  Skipping phase: {phase_name}")
+                continue
+
+            phase_info = PHASE_REGISTRY.get(phase_name)
+            if not phase_info:
+                logger.warning(f"⚠️  Phase not registered: {phase_name}")
+                continue
+
+            logger.info(f"\n{'=' * 70}")
+            logger.info(f"🚀 Running phase: {phase_name}")
+            logger.info(f"{'=' * 70}")
+
+            try:
+                phase_info["func"](self)
+                logger.info(f"✅ Phase {phase_name} completed")
+            except Exception as exc:  # noqa: BLE001
+                logger.error(f"❌ Phase {phase_name} failed: {exc}")
+                if phase_info.get("critical"):
+                    logger.error("Critical phase failed, stopping pipeline")
+                    raise
+
+                logger.warning("Non-critical phase failed, continuing")
+                failures.append(f"{phase_name}: {exc}")
+
+        return failures
+
+    def _phase_execution_order(self) -> List[str]:
+        """Return the canonical execution order for phases."""
+        default_order = [
+            "generation",
+            "base_eval",
+            "cross_dataset",
+            "road_network_translate",
+            "abnormal",
+            "abnormal_od_extract",
+            "abnormal_od_generate",
+            "abnormal_od_evaluate",
+            "scenarios",
+        ]
+        extras = [phase for phase in self.config.phases if phase not in default_order]
+        return default_order + sorted(extras)
+
+    def _should_run_phase(self, phase_name: str) -> bool:
+        """Determine whether a phase is enabled for execution."""
+        return phase_name in self.config.phases
+
+    def _log_phase_failures(self, failures: List[str]) -> None:
+        """Summarize non-critical phase failures for operator visibility."""
+        logger.warning(f"\n⚠️  {len(failures)} phase(s) failed:")
+        for failure in failures:
+            logger.warning(f"  - {failure}")
+
+    def _cleanup_after_run(self) -> None:
+        """Ensure WandB resources are finalized regardless of outcome."""
+        try:
+            self.wandb_manager.finish_all_runs()
+            self.wandb_manager.start_background_sync()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Error during WandB cleanup: {exc}")
 
 
 def main():
@@ -1390,6 +2095,22 @@ def main():
     )
     parser.add_argument(
         "--skip-eval", action="store_true", help="Skip evaluation (overrides config)"
+    )
+    parser.add_argument(
+        "--only",
+        type=str,
+        help=(
+            "Run only these phases (comma-separated). Available: "
+            "generation,base_eval,cross_dataset,road_network_translate,abnormal,"
+            "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,scenarios."
+        ),
+    )
+    parser.add_argument(
+        "--skip",
+        type=str,
+        help=(
+            "Skip these phases (comma-separated). Example: --skip generation,base_eval"
+        ),
     )
     parser.add_argument(
         "--force", action="store_true", help="Force re-run (overrides config)"
@@ -1474,6 +2195,22 @@ def main():
     # Create configuration from YAML file
     config = PipelineConfig(str(config_path), eval_dir)
 
+    # Apply phase control (BEFORE other overrides)
+    if hasattr(args, "only") and args.only:
+        config.phases = {p.strip() for p in args.only.split(",") if p.strip()}
+        logger.info(f"Running only phases: {config.phases}")
+
+    if hasattr(args, "skip") and args.skip:
+        skip_phases = {p.strip() for p in args.skip.split(",") if p.strip()}
+        config.phases -= skip_phases
+        logger.info(f"Skipping phases: {skip_phases}")
+
+    # Backward compatibility shortcuts
+    if args.skip_gene:
+        config.phases.discard("generation")
+    if args.skip_eval:
+        config.phases -= {"base_eval", "cross_dataset", "abnormal", "scenarios"}
+
     # Override with command line arguments if provided
     if args.seed is not None:
         config.seed = args.seed
@@ -1481,10 +2218,6 @@ def main():
         config.models = args.models.split(",")
     if args.od_source is not None:
         config.od_sources = args.od_source.split(",")
-    if args.skip_gene:
-        config.skip_gene = True
-    if args.skip_eval:
-        config.skip_eval = True
     if args.force:
         config.force = True
     if args.cuda is not None:

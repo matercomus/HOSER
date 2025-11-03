@@ -4,6 +4,10 @@
 
 Initialize a git worktree agent and claim a task from a plan file following multi-agent workflow best practices.
 
+## 🚨 CRITICAL: You MUST run setup script after creating worktree! 🚨
+
+**DO NOT skip this step!** See Step 7 below for the command to run.
+
 ## Workflow
 
 ### 1. Identify and Read Plan
@@ -88,20 +92,56 @@ Suggest command:
 git worktree add ../HOSER-phase1-foundation -b feat/phase-decorator-foundation
 ```
 
-### 7. Setup Symlinks
-After user creates worktree, guide symlink setup per @multi-agent-workflow:
+### 7. 🚨 MANDATORY: Run Setup Script 🚨
+
+**REQUIRED**: After creating worktree, run this ONE command:
 
 ```bash
 cd ../HOSER-phase1-foundation
-ln -s $(git rev-parse --show-toplevel)/.cursor/plans .cursor/plans
+bash .cursor/setup-worktree-unix.sh
 ```
 
-Verify:
-```bash
-ls -la .cursor/plans/  # Should show symlink
+**This script:**
+- ⚡ **Idempotent** - safe to run multiple times, won't duplicate work
+- ⏳ Waits if Cursor's automatic setup is running
+- 🚀 Runs setup if not started yet
+- ✅ Skips instantly if already complete
+- 🤖 Shows your agent ID
+
+**Expected output (if already complete):**
 ```
+✅ Worktree setup already complete (skipping re-run)
+   If you need to re-run setup, delete: .cursor/.setup-complete
+
+Verification:
+  ✅ Symlink exists
+  ✅ Agent ID: PdPfi
+  ✅ Virtual environment exists
+```
+
+**Expected output (if running setup):**
+```
+=========================================
+🔧 Setting up worktree environment...
+=========================================
+📦 Syncing dependencies with uv...
+🔗 Setting up .cursor/plans symlink...
+🤖 Assigning agent ID...
+   Agent ID: PdPfi
+✅ Worktree setup complete!
+```
+
+**After script completes, you're ready to work!**
 
 ### 8. Claim Task in Plan
+
+**First, get your unique agent ID:**
+```bash
+AGENT_ID=$(cat .cursor/worktree-agent-id)
+echo "My agent ID: $AGENT_ID"
+# Example output: "PdPfi" or "H7WqM"
+```
+
 Update the plan file following @plan-file-best-practices status format:
 
 Change from:
@@ -111,10 +151,16 @@ Change from:
 
 To:
 ```markdown
-### Task X.Y: Name [IN PROGRESS - AgentN - YYYY-MM-DD HH:MM]
+### Task X.Y: Name [IN PROGRESS - <AGENT_ID> - YYYY-MM-DD HH:MM]
 ```
 
-Where `N` is next available agent number (check existing plan for Agent1, Agent2, etc.)
+Replace `<AGENT_ID>` with your ID from above (e.g., "PdPfi", "H7WqM", "LqAbJ")
+
+**IMPORTANT**: After updating the plan:
+1. **Save the file** (changes are instant via symlink)
+2. **Verify**: `cat .cursor/plans/*.plan.md | grep "Task X.Y"`
+3. **Close the file** in your editor
+4. **Note**: Other agents must close/reopen or use "Revert File" (Ctrl+K R) to see changes
 
 ### 9. Display Task Implementation Details
 Show from plan:
@@ -132,6 +178,10 @@ Format clearly with syntax highlighting.
 🌿 Branch: feat/phase-decorator-foundation
 📋 Task: 1.1 - Add phase decorator infrastructure
 📝 Plan updated: [IN PROGRESS - Agent1 - 2025-11-02 18:45]
+🔗 Symlink: Automatically created by setup script (waited 2m15s)
+🐍 Environment: Dependencies synced with uv
+
+⏱️  Setup completed successfully after automatic execution.
 
 Next steps:
 1. Implement changes from task description
@@ -158,6 +208,18 @@ Next steps:
 **Not in git repository:**
 - Explain git worktree workflow requires git repo
 - Guide to initialize git if needed
+
+**Worktree setup failed:**
+- Check "Output" → "Worktrees Setup" in Cursor
+- Check `.cursor/worktree-setup.log` in worktree
+- Verify `.cursor/worktrees.json` exists in root repo
+- Manually run `bash .cursor/setup-worktree-unix.sh`
+
+**Missing .cursor/plans symlink:**
+- Indicates setup script didn't run or failed
+- Check setup log for errors
+- Run setup script manually
+- Verify `$ROOT_WORKTREE_PATH` is set correctly
 
 **File conflicts detected:**
 - Show which agent is editing conflicting files

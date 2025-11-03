@@ -7,37 +7,37 @@ dataset: BJUT_Beijing
 # Detection method configuration
 detection:
   method: "z_score"  # Statistical method for abnormality detection
-  threshold: 2.5     # Number of standard deviations from mean (higher = more strict)
+  threshold: 2.0     # Number of standard deviations from mean (lowered to find more)
 
 # Category-specific detection parameters
 categories:
   # Speeding detection: Identifies trajectories exceeding speed limits
   speeding:
     enabled: true
-    speed_limit_kmh: 80      # Speed limit threshold in km/h
-    percentile_threshold: 95  # Consider speeds above 95th percentile
+    speed_limit_kmh: 60      # Lowered from 80 to catch more speeding
+    percentile_threshold: 85  # Lowered from 95 (top 15% instead of top 5%)
 
   # Detour detection: Identifies unnecessarily long routes
   detour:
     enabled: true
-    detour_ratio_threshold: 1.5  # Actual path / straight-line distance ratio
-    min_trip_length_km: 2.0      # Only analyze trips longer than 2km
+    detour_ratio_threshold: 1.3  # Lowered from 1.5 (more sensitive)
+    min_trip_length_km: 1.0      # Lowered from 2.0 (analyze more trips)
 
   # Suspicious stops detection: Identifies unusual stationary periods
   suspicious_stops:
     enabled: true
-    min_stop_duration_sec: 180  # Stops longer than 3 minutes
-    max_stop_count: 5           # More than 5 stops is suspicious
+    min_stop_duration_sec: 120  # Lowered from 180 (2 min instead of 3 min)
+    max_stop_count: 3           # Lowered from 5 (more strict = catches more)
 
   # Unusual duration detection: Identifies trips taking too long for OD pair
   unusual_duration:
     enabled: true
-    duration_ratio_threshold: 2.0  # Trip takes 2x expected time for OD pair
+    duration_ratio_threshold: 1.5  # Lowered from 2.0 (more sensitive)
 
   # Circuitous routes: Identifies overly curved/indirect paths
   circuitous:
     enabled: true
-    straightness_threshold: 0.5  # Straightness < 0.5 (haversine/path_length)
+    straightness_threshold: 0.6  # Raised from 0.5 (catches more indirect routes)
 
 # Analysis and output configuration
 analysis:

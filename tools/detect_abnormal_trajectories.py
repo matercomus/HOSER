@@ -306,9 +306,15 @@ class TrajectoryAnalyzer:
 
             stop_duration = traj[j - 1][1] - time1
 
-            if stop_duration >= min_duration:
+            # Convert timedelta to seconds if needed
+            if hasattr(stop_duration, "total_seconds"):
+                stop_duration_sec = stop_duration.total_seconds()
+            else:
+                stop_duration_sec = stop_duration
+
+            if stop_duration_sec >= min_duration:
                 stops.append((i, j - 1))
-                stop_durations.append(stop_duration)
+                stop_durations.append(stop_duration_sec)
 
             i = j
 
