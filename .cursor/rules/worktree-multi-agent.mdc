@@ -474,15 +474,86 @@ git commit -m "✨ feat: implement task X.Y"
 git push origin feat/phase-name
 ```
 
+## Merge Strategy and Cleanup
+
+### Incremental Merge Strategy
+
+Merge by phase, not all at once:
+
+1. Complete Phase 1 → merge to main → test
+2. Complete Phase 2 → merge to main → test
+3. Continue phase by phase
+
+**Benefits:**
+- Catch bugs earlier (integration testing after each phase)
+- Cleaner git history (logical commits grouped by phase)
+- Easier rollback if needed (can revert single phase)
+- Other agents can start next phase while previous merges
+
+### Pre-Merge Checklist
+
+Before merging your phase to main:
+
+- [ ] All tasks in phase marked [DONE]
+- [ ] All code committed and pushed
+- [ ] Linting passes: `uv tool run ruff check .`
+- [ ] Tests pass: `uv run pytest`
+- [ ] Plan status summary updated
+- [ ] No uncommitted changes: `git status`
+- [ ] Reviewed changes: `git log --oneline main..HEAD`
+
+### Merge Commands
+
+```bash
+# 1. From your worktree, switch to main
+git checkout main
+git pull origin main
+
+# 2. Merge your phase branch (no fast-forward for clear history)
+git merge feat/phase2-detection --no-ff -m "Merge phase 2: detection module
+
+- Implemented core detection algorithms
+- Added CLI wrapper
+- All tests passing"
+
+# 3. Push to origin
+git push origin main
+
+# 4. Return to feature branch for continued work
+git checkout feat/phase2-detection
+```
+
+### Cleanup After Project Completion
+
+```bash
+# 1. List all worktrees
+git worktree list
+
+# 2. Remove each worktree (--force handles untracked files)
+git worktree remove --force /path/to/PROJECT-phase1-config
+
+# 3. Delete merged branches
+git branch -d feat/phase1-config
+
+# 4. Or force delete if has alternate commits
+git branch -D feat/phase1-config
+
+# 5. Verify cleanup
+git worktree list  # Should only show main worktree
+git branch | wc -l  # Check branch count
+```
+
 ## Rules Summary
 
-1. ✅ **ALWAYS** read the plan before starting work
-2. ✅ **ALWAYS** update task status when starting/completing tasks
-3. ✅ **ALWAYS** save the plan file (changes are instant via symlink)
-4. ❌ **NEVER** commit `.cursor/plans/` from worktrees (it's a symlink)
-5. ✅ **ONLY** commit your code changes from your worktree branch
-6. ✅ **ALWAYS** check task dependencies before starting
-7. ✅ **ALWAYS** verify no other agent is editing the same file
-8. ✅ **ALWAYS** use `uv run` for Python commands
-9. ✅ **ALWAYS** follow git commit message conventions with gitmojis
-10. ❌ **NEVER** force push or modify other agents' branches
+1. ✅ **ALWAYS** run `wait-for-setup.sh` immediately after creating worktree
+2. ✅ **ALWAYS** read the plan before starting work
+3. ✅ **ALWAYS** update task status with YOUR agent ID when starting/completing tasks
+4. ✅ **ALWAYS** save the plan file (changes are instant via symlink)
+5. ❌ **NEVER** commit `.cursor/plans/` from worktrees (it's a symlink)
+6. ✅ **ONLY** commit your code changes from your worktree branch
+7. ✅ **ALWAYS** check task dependencies before starting
+8. ✅ **ALWAYS** verify no other agent is editing the same file
+9. ✅ **ALWAYS** use `uv run` for Python commands
+10. ✅ **ALWAYS** follow git commit message conventions with gitmojis
+11. ❌ **NEVER** force push or modify other agents' branches
+12. ✅ **ALWAYS** merge incrementally by phase (not all at once)
