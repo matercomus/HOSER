@@ -36,8 +36,9 @@ import sys
 import argparse
 import signal
 import threading
+from functools import wraps
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 import logging
 
 # Detect if we're running from inside an eval directory or from project root
@@ -71,6 +72,31 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(), logging.FileHandler("pipeline.log")],
 )
 logger = logging.getLogger(__name__)
+
+
+# Phase Decorator Infrastructure
+# Phase registry - auto-populated by decorator
+PHASE_REGISTRY: Dict[str, Callable] = {}
+
+
+def phase(name: str, critical: bool = False):
+    """Decorator to register a pipeline phase
+
+    Args:
+        name: Phase identifier (used in CLI)
+        critical: If True, pipeline stops on failure
+    """
+
+    def decorator(func):
+        PHASE_REGISTRY[name] = {"func": func, "critical": critical, "name": name}
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 class PipelineConfig:
