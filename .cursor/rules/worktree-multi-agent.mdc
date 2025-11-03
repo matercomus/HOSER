@@ -23,7 +23,13 @@ Cursor automatically runs `.cursor/setup-worktree-unix.sh` when creating worktre
 2. Creates `.cursor/plans` symlink to root repository
 3. Logs setup to `.cursor/worktree-setup.log`
 
-**No manual setup required** - worktrees are ready to use immediately after creation.
+**⏱️ Important: Setup delay is 1-4 minutes after worktree creation**
+
+- Cursor queues setup execution (not immediate)
+- Check `.cursor/worktree-setup.log` to verify completion
+- If symlink is missing after 5 minutes, run setup manually
+
+**No manual setup required** - but allow time for automatic setup to complete.
 
 ## Multi-Agent Plan Coordination
 
