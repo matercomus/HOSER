@@ -314,7 +314,7 @@ class TrajectoryAnalyzer:
 
             if stop_duration_sec >= min_duration:
                 stops.append((i, j - 1))
-                stop_durations.append(stop_duration)
+                stop_durations.append(stop_duration_sec)
 
             i = j
 
