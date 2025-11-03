@@ -1342,275 +1342,20 @@ class EvaluationPipeline:
         self._run_scenario_analysis()
 
     def run(self):
-        """Run the complete evaluation pipeline"""
+        """Execute all enabled phases in order"""
         logger.info("Starting HOSER Distillation Evaluation Pipeline")
         logger.info(f"Configuration: {self.config.__dict__}")
 
         try:
-            # Auto-detect models if not specified
-            if not self.config.models:
-                self.config.models = self.detector.detect_models()
+            self._prepare_execution_context()
+            failures = self._execute_phases()
 
-            logger.info(f"Models to process: {self.config.models}")
-            logger.info(f"OD sources: {self.config.od_sources}")
+            if failures:
+                self._log_phase_failures(failures)
+                return False
 
-            # Calculate total operations (only count enabled phases)
-            operations_per_combo = 0
-            if not self.config.skip_gene:
-                operations_per_combo += 1  # Generation
-            if not self.config.skip_eval:
-                operations_per_combo += 1  # Evaluation
-
-            total_operations = (
-                len(self.config.models)
-                * len(self.config.od_sources)
-                * operations_per_combo
-            )
-            current_operation = 0
-
-            results_summary = {}
-            failed_operations = []
-
-            for model_type in self.config.models:
-                try:
-                    model_file = self.detector.find_model_file(model_type)
-                    if not model_file:
-                        error_msg = f"Model file not found for type: {model_type}"
-                        logger.error(error_msg)
-                        failed_operations.append(error_msg)
-                        continue
-
-                    logger.info(f"Processing model: {model_type} ({model_file.name})")
-
-                    for od_source in self.config.od_sources:
-                        # Check for interruption
-                        if self.interrupted:
-                            logger.info("Pipeline interrupted by user")
-                            raise KeyboardInterrupt()
-
-                        current_operation += 1
-                        logger.info(
-                            f"[{current_operation}/{total_operations}] Processing {model_type} ({od_source} OD)"
-                        )
-
-                        # Check for existing results
-                        existing_file = self._check_existing_results(
-                            model_type, od_source
-                        )
-
-                        # Generation phase
-                        generation_performance = (
-                            None  # Store performance metrics for evaluation
-                        )
-                        if not self.config.skip_gene:
-                            try:
-                                if existing_file:
-                                    generated_file = existing_file
-                                    generation_performance = (
-                                        None  # No metrics for existing files
-                                    )
-                                    logger.info(
-                                        f"Using existing generated file: {generated_file}"
-                                    )
-                                else:
-                                    generated_file, generation_performance = (
-                                        self.generator.generate_trajectories(
-                                            model_file, model_type, od_source
-                                        )
-                                    )
-
-                                # Log to WandB
-                                if self.config.enable_wandb:
-                                    run_name = f"gene_{model_type}_seed{self.config.seed}_{od_source}od"
-                                    tags = [
-                                        model_type,
-                                        f"seed{self.config.seed}",
-                                        f"{od_source}_od",
-                                        "generation",
-                                        "beam4",
-                                    ]
-                                    config_dict = {
-                                        "dataset": self.config.dataset,
-                                        "seed": self.config.seed,
-                                        "num_gene": self.config.num_gene,
-                                        "model_type": model_type,
-                                        "od_source": od_source,
-                                        "beam_width": self.config.beam_width,
-                                    }
-
-                                    self.wandb_manager.init_run(
-                                        run_name, tags, config_dict
-                                    )
-
-                                    # Log generation metrics including performance
-                                    log_data = {
-                                        "num_trajectories_generated": self.config.num_gene,
-                                        "output_file": str(generated_file),
-                                    }
-                                    if generation_performance:
-                                        # Add performance metrics with 'perf/' prefix
-                                        perf_log = {
-                                            f"perf/{k}": v
-                                            for k, v in generation_performance.items()
-                                            if isinstance(v, (int, float))
-                                        }
-                                        log_data.update(perf_log)
-
-                                    self.wandb_manager.log_metrics(run_name, log_data)
-                                    self.wandb_manager.finish_run(run_name)
-
-                            except Exception as e:
-                                self._handle_error(
-                                    e, "generation", model_type, od_source
-                                )
-                                failed_operations.append(
-                                    f"Generation failed for {model_type} ({od_source} OD): {str(e)}"
-                                )
-                                continue
-                        else:
-                            # Find existing generated file by pattern
-                            if existing_file:
-                                generated_file = existing_file
-                            else:
-                                gene_dir = Path(
-                                    f"./gene/{self.config.dataset}/seed{self.config.seed}"
-                                )
-
-                                # Try new naming pattern first: {timestamp}_{model_type}_{od_source}.csv
-                                pattern = f"*_{model_type}_{od_source}.csv"
-                                generated_files = list(gene_dir.glob(pattern))
-
-                                if not generated_files:
-                                    # Fallback: try old timestamp-only pattern for backward compatibility
-                                    generated_files = list(gene_dir.glob("*.csv"))
-                                    if not generated_files:
-                                        error_msg = f"No existing generated file found for {model_type} ({od_source} OD)"
-                                        logger.error(error_msg)
-                                        failed_operations.append(error_msg)
-                                        continue
-                                    # Use latest if multiple matches
-                                    generated_file = max(
-                                        generated_files, key=lambda x: x.stat().st_mtime
-                                    )
-                                    logger.warning(
-                                        f"Using legacy filename format: {generated_file.name}"
-                                    )
-                                else:
-                                    # Use most recent file matching pattern
-                                    generated_file = max(
-                                        generated_files, key=lambda x: x.stat().st_mtime
-                                    )
-                                    logger.info(
-                                        f"Found existing file: {generated_file.name}"
-                                    )
-
-                        # Evaluation phase
-                        if not self.config.skip_eval:
-                            try:
-                                eval_results = self.evaluator.evaluate_trajectories(
-                                    generated_file,
-                                    model_type,
-                                    od_source,
-                                    generation_performance,
-                                )
-
-                                # Log to WandB
-                                if self.config.enable_wandb:
-                                    run_name = f"eval_{model_type}_seed{self.config.seed}_{od_source}od"
-                                    tags = [
-                                        model_type,
-                                        f"seed{self.config.seed}",
-                                        f"{od_source}_od",
-                                        "evaluation",
-                                    ]
-                                    config_dict = {
-                                        "dataset": self.config.dataset,
-                                        "seed": self.config.seed,
-                                        "model_type": model_type,
-                                        "od_source": od_source,
-                                        "generated_file": str(generated_file),
-                                    }
-
-                                    self.wandb_manager.init_run(
-                                        run_name, tags, config_dict
-                                    )
-                                    self.wandb_manager.log_metrics(
-                                        run_name, eval_results
-                                    )
-                                    self.wandb_manager.finish_run(run_name)
-
-                                # Store results for summary
-                                key = f"{model_type}_{od_source}"
-                                results_summary[key] = {
-                                    "generated_file": str(generated_file),
-                                    "metrics": eval_results,
-                                }
-
-                            except Exception as e:
-                                self._handle_error(
-                                    e, "evaluation", model_type, od_source
-                                )
-                                failed_operations.append(
-                                    f"Evaluation failed for {model_type} ({od_source} OD): {str(e)}"
-                                )
-                                continue
-
-                except Exception as e:
-                    self._handle_error(e, f"model processing for {model_type}")
-                    failed_operations.append(
-                        f"Model processing failed for {model_type}: {str(e)}"
-                    )
-                    continue
-
-            # Print summary
-            logger.info("Pipeline completed!")
-            logger.info(f"Successful operations: {len(results_summary)}")
-            logger.info(f"Failed operations: {len(failed_operations)}")
-
-            if results_summary:
-                logger.info("Results summary:")
-                for key, result in results_summary.items():
-                    logger.info(f"  {key}: {result['generated_file']}")
-                    metrics = result["metrics"]
-                    for metric, value in metrics.items():
-                        if isinstance(value, float) and metric != "metadata":
-                            logger.info(f"    {metric}: {value:.4f}")
-
-            if failed_operations:
-                logger.warning("Failed operations:")
-                for failure in failed_operations:
-                    logger.warning(f"  - {failure}")
-
-            # NEW: Optional scenario analysis
-            if self.config.run_scenarios:
-                logger.info("Starting scenario analysis...")
-                try:
-                    self._run_scenario_analysis()
-                except Exception as e:
-                    logger.error(f"Scenario analysis failed: {e}")
-                    # Don't fail entire pipeline if scenarios fail
-
-            # NEW: Optional cross-dataset evaluation
-            if self.config.cross_dataset_eval:
-                logger.info("Starting cross-dataset evaluation...")
-                try:
-                    self._run_cross_dataset_evaluation()
-                except Exception as e:
-                    logger.error(f"Cross-dataset evaluation failed: {e}")
-                    # Don't fail entire pipeline if cross-dataset fails
-
-            # NEW: Optional abnormal trajectory detection
-            if self.config.run_abnormal_detection:
-                logger.info("Starting abnormal trajectory detection...")
-                try:
-                    self._run_abnormal_detection_analysis()
-                except Exception as e:
-                    logger.error(f"Abnormal trajectory detection failed: {e}")
-                    # Don't fail entire pipeline if abnormal detection fails
-
-            # Return success status
-            return len(failed_operations) == 0
-
+            logger.info("\n✅ Pipeline completed successfully!")
+            return True
         except Exception as e:
             logger.error(f"Pipeline failed with critical error: {str(e)}")
             import traceback
@@ -1618,14 +1363,118 @@ class EvaluationPipeline:
             logger.error(f"Stack trace:\n{traceback.format_exc()}")
             raise
         finally:
-            # Cleanup: finish all WandB runs
-            try:
-                self.wandb_manager.finish_all_runs()
+            self._cleanup_after_run()
 
-                # Start background sync (non-blocking)
-                self.wandb_manager.start_background_sync()
-            except Exception as e:
-                logger.warning(f"Error during WandB cleanup: {e}")
+    def _prepare_execution_context(self) -> None:
+        """Prepare models and phase configuration before execution."""
+        self._normalize_phase_configuration()
+        self._ensure_models_loaded()
+        logger.info(f"Models to process: {self.config.models}")
+        logger.info(f"OD sources: {self.config.od_sources}")
+
+    def _normalize_phase_configuration(self) -> None:
+        """Ensure phase configuration is consistent and apply compatibility overrides."""
+        phases = getattr(self.config, "phases", set())
+        if phases is None:
+            phases = set()
+
+        self.config.phases = set(phases)
+        self._apply_backward_compatibility_flags()
+        logger.info(f"Enabled phases: {sorted(self.config.phases)}")
+
+    def _apply_backward_compatibility_flags(self) -> None:
+        """Map legacy skip flags onto the phase-based configuration."""
+        if getattr(self.config, "skip_gene", False):
+            self.config.phases.discard("generation")
+
+        if getattr(self.config, "skip_eval", False):
+            self.config.phases -= {
+                "base_eval",
+                "cross_dataset",
+                "abnormal",
+                "scenarios",
+            }
+
+        if getattr(self.config, "skip_base_eval", False):
+            self.config.phases.discard("base_eval")
+
+        if getattr(self.config, "skip_cross_dataset", False):
+            self.config.phases.discard("cross_dataset")
+
+        if getattr(self.config, "skip_abnormal", False):
+            self.config.phases.discard("abnormal")
+
+        if getattr(self.config, "skip_scenarios", False):
+            self.config.phases.discard("scenarios")
+
+    def _ensure_models_loaded(self) -> None:
+        """Populate model list if necessary before executing phases."""
+        if not self.config.models:
+            self.config.models = self.detector.detect_models()
+
+        if not self.config.models:
+            raise ValueError("No models configured for evaluation")
+
+    def _execute_phases(self) -> List[str]:
+        """Execute phases in defined order and collect non-critical failures."""
+        failures: List[str] = []
+        for phase_name in self._phase_execution_order():
+            if not self._should_run_phase(phase_name):
+                logger.info(f"⏭️  Skipping phase: {phase_name}")
+                continue
+
+            phase_info = PHASE_REGISTRY.get(phase_name)
+            if not phase_info:
+                logger.warning(f"⚠️  Phase not registered: {phase_name}")
+                continue
+
+            logger.info(f"\n{'=' * 70}")
+            logger.info(f"🚀 Running phase: {phase_name}")
+            logger.info(f"{'=' * 70}")
+
+            try:
+                phase_info["func"](self)
+                logger.info(f"✅ Phase {phase_name} completed")
+            except Exception as exc:  # noqa: BLE001
+                logger.error(f"❌ Phase {phase_name} failed: {exc}")
+                if phase_info.get("critical"):
+                    logger.error("Critical phase failed, stopping pipeline")
+                    raise
+
+                logger.warning("Non-critical phase failed, continuing")
+                failures.append(f"{phase_name}: {exc}")
+
+        return failures
+
+    def _phase_execution_order(self) -> List[str]:
+        """Return the canonical execution order for phases."""
+        default_order = [
+            "generation",
+            "base_eval",
+            "cross_dataset",
+            "abnormal",
+            "scenarios",
+        ]
+        extras = [phase for phase in self.config.phases if phase not in default_order]
+        return default_order + sorted(extras)
+
+    def _should_run_phase(self, phase_name: str) -> bool:
+        """Determine whether a phase is enabled for execution."""
+        return phase_name in self.config.phases
+
+    def _log_phase_failures(self, failures: List[str]) -> None:
+        """Summarize non-critical phase failures for operator visibility."""
+        logger.warning(f"\n⚠️  {len(failures)} phase(s) failed:")
+        for failure in failures:
+            logger.warning(f"  - {failure}")
+
+    def _cleanup_after_run(self) -> None:
+        """Ensure WandB resources are finalized regardless of outcome."""
+        try:
+            self.wandb_manager.finish_all_runs()
+            self.wandb_manager.start_background_sync()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Error during WandB cleanup: {exc}")
 
 
 def main():
@@ -1653,6 +1502,21 @@ def main():
     )
     parser.add_argument(
         "--skip-eval", action="store_true", help="Skip evaluation (overrides config)"
+    )
+    parser.add_argument(
+        "--only",
+        type=str,
+        help=(
+            "Run only these phases (comma-separated). Available: "
+            "generation,base_eval,cross_dataset,abnormal,scenarios."
+        ),
+    )
+    parser.add_argument(
+        "--skip",
+        type=str,
+        help=(
+            "Skip these phases (comma-separated). Example: --skip generation,base_eval"
+        ),
     )
     parser.add_argument(
         "--force", action="store_true", help="Force re-run (overrides config)"
@@ -1736,6 +1600,22 @@ def main():
 
     # Create configuration from YAML file
     config = PipelineConfig(str(config_path), eval_dir)
+
+    # Apply phase control (BEFORE other overrides)
+    if hasattr(args, "only") and args.only:
+        config.phases = {p.strip() for p in args.only.split(",") if p.strip()}
+        logger.info(f"Running only phases: {config.phases}")
+
+    if hasattr(args, "skip") and args.skip:
+        skip_phases = {p.strip() for p in args.skip.split(",") if p.strip()}
+        config.phases -= skip_phases
+        logger.info(f"Skipping phases: {skip_phases}")
+
+    # Backward compatibility shortcuts
+    if args.skip_gene:
+        config.phases.discard("generation")
+    if args.skip_eval:
+        config.phases -= {"base_eval", "cross_dataset", "abnormal"}
 
     # Override with command line arguments if provided
     if args.seed is not None:
