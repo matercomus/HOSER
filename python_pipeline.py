@@ -957,7 +957,6 @@ class EvaluationPipeline:
 
     def _run_abnormal_detection_analysis(self):
         """Run abnormal trajectory detection and model performance analysis"""
-        from tools.analyze_abnormal import run_abnormal_analysis
 
         logger.info("\n🔍 Starting abnormal trajectory detection analysis...")
 
@@ -976,124 +975,225 @@ class EvaluationPipeline:
             logger.error(f"Abnormal detection config not found: {abnormal_config}")
             return
 
-        # Determine which dataset to analyze
-        # If cross_dataset_eval is configured, analyze the cross-dataset
-        # Otherwise analyze the main dataset
+        # Analyze BOTH datasets: main evaluation dataset AND cross-dataset
+        datasets_to_analyze = []
+
+        # Always analyze the main evaluation dataset (Beijing/HOSER)
+        main_data_dir = self.eval_dir.parent / "data" / self.config.dataset
+        if main_data_dir.exists():
+            datasets_to_analyze.append(
+                {
+                    "name": self.config.dataset,
+                    "data_dir": main_data_dir,
+                    "is_main": True,
+                }
+            )
+
+        # Also analyze cross-dataset if configured (BJUT_Beijing)
         if self.config.cross_dataset_eval and self.config.cross_dataset_name:
-            analysis_dataset = self.config.cross_dataset_name
-            data_dir = Path(self.config.cross_dataset_eval)
-            if not data_dir.is_absolute():
-                data_dir = self.eval_dir / data_dir
-        else:
-            analysis_dataset = self.config.dataset
-            data_dir = self.eval_dir.parent / "data" / self.config.dataset
+            cross_data_dir = Path(self.config.cross_dataset_eval)
+            if not cross_data_dir.is_absolute():
+                cross_data_dir = self.eval_dir / cross_data_dir
 
-        logger.info(f"Analyzing dataset: {analysis_dataset}")
+            if cross_data_dir.exists():
+                datasets_to_analyze.append(
+                    {
+                        "name": self.config.cross_dataset_name,
+                        "data_dir": cross_data_dir,
+                        "is_main": False,
+                    }
+                )
 
-        # Output directory for abnormal analysis
-        abnormal_output = Path("./abnormal") / analysis_dataset
+        if not datasets_to_analyze:
+            logger.error("No datasets found for abnormal analysis")
+            return
 
-        # Step 1: Run abnormal detection on real data
-        logger.info("\n🔍 Step 1: Detecting abnormal trajectories in real data...")
+        logger.info(
+            f"Will analyze {len(datasets_to_analyze)} dataset(s): {[d['name'] for d in datasets_to_analyze]}"
+        )
+
+        # Analyze each dataset
+        for dataset_info in datasets_to_analyze:
+            analysis_dataset = dataset_info["name"]
+            data_dir = dataset_info["data_dir"]
+            is_main = dataset_info["is_main"]
+
+            logger.info(f"\n{'=' * 70}")
+            logger.info(
+                f"📊 Analyzing dataset: {analysis_dataset} ({'main' if is_main else 'cross-dataset'})"
+            )
+            logger.info(f"{'=' * 70}")
+
+            # Output directory for abnormal analysis
+            abnormal_output = Path("./abnormal") / analysis_dataset
+
+            # Step 1: Run abnormal detection on real data
+            logger.info("\n🔍 Step 1: Detecting abnormal trajectories in real data...")
+            self._analyze_dataset_abnormalities(
+                analysis_dataset, data_dir, abnormal_config, abnormal_output
+            )
+
+    def _analyze_dataset_abnormalities(
+        self, dataset_name: str, data_dir: Path, config_path: Path, output_dir: Path
+    ):
+        """Analyze abnormal trajectories for a single dataset (real + generated)"""
+        from tools.analyze_abnormal import run_abnormal_analysis
+
+        import json
+        from datetime import datetime
+
+        # Step 1: Detect abnormal trajectories in real data
         for od_source in self.config.od_sources:
             real_file = data_dir / f"{od_source}.csv"
             if not real_file.exists():
                 logger.warning(f"Real data file not found: {real_file}, skipping")
                 continue
 
-            detection_output = abnormal_output / od_source / "detection"
-            logger.info(f"  Processing {od_source} data...")
+            logger.info(f"\n  📂 Processing {od_source} data...")
+
+            # 1A: Run detection on real data
+            detection_output_real = output_dir / od_source / "real_data"
+            logger.info("    🔍 Detecting abnormal trajectories in REAL data...")
 
             try:
-                detection_results = run_abnormal_analysis(
+                real_results = run_abnormal_analysis(
                     real_file=real_file,
-                    dataset=analysis_dataset,
-                    config_path=abnormal_config,
-                    output_dir=detection_output,
+                    dataset=dataset_name,
+                    config_path=config_path,
+                    output_dir=detection_output_real,
+                )
+
+                real_abnormal_count = sum(
+                    len(indices)
+                    for indices in real_results.get("abnormal_indices", {}).values()
+                )
+                real_total = real_results.get("total_trajectories", 0)
+                real_rate = (
+                    (real_abnormal_count / real_total * 100) if real_total > 0 else 0
                 )
 
                 logger.info(
-                    f"  ✅ Detection complete: {len(detection_results.get('abnormal_indices', {}))} abnormal categories found"
+                    f"    ✅ Real data: {real_abnormal_count}/{real_total} ({real_rate:.2f}%) abnormal"
                 )
 
-                # Step 2: Evaluate models on abnormal trajectories
+                # Step 2: Detect abnormal trajectories in GENERATED data
                 logger.info(
-                    f"\n📈 Step 2: Evaluating models on abnormal trajectories ({od_source})..."
+                    "\n    🤖 Detecting abnormal trajectories in GENERATED data..."
                 )
 
-                # Get abnormal trajectory indices by category
-                abnormal_indices = detection_results.get("abnormal_indices", {})
-                all_abnormal_traj_ids = set()
-                for category, indices in abnormal_indices.items():
-                    all_abnormal_traj_ids.update(indices)
-
-                if not all_abnormal_traj_ids:
-                    logger.info(
-                        "  No abnormal trajectories found, skipping model evaluation"
+                gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
+                if not gene_dir.exists():
+                    logger.warning(
+                        f"    Gene directory not found: {gene_dir}, skipping generated analysis"
                     )
                     continue
 
-                logger.info(
-                    f"  Found {len(all_abnormal_traj_ids)} total abnormal trajectories"
-                )
+                # Store results for comparison
+                model_results = {}
 
-                # Evaluate each model on abnormal trajectories
-                for model_file in self.models_dir.iterdir():
-                    if not model_file.suffix == ".pth":
-                        continue
-
-                    model_type = self._extract_model_from_filename(model_file.name)
-                    logger.info(f"    Evaluating {model_type}...")
-
-                    # Find the generated trajectories for this model
-                    gene_dir = Path(
-                        f"./gene/{self.config.dataset}/seed{self.config.seed}"
-                    )
-                    if not gene_dir.exists():
-                        logger.warning(f"    Gene directory not found: {gene_dir}")
-                        continue
-
+                for model_type in self.config.models:
                     # Find generated file for this model and OD source
                     generated_files = list(
                         gene_dir.glob(f"*{model_type}*{od_source}*.csv")
                     )
+
                     if not generated_files:
-                        logger.warning(
-                            f"    No generated files found for {model_type} {od_source}"
-                        )
+                        logger.warning(f"      ⚠️  No generated files for {model_type}")
                         continue
 
                     generated_file = generated_files[0]
+                    logger.info(f"      Analyzing {model_type}...")
 
-                    # Calculate metrics for abnormal trajectories
-                    # Note: This is a simplified version - full implementation would
-                    # filter to abnormal OD pairs and compute metrics
-                    model_output = (
-                        abnormal_output / od_source / "model_performance" / model_type
+                    # Run detection on generated trajectories
+                    detection_output_gen = (
+                        output_dir / od_source / "generated" / model_type
                     )
-                    model_output.mkdir(parents=True, exist_ok=True)
 
-                    # Save model evaluation metadata
-                    import json
-                    from datetime import datetime
+                    try:
+                        gen_results = run_abnormal_analysis(
+                            real_file=generated_file,
+                            dataset=dataset_name,
+                            config_path=config_path,
+                            output_dir=detection_output_gen,
+                        )
 
-                    model_eval = {
-                        "model": model_type,
-                        "dataset": analysis_dataset,
-                        "od_source": od_source,
-                        "generated_file": str(generated_file),
-                        "abnormal_trajectory_count": len(all_abnormal_traj_ids),
-                        "abnormal_categories": {
+                        gen_abnormal_count = sum(
+                            len(indices)
+                            for indices in gen_results.get(
+                                "abnormal_indices", {}
+                            ).values()
+                        )
+                        gen_total = gen_results.get("total_trajectories", 0)
+                        gen_rate = (
+                            (gen_abnormal_count / gen_total * 100)
+                            if gen_total > 0
+                            else 0
+                        )
+
+                        logger.info(
+                            f"        Generated: {gen_abnormal_count}/{gen_total} ({gen_rate:.2f}%) abnormal"
+                        )
+
+                        # Store for comparison
+                        model_results[model_type] = {
+                            "abnormal_count": gen_abnormal_count,
+                            "total_trajectories": gen_total,
+                            "abnormal_rate": gen_rate,
+                            "abnormal_by_category": {
+                                cat: len(indices)
+                                for cat, indices in gen_results.get(
+                                    "abnormal_indices", {}
+                                ).items()
+                            },
+                        }
+
+                    except Exception as e:
+                        logger.error(
+                            f"        ❌ Detection failed for {model_type}: {e}"
+                        )
+                        continue
+
+                # Step 3: Compare and report
+                logger.info(f"\n    📊 Comparison Report ({od_source}):")
+                logger.info(f"    {'=' * 60}")
+                logger.info(
+                    f"    Real data:   {real_abnormal_count}/{real_total} ({real_rate:.2f}%)"
+                )
+
+                for model_type, results in model_results.items():
+                    diff = results["abnormal_rate"] - real_rate
+                    symbol = "⚠️ " if diff > 5 else "✅"
+                    logger.info(
+                        f"    {symbol} {model_type:12s}: {results['abnormal_count']}/{results['total_trajectories']} "
+                        f"({results['abnormal_rate']:.2f}%, {diff:+.2f}% vs real)"
+                    )
+
+                # Save comparison report
+                comparison_output = output_dir / od_source / "comparison_report.json"
+                comparison_output.parent.mkdir(parents=True, exist_ok=True)
+
+                comparison_data = {
+                    "dataset": dataset_name,
+                    "od_source": od_source,
+                    "timestamp": datetime.now().isoformat(),
+                    "real_data": {
+                        "abnormal_count": real_abnormal_count,
+                        "total_trajectories": real_total,
+                        "abnormal_rate": real_rate,
+                        "abnormal_by_category": {
                             cat: len(indices)
-                            for cat, indices in abnormal_indices.items()
+                            for cat, indices in real_results.get(
+                                "abnormal_indices", {}
+                            ).items()
                         },
-                        "timestamp": datetime.now().isoformat(),
-                    }
+                    },
+                    "generated_data": model_results,
+                }
 
-                    with open(model_output / "abnormal_eval_metadata.json", "w") as f:
-                        json.dump(model_eval, f, indent=2)
+                with open(comparison_output, "w") as f:
+                    json.dump(comparison_data, f, indent=2)
 
-                    logger.info(f"    ✅ Saved evaluation metadata to {model_output}/")
+                logger.info(f"    💾 Saved comparison report to {comparison_output}")
 
             except Exception as e:
                 logger.error(f"  ❌ Abnormal analysis failed for {od_source}: {e}")
@@ -1103,7 +1203,7 @@ class EvaluationPipeline:
                 continue
 
         logger.info(
-            f"\n✅ Abnormal trajectory detection complete! Results in {abnormal_output}/"
+            f"\n✅ Abnormal analysis complete for {dataset_name}! Results in {output_dir}/"
         )
 
     def _extract_model_from_filename(self, filename: str) -> str:
