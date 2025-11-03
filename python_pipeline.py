@@ -1202,8 +1202,6 @@ class EvaluationPipeline:
                 logger.error(f"Error processing model {model_type}: {str(e)}")
                 continue
 
-        logger.info("✅ Generation phase complete")
-
     @phase("base_eval", critical=True)
     def run_base_eval(self):
         """Evaluate on base dataset (Beijing)"""
@@ -1311,8 +1309,37 @@ class EvaluationPipeline:
             for op in failed_operations:
                 logger.warning(f"  - {op}")
 
-        logger.info("✅ Base dataset evaluation complete!")
         return results_summary
+
+    @phase("cross_dataset", critical=False)
+    def run_cross_dataset(self):
+        """Evaluate on cross-dataset (BJUT)"""
+        if not self.config.cross_dataset_eval:
+            logger.info("Cross-dataset not configured, skipping")
+            return
+
+        logger.info("🌐 Evaluating on cross-dataset...")
+        self._run_cross_dataset_evaluation()
+
+    @phase("abnormal", critical=False)
+    def run_abnormal(self):
+        """Detect abnormal trajectories"""
+        if not self.config.run_abnormal_detection:
+            logger.info("Abnormal detection not configured, skipping")
+            return
+
+        logger.info("🔍 Running abnormal detection...")
+        self._run_abnormal_detection_analysis()
+
+    @phase("scenarios", critical=False)
+    def run_scenarios(self):
+        """Run scenario analysis"""
+        if not self.config.run_scenarios:
+            logger.info("Scenarios not configured, skipping")
+            return
+
+        logger.info("🎯 Running scenario analysis...")
+        self._run_scenario_analysis()
 
     def run(self):
         """Run the complete evaluation pipeline"""
