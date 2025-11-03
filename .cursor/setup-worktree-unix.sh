@@ -5,6 +5,18 @@ set -u  # Exit on undefined variables
 # Ensure .cursor directory exists (required for logging)
 mkdir -p .cursor
 
+# Check if setup already completed successfully
+if [ -f .cursor/.setup-complete ]; then
+    echo "✅ Worktree setup already complete (skipping re-run)"
+    echo "   If you need to re-run setup, delete: .cursor/.setup-complete"
+    echo ""
+    echo "Verification:"
+    [ -L .cursor/plans ] && echo "  ✅ Symlink exists" || echo "  ❌ Symlink missing"
+    [ -f .cursor/worktree-agent-id ] && echo "  ✅ Agent ID: $(cat .cursor/worktree-agent-id)" || echo "  ❌ Agent ID missing"
+    [ -d .venv ] && echo "  ✅ Virtual environment exists" || echo "  ❌ Virtual environment missing"
+    exit 0
+fi
+
 # Setup logging to file
 LOG_FILE=".cursor/worktree-setup.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -96,6 +108,11 @@ echo "$AGENT_ID" > .cursor/worktree-agent-id
 
 echo "   Agent ID: $AGENT_ID"
 echo "   Saved to: .cursor/worktree-agent-id"
+
+# Mark setup as complete
+touch .cursor/.setup-complete
+echo ""
+echo "   Created completion marker: .cursor/.setup-complete"
 
 echo "✅ Worktree setup complete!"
 echo "========================================="
