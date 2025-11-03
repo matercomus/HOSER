@@ -1455,10 +1455,16 @@ class EvaluationPipeline:
             )
             return
 
-        # Find detection result files
+        # Find detection result files (try both old and new directory structures)
         detection_files = list(
             abnormal_results_dir.glob("*/real_data/detection_results.json")
         )
+        if not detection_files:
+            # Try old directory structure
+            detection_files = list(
+                abnormal_results_dir.glob("*/detection/detection_results.json")
+            )
+
         if not detection_files:
             logger.error(f"❌ No detection results found in {abnormal_results_dir}")
             return
