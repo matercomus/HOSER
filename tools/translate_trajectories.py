@@ -134,17 +134,20 @@ def translate_trajectory_file(
             translation_stats["trajectories_failed"] += 1
 
         # Create translated row
+        # Handle both scalar and list values from groupby aggregation
+        def get_first(val):
+            return val[0] if isinstance(val, list) else val
+
+        origin_id = get_first(row["origin_road_id"])
+        dest_id = get_first(row["destination_road_id"])
+
         translated_row = {
-            "origin_road_id": mapping.get(
-                row["origin_road_id"][0], row["origin_road_id"][0]
-            ),
-            "destination_road_id": mapping.get(
-                row["destination_road_id"][0], row["destination_road_id"][0]
-            ),
-            "source_index": row["source_index"][0],
-            "source_origin_time": row["source_origin_time"][0],
-            "gene_trace_road_id": ",".join(map(str, translated_ids)),
-            "gene_trace_datetime": row["gene_trace_datetime"][0],
+            "origin_road_id": mapping.get(origin_id, origin_id),
+            "destination_road_id": mapping.get(dest_id, dest_id),
+            "source_index": get_first(row["source_index"]),
+            "source_origin_time": get_first(row["source_origin_time"]),
+            "gene_trace_road_id": json.dumps(translated_ids),  # Save as JSON array
+            "gene_trace_datetime": get_first(row["gene_trace_datetime"]),
         }
 
         translated_rows.append(translated_row)
