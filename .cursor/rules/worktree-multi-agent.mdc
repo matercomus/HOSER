@@ -46,20 +46,27 @@ Cursor automatically runs `.cursor/setup-worktree-unix.sh` when creating worktre
 
 When you start working on a task:
 
-1. **EDIT and SAVE the plan file** to mark task as IN PROGRESS:
-   ```markdown
-   ### Task X.Y: Task Name [IN PROGRESS - Agent1 - 2025-11-02 14:30]
+1. **Get your agent ID** (assigned during worktree setup):
+   ```bash
+   AGENT_ID=$(cat .cursor/worktree-agent-id)
+   echo "My agent ID: $AGENT_ID"
    ```
 
-2. **Verify update is saved** (changes are instant via symlink):
+2. **EDIT and SAVE the plan file** to mark task as IN PROGRESS:
+   ```markdown
+   ### Task X.Y: Task Name [IN PROGRESS - <YOUR_AGENT_ID> - 2025-11-02 14:30]
+   ```
+   Replace `<YOUR_AGENT_ID>` with the ID from step 1 (e.g., "PdPfi", "H7WqM")
+
+3. **Verify update is saved** (changes are instant via symlink):
    ```bash
    cat .cursor/plans/*.plan.md | grep "Task X.Y"
-   # Should show: [IN PROGRESS - AgentN - timestamp]
+   # Should show: [IN PROGRESS - <YOUR_AGENT_ID> - timestamp]
    ```
 
-3. **DO NOT commit the plan from worktrees** - it's a symlink, not in git
+4. **DO NOT commit the plan from worktrees** - it's a symlink, not in git
 
-4. **Start working** on the task code
+5. **Start working** on the task code
 
 ### Updating Progress
 
@@ -76,25 +83,31 @@ As you complete subtasks:
 
 **CRITICAL WORKFLOW** - Do these steps IN ORDER:
 
-1. **EDIT and SAVE the plan file** to mark task as DONE:
-   ```markdown
-   ### Task X.Y: Task Name [DONE - Agent1 - 2025-11-02 15:45]
+1. **Get your agent ID**:
+   ```bash
+   AGENT_ID=$(cat .cursor/worktree-agent-id)
    ```
 
-2. **Verify plan update saved**:
+2. **EDIT and SAVE the plan file** to mark task as DONE:
+   ```markdown
+   ### Task X.Y: Task Name [DONE - <YOUR_AGENT_ID> - 2025-11-02 15:45]
+   ```
+   Use your agent ID from step 1 (e.g., "PdPfi", "H7WqM")
+
+3. **Verify plan update saved**:
    ```bash
    cat .cursor/plans/*.plan.md | grep "Task X.Y"
-   # Should show: [DONE - AgentN - timestamp]
+   # Should show: [DONE - <YOUR_AGENT_ID> - timestamp]
    ```
 
-3. **THEN commit your CODE changes**:
+4. **THEN commit your CODE changes**:
    ```bash
    git add python_pipeline.py config/ tools/
    git commit -m "✨ feat: implement task X.Y - description"
    git push origin your-branch-name
    ```
 
-4. **DO NOT commit** `.cursor/plans/` - it's a symlink, not in git
+5. **DO NOT commit** `.cursor/plans/` - it's a symlink, not in git
 
 **Why this order matters:** Other agents check the plan to see what's available. If you commit code but don't update the plan, they might start duplicate work!
 
@@ -287,19 +300,22 @@ done && echo "✅ Setup complete!"
 # 1. Check symlink was created by setup script
 ls -la .cursor/plans/  # Should be symlink to root repo
 
-# 2. Verify symlink target
+# 2. Check your unique agent ID (use this in plan updates)
+cat .cursor/worktree-agent-id  # e.g., "PdPfi" or "H7WqM"
+
+# 3. Verify symlink target
 readlink .cursor/plans/
 
-# 3. Check setup log for any issues
+# 4. Check setup log for any issues
 tail -20 .cursor/worktree-setup.log
 
-# 4. Check dependencies installed
+# 5. Check dependencies installed
 uv run python -c "print('OK')"
 
-# 5. Check you're on correct branch
+# 6. Check you're on correct branch
 git branch --show-current
 
-# 6. Check parent commits
+# 7. Check parent commits
 git log --oneline -5
 ```
 

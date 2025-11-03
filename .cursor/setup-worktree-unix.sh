@@ -84,6 +84,19 @@ else
     echo "   ℹ️  No plan files found (this is okay for new projects)"
 fi
 
+# Step 4: Assign unique agent ID for this worktree
+echo "🤖 Assigning agent ID..."
+
+# Use last 5 chars of worktree directory as agent ID
+WORKTREE_NAME=$(basename "$(pwd)")
+AGENT_ID="${WORKTREE_NAME: -5}"  # Last 5 chars (e.g., "PdPfi")
+
+# Save agent ID to file
+echo "$AGENT_ID" > .cursor/worktree-agent-id
+
+echo "   Agent ID: $AGENT_ID"
+echo "   Saved to: .cursor/worktree-agent-id"
+
 echo "✅ Worktree setup complete!"
 echo "========================================="
 echo ""
