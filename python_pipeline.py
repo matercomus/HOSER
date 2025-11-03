@@ -1311,6 +1311,16 @@ class EvaluationPipeline:
 
         return results_summary
 
+    @phase("abnormal", critical=False)
+    def run_abnormal(self):
+        """Detect abnormal trajectories"""
+        if not self.config.run_abnormal_detection:
+            logger.info("Abnormal detection not configured, skipping")
+            return
+
+        logger.info("🔍 Running abnormal detection...")
+        self._run_abnormal_detection_analysis()
+
     def run(self):
         """Run the complete evaluation pipeline"""
         logger.info("Starting HOSER Distillation Evaluation Pipeline")
