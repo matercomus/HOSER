@@ -46,16 +46,20 @@ Cursor automatically runs `.cursor/setup-worktree-unix.sh` when creating worktre
 
 When you start working on a task:
 
-1. **Update the plan file** with your status:
+1. **EDIT and SAVE the plan file** to mark task as IN PROGRESS:
    ```markdown
    ### Task X.Y: Task Name [IN PROGRESS - Agent1 - 2025-11-02 14:30]
    ```
 
-2. **Save the file** (other agents see it instantly via symlink)
+2. **Verify update is saved** (changes are instant via symlink):
+   ```bash
+   cat .cursor/plans/*.plan.md | grep "Task X.Y"
+   # Should show: [IN PROGRESS - AgentN - timestamp]
+   ```
 
-3. **DO NOT commit the plan from worktrees** - it's a symlink, commits should only be from root
+3. **DO NOT commit the plan from worktrees** - it's a symlink, not in git
 
-4. **Start working** on the task subtasks
+4. **Start working** on the task code
 
 ### Updating Progress
 
@@ -70,20 +74,29 @@ As you complete subtasks:
 
 ### Completing a Task
 
-When finished:
+**CRITICAL WORKFLOW** - Do these steps IN ORDER:
 
-1. **Mark task as done**:
+1. **EDIT and SAVE the plan file** to mark task as DONE:
    ```markdown
    ### Task X.Y: Task Name [DONE - Agent1 - 2025-11-02 15:45]
    ```
 
-2. **Commit your CODE changes**:
+2. **Verify plan update saved**:
    ```bash
-   git add config/ tools/ python_pipeline.py
-   git commit -m "✨ feat: implement task X.Y - description"
+   cat .cursor/plans/*.plan.md | grep "Task X.Y"
+   # Should show: [DONE - AgentN - timestamp]
    ```
 
-3. **DO NOT commit** `.cursor/plans/` from worktrees
+3. **THEN commit your CODE changes**:
+   ```bash
+   git add python_pipeline.py config/ tools/
+   git commit -m "✨ feat: implement task X.Y - description"
+   git push origin your-branch-name
+   ```
+
+4. **DO NOT commit** `.cursor/plans/` - it's a symlink, not in git
+
+**Why this order matters:** Other agents check the plan to see what's available. If you commit code but don't update the plan, they might start duplicate work!
 
 ## Git Workflow in Worktrees
 
