@@ -244,9 +244,31 @@ Before merging:
 uv tool run ruff check . && uv run pytest
 ```
 
-## Worktree Verification
+## Worktree Verification and Waiting for Setup
 
-On first login to worktree, verify automatic setup completed:
+**CRITICAL**: After creating a worktree, **WAIT** for automatic setup to complete (1-4 minutes).
+
+### Wait for Setup to Complete
+
+```bash
+# 1. WAIT - Check if setup is running or completed
+cd worktree-path
+
+# Option A: Watch setup in real-time (recommended)
+tail -f .cursor/worktree-setup.log
+# Press Ctrl+C when you see "✅ Worktree setup complete!"
+
+# Option B: Wait 4 minutes, then verify
+sleep 240 && ls -la .cursor/plans/
+
+# Option C: Poll until symlink appears
+while [ ! -L .cursor/plans ]; do 
+  echo "Waiting for setup..."; 
+  sleep 10; 
+done && echo "✅ Setup complete!"
+```
+
+### Verify Setup Completed Successfully
 
 ```bash
 # 1. Check symlink was created by setup script
@@ -266,6 +288,14 @@ git branch --show-current
 
 # 6. Check parent commits
 git log --oneline -5
+```
+
+### If Setup Hasn't Started After 5 Minutes
+
+**Only then** run setup manually:
+
+```bash
+bash .cursor/setup-worktree-unix.sh
 ```
 
 ## Troubleshooting Worktree Setup

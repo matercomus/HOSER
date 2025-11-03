@@ -88,28 +88,51 @@ Suggest command:
 git worktree add ../HOSER-phase1-foundation -b feat/phase-decorator-foundation
 ```
 
-### 7. Verify Automatic Setup
-After user creates worktree, verify Cursor's automatic setup completed successfully:
+### 7. Wait for Automatic Setup (1-4 Minutes)
+
+**CRITICAL**: After creating worktree, **WAIT** for Cursor's automatic setup to complete.
 
 ```bash
 cd ../HOSER-phase1-foundation
 
-# Verify symlink was created automatically
+# STEP 1: Wait for setup to complete (choose one method)
+
+# Method A: Watch setup progress in real-time (RECOMMENDED)
+tail -f .cursor/worktree-setup.log
+# Wait until you see "✅ Worktree setup complete!" then press Ctrl+C
+
+# Method B: Poll until symlink appears
+while [ ! -L .cursor/plans ]; do 
+  echo "⏳ Waiting for automatic setup..."; 
+  sleep 10; 
+done && echo "✅ Setup complete!"
+
+# Method C: Wait 4 minutes then verify
+echo "⏳ Waiting 4 minutes for automatic setup..."
+sleep 240
+
+# STEP 2: Verify setup completed successfully
 ls -la .cursor/plans/  # Should show symlink to root repo
-
-# Check setup log
 tail -10 .cursor/worktree-setup.log  # Should show "✅ Worktree setup complete!"
-
-# Verify dependencies installed
-uv run python -c "print('Setup verified!')"
+uv run python -c "print('✅ Setup verified!')"
 ```
 
-**Note:** Cursor automatically runs `.cursor/setup-worktree-unix.sh` which creates the symlink and installs dependencies. Manual setup is not required.
+**⏱️ Expected timeline:**
+- Worktree created at T+0
+- Cursor queues setup: T+30s to T+3m
+- Setup runs (uv sync): ~30 seconds
+- Total: 1-4 minutes
 
-**If symlink is missing**, check "Output" → "Worktrees Setup" panel in Cursor or manually run:
+**Only if symlink missing after 5+ minutes:**
 ```bash
+# Check Cursor's setup output first
+# View → Output → "Worktrees Setup" dropdown
+
+# Then manually run if needed
 bash .cursor/setup-worktree-unix.sh
 ```
+
+**Note:** Cursor automatically runs `.cursor/setup-worktree-unix.sh`. Manual setup is rarely needed.
 
 ### 8. Claim Task in Plan
 Update the plan file following @plan-file-best-practices status format:
@@ -148,8 +171,10 @@ Format clearly with syntax highlighting.
 🌿 Branch: feat/phase-decorator-foundation
 📋 Task: 1.1 - Add phase decorator infrastructure
 📝 Plan updated: [IN PROGRESS - Agent1 - 2025-11-02 18:45]
-🔗 Symlink: Automatically created by setup script
+🔗 Symlink: Automatically created by setup script (waited 2m15s)
 🐍 Environment: Dependencies synced with uv
+
+⏱️  Setup completed successfully after automatic execution.
 
 Next steps:
 1. Implement changes from task description
