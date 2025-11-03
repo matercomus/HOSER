@@ -14,6 +14,8 @@ skip_eval: false
 force: false
 run_scenarios: true
 scenarios_config: config/scenarios_porto.yaml
+run_abnormal_detection: true
+abnormal_config: config/abnormal_detection.yaml
 wandb:
   enable: true
   project: hoser-porto-eval
