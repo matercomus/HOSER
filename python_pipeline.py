@@ -162,6 +162,9 @@ class PipelineConfig:
             elif key == "logging":
                 logging_config = value
                 self.verbose = logging_config.get("verbose", self.verbose)
+            elif key == "phases":
+                # Ensure phases is always a set (YAML may load as list)
+                self.phases = set(value) if isinstance(value, (list, set)) else value
             elif hasattr(self, key):
                 setattr(self, key, value)
 
