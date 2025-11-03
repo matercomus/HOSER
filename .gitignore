@@ -37,10 +37,14 @@ hoser-distill-optuna-6/abnormal/
 hoser-distill-optuna-6/abnormal_od_pairs_*.json
 hoser-distill-optuna-6/gene_abnormal/
 hoser-distill-optuna-6/eval_abnormal/
+hoser-distill-optuna-6/gene_translated/
+hoser-distill-optuna-6/road_mapping_*.json
 */abnormal/
 */abnormal_od_pairs_*.json
 */gene_abnormal/
 */eval_abnormal/
+*/gene_translated/
+*/road_mapping_*.json
 
 # Config backups and test configs
 **/config/*.strict
@@ -81,10 +85,10 @@ hoser-distill-optuna-porto-eval-*/wandb.backup/
 hoser-distill-optuna-porto-eval-*/figures.backup/
 hoser-distill-optuna-porto-eval-*/models/
 hoser-distill-optuna-porto-eval-*/scenarios/
-hoser-distill-optuna-porto-eval-*/pipeline.log
-hoser-distill-optuna-porto-eval-*/pipeline-fixed.log
-hoser-distill-optuna-porto-eval-*/plotting.log
-hoser-distill-optuna-porto-eval-*/plotting-fixed.log
+hoser-distill-optuna-porto-eval-*/abnormal/
+hoser-distill-optuna-porto-eval-*/gene_translated/
+hoser-distill-optuna-porto-eval-*/road_mapping_*.json
+hoser-distill-optuna-porto-eval-*/*.log
 
 # Root level pipeline logs
 pipeline.log
