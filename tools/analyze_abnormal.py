@@ -44,6 +44,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def ensure_json_serializable(obj):
+    """Recursively convert object to JSON-serializable types
+
+    Handles numpy types, booleans, and nested structures.
+    """
+    import numpy as np
+
+    if isinstance(obj, dict):
+        return {k: ensure_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [ensure_json_serializable(item) for item in obj]
+    elif isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    elif isinstance(obj, (np.integer, int)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, float)):
+        return float(obj)
+    elif isinstance(obj, str):
+        return obj
+    elif obj is None:
+        return None
+    else:
+        # Last resort: convert to string
+        return str(obj)
+
+
 def run_abnormal_analysis(
     real_file: Path,
     dataset: str,
@@ -150,13 +176,13 @@ def run_abnormal_analysis(
             },
             "statistics": results["statistics"],
         }
-        json.dump(json_results, f, indent=2)
+        json.dump(ensure_json_serializable(json_results), f, indent=2)
     logger.info(f"✅ Saved detection results to {results_file}")
 
     # Save statistics summary
     stats_file = output_dir / "statistics_by_category.json"
     with open(stats_file, "w") as f:
-        json.dump(results["statistics"], f, indent=2)
+        json.dump(ensure_json_serializable(results["statistics"]), f, indent=2)
     logger.info(f"✅ Saved statistics to {stats_file}")
 
     # Save trajectory samples if enabled
@@ -186,7 +212,7 @@ def run_abnormal_analysis(
             # Save samples for this category
             sample_file = samples_dir / f"{category}_samples.json"
             with open(sample_file, "w") as f:
-                json.dump(category_samples, f, indent=2)
+                json.dump(ensure_json_serializable(category_samples), f, indent=2)
 
             logger.info(
                 f"  ✅ Saved {len(category_samples)} {category} samples to {sample_file}"

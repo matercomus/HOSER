@@ -1026,6 +1026,68 @@ class EvaluationPipeline:
                 analysis_dataset, data_dir, abnormal_config, abnormal_output
             )
 
+    def _get_generated_file_for_analysis(
+        self, model_type: str, od_source: str, analysis_dataset: str
+    ) -> Optional[Path]:
+        """Get appropriate generated file (translated if cross-dataset, original otherwise)
+
+        Args:
+            model_type: Model type identifier
+            od_source: train or test
+            analysis_dataset: Dataset being analyzed (Beijing, BJUT_Beijing, Porto, etc.)
+
+        Returns:
+            Path to generated file, or None if not found
+        """
+        # Determine if this is cross-dataset analysis
+        is_cross_dataset = analysis_dataset != self.config.dataset
+
+        if is_cross_dataset:
+            # Check for translated files
+            translated_dir = Path(
+                f"./gene_translated/{analysis_dataset}/seed{self.config.seed}"
+            )
+
+            if translated_dir.exists():
+                translated_files = list(
+                    translated_dir.glob(f"*{model_type}*{od_source}*.csv")
+                )
+                if translated_files:
+                    logger.info(
+                        f"      ✅ Using translated file for cross-dataset: {translated_files[0].name}"
+                    )
+                    return translated_files[0]
+                else:
+                    logger.warning(
+                        f"      ⚠️  No translated file for {model_type}/{od_source}. "
+                        f"Run 'road_network_translate' phase first!"
+                    )
+                    return None
+            else:
+                logger.warning(
+                    f"      ⚠️  Translated directory not found: {translated_dir}. "
+                    f"Cross-dataset analysis will use original files (may cause ID mismatch!)"
+                )
+                # Fall through to original files with warning
+
+        # Same-dataset analysis OR fallback: use original generated files
+        gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
+        if not gene_dir.exists():
+            logger.error(f"      ❌ Gene directory not found: {gene_dir}")
+            return None
+
+        generated_files = list(gene_dir.glob(f"*{model_type}*{od_source}*.csv"))
+        if not generated_files:
+            logger.warning(f"      ⚠️  No generated file for {model_type}/{od_source}")
+            return None
+
+        if not is_cross_dataset:
+            logger.debug(
+                f"      Using original file (same dataset): {generated_files[0].name}"
+            )
+
+        return generated_files[0]
+
     def _analyze_dataset_abnormalities(
         self, dataset_name: str, data_dir: Path, config_path: Path, output_dir: Path
     ):
@@ -1074,27 +1136,21 @@ class EvaluationPipeline:
                     "\n    🤖 Detecting abnormal trajectories in GENERATED data..."
                 )
 
-                gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
-                if not gene_dir.exists():
-                    logger.warning(
-                        f"    Gene directory not found: {gene_dir}, skipping generated analysis"
-                    )
-                    continue
-
                 # Store results for comparison
                 model_results = {}
 
                 for model_type in self.config.models:
-                    # Find generated file for this model and OD source
-                    generated_files = list(
-                        gene_dir.glob(f"*{model_type}*{od_source}*.csv")
+                    # Get appropriate file (translated for cross-dataset, original otherwise)
+                    generated_file = self._get_generated_file_for_analysis(
+                        model_type=model_type,
+                        od_source=od_source,
+                        analysis_dataset=dataset_name,
                     )
 
-                    if not generated_files:
-                        logger.warning(f"      ⚠️  No generated files for {model_type}")
+                    if not generated_file:
+                        # Helper already logged appropriate warning
                         continue
 
-                    generated_file = generated_files[0]
                     logger.info(f"      Analyzing {model_type}...")
 
                     # Run detection on generated trajectories
