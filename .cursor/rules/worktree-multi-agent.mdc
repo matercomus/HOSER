@@ -293,6 +293,55 @@ ls -la .cursor/setup-worktree-unix.sh
 
 If issues persist, contact the user or check the root repository's `.cursor/` configuration.
 
+## Troubleshooting Plan File Synchronization
+
+### Issue: Plan updates not visible across agents
+
+**Symptom**: Agent updates plan in worktree, but other agents/root don't see changes
+
+**Cause**: Cursor file buffer caching - the editor caches file contents and doesn't auto-reload
+
+**Solution**:
+
+1. **Verify symlink is working** (files should be identical):
+```bash
+# Check symlink exists
+ls -la .cursor/plans/
+
+# Verify same inode (proves it's the same file)
+stat -L .cursor/plans/*.plan.md | grep Inode
+stat -L /path/to/root/.cursor/plans/*.plan.md | grep Inode
+
+# Diff should show no differences
+diff .cursor/plans/*.plan.md /path/to/root/.cursor/plans/*.plan.md
+```
+
+2. **Force Cursor to reload** the plan file:
+   - **Close the file** in all worktree windows
+   - **Reopen it** - Cursor will read from disk
+   - Or use **"Revert File"** command (Ctrl+K R)
+   - Or **restart Cursor** in that worktree
+
+3. **Best practice for agents**:
+   - Always **close plan file** after updating
+   - **Reopen** before reading to get latest changes
+   - Use command line to verify: `cat .cursor/plans/*.plan.md | grep "Task X.Y"`
+
+### Verification Commands
+
+```bash
+# Verify symlink is working (in worktree)
+readlink .cursor/plans/  # Should point to root repo
+
+# Check if file is same as root
+diff -q .cursor/plans/*.plan.md $(readlink .cursor/plans/)/*.plan.md && echo "✓ Symlink working"
+
+# Force read from disk (bypasses editor cache)
+cat .cursor/plans/*.plan.md | grep "IN PROGRESS"
+```
+
+**Remember**: The symlink works at the **filesystem level**. Cursor's editor needs to be told to reload the file from disk.
+
 ## Example Workflow
 
 ### Agent Starting Work

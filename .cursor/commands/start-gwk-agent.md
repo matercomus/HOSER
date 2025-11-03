@@ -126,6 +126,12 @@ To:
 
 Where `N` is next available agent number (check existing plan for Agent1, Agent2, etc.)
 
+**IMPORTANT**: After updating the plan:
+1. **Save the file** (changes are instant via symlink)
+2. **Close the file** in your editor
+3. Other agents can verify update with: `cat .cursor/plans/*.plan.md | grep "Task X.Y"`
+4. **Note**: Cursor caches file buffers - other agents must close/reopen or use "Revert File" (Ctrl+K R) to see changes
+
 ### 9. Display Task Implementation Details
 Show from plan:
 1. Task description
