@@ -135,6 +135,14 @@ bash .cursor/setup-worktree-unix.sh
 **Note:** Cursor automatically runs `.cursor/setup-worktree-unix.sh`. Manual setup is rarely needed.
 
 ### 8. Claim Task in Plan
+
+**First, get your unique agent ID:**
+```bash
+AGENT_ID=$(cat .cursor/worktree-agent-id)
+echo "My agent ID: $AGENT_ID"
+# Example output: "PdPfi" or "H7WqM"
+```
+
 Update the plan file following @plan-file-best-practices status format:
 
 Change from:
@@ -144,16 +152,16 @@ Change from:
 
 To:
 ```markdown
-### Task X.Y: Name [IN PROGRESS - AgentN - YYYY-MM-DD HH:MM]
+### Task X.Y: Name [IN PROGRESS - <AGENT_ID> - YYYY-MM-DD HH:MM]
 ```
 
-Where `N` is next available agent number (check existing plan for Agent1, Agent2, etc.)
+Replace `<AGENT_ID>` with your ID from above (e.g., "PdPfi", "H7WqM", "LqAbJ")
 
 **IMPORTANT**: After updating the plan:
 1. **Save the file** (changes are instant via symlink)
-2. **Close the file** in your editor
-3. Other agents can verify update with: `cat .cursor/plans/*.plan.md | grep "Task X.Y"`
-4. **Note**: Cursor caches file buffers - other agents must close/reopen or use "Revert File" (Ctrl+K R) to see changes
+2. **Verify**: `cat .cursor/plans/*.plan.md | grep "Task X.Y"`
+3. **Close the file** in your editor
+4. **Note**: Other agents must close/reopen or use "Revert File" (Ctrl+K R) to see changes
 
 ### 9. Display Task Implementation Details
 Show from plan:
