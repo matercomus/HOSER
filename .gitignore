@@ -42,6 +42,10 @@ hoser-distill-optuna-6/eval_abnormal/
 */gene_abnormal/
 */eval_abnormal/
 
+# Config backups and test configs
+**/config/*.strict
+**/config/*_sensitive.yaml
+
 # Test directories for visualization experiments
 hoser-distill-optuna-6/figures/test_*/
 hoser-distill-optuna-6/figures/trajectories_final/
