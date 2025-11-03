@@ -120,6 +120,7 @@ class PipelineConfig:
             "generation",
             "base_eval",
             "cross_dataset",
+            "road_network_translate",
             "abnormal",
             "abnormal_od_extract",
             "abnormal_od_generate",
@@ -1426,6 +1427,129 @@ class EvaluationPipeline:
         logger.info("🌐 Evaluating on cross-dataset...")
         self._run_cross_dataset_evaluation()
 
+    @phase("road_network_translate", critical=False)
+    def run_road_network_translate(self):
+        """Translate generated trajectories to cross-dataset road network"""
+        logger.info("🗺️  Translating road networks for cross-dataset analysis...")
+
+        # Only needed when cross-dataset is configured
+        if not self.config.cross_dataset_eval:
+            logger.info("No cross-dataset configured, skipping translation")
+            return
+
+        # Check if mapping exists, create if not
+        mapping_file = Path(
+            f"road_mapping_{self.config.dataset.lower()}_to_{self.config.cross_dataset_name.lower().replace(' ', '_')}.json"
+        )
+
+        if not mapping_file.exists():
+            logger.info(f"  📍 Mapping file not found, creating: {mapping_file}")
+
+            # Import mapping tool
+            from tools.map_road_networks import (
+                load_road_network_with_coords,
+                find_nearest_road_batch,
+                save_comprehensive_output,
+            )
+
+            # Determine .geo file paths
+            source_geo = Path(f"data/{self.config.dataset}/roadmap.geo")
+            if not source_geo.exists():
+                source_geo = (
+                    self.eval_dir.parent / "data" / self.config.dataset / "roadmap.geo"
+                )
+
+            target_data_dir = Path(self.config.cross_dataset_eval)
+            if not target_data_dir.is_absolute():
+                target_data_dir = self.eval_dir / target_data_dir
+            target_geo = target_data_dir / "roadmap.geo"
+
+            if not source_geo.exists():
+                logger.error(f"❌ Source .geo file not found: {source_geo}")
+                return
+            if not target_geo.exists():
+                logger.error(f"❌ Target .geo file not found: {target_geo}")
+                return
+
+            # Create mapping
+            source_roads = load_road_network_with_coords(source_geo)
+            target_roads = load_road_network_with_coords(target_geo)
+
+            result = find_nearest_road_batch(
+                source_roads=source_roads,
+                target_roads=target_roads,
+                max_distance_m=50.0,
+            )
+
+            save_comprehensive_output(
+                result=result,
+                source_dataset=self.config.dataset,
+                target_dataset=self.config.cross_dataset_name,
+                source_geo=source_geo,
+                target_geo=target_geo,
+                max_distance=50.0,
+                output_file=mapping_file,
+            )
+
+            # Check mapping quality
+            mapping_rate = result["statistics"]["mapping_rate_pct"]
+            if mapping_rate < 70:
+                logger.error(
+                    f"❌ Poor mapping quality ({mapping_rate:.1f}%), aborting translation"
+                )
+                return
+            elif mapping_rate < 85:
+                logger.warning(f"⚠️  Fair mapping quality ({mapping_rate:.1f}%)")
+        else:
+            logger.info(f"  ✅ Using existing mapping: {mapping_file}")
+
+        # Load mapping
+        import json
+
+        with open(mapping_file, "r") as f:
+            mapping = json.load(f)
+        mapping_int = {int(k): int(v) for k, v in mapping.items()}
+
+        # Translate all generated files
+        from tools.translate_trajectories import translate_trajectory_file
+
+        gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
+        if not gene_dir.exists():
+            logger.warning(
+                f"Gene directory not found: {gene_dir}, skipping translation"
+            )
+            return
+
+        gene_files = list(gene_dir.glob("*.csv"))
+        if not gene_files:
+            logger.warning("No generated files to translate")
+            return
+
+        logger.info(f"\n  📦 Found {len(gene_files)} generated files to translate")
+
+        output_dir = Path(
+            f"./gene_translated/{self.config.cross_dataset_name}/seed{self.config.seed}"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for gene_file in gene_files:
+            output_file = output_dir / gene_file.name
+
+            try:
+                translate_trajectory_file(
+                    input_file=gene_file,
+                    mapping=mapping_int,
+                    output_file=output_file,
+                )
+            except Exception as e:
+                logger.error(f"  ❌ Translation failed for {gene_file.name}: {e}")
+                import traceback
+
+                traceback.print_exc()
+                continue
+
+        logger.info(f"\n✅ Translation complete! Files in {output_dir}/")
+
     @phase("abnormal", critical=False)
     def run_abnormal(self):
         """Detect abnormal trajectories"""
@@ -1872,6 +1996,7 @@ class EvaluationPipeline:
             "generation",
             "base_eval",
             "cross_dataset",
+            "road_network_translate",
             "abnormal",
             "abnormal_od_extract",
             "abnormal_od_generate",
@@ -1931,7 +2056,7 @@ def main():
         type=str,
         help=(
             "Run only these phases (comma-separated). Available: "
-            "generation,base_eval,cross_dataset,abnormal,"
+            "generation,base_eval,cross_dataset,road_network_translate,abnormal,"
             "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,scenarios."
         ),
     )
