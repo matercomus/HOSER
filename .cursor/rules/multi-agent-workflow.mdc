@@ -59,6 +59,20 @@ Benefits:
 - Easier rollback if needed (can revert single phase)
 - Other agents can start next phase while previous merges
 
+## 🚨 CRITICAL: If You Just Created This Worktree
+
+**STOP! Run this command FIRST:**
+
+```bash
+bash .cursor/wait-for-setup.sh
+```
+
+This script BLOCKS until setup completes (1-4 minutes). You CANNOT skip this!
+
+Once it completes, you'll see your agent ID. Then proceed with the steps below.
+
+---
+
 ## Before Starting ANY Work
 
 1. Check you're in a worktree:
@@ -66,26 +80,31 @@ Benefits:
 ls -la .cursor/plans/  # Should show symlink to root worktree
 ```
 
-2. Read the plan file completely:
+2. Get your agent ID:
+```bash
+cat .cursor/worktree-agent-id  # Your unique agent ID (e.g., "PdPfi")
+```
+
+3. Read the plan file completely:
 ```bash
 cat .cursor/plans/*.plan.md
 ```
 
-3. Verify task dependencies are met:
+4. Verify task dependencies are met:
 ```markdown
 # Look for:
 ### Task X.Y: Name [ ]
 **Dependencies:** Task 1.3 (must be [DONE])
 ```
 
-4. Check no other agent is editing same files:
+5. Check no other agent is editing same files:
 ```bash
 grep "filename.py" .cursor/plans/*.plan.md | grep "IN PROGRESS"
 ```
 
-5. Update plan status:
+6. Update plan status with YOUR agent ID:
 ```markdown
-### Task X.Y: Name [IN PROGRESS - Agent1 - 2025-11-02 14:30]
+### Task X.Y: Name [IN PROGRESS - <YOUR_AGENT_ID> - 2025-11-02 14:30]
 ```
 
 ## Task Claiming Protocol
@@ -212,15 +231,17 @@ git branch | wc -l  # Check branch count
 
 ## Troubleshooting
 
-**Problem:** Symlink not working
+**Problem:** Symlink not working or setup not complete
 ```bash
-# Check symlink
+# First, try running the setup wait script
+bash .cursor/wait-for-setup.sh
+
+# If that fails, check symlink
 ls -la .cursor/plans/
 # Should show: .cursor/plans -> /path/to/root/.cursor/plans
 
-# Recreate if broken
-rm -rf .cursor/plans
-ln -s $(git rev-parse --show-toplevel)/.cursor/plans .cursor/plans
+# Manually run setup if needed
+bash .cursor/setup-worktree-unix.sh
 ```
 
 **Problem:** Task conflicts (two agents claim same task)
