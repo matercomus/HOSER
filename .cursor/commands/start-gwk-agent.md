@@ -4,9 +4,9 @@
 
 Initialize a git worktree agent and claim a task from a plan file following multi-agent workflow best practices.
 
-## 🚨 CRITICAL: You MUST wait 1-4 minutes after creating worktree for setup to complete! 🚨
+## 🚨 CRITICAL: You MUST run setup script after creating worktree! 🚨
 
-**DO NOT skip this step!** See Step 7 below for waiting instructions.
+**DO NOT skip this step!** See Step 7 below for the command to run.
 
 ## Workflow
 
@@ -92,62 +92,46 @@ Suggest command:
 git worktree add ../HOSER-phase1-foundation -b feat/phase-decorator-foundation
 ```
 
-### 7. 🚨 MANDATORY: Wait for Setup (Run This Command!) 🚨
+### 7. 🚨 MANDATORY: Run Setup Script 🚨
 
 **REQUIRED**: After creating worktree, run this ONE command:
 
 ```bash
 cd ../HOSER-phase1-foundation
-bash .cursor/wait-for-setup.sh
+bash .cursor/setup-worktree-unix.sh
 ```
 
-**This script will:**
-- ⏳ **Block until setup completes** (you cannot skip)
-- 📊 Show setup progress in real-time
-- ✅ Verify everything is ready
-- 🤖 Display your agent ID
+**This script:**
+- ⚡ **Idempotent** - safe to run multiple times, won't duplicate work
+- ⏳ Waits if Cursor's automatic setup is running
+- 🚀 Runs setup if not started yet
+- ✅ Skips instantly if already complete
+- 🤖 Shows your agent ID
 
-**DO NOT:**
-- ❌ Skip running `wait-for-setup.sh`
-- ❌ Try to work before script completes
-- ❌ Assume setup is instant
-- ❌ Manually run other setup scripts
+**Expected output (if already complete):**
+```
+✅ Worktree setup already complete (skipping re-run)
+   If you need to re-run setup, delete: .cursor/.setup-complete
 
-**The script handles everything - just run it and wait!**
+Verification:
+  ✅ Symlink exists
+  ✅ Agent ID: PdPfi
+  ✅ Virtual environment exists
+```
 
-Expected output:
+**Expected output (if running setup):**
 ```
 =========================================
-⏳ Waiting for worktree setup to complete...
+🔧 Setting up worktree environment...
 =========================================
-
-This will take 1-4 minutes. Please be patient.
-
-⏳ Waiting for setup to start...
-✅ Setup started, waiting for completion...
-
-[... setup progress shown here ...]
-
-=========================================
-✅ Setup complete! Verifying...
-=========================================
-
-✅ Symlink: .cursor/plans exists
-✅ Agent ID: PdPfi
-✅ Virtual environment: .venv exists
-✅ Python: Working
-
-=========================================
-🎉 Worktree is ready! You can start working.
-=========================================
-
-Your agent ID: PdPfi
-
-Next steps:
-1. Read the plan: cat .cursor/plans/*.plan.md
-2. Claim a task using your agent ID: PdPfi
-3. Start implementing!
+📦 Syncing dependencies with uv...
+🔗 Setting up .cursor/plans symlink...
+🤖 Assigning agent ID...
+   Agent ID: PdPfi
+✅ Worktree setup complete!
 ```
+
+**After script completes, you're ready to work!**
 
 ### 8. Claim Task in Plan
 

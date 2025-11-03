@@ -4,41 +4,41 @@ alwaysApply: true
 
 # Worktree Multi-Agent Coordination Rules
 
-## 🚨 CRITICAL: WAIT FOR SETUP BEFORE DOING ANYTHING 🚨
+## 🚨 CRITICAL: RUN SETUP BEFORE DOING ANYTHING 🚨
 
-**IF YOU JUST CREATED A WORKTREE, YOU MUST WAIT 1-4 MINUTES FOR AUTOMATIC SETUP TO COMPLETE!**
-
-### MANDATORY: Run This Command IMMEDIATELY After Creating Worktree
+**IF YOU JUST CREATED A WORKTREE, RUN THIS COMMAND IMMEDIATELY:**
 
 ```bash
 cd your-worktree
-bash .cursor/wait-for-setup.sh
+bash .cursor/setup-worktree-unix.sh
 ```
 
 **This script will:**
-- ⏳ Block until setup completes (you cannot skip this)
-- 📊 Show setup progress in real-time
-- ✅ Verify everything is ready before proceeding
-- 🤖 Display your agent ID when complete
+- ⏳ Wait for Cursor's automatic setup to complete (if still running)
+- 🚀 Run setup if not started yet (handles timing automatically)
+- ⚡ Skip instantly if already complete (idempotent - safe to run multiple times)
+- ✅ Verify everything is ready
+- 🤖 Display your agent ID
 
-**DO NOT:**
-- ❌ Skip running this script
-- ❌ Try to work before script completes
-- ❌ Manually run setup-worktree-unix.sh (wait-for-setup.sh handles it)
+**Output you'll see:**
 
-### What the Script Does
+If setup already complete:
+```
+✅ Worktree setup already complete (skipping re-run)
+Verification:
+  ✅ Symlink exists
+  ✅ Agent ID: PdPfi
+  ✅ Virtual environment exists
+```
 
-The `wait-for-setup.sh` script:
-1. Waits for Cursor's automatic setup to start
-2. Shows setup progress (uv sync, symlink creation, etc.)
-3. Verifies all requirements:
-   - `.cursor/plans/` symlink exists
-   - `.cursor/worktree-agent-id` file exists
-   - Virtual environment created
-   - Python works
-4. Only exits when worktree is 100% ready
-
-**You cannot proceed until this script completes successfully!**
+If setup needs to run:
+```
+🔧 Setting up worktree environment...
+📦 Syncing dependencies with uv...
+🔗 Setting up .cursor/plans symlink...
+🤖 Assigning agent ID...
+✅ Worktree setup complete!
+```
 
 ---
 
@@ -352,11 +352,18 @@ git branch --show-current
 git log --oneline -5
 ```
 
-### If Setup Hasn't Started After 5 Minutes
+### If You See Errors
 
-**Only then** run setup manually:
+Check the setup log:
 
 ```bash
+cat .cursor/worktree-setup.log
+```
+
+To force re-run setup:
+
+```bash
+rm .cursor/.setup-complete
 bash .cursor/setup-worktree-unix.sh
 ```
 
@@ -545,7 +552,7 @@ git branch | wc -l  # Check branch count
 
 ## Rules Summary
 
-1. ✅ **ALWAYS** run `wait-for-setup.sh` immediately after creating worktree
+1. ✅ **ALWAYS** run `bash .cursor/setup-worktree-unix.sh` immediately after creating worktree
 2. ✅ **ALWAYS** read the plan before starting work
 3. ✅ **ALWAYS** update task status with YOUR agent ID when starting/completing tasks
 4. ✅ **ALWAYS** save the plan file (changes are instant via symlink)
