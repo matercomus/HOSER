@@ -53,10 +53,11 @@ analysis:
   max_samples_per_pattern: 50      # Maximum samples to save per Abp pattern
   compute_speed_profiles: true     # Include speed analysis in results
   
-# Translation quality filtering (optional)
+# Translation quality filtering (optional - for cross-dataset evaluation)
 translation_filtering:
   enabled: false  # Enable to filter by translation quality before detection
-  min_translation_rate: 0.95  # Minimum percentage of successfully translated road IDs
+  min_translation_rate: 95.0  # Minimum percentage of successfully translated road IDs (0-100%)
+  require_quality_file: true  # Fail if quality file not found (false = skip filtering)
   
 # Cross-dataset evaluation (optional)
 cross_dataset:

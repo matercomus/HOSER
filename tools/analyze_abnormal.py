@@ -42,6 +42,12 @@ from tools.detect_abnormal_statistical import (
     WangStatisticalDetector,
 )
 
+# Translation quality filtering
+from tools.filter_translated_by_quality import (
+    load_quality_report,
+    filter_trajectories_by_quality,
+)
+
 # Use functions from evaluation.py for data loading
 from evaluation import load_trajectories, load_road_network
 
@@ -290,6 +296,71 @@ def _save_comparison_results(
         logger.warning("  ⚠️  Wang results not available (baselines missing)")
 
 
+def _apply_quality_filtering(
+    real_file: Path, config_path: Path, output_dir: Path
+) -> Optional[Path]:
+    """Apply translation quality filtering if enabled in config.
+
+    Args:
+        real_file: Original trajectory file
+        config_path: Config file path
+        output_dir: Output directory for filtered file
+
+    Returns:
+        Path to filtered file or None if filtering not applied
+    """
+    import yaml
+
+    # Load config to check if filtering is enabled
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    filtering_config = config.get("translation_filtering", {})
+
+    if not filtering_config.get("enabled", False):
+        return None
+
+    min_rate = filtering_config.get("min_translation_rate", 95.0)
+    require_quality = filtering_config.get("require_quality_file", True)
+
+    logger.info(f"🔍 Translation quality filtering enabled (min rate: {min_rate}%)")
+
+    # Look for quality file
+    quality_file = real_file.parent / f"{real_file.stem}_quality.json"
+
+    if not quality_file.exists():
+        if require_quality:
+            logger.error(f"❌ Quality file required but not found: {quality_file}")
+            raise FileNotFoundError(
+                f"Translation quality file not found: {quality_file}. "
+                "Run translation with quality tracking or disable filtering."
+            )
+        else:
+            logger.warning(
+                f"⚠️  Quality file not found: {quality_file} - Skipping filtering"
+            )
+            return None
+
+    # Load quality and filter
+    quality = load_quality_report(quality_file)
+
+    # Create filtered file in output dir
+    filtered_file = output_dir / f"{real_file.stem}_filtered.csv"
+
+    filter_stats = filter_trajectories_by_quality(
+        input_file=real_file,
+        quality=quality,
+        min_translation_rate=min_rate,
+        output_file=filtered_file,
+    )
+
+    logger.info(
+        f"✅ Filtered to {filter_stats['retention_rate_pct']:.1f}% of trajectories"
+    )
+
+    return filtered_file
+
+
 def run_abnormal_analysis(
     real_file: Path,
     dataset: str,
@@ -311,8 +382,16 @@ def run_abnormal_analysis(
     """
     logger.info("🔍 Starting abnormal trajectory analysis...")
     logger.info(f"📂 Dataset: {dataset}")
-    logger.info(f"📂 Real data: {real_file}")
+    logger.info(f"📂 Input file: {real_file}")
     logger.info(f"⚙️  Config: {config_path}")
+
+    # Apply quality filtering if enabled (before loading trajectories)
+    filtered_file = _apply_quality_filtering(real_file, config_path, output_dir)
+    if filtered_file:
+        logger.info(f"📊 Using filtered file: {filtered_file}")
+        analysis_file = filtered_file
+    else:
+        analysis_file = real_file
 
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -348,16 +427,16 @@ def run_abnormal_analysis(
     # Load relations separately
     rel_df = pl.read_csv(str(rel_path))
 
-    # Load real trajectories
-    if not real_file.exists():
-        raise FileNotFoundError(f"Real trajectory file not found: {real_file}")
+    # Load trajectories (from filtered file if quality filtering was applied)
+    if not analysis_file.exists():
+        raise FileNotFoundError(f"Trajectory file not found: {analysis_file}")
 
     data_type = "real" if is_real_data else "generated"
     logger.info(f"📂 Loading {data_type} trajectories...")
     # Get max road_id from geo_df for validation
     max_road_id = geo_df["road_id"].max()
     trajectories = load_trajectories(
-        str(real_file), is_real_data=is_real_data, max_road_id=max_road_id
+        str(analysis_file), is_real_data=is_real_data, max_road_id=max_road_id
     )
 
     logger.info(f"✅ Loaded {len(trajectories)} trajectories")
