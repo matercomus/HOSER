@@ -10,6 +10,12 @@
 dataset: porto_hoser
 baseline_dataset: porto_hoser
 
+# Baselines path configuration
+baselines:
+  # Path to baseline statistics file (relative to project root or absolute)
+  # If not specified, defaults to: baselines/baselines_{baseline_dataset.lower()}.json
+  path: null  # null = auto-detect from baseline_dataset
+
 # Detection method: Only run new Wang statistical method (old z_score results already exist)
 detection:
   method: "wang_statistical"  # Options: "z_score" (old), "wang_statistical" (new), "both" (comparison)

@@ -12,6 +12,14 @@
 dataset: Beijing  # Dataset being analyzed
 baseline_dataset: Beijing  # Dataset used for baselines (may differ for cross-dataset evaluation)
 
+# Baselines path configuration
+baselines:
+  # Path to baseline statistics file (relative to project root or absolute)
+  # If not specified, defaults to: baselines/baselines_{baseline_dataset.lower()}.json
+  path: null  # null = auto-detect from baseline_dataset
+  # Example: path: "baselines/baselines_beijing.json"
+  # Example: path: "/absolute/path/to/baselines_beijing.json"
+
 # Wang et al. 2018 Statistical Detection Parameters
 wang_statistical:
   # Fixed thresholds from Wang et al. 2018 paper

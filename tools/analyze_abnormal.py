@@ -103,26 +103,61 @@ def _get_detection_method(config_path: Path) -> str:
     return "z_score"  # Fallback
 
 
-def _load_baselines_for_dataset(dataset: str) -> Optional[BaselineStatistics]:
+def _load_baselines_for_dataset(
+    dataset: str, config_path: Optional[Path] = None
+) -> Optional[BaselineStatistics]:
     """Load baseline statistics for a dataset.
 
     Args:
         dataset: Dataset name (e.g., "Beijing", "BJUT_Beijing")
+        config_path: Optional path to config file to read baselines path from
 
     Returns:
         BaselineStatistics object or None if not found
     """
-    # Try to find baselines file
-    baselines_path = Path(f"baselines/baselines_{dataset.lower()}.json")
+    import yaml
+
+    # Try to get baselines path from config if provided
+    baselines_path = None
+    baseline_dataset = dataset
+
+    if config_path and config_path.exists():
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+            baseline_dataset = config.get("baseline_dataset", dataset)
+            baselines_config = config.get("baselines", {})
+            baselines_path_str = (
+                baselines_config.get("path") if baselines_config else None
+            )
+
+            if baselines_path_str:
+                # Use explicit path from config
+                baselines_path = Path(baselines_path_str)
+                if not baselines_path.is_absolute():
+                    # Relative to project root
+                    script_dir = Path(__file__).parent
+                    project_root = script_dir.parent
+                    baselines_path = project_root / baselines_path
+
+    # If not specified in config, use default auto-detect logic
+    if baselines_path is None:
+        script_dir = Path(__file__).parent
+        project_root = script_dir.parent
+        baselines_path = (
+            project_root
+            / "baselines"
+            / f"baselines_{baseline_dataset.lower().replace(' ', '_')}.json"
+        )
 
     if not baselines_path.exists():
         logger.warning(f"⚠️  Baselines not found: {baselines_path}")
         logger.warning(
             "   To use statistical detection, run: "
-            f"uv run python tools/compute_trajectory_baselines.py --dataset {dataset}"
+            f"uv run python tools/compute_trajectory_baselines.py --dataset {baseline_dataset}"
         )
         return None
 
+    logger.info(f"✅ Found baselines: {baselines_path.name}")
     return BaselineStatistics(baselines_path)
 
 
@@ -446,8 +481,8 @@ def run_abnormal_analysis(
         # Wang et al. 2018 statistical detection
         logger.info("📊 Using Wang et al. 2018 statistical detection")
 
-        # Load baselines
-        baselines = _load_baselines_for_dataset(dataset)
+        # Load baselines (pass config_path to read baselines path from config)
+        baselines = _load_baselines_for_dataset(dataset, config_path)
         if baselines is None:
             logger.error("❌ Baselines required for statistical detection")
             raise FileNotFoundError(
@@ -490,7 +525,7 @@ def run_abnormal_analysis(
 
         # Method 2: Wang statistical
         logger.info("  Method 2: Wang statistical detection")
-        baselines = _load_baselines_for_dataset(dataset)
+        baselines = _load_baselines_for_dataset(dataset, config_path)
         if baselines:
             wang_config = WangConfig.from_yaml(config_path)
             trajectories_df_wang = _prepare_trajectories_for_wang(trajectories, geo_df)
