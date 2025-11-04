@@ -10,6 +10,15 @@ This document provides the commands to run the Wang et al. 2018 statistical abno
 ✅ **Configs**: Created in both eval dirs (abnormal_detection_statistical.yaml)  
 ✅ **Integration**: Complete in python_pipeline.py
 
+## ⚠️ Important: Z-Score Results Not Usable
+
+The existing z-score abnormality detection results show **0% abnormalities** for all datasets and models. This is because:
+- The z-score method expects GPS coordinates, but datasets use road ID sequences
+- No OD-pair baselines were computed when z-score ran
+- Method couldn't execute properly on the data format
+
+**Decision**: Run ONLY Wang statistical method (configs already updated). See `Z_SCORE_RESULTS_ANALYSIS.md` for full analysis.
+
 ## Step 1: Compute Porto Baselines (REQUIRED FIRST)
 
 Porto baselines need to be computed before running abnormality detection. This takes ~15-20 minutes:
@@ -42,8 +51,8 @@ uv run python ../python_pipeline.py \
 - Analyzes real data (train/test) for Beijing dataset
 - Analyzes real data (train/test) for BJUT_Beijing cross-dataset  
 - Analyzes all generated trajectories from all models
-- Runs BOTH detection methods (old + Wang statistical)
-- Creates comparison reports showing differences
+- Runs Wang statistical method ONLY (z-score results already exist but unusable)
+- Creates comparison reports showing real vs generated abnormality rates
 
 **Output locations**:
 ```
@@ -51,15 +60,12 @@ abnormal/
 ├── Beijing/
 │   ├── train/
 │   │   ├── real_data/
-│   │   │   ├── detection_results_threshold.json
-│   │   │   ├── detection_results_wang.json
-│   │   │   └── method_comparison.json
+│   │   │   ├── detection_results.json          # OLD z-score (0% abnormal - keep for reference)
+│   │   │   └── detection_results_wang.json     # NEW Wang statistical results
 │   │   └── generated/{model}/
-│   │       ├── detection_results_threshold.json
-│   │       ├── detection_results_wang.json
-│   │       └── method_comparison.json
+│   │       └── detection_results_wang.json     # NEW Wang results per model
 │   ├── test/ (same structure)
-│   └── comparison_report.json
+│   └── comparison_report.json  # Real vs Generated comparison (using Wang results)
 └── BJUT_Beijing/ (same structure)
 ```
 

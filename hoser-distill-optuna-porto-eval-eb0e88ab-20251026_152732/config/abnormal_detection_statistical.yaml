@@ -10,9 +10,9 @@
 dataset: porto_hoser
 baseline_dataset: porto_hoser
 
-# Detection method: "both" runs comparison between old and new methods
+# Detection method: Only run new Wang statistical method (old z_score results already exist)
 detection:
-  method: "both"  # Options: "z_score" (old), "wang_statistical" (new), "both" (comparison)
+  method: "wang_statistical"  # Options: "z_score" (old), "wang_statistical" (new), "both" (comparison)
 
 # Wang et al. 2018 Statistical Detection Parameters
 wang_statistical:
