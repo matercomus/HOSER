@@ -24,7 +24,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import polars as pl
 
 # Add parent directory to path for imports
@@ -33,6 +33,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools.detect_abnormal_trajectories import (
     AbnormalTrajectoryDetector,
     AbnormalityConfig,
+)
+
+# Wang et al. 2018 statistical detector
+from tools.detect_abnormal_statistical import (
+    BaselineStatistics,
+    WangConfig,
+    WangStatisticalDetector,
 )
 
 # Use functions from evaluation.py for data loading
@@ -70,6 +77,219 @@ def ensure_json_serializable(obj):
         return str(obj)
 
 
+def _get_detection_method(config_path: Path) -> str:
+    """Extract detection method from config file.
+
+    Args:
+        config_path: Path to configuration YAML
+
+    Returns:
+        Detection method: "threshold", "wang_statistical", or "both"
+    """
+    import yaml
+
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    detection = config.get("detection", {})
+    if isinstance(detection, dict):
+        return detection.get("method", "z_score")  # Default to threshold method
+    return "z_score"  # Fallback
+
+
+def _load_baselines_for_dataset(dataset: str) -> Optional[BaselineStatistics]:
+    """Load baseline statistics for a dataset.
+
+    Args:
+        dataset: Dataset name (e.g., "Beijing", "BJUT_Beijing")
+
+    Returns:
+        BaselineStatistics object or None if not found
+    """
+    # Try to find baselines file
+    baselines_path = Path(f"baselines/baselines_{dataset.lower()}.json")
+
+    if not baselines_path.exists():
+        logger.warning(f"⚠️  Baselines not found: {baselines_path}")
+        logger.warning(
+            "   To use statistical detection, run: "
+            f"uv run python tools/compute_trajectory_baselines.py --dataset {dataset}"
+        )
+        return None
+
+    return BaselineStatistics(baselines_path)
+
+
+def _prepare_trajectories_for_wang(
+    trajectories: List, geo_df: pl.DataFrame
+) -> pl.DataFrame:
+    """Convert trajectory list to DataFrame format for Wang detector.
+
+    Args:
+        trajectories: List of trajectories (each is list of (road_id, timestamp) tuples)
+        geo_df: Road network geometry (not used here but for consistency)
+
+    Returns:
+        Polars DataFrame with columns: traj_id, road_ids, timestamps
+    """
+    traj_data = []
+    for traj_idx, trajectory in enumerate(trajectories):
+        if not trajectory:
+            continue
+
+        road_ids = [road_id for road_id, _ in trajectory]
+        timestamps = [timestamp for _, timestamp in trajectory]
+
+        traj_data.append(
+            {"traj_id": traj_idx, "road_ids": road_ids, "timestamps": timestamps}
+        )
+
+    return pl.DataFrame(traj_data)
+
+
+def _convert_wang_results_to_standard_format(wang_results: Dict) -> Dict:
+    """Convert Wang detector results to standard format for compatibility.
+
+    Args:
+        wang_results: Results from WangStatisticalDetector
+
+    Returns:
+        Results in standard format compatible with threshold-based detector
+    """
+    # Convert pattern counts to abnormal indices
+    abnormal_indices = {}
+
+    # Map Wang patterns to threshold categories (approximate)
+    # Abp2 (temporal delay) → unusual_duration + suspicious_stops
+    # Abp3 (route deviation) → detour + circuitous
+    # Abp4 (both) → all of the above
+
+    # Extract abnormal trajectory IDs by pattern
+    abnormal_by_pattern = {}
+    for traj in wang_results.get("abnormal_trajectories", []):
+        pattern = traj["pattern"]
+        traj_id = traj["traj_id"]
+
+        if pattern not in abnormal_by_pattern:
+            abnormal_by_pattern[pattern] = []
+        abnormal_by_pattern[pattern].append(traj_id)
+
+    # Map to standard categories
+    abnormal_indices["wang_temporal_delay"] = abnormal_by_pattern.get(
+        "Abp2_temporal_delay", []
+    )
+    abnormal_indices["wang_route_deviation"] = abnormal_by_pattern.get(
+        "Abp3_route_deviation", []
+    )
+    abnormal_indices["wang_both_deviations"] = abnormal_by_pattern.get(
+        "Abp4_both_deviations", []
+    )
+
+    # Compute statistics
+    total = wang_results["analysis_metadata"]["trajectories_analyzed"]
+    statistics = {}
+
+    for category, indices in abnormal_indices.items():
+        count = len(indices)
+        percentage = (count / total * 100) if total > 0 else 0
+        statistics[category] = {"count": count, "percentage": percentage}
+
+    return {
+        "total_trajectories": total,
+        "abnormal_indices": abnormal_indices,
+        "statistics": statistics,
+        "pattern_counts": wang_results.get("pattern_counts", {}),
+        "wang_metadata": wang_results.get("analysis_metadata", {}),
+    }
+
+
+def _save_comparison_results(
+    output_dir: Path,
+    results_threshold: Dict,
+    results_wang: Optional[Dict],
+    dataset: str,
+    config_path: Path,
+):
+    """Save comparison results from both detection methods.
+
+    Args:
+        output_dir: Output directory
+        results_threshold: Results from threshold-based detection
+        results_wang: Results from Wang statistical detection (or None if not available)
+        dataset: Dataset name
+        config_path: Config file path
+    """
+    # Save threshold results
+    threshold_file = output_dir / "detection_results_threshold.json"
+    with open(threshold_file, "w") as f:
+        json_results = {
+            "method": "threshold_based",
+            "dataset": dataset,
+            "config_file": str(config_path),
+            "total_trajectories": results_threshold["total_trajectories"],
+            "abnormal_indices": {
+                category: list(indices)
+                for category, indices in results_threshold["abnormal_indices"].items()
+            },
+            "statistics": results_threshold["statistics"],
+        }
+        json.dump(ensure_json_serializable(json_results), f, indent=2)
+    logger.info(f"  ✅ Saved threshold results to {threshold_file}")
+
+    # Save Wang results if available
+    if results_wang:
+        wang_file = output_dir / "detection_results_wang.json"
+        with open(wang_file, "w") as f:
+            json_results = {
+                "method": "wang_statistical",
+                "dataset": dataset,
+                "config_file": str(config_path),
+                "total_trajectories": results_wang["total_trajectories"],
+                "abnormal_indices": {
+                    category: list(indices)
+                    for category, indices in results_wang["abnormal_indices"].items()
+                },
+                "statistics": results_wang["statistics"],
+                "pattern_counts": results_wang.get("pattern_counts", {}),
+                "wang_metadata": results_wang.get("wang_metadata", {}),
+            }
+            json.dump(ensure_json_serializable(json_results), f, indent=2)
+        logger.info(f"  ✅ Saved Wang results to {wang_file}")
+
+        # Create comparison summary
+        comparison_file = output_dir / "method_comparison.json"
+        comparison = {
+            "dataset": dataset,
+            "config_file": str(config_path),
+            "threshold_method": {
+                "total_abnormal": sum(
+                    len(indices)
+                    for indices in results_threshold["abnormal_indices"].values()
+                ),
+                "abnormal_rate": sum(
+                    stats["percentage"]
+                    for stats in results_threshold["statistics"].values()
+                ),
+                "categories": list(results_threshold["statistics"].keys()),
+            },
+            "wang_method": {
+                "total_abnormal": (
+                    results_wang["total_trajectories"]
+                    - results_wang.get("pattern_counts", {}).get("Abp1_normal", 0)
+                ),
+                "abnormal_rate": results_wang.get(
+                    "abnormal_rate", 0
+                ),  # Direct from Wang results
+                "pattern_counts": results_wang.get("pattern_counts", {}),
+            },
+        }
+        with open(comparison_file, "w") as f:
+            json.dump(ensure_json_serializable(comparison), f, indent=2)
+        logger.info(f"  ✅ Saved comparison summary to {comparison_file}")
+    else:
+        logger.warning("  ⚠️  Wang results not available (baselines missing)")
+
+
 def run_abnormal_analysis(
     real_file: Path,
     dataset: str,
@@ -98,9 +318,12 @@ def run_abnormal_analysis(
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"💾 Output directory: {output_dir}")
 
-    # Load configuration
+    # Determine detection method from config
+    detection_method = _get_detection_method(config_path)
+    logger.info(f"🔍 Detection method: {detection_method}")
+
+    # Load configuration (needed for either method)
     logger.info("⚙️  Loading configuration...")
-    config = AbnormalityConfig.from_yaml(config_path)
 
     # Determine data directory from dataset name
     data_dir = Path(f"data/{dataset}")
@@ -139,25 +362,101 @@ def run_abnormal_analysis(
 
     logger.info(f"✅ Loaded {len(trajectories)} trajectories")
 
-    # Convert trajectories to DataFrame format expected by detector
-    # trajectories is list of trajectories, where each trajectory is list of (road_id, timestamp) tuples
-    traj_data = []
-    for traj_idx, trajectory in enumerate(trajectories):
-        for road_id, timestamp in trajectory:
-            traj_data.append(
-                {"traj_id": traj_idx, "road_id": road_id, "timestamp": timestamp}
+    # Route to appropriate detector based on method
+    if detection_method == "wang_statistical":
+        # Wang et al. 2018 statistical detection
+        logger.info("📊 Using Wang et al. 2018 statistical detection")
+
+        # Load baselines
+        baselines = _load_baselines_for_dataset(dataset)
+        if baselines is None:
+            logger.error("❌ Baselines required for statistical detection")
+            raise FileNotFoundError(
+                f"Baseline statistics not found for {dataset}. "
+                "Run: uv run python tools/compute_trajectory_baselines.py"
             )
 
-    trajectories_df = pl.DataFrame(traj_data)
-    logger.info(f"📊 Total trajectory points: {len(trajectories_df):,}")
+        # Load Wang config
+        wang_config = WangConfig.from_yaml(config_path)
 
-    # Initialize detector
-    logger.info("🔧 Initializing abnormal trajectory detector...")
-    detector = AbnormalTrajectoryDetector(config, geo_df, rel_df)
+        # Prepare trajectories for Wang detector
+        trajectories_df = _prepare_trajectories_for_wang(trajectories, geo_df)
+        logger.info(f"📊 Prepared {len(trajectories_df)} trajectories for analysis")
 
-    # Run detection
-    logger.info("🔍 Running abnormality detection...")
-    results = detector.detect_abnormal_trajectories(trajectories_df)
+        # Initialize and run Wang detector
+        detector = WangStatisticalDetector(baselines, wang_config, geo_df)
+        results = detector.detect_abnormal_trajectories(trajectories_df)
+
+        # Convert Wang results to compatible format
+        results = _convert_wang_results_to_standard_format(results)
+
+    elif detection_method == "both":
+        # Run both methods and compare
+        logger.info("🔄 Running BOTH detection methods for comparison")
+
+        # Method 1: Threshold-based
+        logger.info("  Method 1: Threshold-based detection")
+        config = AbnormalityConfig.from_yaml(config_path)
+        traj_data = []
+        for traj_idx, trajectory in enumerate(trajectories):
+            for road_id, timestamp in trajectory:
+                traj_data.append(
+                    {"traj_id": traj_idx, "road_id": road_id, "timestamp": timestamp}
+                )
+        trajectories_df_threshold = pl.DataFrame(traj_data)
+        detector_threshold = AbnormalTrajectoryDetector(config, geo_df, rel_df)
+        results_threshold = detector_threshold.detect_abnormal_trajectories(
+            trajectories_df_threshold
+        )
+
+        # Method 2: Wang statistical
+        logger.info("  Method 2: Wang statistical detection")
+        baselines = _load_baselines_for_dataset(dataset)
+        if baselines:
+            wang_config = WangConfig.from_yaml(config_path)
+            trajectories_df_wang = _prepare_trajectories_for_wang(trajectories, geo_df)
+            detector_wang = WangStatisticalDetector(baselines, wang_config, geo_df)
+            results_wang = detector_wang.detect_abnormal_trajectories(
+                trajectories_df_wang
+            )
+            results_wang = _convert_wang_results_to_standard_format(results_wang)
+        else:
+            logger.warning("  ⚠️  Skipping Wang detection (baselines not found)")
+            results_wang = None
+
+        # Save both results
+        _save_comparison_results(
+            output_dir, results_threshold, results_wang, dataset, config_path
+        )
+
+        # Return threshold results as primary for backward compatibility
+        results = results_threshold
+
+    else:
+        # Default: Threshold-based detection (z_score)
+        logger.info("📊 Using threshold-based detection (z-score)")
+
+        # Load threshold config
+        config = AbnormalityConfig.from_yaml(config_path)
+
+        # Convert trajectories to DataFrame format expected by threshold detector
+        traj_data = []
+        for traj_idx, trajectory in enumerate(trajectories):
+            for road_id, timestamp in trajectory:
+                traj_data.append(
+                    {"traj_id": traj_idx, "road_id": road_id, "timestamp": timestamp}
+                )
+
+        trajectories_df = pl.DataFrame(traj_data)
+        logger.info(f"📊 Total trajectory points: {len(trajectories_df):,}")
+
+        # Initialize detector
+        logger.info("🔧 Initializing abnormal trajectory detector...")
+        detector = AbnormalTrajectoryDetector(config, geo_df, rel_df)
+
+        # Run detection
+        logger.info("🔍 Running abnormality detection...")
+        results = detector.detect_abnormal_trajectories(trajectories_df)
 
     # Save detection results
     logger.info("💾 Saving detection results...")
