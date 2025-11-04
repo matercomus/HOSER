@@ -236,6 +236,8 @@ def _convert_wang_results_to_standard_format(wang_results: Dict) -> Dict:
 
     # Extract abnormal trajectory IDs by pattern
     abnormal_by_pattern = {}
+    # Also create a mapping of traj_id -> details for sample saving
+    abnormal_details_map = {}
     for traj in wang_results.get("abnormal_trajectories", []):
         pattern = traj["pattern"]
         traj_id = traj["traj_id"]
@@ -243,6 +245,13 @@ def _convert_wang_results_to_standard_format(wang_results: Dict) -> Dict:
         if pattern not in abnormal_by_pattern:
             abnormal_by_pattern[pattern] = []
         abnormal_by_pattern[pattern].append(traj_id)
+
+        # Store details for this trajectory
+        abnormal_details_map[traj_id] = {
+            "traj_idx": traj_id,
+            "pattern": pattern,
+            "details": traj.get("details", {}),
+        }
 
     # Map to standard categories
     abnormal_indices["wang_temporal_delay"] = abnormal_by_pattern.get(
@@ -270,6 +279,7 @@ def _convert_wang_results_to_standard_format(wang_results: Dict) -> Dict:
         "statistics": statistics,
         "pattern_counts": wang_results.get("pattern_counts", {}),
         "wang_metadata": wang_results.get("analysis_metadata", {}),
+        "wang_abnormal_details": abnormal_details_map,  # For sample saving
     }
 
 
@@ -652,11 +662,33 @@ def run_abnormal_analysis(
             category_samples = []
             for idx in sample_indices:
                 # Find the analysis result for this trajectory
-                traj_result = next(
-                    (r for r in results["all_results"] if r["traj_idx"] == idx), None
-                )
-                if traj_result:
-                    category_samples.append(traj_result)
+                # Check if all_results exists (threshold-based detector)
+                if "all_results" in results:
+                    traj_result = next(
+                        (r for r in results["all_results"] if r["traj_idx"] == idx),
+                        None,
+                    )
+                    if traj_result:
+                        category_samples.append(traj_result)
+                # For Wang detector, use abnormal_trajectories if available
+                elif "wang_abnormal_details" in results:
+                    # Find in Wang abnormal details map
+                    wang_details = results.get("wang_abnormal_details", {})
+                    if idx in wang_details:
+                        category_samples.append(wang_details[idx])
+                    else:
+                        # Fallback if not found in details
+                        category_samples.append(
+                            {
+                                "traj_idx": idx,
+                                "category": category,
+                                "pattern": "unknown",
+                                "note": "Wang statistical detection - trajectory details not available",
+                            }
+                        )
+                else:
+                    # Fallback: create minimal sample entry
+                    category_samples.append({"traj_idx": idx, "category": category})
 
             # Save samples for this category
             sample_file = samples_dir / f"{category}_samples.json"
