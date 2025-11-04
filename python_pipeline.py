@@ -1118,10 +1118,12 @@ class EvaluationPipeline:
                     output_dir=detection_output_real,
                 )
 
-                real_abnormal_count = sum(
-                    len(indices)
-                    for indices in real_results.get("abnormal_indices", {}).values()
-                )
+                # Count UNIQUE abnormal trajectories (not sum of categories to avoid double-counting)
+                abnormal_indices = real_results.get("abnormal_indices", {})
+                unique_abnormal_ids = set()
+                for indices in abnormal_indices.values():
+                    unique_abnormal_ids.update(indices)
+                real_abnormal_count = len(unique_abnormal_ids)
                 real_total = real_results.get("total_trajectories", 0)
                 real_rate = (
                     (real_abnormal_count / real_total * 100) if real_total > 0 else 0
@@ -1167,12 +1169,12 @@ class EvaluationPipeline:
                             is_real_data=False,  # Generated data format
                         )
 
-                        gen_abnormal_count = sum(
-                            len(indices)
-                            for indices in gen_results.get(
-                                "abnormal_indices", {}
-                            ).values()
-                        )
+                        # Count UNIQUE abnormal trajectories (not sum of categories to avoid double-counting)
+                        abnormal_indices = gen_results.get("abnormal_indices", {})
+                        unique_abnormal_ids = set()
+                        for indices in abnormal_indices.values():
+                            unique_abnormal_ids.update(indices)
+                        gen_abnormal_count = len(unique_abnormal_ids)
                         gen_total = gen_results.get("total_trajectories", 0)
                         gen_rate = (
                             (gen_abnormal_count / gen_total * 100)

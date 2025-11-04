@@ -64,6 +64,14 @@ class ScenarioConfig:
     spatial: dict
     trip_types: dict
     analysis: dict
+    plotting: dict = (
+        None  # Optional plotting configuration for create_scenario_plots.py
+    )
+
+    def __post_init__(self):
+        """Handle optional fields"""
+        if self.plotting is None:
+            self.plotting = {}
 
     @classmethod
     def from_yaml(cls, config_path: Path):
