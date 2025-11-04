@@ -92,3 +92,7 @@ hoser-distill-optuna-porto-eval-*/*.log
 
 # Root level pipeline logs
 pipeline.log
+
+# Baseline statistics (large files, regenerate on demand)
+baselines/
+baselines_*.log

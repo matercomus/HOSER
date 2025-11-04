@@ -1188,6 +1188,7 @@ class EvaluationPipeline:
 
                         # Store for comparison
                         model_results[model_type] = {
+                            "model": model_type,  # Fix: Add model name to results
                             "abnormal_count": gen_abnormal_count,
                             "total_trajectories": gen_total,
                             "abnormal_rate": gen_rate,
