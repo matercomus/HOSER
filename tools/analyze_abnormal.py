@@ -628,12 +628,19 @@ def run_abnormal_analysis(
     logger.info(f"✅ Saved statistics to {stats_file}")
 
     # Save trajectory samples if enabled
-    if config.analysis_config.get("save_trajectory_samples", False):
+    # Load config for analysis settings (needed for all methods)
+    import yaml
+
+    with open(config_path, "r") as f:
+        config_dict = yaml.safe_load(f)
+    analysis_config = config_dict.get("analysis", {})
+
+    if analysis_config.get("save_trajectory_samples", False):
         logger.info("💾 Saving trajectory samples...")
         samples_dir = output_dir / "samples"
         samples_dir.mkdir(exist_ok=True)
 
-        max_samples = config.analysis_config.get("max_samples_per_category", 50)
+        max_samples = analysis_config.get("max_samples_per_category", 50)
 
         for category, indices in results["abnormal_indices"].items():
             if not indices:
