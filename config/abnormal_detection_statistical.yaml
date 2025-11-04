@@ -1,0 +1,73 @@
+# Wang et al. 2018 Statistical Abnormality Detection Configuration
+#
+# Methodology: Detecting Anomalous Trajectories and Behavior Patterns Using 
+# Hierarchical Clustering from Taxi GPS Data
+# Citation: Wang, Y., Qin, K., Chen, Y., & Zhao, P. (2018). 
+# ISPRS International Journal of Geo-Information, 7(1), 25.
+#
+# This configuration implements OD-pair-specific baseline comparison for
+# detecting four abnormal behavior patterns (Abp1-4).
+
+# Dataset configuration
+dataset: Beijing  # Dataset being analyzed
+baseline_dataset: Beijing  # Dataset used for baselines (may differ for cross-dataset evaluation)
+
+# Wang et al. 2018 Statistical Detection Parameters
+wang_statistical:
+  # Fixed thresholds from Wang et al. 2018 paper
+  L_rho_meters: 5000  # Route deviation threshold: 5km
+  T_rho_seconds: 300  # Temporal delay threshold: 5 minutes (300 seconds)
+  
+  # Statistical multipliers (sigma values)
+  sigma_length: 2.5   # Length deviation: mean + 2.5σ
+  sigma_time: 2.5     # Time deviation: mean + 2.5σ
+  sigma_speed: 3.0    # Speed outlier detection: mean + 3σ (for future use)
+  
+  # Threshold strategy: "fixed", "statistical", or "hybrid"
+  # - fixed: Use Wang et al. fixed thresholds only (5km/5min)
+  # - statistical: Use statistical multipliers only (2.5σ)
+  # - hybrid: Use most stringent (minimum) of fixed and statistical (RECOMMENDED)
+  threshold_strategy: "hybrid"
+  
+  # OD-pair baseline requirements
+  min_samples_per_od: 5  # Minimum samples required for OD-specific baseline
+  fallback_to_global: true  # Use global stats when OD pair has <5 samples
+  
+# Behavior Pattern Classification (Wang et al. 2018)
+# Abp1: ALr ≤ NL + L_ρ AND ATr ≤ NT + T_ρ  → Normal
+# Abp2: ALr ≤ NL + L_ρ AND ATr > NT + T_ρ  → Temporal delay (congestion, stops)
+# Abp3: ALr > NL + L_ρ AND ATr ≤ NT + T_ρ  → Route deviation (detour, speeding)
+# Abp4: ALr > NL + L_ρ AND ATr > NT + T_ρ  → Both deviations (major anomaly)
+#
+# Where:
+#   ALr = Actual route length
+#   ATr = Actual travel time
+#   NL = Normal (baseline) mean length for OD pair
+#   NT = Normal (baseline) mean time for OD pair
+#   L_ρ = Length threshold (from above)
+#   T_ρ = Time threshold (from above)
+
+# Analysis and output configuration
+analysis:
+  save_trajectory_samples: true    # Save example trajectories for each pattern
+  max_samples_per_pattern: 50      # Maximum samples to save per Abp pattern
+  compute_speed_profiles: true     # Include speed analysis in results
+  
+# Translation quality filtering (optional)
+translation_filtering:
+  enabled: false  # Enable to filter by translation quality before detection
+  min_translation_rate: 0.95  # Minimum percentage of successfully translated road IDs
+  
+# Cross-dataset evaluation (optional)
+cross_dataset:
+  enabled: false  # Set true when evaluating on different road network
+  source_network: "Beijing"  # Original training network
+  target_network: "BJUT_Beijing"  # Target evaluation network
+  use_translated_trajectories: true  # Use road ID translations
+
+# Logging and debugging
+logging:
+  log_baseline_misses: false  # Log when OD pairs not found in baselines
+  log_threshold_details: false  # Log detailed threshold calculations
+  progress_interval: 10000  # Log progress every N trajectories
+
