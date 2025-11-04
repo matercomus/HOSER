@@ -82,6 +82,7 @@ def translate_trajectory_file(
     }
 
     translated_rows = []
+    trajectory_quality = []  # Per-trajectory quality tracking
 
     # Group by trajectory
     trajectory_groups = df.group_by(
@@ -89,6 +90,10 @@ def translate_trajectory_file(
     ).agg(pl.all())
 
     logger.info(f"  Processing {len(trajectory_groups)} trajectories...")
+
+    # Helper function to handle both scalar and list values from groupby
+    def get_first(val):
+        return val[0] if isinstance(val, list) else val
 
     for idx, row in enumerate(trajectory_groups.iter_rows(named=True)):
         if idx % 500 == 0 and idx > 0:
@@ -126,18 +131,39 @@ def translate_trajectory_file(
                 failed_count += 1
 
         # Classify trajectory translation quality
+        translation_rate = (
+            ((len(road_ids) - failed_count) / len(road_ids) * 100)
+            if len(road_ids) > 0
+            else 0
+        )
+
         if failed_count == 0:
             translation_stats["trajectories_fully_translated"] += 1
+            quality_category = "fully_translated"
         elif failed_count < len(road_ids):
             translation_stats["trajectories_with_gaps"] += 1
+            quality_category = "partial_gaps"
         else:
             translation_stats["trajectories_failed"] += 1
+            quality_category = "failed"
+
+        # Track per-trajectory quality
+        trajectory_quality.append(
+            {
+                "traj_index": idx,
+                "origin_road_id": get_first(row["origin_road_id"]),
+                "destination_road_id": get_first(row["destination_road_id"]),
+                "source_index": get_first(row["source_index"]),
+                "total_points": len(road_ids),
+                "translated_points": len(road_ids) - failed_count,
+                "unmapped_points": failed_count,
+                "translation_rate_pct": translation_rate,
+                "quality_category": quality_category,
+                "fully_translated": failed_count == 0,
+            }
+        )
 
         # Create translated row
-        # Handle both scalar and list values from groupby aggregation
-        def get_first(val):
-            return val[0] if isinstance(val, list) else val
-
         origin_id = get_first(row["origin_road_id"])
         dest_id = get_first(row["destination_road_id"])
 
@@ -206,6 +232,48 @@ def translate_trajectory_file(
     with open(stats_file, "w") as f:
         json.dump(stats_output, f, indent=2)
 
+    # Save per-trajectory quality report
+    quality_file = output_file.parent / f"{output_file.stem}_quality.json"
+    quality_summary = {
+        "file": str(output_file),
+        "total_trajectories": len(trajectory_quality),
+        "quality_distribution": {
+            "fully_translated": sum(
+                1
+                for t in trajectory_quality
+                if t["quality_category"] == "fully_translated"
+            ),
+            "partial_gaps": sum(
+                1 for t in trajectory_quality if t["quality_category"] == "partial_gaps"
+            ),
+            "failed": sum(
+                1 for t in trajectory_quality if t["quality_category"] == "failed"
+            ),
+        },
+        "translation_rate_stats": {
+            "mean": (
+                sum(t["translation_rate_pct"] for t in trajectory_quality)
+                / len(trajectory_quality)
+                if trajectory_quality
+                else 0
+            ),
+            "min": (
+                min(t["translation_rate_pct"] for t in trajectory_quality)
+                if trajectory_quality
+                else 0
+            ),
+            "max": (
+                max(t["translation_rate_pct"] for t in trajectory_quality)
+                if trajectory_quality
+                else 0
+            ),
+        },
+        "trajectories": trajectory_quality,
+    }
+
+    with open(quality_file, "w") as f:
+        json.dump(quality_summary, f, indent=2)
+
     # Print summary
     logger.info(f"\n{'=' * 70}")
     logger.info("📊 TRANSLATION SUMMARY")
@@ -227,6 +295,7 @@ def translate_trajectory_file(
     logger.info(f"  ❌ Failed:            {translation_stats['trajectories_failed']:,}")
     logger.info(f"{'=' * 70}")
     logger.info(f"📊 Statistics saved to {stats_file}")
+    logger.info(f"📊 Per-trajectory quality saved to {quality_file}")
 
     return stats_output
 
