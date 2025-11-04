@@ -173,13 +173,42 @@ def _prepare_trajectories_for_wang(
     Returns:
         Polars DataFrame with columns: traj_id, road_ids, timestamps
     """
+    from datetime import datetime
+
     traj_data = []
     for traj_idx, trajectory in enumerate(trajectories):
         if not trajectory:
             continue
 
         road_ids = [road_id for road_id, _ in trajectory]
-        timestamps = [timestamp for _, timestamp in trajectory]
+        timestamps_raw = [timestamp for _, timestamp in trajectory]
+
+        # Convert timestamps to integers (seconds since epoch)
+        # Handle both datetime objects and integer/string formats
+        timestamps = []
+        for ts in timestamps_raw:
+            if isinstance(ts, datetime):
+                # Convert datetime to seconds since epoch
+                timestamps.append(int(ts.timestamp()))
+            elif isinstance(ts, (int, float)):
+                # Already numeric (seconds)
+                timestamps.append(int(ts))
+            elif isinstance(ts, str):
+                # Parse string to datetime then to seconds
+                try:
+                    dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+                    timestamps.append(int(dt.timestamp()))
+                except ValueError:
+                    # Try ISO format
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    timestamps.append(int(dt.timestamp()))
+            else:
+                # Try to convert to timedelta and get total_seconds
+                if hasattr(ts, "total_seconds"):
+                    timestamps.append(int(ts.total_seconds()))
+                else:
+                    logger.warning(f"Unknown timestamp type: {type(ts)} for {ts}")
+                    continue
 
         traj_data.append(
             {"traj_id": traj_idx, "road_ids": road_ids, "timestamps": timestamps}
