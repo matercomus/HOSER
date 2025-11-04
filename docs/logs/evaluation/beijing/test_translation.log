@@ -1,0 +1,201 @@
+2025-11-03 20:37:32,750 - INFO - Running only phases: {'road_network_translate'}
+2025-11-03 20:37:32,750 - INFO - Working directory: /home/matt/Dev/HOSER/hoser-distill-optuna-6
+2025-11-03 20:37:32,750 - INFO - Validating pipeline configuration...
+2025-11-03 20:37:32,758 - INFO - ✓ Cross-dataset evaluation enabled: BJUT_Beijing
+2025-11-03 20:37:32,829 - INFO - Configuration validation passed
+2025-11-03 20:37:32,833 - INFO - Starting HOSER Distillation Evaluation Pipeline
+2025-11-03 20:37:32,834 - INFO - Configuration: {'eval_dir': PosixPath('/home/matt/Dev/HOSER/hoser-distill-optuna-6'), 'wandb_project': 'hoser-distill-optuna-6', 'dataset': 'Beijing', 'cuda_device': 0, 'num_gene': 5000, 'seed': 42, 'models': [], 'od_sources': ['train', 'test'], 'phases': {'road_network_translate'}, 'force': False, 'enable_wandb': True, 'verbose': False, 'beam_width': 4, 'grid_size': 0.001, 'edr_eps': 100.0, 'background_sync': True, 'run_scenarios': False, 'scenarios_config': None, 'cross_dataset_eval': '../data/BJUT_Beijing', 'cross_dataset_name': 'BJUT_Beijing', 'run_abnormal_detection': True, 'abnormal_config': 'config/abnormal_detection.yaml'}
+2025-11-03 20:37:32,834 - INFO - Enabled phases: ['road_network_translate']
+2025-11-03 20:37:32,834 - INFO - Detected models: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-03 20:37:32,834 - INFO - Models to process: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-03 20:37:32,834 - INFO - OD sources: ['train', 'test']
+2025-11-03 20:37:32,834 - INFO - ⏭️  Skipping phase: generation
+2025-11-03 20:37:32,834 - INFO - ⏭️  Skipping phase: base_eval
+2025-11-03 20:37:32,835 - INFO - ⏭️  Skipping phase: cross_dataset
+2025-11-03 20:37:32,835 - INFO - 
+======================================================================
+2025-11-03 20:37:32,835 - INFO - 🚀 Running phase: road_network_translate
+2025-11-03 20:37:32,835 - INFO - ======================================================================
+2025-11-03 20:37:32,835 - INFO - 🗺️  Translating road networks for cross-dataset analysis...
+2025-11-03 20:37:32,835 - INFO -   📍 Mapping file not found, creating: road_mapping_beijing_to_bjut_beijing.json
+2025-11-03 20:37:32,846 - INFO - 📂 Loading road network from /home/matt/Dev/HOSER/data/Beijing/roadmap.geo
+2025-11-03 20:37:32,892 - INFO -   Loaded 40060 roads
+2025-11-03 20:37:32,892 - INFO -   📐 Computing road centerpoints...
+2025-11-03 20:37:32,923 - INFO -     Processed 5,000 / 40,060 roads...
+2025-11-03 20:37:32,950 - INFO -     Processed 10,000 / 40,060 roads...
+2025-11-03 20:37:32,977 - INFO -     Processed 15,000 / 40,060 roads...
+2025-11-03 20:37:33,003 - INFO -     Processed 20,000 / 40,060 roads...
+2025-11-03 20:37:33,031 - INFO -     Processed 25,000 / 40,060 roads...
+2025-11-03 20:37:33,058 - INFO -     Processed 30,000 / 40,060 roads...
+2025-11-03 20:37:33,085 - INFO -     Processed 35,000 / 40,060 roads...
+2025-11-03 20:37:33,112 - INFO -     Processed 40,000 / 40,060 roads...
+2025-11-03 20:37:33,155 - INFO -   ✅ 40060 roads with valid coordinates
+2025-11-03 20:37:33,176 - INFO - 📂 Loading road network from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/roadmap.geo
+2025-11-03 20:37:33,457 - INFO -   Loaded 87481 roads
+2025-11-03 20:37:33,457 - INFO -   📐 Computing road centerpoints...
+2025-11-03 20:37:33,495 - INFO -     Processed 5,000 / 87,481 roads...
+2025-11-03 20:37:33,523 - INFO -     Processed 10,000 / 87,481 roads...
+2025-11-03 20:37:33,553 - INFO -     Processed 15,000 / 87,481 roads...
+2025-11-03 20:37:33,582 - INFO -     Processed 20,000 / 87,481 roads...
+2025-11-03 20:37:33,609 - INFO -     Processed 25,000 / 87,481 roads...
+2025-11-03 20:37:33,639 - INFO -     Processed 30,000 / 87,481 roads...
+2025-11-03 20:37:33,667 - INFO -     Processed 35,000 / 87,481 roads...
+2025-11-03 20:37:33,695 - INFO -     Processed 40,000 / 87,481 roads...
+2025-11-03 20:37:33,723 - INFO -     Processed 45,000 / 87,481 roads...
+2025-11-03 20:37:33,751 - INFO -     Processed 50,000 / 87,481 roads...
+2025-11-03 20:37:33,780 - INFO -     Processed 55,000 / 87,481 roads...
+2025-11-03 20:37:33,808 - INFO -     Processed 60,000 / 87,481 roads...
+2025-11-03 20:37:33,836 - INFO -     Processed 65,000 / 87,481 roads...
+2025-11-03 20:37:33,863 - INFO -     Processed 70,000 / 87,481 roads...
+2025-11-03 20:37:33,892 - INFO -     Processed 75,000 / 87,481 roads...
+2025-11-03 20:37:33,920 - INFO -     Processed 80,000 / 87,481 roads...
+2025-11-03 20:37:33,948 - INFO -     Processed 85,000 / 87,481 roads...
+2025-11-03 20:37:34,040 - INFO -   ✅ 87481 roads with valid coordinates
+2025-11-03 20:37:34,075 - INFO - 
+🗺️  Creating road network mapping...
+2025-11-03 20:37:34,076 - INFO -   Source roads: 40,060
+2025-11-03 20:37:34,076 - INFO -   Target roads: 87,481
+2025-11-03 20:37:34,076 - INFO -   Max distance: 50.0m
+2025-11-03 20:37:34,081 - INFO -   🏗️  Building spatial index (KD-tree)...
+2025-11-03 20:37:34,137 - INFO -   ✅ Spatial index built
+2025-11-03 20:37:34,138 - INFO -   🔍 Querying nearest neighbors...
+2025-11-03 20:37:34,176 - INFO -   ✅ Query complete
+2025-11-03 20:37:34,176 - INFO -   📏 Computing exact haversine distances...
+2025-11-03 20:37:34,262 - INFO -     Processed 5,000 / 40,060 roads...
+2025-11-03 20:37:34,351 - INFO -     Processed 10,000 / 40,060 roads...
+2025-11-03 20:37:34,435 - INFO -     Processed 15,000 / 40,060 roads...
+2025-11-03 20:37:34,519 - INFO -     Processed 20,000 / 40,060 roads...
+2025-11-03 20:37:34,602 - INFO -     Processed 25,000 / 40,060 roads...
+2025-11-03 20:37:34,686 - INFO -     Processed 30,000 / 40,060 roads...
+2025-11-03 20:37:34,768 - INFO -     Processed 35,000 / 40,060 roads...
+2025-11-03 20:37:34,849 - INFO -     Processed 40,000 / 40,060 roads...
+2025-11-03 20:37:34,850 - INFO -   ✅ Mapping complete!
+2025-11-03 20:37:34,898 - INFO - 
+💾 Saving mapping to road_mapping_beijing_to_bjut_beijing.json
+2025-11-03 20:37:34,940 - INFO - 💾 Saving statistics to road_mapping_beijing_to_bjut_beijing_stats.json
+2025-11-03 20:37:34,941 - INFO - 
+======================================================================
+2025-11-03 20:37:34,941 - INFO - 📊 ROAD NETWORK MAPPING SUMMARY
+2025-11-03 20:37:34,941 - INFO - ======================================================================
+2025-11-03 20:37:34,941 - INFO - Source: Beijing (40060 roads)
+2025-11-03 20:37:34,941 - INFO - Target: BJUT_Beijing
+2025-11-03 20:37:34,941 - INFO - 
+Mapping Quality:
+2025-11-03 20:37:34,941 - INFO -   ✅ Mapped:    31,657 (79.0%)
+2025-11-03 20:37:34,941 - INFO -   ❌ Unmapped:  8,403
+2025-11-03 20:37:34,941 - INFO - 
+Distance Metrics:
+2025-11-03 20:37:34,941 - INFO -   Average:  7.9m
+2025-11-03 20:37:34,941 - INFO -   Median:   1.3m
+2025-11-03 20:37:34,941 - INFO -   95th %ile: 38.3m
+2025-11-03 20:37:34,941 - INFO -   Max:      50.0m
+2025-11-03 20:37:34,942 - INFO - 
+Mapping Patterns:
+2025-11-03 20:37:34,942 - INFO -   Many-to-one cases: 9720 (max 16 sources)
+2025-11-03 20:37:34,942 - INFO - ======================================================================
+2025-11-03 20:37:34,942 - INFO - ⚠️  Mapping Quality: FAIR
+2025-11-03 20:37:34,942 - WARNING - ⚠️  Fair mapping quality (79.0%)
+2025-11-03 20:37:34,963 - INFO - 
+  📦 Found 7 generated files to translate
+2025-11-03 20:37:34,964 - INFO - 
+🔄 Translating vanilla_test_2025-10-08_22-03-58.csv
+2025-11-03 20:37:35,046 - INFO -   Loaded 5000 trajectory points
+2025-11-03 20:37:35,046 - INFO -   🔍 Parsing road ID sequences...
+2025-11-03 20:37:35,152 - INFO -   Processing 4930 trajectories...
+2025-11-03 20:37:35,157 - ERROR -   ❌ Translation failed for vanilla_test_2025-10-08_22-03-58.csv: invalid literal for int() with base 10: '[18857'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1528, in run_road_network_translate
+    translate_trajectory_file(
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/translate_trajectories.py", line 103, in translate_trajectory_file
+    road_ids = [int(r) for r in road_ids_str.split(",")]
+                ^^^^^^
+ValueError: invalid literal for int() with base 10: '[18857'
+2025-11-03 20:37:35,164 - INFO - 
+🔄 Translating 2025-10-08_17-21-04.csv
+2025-11-03 20:37:35,249 - INFO -   Loaded 5000 trajectory points
+2025-11-03 20:37:35,249 - INFO -   🔍 Parsing road ID sequences...
+2025-11-03 20:37:35,267 - INFO -   Processing 4979 trajectories...
+2025-11-03 20:37:35,269 - ERROR -   ❌ Translation failed for 2025-10-08_17-21-04.csv: invalid literal for int() with base 10: '[27617'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1528, in run_road_network_translate
+    translate_trajectory_file(
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/translate_trajectories.py", line 103, in translate_trajectory_file
+    road_ids = [int(r) for r in road_ids_str.split(",")]
+                ^^^^^^
+ValueError: invalid literal for int() with base 10: '[27617'
+2025-11-03 20:37:35,272 - INFO - 
+🔄 Translating distilled_train_2025-10-08_18-23-41.csv
+2025-11-03 20:37:35,422 - INFO -   Loaded 5000 trajectory points
+2025-11-03 20:37:35,422 - INFO -   🔍 Parsing road ID sequences...
+2025-11-03 20:37:35,442 - INFO -   Processing 4979 trajectories...
+2025-11-03 20:37:35,444 - ERROR -   ❌ Translation failed for distilled_train_2025-10-08_18-23-41.csv: invalid literal for int() with base 10: '[31505'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1528, in run_road_network_translate
+    translate_trajectory_file(
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/translate_trajectories.py", line 103, in translate_trajectory_file
+    road_ids = [int(r) for r in road_ids_str.split(",")]
+                ^^^^^^
+ValueError: invalid literal for int() with base 10: '[31505'
+2025-11-03 20:37:35,447 - INFO - 
+🔄 Translating vanilla_train_2025-10-08_21-25-52.csv
+2025-11-03 20:37:35,471 - INFO -   Loaded 5000 trajectory points
+2025-11-03 20:37:35,471 - INFO -   🔍 Parsing road ID sequences...
+2025-11-03 20:37:35,488 - INFO -   Processing 4979 trajectories...
+2025-11-03 20:37:35,491 - ERROR -   ❌ Translation failed for vanilla_train_2025-10-08_21-25-52.csv: invalid literal for int() with base 10: '[4458'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1528, in run_road_network_translate
+    translate_trajectory_file(
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/translate_trajectories.py", line 103, in translate_trajectory_file
+    road_ids = [int(r) for r in road_ids_str.split(",")]
+                ^^^^^^
+ValueError: invalid literal for int() with base 10: '[4458'
+2025-11-03 20:37:35,493 - INFO - 
+🔄 Translating distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-03 20:37:35,527 - INFO -   Loaded 5000 trajectory points
+2025-11-03 20:37:35,528 - INFO -   🔍 Parsing road ID sequences...
+2025-11-03 20:37:35,545 - INFO -   Processing 4930 trajectories...
+2025-11-03 20:37:35,547 - ERROR -   ❌ Translation failed for distilled_seed44_test_2025-10-08_20-50-57.csv: invalid literal for int() with base 10: '[22190'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1528, in run_road_network_translate
+    translate_trajectory_file(
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/translate_trajectories.py", line 103, in translate_trajectory_file
+    road_ids = [int(r) for r in road_ids_str.split(",")]
+                ^^^^^^
+ValueError: invalid literal for int() with base 10: '[22190'
+2025-11-03 20:37:35,550 - INFO - 
+🔄 Translating distilled_test_2025-10-08_19-16-34.csv
+2025-11-03 20:37:35,587 - INFO -   Loaded 5000 trajectory points
+2025-11-03 20:37:35,588 - INFO -   🔍 Parsing road ID sequences...
+2025-11-03 20:37:35,605 - INFO -   Processing 4930 trajectories...
+2025-11-03 20:37:35,607 - ERROR -   ❌ Translation failed for distilled_test_2025-10-08_19-16-34.csv: invalid literal for int() with base 10: '[4484'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1528, in run_road_network_translate
+    translate_trajectory_file(
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/translate_trajectories.py", line 103, in translate_trajectory_file
+    road_ids = [int(r) for r in road_ids_str.split(",")]
+                ^^^^^^
+ValueError: invalid literal for int() with base 10: '[4484'
+2025-11-03 20:37:35,610 - INFO - 
+🔄 Translating distilled_seed44_train_2025-10-08_20-02-16.csv
+2025-11-03 20:37:35,644 - INFO -   Loaded 5000 trajectory points
+2025-11-03 20:37:35,645 - INFO -   🔍 Parsing road ID sequences...
+2025-11-03 20:37:35,662 - INFO -   Processing 4979 trajectories...
+2025-11-03 20:37:35,664 - ERROR -   ❌ Translation failed for distilled_seed44_train_2025-10-08_20-02-16.csv: invalid literal for int() with base 10: '[20163'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1528, in run_road_network_translate
+    translate_trajectory_file(
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/translate_trajectories.py", line 103, in translate_trajectory_file
+    road_ids = [int(r) for r in road_ids_str.split(",")]
+                ^^^^^^
+ValueError: invalid literal for int() with base 10: '[20163'
+2025-11-03 20:37:35,668 - INFO - 
+✅ Translation complete! Files in gene_translated/BJUT_Beijing/seed42/
+2025-11-03 20:37:35,674 - INFO - ✅ Phase road_network_translate completed
+2025-11-03 20:37:35,674 - INFO - ⏭️  Skipping phase: abnormal
+2025-11-03 20:37:35,674 - INFO - ⏭️  Skipping phase: abnormal_od_extract
+2025-11-03 20:37:35,674 - INFO - ⏭️  Skipping phase: abnormal_od_generate
+2025-11-03 20:37:35,674 - INFO - ⏭️  Skipping phase: abnormal_od_evaluate
+2025-11-03 20:37:35,674 - INFO - ⏭️  Skipping phase: scenarios
+2025-11-03 20:37:35,674 - INFO - 
+✅ Pipeline completed successfully!
+2025-11-03 20:37:35,674 - INFO - ✅ Pipeline completed successfully!

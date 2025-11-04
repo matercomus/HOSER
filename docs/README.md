@@ -8,7 +8,9 @@ Comprehensive documentation for the HOSER knowledge distillation project.
 - [Core Documentation](#core-documentation)
 - [Guides](#guides)
 - [Reference](#reference)
+- [Results](#results)
 - [Evaluation](#evaluation)
+- [Logs](#logs)
 - [Archive](#archive)
 
 ---
@@ -87,6 +89,28 @@ Quick reference for downloading models and managing WandB runs:
 - Compare vanilla vs distilled checkpoints
 - WandB CLI vs Python API trade-offs
 
+### Wang Statistical Abnormality Analysis
+
+**[guides/RUN_WANG_ABNORMALITY_ANALYSIS.md](guides/RUN_WANG_ABNORMALITY_ANALYSIS.md)**
+
+Step-by-step guide for running statistical abnormality detection based on Wang et al. 2018 methodology:
+
+- Baseline computation for OD pairs
+- Statistical abnormality detection configuration
+- Cross-dataset evaluation workflow
+- Quality filtering and interpretation
+
+### Abnormal OD Pair Workflow
+
+**[guides/ABNORMAL_OD_WORKFLOW.md](guides/ABNORMAL_OD_WORKFLOW.md)**
+
+Complete pipeline for testing models on challenging abnormal trajectory scenarios:
+
+- Extract abnormal OD pairs from real data
+- Generate trajectories for challenging scenarios
+- Evaluate model performance on edge cases
+- Cross-dataset testing methodology
+
 ---
 
 ## Reference
@@ -118,6 +142,30 @@ Reference for finding and using trained model checkpoints:
 - Download instructions
 - Generation and evaluation commands
 - Model comparison summary
+
+### Baseline Statistics
+
+**[reference/BASELINE_STATISTICS.md](reference/BASELINE_STATISTICS.md)**
+
+Methodology and results for computing OD-pair baseline statistics from real trajectory data:
+
+- Baseline computation methodology
+- Coverage statistics per dataset
+- Distribution analysis
+- Quality metrics and validation
+
+### Road Network Mapping
+
+**[reference/ROAD_NETWORK_MAPPING.md](reference/ROAD_NETWORK_MAPPING.md)**
+
+Complete methodology for mapping road network IDs between datasets to enable cross-dataset analysis:
+
+- Coordinate extraction and distance calculation
+- Nearest neighbor matching algorithm
+- Quality validation procedures
+- Translation quality impact on results
+- Cross-dataset analysis interpretation framework
+- Known issues and solutions
 
 ---
 
@@ -153,6 +201,42 @@ The `hoser-distill-optuna-6/` directory contains all evaluation-related document
 
 ---
 
+## Results
+
+Main research results and analysis reports.
+
+### Wang Statistical Abnormality Detection Results
+
+**[results/WANG_ABNORMALITY_DETECTION_RESULTS.md](results/WANG_ABNORMALITY_DETECTION_RESULTS.md)**
+
+Comprehensive analysis of statistical abnormality detection using Wang et al. 2018 methodology:
+
+- Executive summary and methodology
+- Experimental setup across Beijing and Porto datasets
+- Real vs generated abnormality rate comparisons
+- Model realism rankings
+- Pattern distribution analysis (Abp1-4)
+- Statistical significance tests
+- Cross-dataset transfer performance
+- Visualizations and detailed findings
+
+---
+
+## Logs
+
+All execution logs are organized in `docs/logs/` for easy access and debugging.
+
+### Log Organization
+
+- **`logs/evaluation/beijing/`**: Evaluation pipeline logs for Beijing dataset
+- **`logs/evaluation/porto/`**: Evaluation pipeline logs for Porto dataset
+- **`logs/baselines/`**: Baseline computation logs
+- **`logs/pipeline/`**: Root-level pipeline execution logs
+
+Logs are timestamped and organized by dataset and operation type for easy navigation.
+
+---
+
 ## Archive
 
 Historical and outdated documentation kept for reference.
@@ -181,6 +265,32 @@ Analysis of origin-destination (OD) pair preservation in trajectory generation a
 
 **Historical interest:** Important context on the trade-offs between realism and privacy in trajectory generation research.
 
+### Completed Implementation Plans
+
+**[archive/WANG_STATISTICAL_DETECTION_PLAN.md](archive/WANG_STATISTICAL_DETECTION_PLAN.md)** (Nov 2025)
+
+Implementation plan for statistical abnormality detection based on Wang et al. 2018. Documents the phased implementation approach, methodology decisions, and all completed tasks.
+
+**Historical interest:** Shows the evolution from threshold-based to statistical abnormality detection.
+
+**[archive/WANG_IMPLEMENTATION_SUMMARY.md](archive/WANG_IMPLEMENTATION_SUMMARY.md)** (Nov 2025)
+
+Concise summary of the completed Wang statistical detection implementation, including key features and changes.
+
+### Superseded Analysis
+
+**[archive/Z_SCORE_RESULTS_ANALYSIS.md](archive/Z_SCORE_RESULTS_ANALYSIS.md)** (Nov 2025)
+
+Analysis of the previous z-score based abnormality detection results, which were found to be inaccurate (all 0% due to expecting GPS coordinates but receiving road IDs). Superseded by the Wang statistical method.
+
+**Historical interest:** Documents why the z-score method was replaced and justifies the decision to use only the Wang statistical method.
+
+**[archive/ABNORMAL_CROSS_DATASET.md](archive/ABNORMAL_CROSS_DATASET.md)** (Nov 2025)
+
+Original notes on cross-dataset analysis and false positive discovery. Content has been merged into `reference/ROAD_NETWORK_MAPPING.md` for better organization.
+
+**Historical interest:** Documents the discovery of the 99% false positive issue and the solution approach.
+
 ---
 
 ## Documentation Maintenance
@@ -192,15 +302,19 @@ When adding new documentation:
 1. Place core implementation docs in `docs/`
 2. Place how-to guides in `docs/guides/`
 3. Place technical references in `docs/reference/`
-4. Place evaluation-specific docs in `hoser-distill-optuna-6/`
-5. Move outdated docs to `docs/archive/`
-6. Update this README with links and descriptions
+4. Place research results in `docs/results/`
+5. Place execution logs in `docs/logs/` (organized by type and dataset)
+6. Place evaluation-specific docs in `hoser-distill-optuna-6/`
+7. Move outdated docs to `docs/archive/`
+8. Update this README with links and descriptions
 
 ### File Organization Principles
 
 - **Core docs** (`docs/`): Essential reading for understanding the project
 - **Guides** (`docs/guides/`): Practical how-to content
 - **Reference** (`docs/reference/`): Technical deep-dives and lookup material
+- **Results** (`docs/results/`): Final research results and analysis reports
+- **Logs** (`docs/logs/`): Execution logs organized by dataset and operation type
 - **Evaluation** (`hoser-distill-optuna-6/`): Results, analysis, and evaluation methodology
 - **Archive** (`docs/archive/`): Historical content, outdated approaches, resolved issues
 
@@ -215,14 +329,30 @@ HOSER/
 │   ├── LMTAD-Distillation.md      # Main comprehensive guide
 │   ├── DATASET_SETUP.md           # Dataset preparation guide
 │   ├── guides/
-│   │   └── WANDB_CLI_EXAMPLES.md  # WandB CLI usage
+│   │   ├── WANDB_CLI_EXAMPLES.md
+│   │   ├── RUN_WANG_ABNORMALITY_ANALYSIS.md
+│   │   └── ABNORMAL_OD_WORKFLOW.md
 │   ├── reference/
 │   │   ├── PREPROCESSING_ANALYSIS.md
-│   │   └── MODEL_LOCATIONS.md
+│   │   ├── MODEL_LOCATIONS.md
+│   │   ├── BASELINE_STATISTICS.md
+│   │   └── ROAD_NETWORK_MAPPING.md
+│   ├── results/
+│   │   └── WANG_ABNORMALITY_DETECTION_RESULTS.md
+│   ├── logs/
+│   │   ├── evaluation/
+│   │   │   ├── beijing/
+│   │   │   └── porto/
+│   │   ├── baselines/
+│   │   └── pipeline/
 │   └── archive/
 │       ├── LMTAD-Critic.md
 │       ├── DEBUGGING_NOTES.md
-│       └── PRIVACY_ANALYSIS.md
+│       ├── PRIVACY_ANALYSIS.md
+│       ├── WANG_STATISTICAL_DETECTION_PLAN.md
+│       ├── WANG_IMPLEMENTATION_SUMMARY.md
+│       ├── Z_SCORE_RESULTS_ANALYSIS.md
+│       └── ABNORMAL_CROSS_DATASET.md
 ├── hoser-distill-optuna-6/         # Evaluation subproject
 │   ├── README.md
 │   ├── EVALUATION_ANALYSIS.md      # Main results analysis
@@ -240,6 +370,6 @@ HOSER/
 
 ---
 
-**Last Updated:** October 14, 2025  
-**Documentation Version:** 1.0 (post-reorganization)
+**Last Updated:** November 4, 2025  
+**Documentation Version:** 2.0 (post-cleanup and reorganization)
 
