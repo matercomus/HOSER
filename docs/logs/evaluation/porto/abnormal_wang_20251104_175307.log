@@ -1,0 +1,1257 @@
+2025-11-04 17:53:15,171 - INFO - Running only phases: {'abnormal'}
+2025-11-04 17:53:15,171 - INFO - Working directory: /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732
+2025-11-04 17:53:15,172 - INFO - Validating pipeline configuration...
+2025-11-04 17:53:15,203 - INFO - Configuration validation passed
+2025-11-04 17:53:15,207 - INFO - Starting HOSER Distillation Evaluation Pipeline
+2025-11-04 17:53:15,207 - INFO - Configuration: {'eval_dir': PosixPath('/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732'), 'wandb_project': 'hoser-porto-eval', 'dataset': 'porto_hoser', 'cuda_device': 0, 'num_gene': 5000, 'seed': 42, 'models': [], 'od_sources': ['train', 'test'], 'phases': {'abnormal'}, 'force': False, 'enable_wandb': True, 'verbose': False, 'beam_width': 4, 'grid_size': 0.001, 'edr_eps': 100.0, 'background_sync': True, 'run_scenarios': True, 'scenarios_config': 'config/scenarios_porto.yaml', 'cross_dataset_eval': None, 'cross_dataset_name': 'BJUT_Beijing', 'run_abnormal_detection': True, 'abnormal_config': 'config/abnormal_detection_statistical.yaml'}
+2025-11-04 17:53:15,207 - INFO - Enabled phases: ['abnormal']
+2025-11-04 17:53:15,208 - INFO - Detected models: ['distill_phase1', 'distill_phase1_seed43', 'distill_phase1_seed44', 'distill_phase2', 'distill_phase2_seed43', 'distill_phase2_seed44', 'vanilla', 'vanilla_seed43', 'vanilla_seed44']
+2025-11-04 17:53:15,208 - INFO - Models to process: ['distill_phase1', 'distill_phase1_seed43', 'distill_phase1_seed44', 'distill_phase2', 'distill_phase2_seed43', 'distill_phase2_seed44', 'vanilla', 'vanilla_seed43', 'vanilla_seed44']
+2025-11-04 17:53:15,208 - INFO - OD sources: ['train', 'test']
+2025-11-04 17:53:15,208 - INFO - ⏭️  Skipping phase: generation
+2025-11-04 17:53:15,208 - INFO - ⏭️  Skipping phase: base_eval
+2025-11-04 17:53:15,208 - INFO - ⏭️  Skipping phase: cross_dataset
+2025-11-04 17:53:15,208 - INFO - ⏭️  Skipping phase: road_network_translate
+2025-11-04 17:53:15,208 - INFO - 
+======================================================================
+2025-11-04 17:53:15,208 - INFO - 🚀 Running phase: abnormal
+2025-11-04 17:53:15,209 - INFO - ======================================================================
+2025-11-04 17:53:15,209 - INFO - 🔍 Running abnormal detection...
+2025-11-04 17:53:15,209 - INFO - 
+🔍 Starting abnormal trajectory detection analysis...
+2025-11-04 17:53:15,209 - INFO - Will analyze 1 dataset(s): ['porto_hoser']
+2025-11-04 17:53:15,209 - INFO - 
+======================================================================
+2025-11-04 17:53:15,209 - INFO - 📊 Analyzing dataset: porto_hoser (main)
+2025-11-04 17:53:15,209 - INFO - ======================================================================
+2025-11-04 17:53:15,209 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 17:53:15,215 - INFO - 
+  📂 Processing train data...
+2025-11-04 17:53:15,215 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:53:15,216 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:53:15,216 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:53:15,216 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/porto_hoser/train.csv
+2025-11-04 17:53:15,216 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:53:15,224 - INFO - 💾 Output directory: abnormal/porto_hoser/train/real_data
+2025-11-04 17:53:15,230 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:53:15,231 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:53:15,231 - INFO - 📂 Loading road network...
+2025-11-04 17:53:16,011 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:55:58,724 - INFO - ✅ Loaded 481359 trajectories
+2025-11-04 17:55:58,724 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:55:58,731 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:55:58,731 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:56:01,367 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:56:01,367 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:56:45,291 - INFO - 📊 Prepared 481359 trajectories for analysis
+2025-11-04 17:56:45,897 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:56:45,897 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:56:45,897 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:56:45,897 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:56:45,898 - INFO - 🔍 Analyzing 481,359 trajectories...
+2025-11-04 17:56:53,614 - INFO -    Processed 10,000 / 481,359 trajectories...
+2025-11-04 17:56:55,270 - INFO -    Processed 20,000 / 481,359 trajectories...
+2025-11-04 17:56:56,883 - INFO -    Processed 30,000 / 481,359 trajectories...
+2025-11-04 17:56:58,540 - INFO -    Processed 40,000 / 481,359 trajectories...
+2025-11-04 17:57:00,186 - INFO -    Processed 50,000 / 481,359 trajectories...
+2025-11-04 17:57:01,796 - INFO -    Processed 60,000 / 481,359 trajectories...
+2025-11-04 17:57:03,502 - INFO -    Processed 70,000 / 481,359 trajectories...
+2025-11-04 17:57:05,137 - INFO -    Processed 80,000 / 481,359 trajectories...
+2025-11-04 17:57:06,843 - INFO -    Processed 90,000 / 481,359 trajectories...
+2025-11-04 17:57:08,487 - INFO -    Processed 100,000 / 481,359 trajectories...
+2025-11-04 17:57:10,131 - INFO -    Processed 110,000 / 481,359 trajectories...
+2025-11-04 17:57:11,788 - INFO -    Processed 120,000 / 481,359 trajectories...
+2025-11-04 17:57:13,416 - INFO -    Processed 130,000 / 481,359 trajectories...
+2025-11-04 17:57:15,086 - INFO -    Processed 140,000 / 481,359 trajectories...
+2025-11-04 17:57:16,748 - INFO -    Processed 150,000 / 481,359 trajectories...
+2025-11-04 17:57:18,386 - INFO -    Processed 160,000 / 481,359 trajectories...
+2025-11-04 17:57:19,966 - INFO -    Processed 170,000 / 481,359 trajectories...
+2025-11-04 17:57:21,663 - INFO -    Processed 180,000 / 481,359 trajectories...
+2025-11-04 17:57:23,335 - INFO -    Processed 190,000 / 481,359 trajectories...
+2025-11-04 17:57:25,032 - INFO -    Processed 200,000 / 481,359 trajectories...
+2025-11-04 17:57:26,739 - INFO -    Processed 210,000 / 481,359 trajectories...
+2025-11-04 17:57:28,475 - INFO -    Processed 220,000 / 481,359 trajectories...
+2025-11-04 17:57:30,090 - INFO -    Processed 230,000 / 481,359 trajectories...
+2025-11-04 17:57:31,716 - INFO -    Processed 240,000 / 481,359 trajectories...
+2025-11-04 17:57:33,325 - INFO -    Processed 250,000 / 481,359 trajectories...
+2025-11-04 17:57:34,984 - INFO -    Processed 260,000 / 481,359 trajectories...
+2025-11-04 17:57:36,600 - INFO -    Processed 270,000 / 481,359 trajectories...
+2025-11-04 17:57:38,269 - INFO -    Processed 280,000 / 481,359 trajectories...
+2025-11-04 17:57:39,910 - INFO -    Processed 290,000 / 481,359 trajectories...
+2025-11-04 17:57:41,560 - INFO -    Processed 300,000 / 481,359 trajectories...
+2025-11-04 17:57:43,207 - INFO -    Processed 310,000 / 481,359 trajectories...
+2025-11-04 17:57:44,863 - INFO -    Processed 320,000 / 481,359 trajectories...
+2025-11-04 17:57:46,550 - INFO -    Processed 330,000 / 481,359 trajectories...
+2025-11-04 17:57:48,181 - INFO -    Processed 340,000 / 481,359 trajectories...
+2025-11-04 17:57:49,855 - INFO -    Processed 350,000 / 481,359 trajectories...
+2025-11-04 17:57:51,568 - INFO -    Processed 360,000 / 481,359 trajectories...
+2025-11-04 17:57:53,220 - INFO -    Processed 370,000 / 481,359 trajectories...
+2025-11-04 17:57:54,890 - INFO -    Processed 380,000 / 481,359 trajectories...
+2025-11-04 17:57:56,564 - INFO -    Processed 390,000 / 481,359 trajectories...
+2025-11-04 17:57:58,219 - INFO -    Processed 400,000 / 481,359 trajectories...
+2025-11-04 17:57:59,863 - INFO -    Processed 410,000 / 481,359 trajectories...
+2025-11-04 17:58:01,495 - INFO -    Processed 420,000 / 481,359 trajectories...
+2025-11-04 17:58:03,156 - INFO -    Processed 430,000 / 481,359 trajectories...
+2025-11-04 17:58:04,832 - INFO -    Processed 440,000 / 481,359 trajectories...
+2025-11-04 17:58:06,501 - INFO -    Processed 450,000 / 481,359 trajectories...
+2025-11-04 17:58:08,178 - INFO -    Processed 460,000 / 481,359 trajectories...
+2025-11-04 17:58:09,852 - INFO -    Processed 470,000 / 481,359 trajectories...
+2025-11-04 17:58:11,493 - INFO -    Processed 480,000 / 481,359 trajectories...
+2025-11-04 17:58:11,749 - INFO - 📊 Detection Results:
+2025-11-04 17:58:11,749 - INFO -    Total trajectories: 481,359
+2025-11-04 17:58:11,749 - INFO -    Abp1 (Normal): 435,673
+2025-11-04 17:58:11,749 - INFO -    Abp2 (Temporal delay): 45,686
+2025-11-04 17:58:11,750 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:11,750 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:11,750 - INFO -    Abnormal rate: 9.49%
+2025-11-04 17:58:11,750 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:11,750 - INFO -    OD-specific: 150,443
+2025-11-04 17:58:11,750 - INFO -    Global fallback: 330,916
+2025-11-04 17:58:12,569 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:12,650 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/real_data/detection_results.json
+2025-11-04 17:58:12,651 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/real_data/statistics_by_category.json
+2025-11-04 17:58:12,662 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:12,666 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/real_data/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:12,666 - INFO - 
+============================================================
+2025-11-04 17:58:12,666 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:12,666 - INFO - ============================================================
+2025-11-04 17:58:12,666 - INFO - Dataset: porto_hoser
+2025-11-04 17:58:12,666 - INFO - Total trajectories analyzed: 481,359
+2025-11-04 17:58:12,666 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:12,666 - INFO -   • wang_temporal_delay: 45,686 (9.49%)
+2025-11-04 17:58:12,666 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:12,666 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:12,666 - INFO - ============================================================
+2025-11-04 17:58:12,666 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/real_data
+2025-11-04 17:58:12,667 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:12,746 - INFO -     ✅ Real data: 45686/481359 (9.49%) abnormal
+2025-11-04 17:58:12,747 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 17:58:12,747 - INFO -       Analyzing distill_phase1...
+2025-11-04 17:58:12,747 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:12,747 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:58:12,747 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_01-24-00_distill_phase1_seed44_train.csv
+2025-11-04 17:58:12,748 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:12,753 - INFO - 💾 Output directory: abnormal/porto_hoser/train/generated/distill_phase1
+2025-11-04 17:58:12,759 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:12,759 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:12,759 - INFO - 📂 Loading road network...
+2025-11-04 17:58:12,773 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:15,161 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:15,162 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:15,168 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:58:15,168 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:58:17,339 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:58:17,340 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:58:17,732 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:18,322 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:18,322 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:18,322 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:18,322 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:18,322 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:58:19,164 - INFO - 📊 Detection Results:
+2025-11-04 17:58:19,164 - INFO -    Total trajectories: 5,000
+2025-11-04 17:58:19,165 - INFO -    Abp1 (Normal): 4,865
+2025-11-04 17:58:19,165 - INFO -    Abp2 (Temporal delay): 135
+2025-11-04 17:58:19,165 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:19,165 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:19,165 - INFO -    Abnormal rate: 2.70%
+2025-11-04 17:58:19,165 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:19,165 - INFO -    OD-specific: 1,415
+2025-11-04 17:58:19,165 - INFO -    Global fallback: 3,582
+2025-11-04 17:58:19,173 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:19,175 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/generated/distill_phase1/detection_results.json
+2025-11-04 17:58:19,175 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/generated/distill_phase1/statistics_by_category.json
+2025-11-04 17:58:19,181 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:19,183 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/generated/distill_phase1/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:19,183 - INFO - 
+============================================================
+2025-11-04 17:58:19,183 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:19,183 - INFO - ============================================================
+2025-11-04 17:58:19,184 - INFO - Dataset: porto_hoser
+2025-11-04 17:58:19,184 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:58:19,184 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:19,184 - INFO -   • wang_temporal_delay: 135 (2.70%)
+2025-11-04 17:58:19,184 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:19,184 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:19,184 - INFO - ============================================================
+2025-11-04 17:58:19,184 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/generated/distill_phase1
+2025-11-04 17:58:19,184 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:19,281 - INFO -         Generated: 135/5000 (2.70%) abnormal
+2025-11-04 17:58:19,281 - INFO -       Analyzing distill_phase1_seed43...
+2025-11-04 17:58:19,281 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:19,282 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:58:19,282 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-03_23-53-36_distill_phase1_seed43_train.csv
+2025-11-04 17:58:19,282 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:19,287 - INFO - 💾 Output directory: abnormal/porto_hoser/train/generated/distill_phase1_seed43
+2025-11-04 17:58:19,294 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:19,294 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:19,294 - INFO - 📂 Loading road network...
+2025-11-04 17:58:19,310 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:22,176 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:22,176 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:22,182 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:58:22,182 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:58:24,519 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:58:24,519 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:58:26,126 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:26,701 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:26,702 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:26,702 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:26,702 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:26,702 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:58:27,581 - INFO - 📊 Detection Results:
+2025-11-04 17:58:27,582 - INFO -    Total trajectories: 5,000
+2025-11-04 17:58:27,582 - INFO -    Abp1 (Normal): 4,919
+2025-11-04 17:58:27,582 - INFO -    Abp2 (Temporal delay): 81
+2025-11-04 17:58:27,582 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:27,582 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:27,582 - INFO -    Abnormal rate: 1.62%
+2025-11-04 17:58:27,582 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:27,582 - INFO -    OD-specific: 1,369
+2025-11-04 17:58:27,582 - INFO -    Global fallback: 3,631
+2025-11-04 17:58:27,591 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:27,592 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/generated/distill_phase1_seed43/detection_results.json
+2025-11-04 17:58:27,592 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/generated/distill_phase1_seed43/statistics_by_category.json
+2025-11-04 17:58:27,598 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:27,601 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/generated/distill_phase1_seed43/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:27,601 - INFO - 
+============================================================
+2025-11-04 17:58:27,601 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:27,601 - INFO - ============================================================
+2025-11-04 17:58:27,601 - INFO - Dataset: porto_hoser
+2025-11-04 17:58:27,602 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:58:27,602 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:27,602 - INFO -   • wang_temporal_delay: 81 (1.62%)
+2025-11-04 17:58:27,602 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:27,602 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:27,602 - INFO - ============================================================
+2025-11-04 17:58:27,602 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/generated/distill_phase1_seed43
+2025-11-04 17:58:27,602 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:27,712 - INFO -         Generated: 81/5000 (1.62%) abnormal
+2025-11-04 17:58:27,713 - INFO -       Analyzing distill_phase1_seed44...
+2025-11-04 17:58:27,713 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:27,713 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:58:27,713 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_01-24-00_distill_phase1_seed44_train.csv
+2025-11-04 17:58:27,713 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:27,718 - INFO - 💾 Output directory: abnormal/porto_hoser/train/generated/distill_phase1_seed44
+2025-11-04 17:58:27,724 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:27,724 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:27,724 - INFO - 📂 Loading road network...
+2025-11-04 17:58:27,737 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:30,155 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:30,155 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:30,162 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:58:30,162 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:58:32,381 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:58:32,382 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:58:32,770 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:33,391 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:33,391 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:33,391 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:33,391 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:33,391 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:58:34,275 - INFO - 📊 Detection Results:
+2025-11-04 17:58:34,275 - INFO -    Total trajectories: 5,000
+2025-11-04 17:58:34,275 - INFO -    Abp1 (Normal): 4,865
+2025-11-04 17:58:34,275 - INFO -    Abp2 (Temporal delay): 135
+2025-11-04 17:58:34,276 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:34,276 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:34,276 - INFO -    Abnormal rate: 2.70%
+2025-11-04 17:58:34,276 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:34,276 - INFO -    OD-specific: 1,415
+2025-11-04 17:58:34,276 - INFO -    Global fallback: 3,582
+2025-11-04 17:58:34,286 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:34,287 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/generated/distill_phase1_seed44/detection_results.json
+2025-11-04 17:58:34,287 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/generated/distill_phase1_seed44/statistics_by_category.json
+2025-11-04 17:58:34,292 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:34,295 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/generated/distill_phase1_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:34,295 - INFO - 
+============================================================
+2025-11-04 17:58:34,295 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:34,295 - INFO - ============================================================
+2025-11-04 17:58:34,295 - INFO - Dataset: porto_hoser
+2025-11-04 17:58:34,295 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:58:34,295 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:34,295 - INFO -   • wang_temporal_delay: 135 (2.70%)
+2025-11-04 17:58:34,295 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:34,296 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:34,296 - INFO - ============================================================
+2025-11-04 17:58:34,296 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/generated/distill_phase1_seed44
+2025-11-04 17:58:34,296 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:34,394 - INFO -         Generated: 135/5000 (2.70%) abnormal
+2025-11-04 17:58:34,395 - INFO -       Analyzing distill_phase2...
+2025-11-04 17:58:34,395 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:34,395 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:58:34,395 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_04-27-50_distill_phase2_seed43_train.csv
+2025-11-04 17:58:34,395 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:34,402 - INFO - 💾 Output directory: abnormal/porto_hoser/train/generated/distill_phase2
+2025-11-04 17:58:34,408 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:34,408 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:34,408 - INFO - 📂 Loading road network...
+2025-11-04 17:58:34,424 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:36,840 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:36,840 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:36,845 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:58:36,846 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:58:39,056 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:58:39,057 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:58:39,438 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:40,024 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:40,025 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:40,025 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:40,025 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:40,025 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:58:40,912 - INFO - 📊 Detection Results:
+2025-11-04 17:58:40,913 - INFO -    Total trajectories: 5,000
+2025-11-04 17:58:40,913 - INFO -    Abp1 (Normal): 4,880
+2025-11-04 17:58:40,913 - INFO -    Abp2 (Temporal delay): 120
+2025-11-04 17:58:40,913 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:40,913 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:40,913 - INFO -    Abnormal rate: 2.40%
+2025-11-04 17:58:40,913 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:40,913 - INFO -    OD-specific: 1,388
+2025-11-04 17:58:40,913 - INFO -    Global fallback: 3,609
+2025-11-04 17:58:40,923 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:40,924 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/generated/distill_phase2/detection_results.json
+2025-11-04 17:58:40,924 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/generated/distill_phase2/statistics_by_category.json
+2025-11-04 17:58:40,929 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:40,932 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/generated/distill_phase2/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:40,932 - INFO - 
+============================================================
+2025-11-04 17:58:40,932 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:40,932 - INFO - ============================================================
+2025-11-04 17:58:40,933 - INFO - Dataset: porto_hoser
+2025-11-04 17:58:40,934 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:58:40,934 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:40,934 - INFO -   • wang_temporal_delay: 120 (2.40%)
+2025-11-04 17:58:40,934 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:40,934 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:40,934 - INFO - ============================================================
+2025-11-04 17:58:40,934 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/generated/distill_phase2
+2025-11-04 17:58:40,934 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:41,041 - INFO -         Generated: 120/5000 (2.40%) abnormal
+2025-11-04 17:58:41,041 - INFO -       Analyzing distill_phase2_seed43...
+2025-11-04 17:58:41,041 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:41,042 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:58:41,042 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_04-27-50_distill_phase2_seed43_train.csv
+2025-11-04 17:58:41,042 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:41,047 - INFO - 💾 Output directory: abnormal/porto_hoser/train/generated/distill_phase2_seed43
+2025-11-04 17:58:41,053 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:41,053 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:41,054 - INFO - 📂 Loading road network...
+2025-11-04 17:58:41,069 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:43,398 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:43,398 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:43,405 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:58:43,405 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:58:45,719 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:58:45,719 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:58:46,089 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:46,692 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:46,692 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:46,692 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:46,692 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:46,692 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:58:47,531 - INFO - 📊 Detection Results:
+2025-11-04 17:58:47,531 - INFO -    Total trajectories: 5,000
+2025-11-04 17:58:47,531 - INFO -    Abp1 (Normal): 4,880
+2025-11-04 17:58:47,531 - INFO -    Abp2 (Temporal delay): 120
+2025-11-04 17:58:47,531 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:47,531 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:47,531 - INFO -    Abnormal rate: 2.40%
+2025-11-04 17:58:47,532 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:47,532 - INFO -    OD-specific: 1,388
+2025-11-04 17:58:47,532 - INFO -    Global fallback: 3,609
+2025-11-04 17:58:47,541 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:47,542 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/generated/distill_phase2_seed43/detection_results.json
+2025-11-04 17:58:47,542 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/generated/distill_phase2_seed43/statistics_by_category.json
+2025-11-04 17:58:47,547 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:47,550 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/generated/distill_phase2_seed43/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:47,550 - INFO - 
+============================================================
+2025-11-04 17:58:47,550 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:47,550 - INFO - ============================================================
+2025-11-04 17:58:47,550 - INFO - Dataset: porto_hoser
+2025-11-04 17:58:47,550 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:58:47,551 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:47,551 - INFO -   • wang_temporal_delay: 120 (2.40%)
+2025-11-04 17:58:47,551 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:47,551 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:47,551 - INFO - ============================================================
+2025-11-04 17:58:47,551 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/generated/distill_phase2_seed43
+2025-11-04 17:58:47,551 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:47,645 - INFO -         Generated: 120/5000 (2.40%) abnormal
+2025-11-04 17:58:47,646 - INFO -       Analyzing distill_phase2_seed44...
+2025-11-04 17:58:47,646 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:47,646 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:58:47,646 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_06-02-59_distill_phase2_seed44_train.csv
+2025-11-04 17:58:47,646 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:47,652 - INFO - 💾 Output directory: abnormal/porto_hoser/train/generated/distill_phase2_seed44
+2025-11-04 17:58:47,658 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:47,658 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:47,658 - INFO - 📂 Loading road network...
+2025-11-04 17:58:47,672 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:50,057 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:50,057 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:50,063 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:58:50,063 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:58:52,350 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:58:52,350 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:58:52,741 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:53,327 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:53,327 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:53,327 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:53,328 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:53,328 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:58:54,179 - INFO - 📊 Detection Results:
+2025-11-04 17:58:54,179 - INFO -    Total trajectories: 5,000
+2025-11-04 17:58:54,179 - INFO -    Abp1 (Normal): 4,933
+2025-11-04 17:58:54,179 - INFO -    Abp2 (Temporal delay): 67
+2025-11-04 17:58:54,179 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:54,180 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:54,180 - INFO -    Abnormal rate: 1.34%
+2025-11-04 17:58:54,180 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:54,180 - INFO -    OD-specific: 1,371
+2025-11-04 17:58:54,180 - INFO -    Global fallback: 3,626
+2025-11-04 17:58:54,189 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:54,190 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/generated/distill_phase2_seed44/detection_results.json
+2025-11-04 17:58:54,190 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/generated/distill_phase2_seed44/statistics_by_category.json
+2025-11-04 17:58:54,196 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:54,200 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/generated/distill_phase2_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:54,201 - INFO - 
+============================================================
+2025-11-04 17:58:54,201 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:54,201 - INFO - ============================================================
+2025-11-04 17:58:54,201 - INFO - Dataset: porto_hoser
+2025-11-04 17:58:54,202 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:58:54,202 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:54,203 - INFO -   • wang_temporal_delay: 67 (1.34%)
+2025-11-04 17:58:54,203 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:54,203 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:54,204 - INFO - ============================================================
+2025-11-04 17:58:54,204 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/generated/distill_phase2_seed44
+2025-11-04 17:58:54,204 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:54,326 - INFO -         Generated: 67/5000 (1.34%) abnormal
+2025-11-04 17:58:54,326 - INFO -       Analyzing vanilla...
+2025-11-04 17:58:54,326 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:54,327 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:58:54,327 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_09-06-41_vanilla_seed43_train.csv
+2025-11-04 17:58:54,327 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:54,332 - INFO - 💾 Output directory: abnormal/porto_hoser/train/generated/vanilla
+2025-11-04 17:58:54,338 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:54,338 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:54,339 - INFO - 📂 Loading road network...
+2025-11-04 17:58:54,353 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:56,635 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:56,635 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:56,642 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:58:56,642 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:58:58,879 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:58:58,880 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:58:59,263 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:59,849 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:59,849 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:59,849 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:59,849 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:59,849 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:59:00,715 - INFO - 📊 Detection Results:
+2025-11-04 17:59:00,715 - INFO -    Total trajectories: 5,000
+2025-11-04 17:59:00,715 - INFO -    Abp1 (Normal): 4,823
+2025-11-04 17:59:00,715 - INFO -    Abp2 (Temporal delay): 177
+2025-11-04 17:59:00,715 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:59:00,715 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:59:00,715 - INFO -    Abnormal rate: 3.54%
+2025-11-04 17:59:00,715 - INFO - 📊 Baseline usage:
+2025-11-04 17:59:00,715 - INFO -    OD-specific: 1,352
+2025-11-04 17:59:00,715 - INFO -    Global fallback: 3,645
+2025-11-04 17:59:00,724 - INFO - 💾 Saving detection results...
+2025-11-04 17:59:00,726 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/generated/vanilla/detection_results.json
+2025-11-04 17:59:00,726 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/generated/vanilla/statistics_by_category.json
+2025-11-04 17:59:00,732 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:59:00,734 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/generated/vanilla/samples/wang_temporal_delay_samples.json
+2025-11-04 17:59:00,735 - INFO - 
+============================================================
+2025-11-04 17:59:00,735 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:59:00,735 - INFO - ============================================================
+2025-11-04 17:59:00,735 - INFO - Dataset: porto_hoser
+2025-11-04 17:59:00,735 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:59:00,735 - INFO - 
+Abnormalities detected:
+2025-11-04 17:59:00,735 - INFO -   • wang_temporal_delay: 177 (3.54%)
+2025-11-04 17:59:00,735 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:59:00,735 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:59:00,735 - INFO - ============================================================
+2025-11-04 17:59:00,735 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/generated/vanilla
+2025-11-04 17:59:00,735 - INFO - ✅ Analysis complete!
+2025-11-04 17:59:00,833 - INFO -         Generated: 177/5000 (3.54%) abnormal
+2025-11-04 17:59:00,833 - INFO -       Analyzing vanilla_seed43...
+2025-11-04 17:59:00,833 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:59:00,833 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:59:00,833 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_09-06-41_vanilla_seed43_train.csv
+2025-11-04 17:59:00,834 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:59:00,839 - INFO - 💾 Output directory: abnormal/porto_hoser/train/generated/vanilla_seed43
+2025-11-04 17:59:00,845 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:59:00,845 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:59:00,845 - INFO - 📂 Loading road network...
+2025-11-04 17:59:00,861 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:59:03,267 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:59:03,268 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:59:03,273 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:59:03,273 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:59:05,518 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:59:05,519 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:59:05,899 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:59:06,480 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:59:06,481 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:59:06,481 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:59:06,481 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:59:06,481 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:59:07,327 - INFO - 📊 Detection Results:
+2025-11-04 17:59:07,327 - INFO -    Total trajectories: 5,000
+2025-11-04 17:59:07,327 - INFO -    Abp1 (Normal): 4,823
+2025-11-04 17:59:07,327 - INFO -    Abp2 (Temporal delay): 177
+2025-11-04 17:59:07,327 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:59:07,327 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:59:07,327 - INFO -    Abnormal rate: 3.54%
+2025-11-04 17:59:07,327 - INFO - 📊 Baseline usage:
+2025-11-04 17:59:07,327 - INFO -    OD-specific: 1,352
+2025-11-04 17:59:07,328 - INFO -    Global fallback: 3,645
+2025-11-04 17:59:07,337 - INFO - 💾 Saving detection results...
+2025-11-04 17:59:07,338 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/generated/vanilla_seed43/detection_results.json
+2025-11-04 17:59:07,339 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/generated/vanilla_seed43/statistics_by_category.json
+2025-11-04 17:59:07,344 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:59:07,348 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/generated/vanilla_seed43/samples/wang_temporal_delay_samples.json
+2025-11-04 17:59:07,348 - INFO - 
+============================================================
+2025-11-04 17:59:07,348 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:59:07,348 - INFO - ============================================================
+2025-11-04 17:59:07,348 - INFO - Dataset: porto_hoser
+2025-11-04 17:59:07,348 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:59:07,348 - INFO - 
+Abnormalities detected:
+2025-11-04 17:59:07,348 - INFO -   • wang_temporal_delay: 177 (3.54%)
+2025-11-04 17:59:07,348 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:59:07,348 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:59:07,349 - INFO - ============================================================
+2025-11-04 17:59:07,349 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/generated/vanilla_seed43
+2025-11-04 17:59:07,349 - INFO - ✅ Analysis complete!
+2025-11-04 17:59:07,454 - INFO -         Generated: 177/5000 (3.54%) abnormal
+2025-11-04 17:59:07,455 - INFO -       Analyzing vanilla_seed44...
+2025-11-04 17:59:07,455 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:59:07,455 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:59:07,455 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_10-41-32_vanilla_seed44_train.csv
+2025-11-04 17:59:07,455 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:59:07,461 - INFO - 💾 Output directory: abnormal/porto_hoser/train/generated/vanilla_seed44
+2025-11-04 17:59:07,467 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:59:07,467 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:59:07,467 - INFO - 📂 Loading road network...
+2025-11-04 17:59:07,480 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:59:09,845 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:59:09,845 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:59:09,852 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:59:09,852 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:59:12,131 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:59:12,131 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:59:12,508 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:59:13,091 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:59:13,091 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:59:13,091 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:59:13,091 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:59:13,091 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:59:13,983 - INFO - 📊 Detection Results:
+2025-11-04 17:59:13,983 - INFO -    Total trajectories: 5,000
+2025-11-04 17:59:13,983 - INFO -    Abp1 (Normal): 4,905
+2025-11-04 17:59:13,983 - INFO -    Abp2 (Temporal delay): 95
+2025-11-04 17:59:13,983 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:59:13,983 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:59:13,983 - INFO -    Abnormal rate: 1.90%
+2025-11-04 17:59:13,983 - INFO - 📊 Baseline usage:
+2025-11-04 17:59:13,984 - INFO -    OD-specific: 1,305
+2025-11-04 17:59:13,984 - INFO -    Global fallback: 3,689
+2025-11-04 17:59:13,992 - INFO - 💾 Saving detection results...
+2025-11-04 17:59:13,993 - INFO - ✅ Saved detection results to abnormal/porto_hoser/train/generated/vanilla_seed44/detection_results.json
+2025-11-04 17:59:13,993 - INFO - ✅ Saved statistics to abnormal/porto_hoser/train/generated/vanilla_seed44/statistics_by_category.json
+2025-11-04 17:59:14,000 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:59:14,002 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/train/generated/vanilla_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 17:59:14,003 - INFO - 
+============================================================
+2025-11-04 17:59:14,003 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:59:14,003 - INFO - ============================================================
+2025-11-04 17:59:14,003 - INFO - Dataset: porto_hoser
+2025-11-04 17:59:14,003 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:59:14,003 - INFO - 
+Abnormalities detected:
+2025-11-04 17:59:14,003 - INFO -   • wang_temporal_delay: 95 (1.90%)
+2025-11-04 17:59:14,003 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:59:14,003 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:59:14,003 - INFO - ============================================================
+2025-11-04 17:59:14,003 - INFO - 💾 Results saved to: abnormal/porto_hoser/train/generated/vanilla_seed44
+2025-11-04 17:59:14,003 - INFO - ✅ Analysis complete!
+2025-11-04 17:59:14,100 - INFO -         Generated: 95/5000 (1.90%) abnormal
+2025-11-04 17:59:14,100 - INFO - 
+    📊 Comparison Report (train):
+2025-11-04 17:59:14,100 - INFO -     ============================================================
+2025-11-04 17:59:14,100 - INFO -     Real data:   45686/481359 (9.49%)
+2025-11-04 17:59:14,100 - INFO -     ✅ distill_phase1: 135/5000 (2.70%, -6.79% vs real)
+2025-11-04 17:59:14,100 - INFO -     ✅ distill_phase1_seed43: 81/5000 (1.62%, -7.87% vs real)
+2025-11-04 17:59:14,100 - INFO -     ✅ distill_phase1_seed44: 135/5000 (2.70%, -6.79% vs real)
+2025-11-04 17:59:14,100 - INFO -     ✅ distill_phase2: 120/5000 (2.40%, -7.09% vs real)
+2025-11-04 17:59:14,100 - INFO -     ✅ distill_phase2_seed43: 120/5000 (2.40%, -7.09% vs real)
+2025-11-04 17:59:14,101 - INFO -     ✅ distill_phase2_seed44: 67/5000 (1.34%, -8.15% vs real)
+2025-11-04 17:59:14,101 - INFO -     ✅ vanilla     : 177/5000 (3.54%, -5.95% vs real)
+2025-11-04 17:59:14,101 - INFO -     ✅ vanilla_seed43: 177/5000 (3.54%, -5.95% vs real)
+2025-11-04 17:59:14,101 - INFO -     ✅ vanilla_seed44: 95/5000 (1.90%, -7.59% vs real)
+2025-11-04 17:59:14,101 - INFO -     💾 Saved comparison report to abnormal/porto_hoser/train/comparison_report.json
+2025-11-04 17:59:14,101 - INFO - 
+  📂 Processing test data...
+2025-11-04 17:59:14,102 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:59:14,102 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:59:14,102 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:59:14,102 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/porto_hoser/test.csv
+2025-11-04 17:59:14,102 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:59:14,107 - INFO - 💾 Output directory: abnormal/porto_hoser/test/real_data
+2025-11-04 17:59:14,112 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:59:14,113 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:59:14,113 - INFO - 📂 Loading road network...
+2025-11-04 17:59:14,127 - INFO - 📂 Loading real trajectories...
+2025-11-04 18:00:01,004 - INFO - ✅ Loaded 137532 trajectories
+2025-11-04 18:00:01,004 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:00:01,011 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:00:01,011 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:00:03,456 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:00:03,457 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:00:15,014 - INFO - 📊 Prepared 137532 trajectories for analysis
+2025-11-04 18:00:15,603 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:00:15,603 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:00:15,603 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:00:15,603 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:00:15,603 - INFO - 🔍 Analyzing 137,532 trajectories...
+2025-11-04 18:00:19,461 - INFO -    Processed 10,000 / 137,532 trajectories...
+2025-11-04 18:00:21,140 - INFO -    Processed 20,000 / 137,532 trajectories...
+2025-11-04 18:00:22,847 - INFO -    Processed 30,000 / 137,532 trajectories...
+2025-11-04 18:00:24,506 - INFO -    Processed 40,000 / 137,532 trajectories...
+2025-11-04 18:00:26,144 - INFO -    Processed 50,000 / 137,532 trajectories...
+2025-11-04 18:00:27,797 - INFO -    Processed 60,000 / 137,532 trajectories...
+2025-11-04 18:00:29,473 - INFO -    Processed 70,000 / 137,532 trajectories...
+2025-11-04 18:00:31,132 - INFO -    Processed 80,000 / 137,532 trajectories...
+2025-11-04 18:00:32,811 - INFO -    Processed 90,000 / 137,532 trajectories...
+2025-11-04 18:00:34,446 - INFO -    Processed 100,000 / 137,532 trajectories...
+2025-11-04 18:00:36,096 - INFO -    Processed 110,000 / 137,532 trajectories...
+2025-11-04 18:00:37,722 - INFO -    Processed 120,000 / 137,532 trajectories...
+2025-11-04 18:00:39,349 - INFO -    Processed 130,000 / 137,532 trajectories...
+2025-11-04 18:00:40,591 - INFO - 📊 Detection Results:
+2025-11-04 18:00:40,591 - INFO -    Total trajectories: 137,532
+2025-11-04 18:00:40,591 - INFO -    Abp1 (Normal): 124,551
+2025-11-04 18:00:40,591 - INFO -    Abp2 (Temporal delay): 12,981
+2025-11-04 18:00:40,591 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:00:40,591 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:00:40,591 - INFO -    Abnormal rate: 9.44%
+2025-11-04 18:00:40,592 - INFO - 📊 Baseline usage:
+2025-11-04 18:00:40,592 - INFO -    OD-specific: 42,934
+2025-11-04 18:00:40,592 - INFO -    Global fallback: 94,598
+2025-11-04 18:00:40,815 - INFO - 💾 Saving detection results...
+2025-11-04 18:00:40,834 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/real_data/detection_results.json
+2025-11-04 18:00:40,835 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/real_data/statistics_by_category.json
+2025-11-04 18:00:40,840 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:00:40,843 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/real_data/samples/wang_temporal_delay_samples.json
+2025-11-04 18:00:40,843 - INFO - 
+============================================================
+2025-11-04 18:00:40,843 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:00:40,843 - INFO - ============================================================
+2025-11-04 18:00:40,843 - INFO - Dataset: porto_hoser
+2025-11-04 18:00:40,843 - INFO - Total trajectories analyzed: 137,532
+2025-11-04 18:00:40,843 - INFO - 
+Abnormalities detected:
+2025-11-04 18:00:40,843 - INFO -   • wang_temporal_delay: 12,981 (9.44%)
+2025-11-04 18:00:40,843 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:00:40,843 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:00:40,844 - INFO - ============================================================
+2025-11-04 18:00:40,844 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/real_data
+2025-11-04 18:00:40,844 - INFO - ✅ Analysis complete!
+2025-11-04 18:00:40,972 - INFO -     ✅ Real data: 12981/137532 (9.44%) abnormal
+2025-11-04 18:00:40,972 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 18:00:40,973 - INFO -       Analyzing distill_phase1...
+2025-11-04 18:00:40,973 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:00:40,973 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 18:00:40,973 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_00-38-29_distill_phase1_seed43_test.csv
+2025-11-04 18:00:40,973 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:00:40,980 - INFO - 💾 Output directory: abnormal/porto_hoser/test/generated/distill_phase1
+2025-11-04 18:00:40,985 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:00:40,985 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:00:40,985 - INFO - 📂 Loading road network...
+2025-11-04 18:00:40,999 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:00:43,420 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:00:43,420 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:00:43,427 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:00:43,428 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:00:45,621 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:00:45,621 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:00:45,998 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:00:46,573 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:00:46,573 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:00:46,573 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:00:46,573 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:00:46,573 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:00:47,431 - INFO - 📊 Detection Results:
+2025-11-04 18:00:47,432 - INFO -    Total trajectories: 5,000
+2025-11-04 18:00:47,432 - INFO -    Abp1 (Normal): 4,932
+2025-11-04 18:00:47,432 - INFO -    Abp2 (Temporal delay): 68
+2025-11-04 18:00:47,432 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:00:47,432 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:00:47,432 - INFO -    Abnormal rate: 1.36%
+2025-11-04 18:00:47,432 - INFO - 📊 Baseline usage:
+2025-11-04 18:00:47,432 - INFO -    OD-specific: 1,351
+2025-11-04 18:00:47,432 - INFO -    Global fallback: 3,647
+2025-11-04 18:00:47,441 - INFO - 💾 Saving detection results...
+2025-11-04 18:00:47,441 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/generated/distill_phase1/detection_results.json
+2025-11-04 18:00:47,442 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/generated/distill_phase1/statistics_by_category.json
+2025-11-04 18:00:47,447 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:00:47,451 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/generated/distill_phase1/samples/wang_temporal_delay_samples.json
+2025-11-04 18:00:47,451 - INFO - 
+============================================================
+2025-11-04 18:00:47,451 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:00:47,451 - INFO - ============================================================
+2025-11-04 18:00:47,451 - INFO - Dataset: porto_hoser
+2025-11-04 18:00:47,451 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:00:47,451 - INFO - 
+Abnormalities detected:
+2025-11-04 18:00:47,451 - INFO -   • wang_temporal_delay: 68 (1.36%)
+2025-11-04 18:00:47,452 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:00:47,452 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:00:47,452 - INFO - ============================================================
+2025-11-04 18:00:47,452 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/generated/distill_phase1
+2025-11-04 18:00:47,452 - INFO - ✅ Analysis complete!
+2025-11-04 18:00:47,556 - INFO -         Generated: 68/5000 (1.36%) abnormal
+2025-11-04 18:00:47,557 - INFO -       Analyzing distill_phase1_seed43...
+2025-11-04 18:00:47,557 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:00:47,557 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 18:00:47,557 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_00-38-29_distill_phase1_seed43_test.csv
+2025-11-04 18:00:47,557 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:00:47,563 - INFO - 💾 Output directory: abnormal/porto_hoser/test/generated/distill_phase1_seed43
+2025-11-04 18:00:47,569 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:00:47,569 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:00:47,569 - INFO - 📂 Loading road network...
+2025-11-04 18:00:47,585 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:00:49,890 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:00:49,891 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:00:49,896 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:00:49,896 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:00:52,147 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:00:52,148 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:00:52,524 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:00:53,118 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:00:53,119 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:00:53,119 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:00:53,119 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:00:53,119 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:00:53,976 - INFO - 📊 Detection Results:
+2025-11-04 18:00:53,976 - INFO -    Total trajectories: 5,000
+2025-11-04 18:00:53,976 - INFO -    Abp1 (Normal): 4,932
+2025-11-04 18:00:53,976 - INFO -    Abp2 (Temporal delay): 68
+2025-11-04 18:00:53,976 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:00:53,977 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:00:53,977 - INFO -    Abnormal rate: 1.36%
+2025-11-04 18:00:53,977 - INFO - 📊 Baseline usage:
+2025-11-04 18:00:53,977 - INFO -    OD-specific: 1,351
+2025-11-04 18:00:53,977 - INFO -    Global fallback: 3,647
+2025-11-04 18:00:53,987 - INFO - 💾 Saving detection results...
+2025-11-04 18:00:53,988 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/generated/distill_phase1_seed43/detection_results.json
+2025-11-04 18:00:53,988 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/generated/distill_phase1_seed43/statistics_by_category.json
+2025-11-04 18:00:53,994 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:00:53,997 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/generated/distill_phase1_seed43/samples/wang_temporal_delay_samples.json
+2025-11-04 18:00:53,997 - INFO - 
+============================================================
+2025-11-04 18:00:53,997 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:00:53,997 - INFO - ============================================================
+2025-11-04 18:00:53,997 - INFO - Dataset: porto_hoser
+2025-11-04 18:00:53,998 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:00:53,998 - INFO - 
+Abnormalities detected:
+2025-11-04 18:00:53,998 - INFO -   • wang_temporal_delay: 68 (1.36%)
+2025-11-04 18:00:53,998 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:00:53,998 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:00:53,998 - INFO - ============================================================
+2025-11-04 18:00:53,998 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/generated/distill_phase1_seed43
+2025-11-04 18:00:53,998 - INFO - ✅ Analysis complete!
+2025-11-04 18:00:54,120 - INFO -         Generated: 68/5000 (1.36%) abnormal
+2025-11-04 18:00:54,121 - INFO -       Analyzing distill_phase1_seed44...
+2025-11-04 18:00:54,121 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:00:54,121 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 18:00:54,121 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_02-09-56_distill_phase1_seed44_test.csv
+2025-11-04 18:00:54,121 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:00:54,127 - INFO - 💾 Output directory: abnormal/porto_hoser/test/generated/distill_phase1_seed44
+2025-11-04 18:00:54,132 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:00:54,132 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:00:54,133 - INFO - 📂 Loading road network...
+2025-11-04 18:00:54,149 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:00:57,064 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:00:57,064 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:00:57,071 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:00:57,071 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:00:59,299 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:00:59,300 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:00:59,672 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:01:00,285 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:00,285 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:00,285 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:00,285 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:00,285 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:01:01,142 - INFO - 📊 Detection Results:
+2025-11-04 18:01:01,142 - INFO -    Total trajectories: 5,000
+2025-11-04 18:01:01,142 - INFO -    Abp1 (Normal): 4,901
+2025-11-04 18:01:01,143 - INFO -    Abp2 (Temporal delay): 99
+2025-11-04 18:01:01,143 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:01:01,143 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:01:01,143 - INFO -    Abnormal rate: 1.98%
+2025-11-04 18:01:01,143 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:01,143 - INFO -    OD-specific: 1,365
+2025-11-04 18:01:01,143 - INFO -    Global fallback: 3,634
+2025-11-04 18:01:01,152 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:01,152 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/generated/distill_phase1_seed44/detection_results.json
+2025-11-04 18:01:01,153 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/generated/distill_phase1_seed44/statistics_by_category.json
+2025-11-04 18:01:01,159 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:01,161 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/generated/distill_phase1_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:01,161 - INFO - 
+============================================================
+2025-11-04 18:01:01,161 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:01,162 - INFO - ============================================================
+2025-11-04 18:01:01,162 - INFO - Dataset: porto_hoser
+2025-11-04 18:01:01,162 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:01:01,162 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:01,162 - INFO -   • wang_temporal_delay: 99 (1.98%)
+2025-11-04 18:01:01,162 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:01:01,162 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:01:01,162 - INFO - ============================================================
+2025-11-04 18:01:01,162 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/generated/distill_phase1_seed44
+2025-11-04 18:01:01,162 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:01,272 - INFO -         Generated: 99/5000 (1.98%) abnormal
+2025-11-04 18:01:01,273 - INFO -       Analyzing distill_phase2...
+2025-11-04 18:01:01,273 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:01,273 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 18:01:01,274 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_06-51-05_distill_phase2_seed44_test.csv
+2025-11-04 18:01:01,274 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:01,279 - INFO - 💾 Output directory: abnormal/porto_hoser/test/generated/distill_phase2
+2025-11-04 18:01:01,285 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:01,285 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:01,285 - INFO - 📂 Loading road network...
+2025-11-04 18:01:01,299 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:01:03,626 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:01:03,627 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:03,632 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:01:03,632 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:01:05,879 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:01:05,880 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:01:06,294 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:01:06,885 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:06,886 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:06,886 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:06,886 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:06,886 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:01:07,803 - INFO - 📊 Detection Results:
+2025-11-04 18:01:07,804 - INFO -    Total trajectories: 5,000
+2025-11-04 18:01:07,804 - INFO -    Abp1 (Normal): 4,934
+2025-11-04 18:01:07,804 - INFO -    Abp2 (Temporal delay): 66
+2025-11-04 18:01:07,804 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:01:07,804 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:01:07,804 - INFO -    Abnormal rate: 1.32%
+2025-11-04 18:01:07,804 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:07,804 - INFO -    OD-specific: 1,289
+2025-11-04 18:01:07,804 - INFO -    Global fallback: 3,710
+2025-11-04 18:01:07,816 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:07,817 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/generated/distill_phase2/detection_results.json
+2025-11-04 18:01:07,817 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/generated/distill_phase2/statistics_by_category.json
+2025-11-04 18:01:07,824 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:07,827 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/generated/distill_phase2/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:07,827 - INFO - 
+============================================================
+2025-11-04 18:01:07,827 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:07,827 - INFO - ============================================================
+2025-11-04 18:01:07,827 - INFO - Dataset: porto_hoser
+2025-11-04 18:01:07,827 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:01:07,827 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:07,827 - INFO -   • wang_temporal_delay: 66 (1.32%)
+2025-11-04 18:01:07,827 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:01:07,827 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:01:07,827 - INFO - ============================================================
+2025-11-04 18:01:07,827 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/generated/distill_phase2
+2025-11-04 18:01:07,827 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:07,955 - INFO -         Generated: 66/5000 (1.32%) abnormal
+2025-11-04 18:01:07,957 - INFO -       Analyzing distill_phase2_seed43...
+2025-11-04 18:01:07,957 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:07,957 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 18:01:07,957 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_05-14-53_distill_phase2_seed43_test.csv
+2025-11-04 18:01:07,957 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:07,963 - INFO - 💾 Output directory: abnormal/porto_hoser/test/generated/distill_phase2_seed43
+2025-11-04 18:01:07,969 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:07,969 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:07,969 - INFO - 📂 Loading road network...
+2025-11-04 18:01:07,983 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:01:10,397 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:01:10,397 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:10,403 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:01:10,403 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:01:12,588 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:01:12,588 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:01:12,988 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:01:13,553 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:13,553 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:13,553 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:13,553 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:13,553 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:01:14,445 - INFO - 📊 Detection Results:
+2025-11-04 18:01:14,446 - INFO -    Total trajectories: 5,000
+2025-11-04 18:01:14,446 - INFO -    Abp1 (Normal): 4,898
+2025-11-04 18:01:14,446 - INFO -    Abp2 (Temporal delay): 102
+2025-11-04 18:01:14,446 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:01:14,446 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:01:14,446 - INFO -    Abnormal rate: 2.04%
+2025-11-04 18:01:14,446 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:14,446 - INFO -    OD-specific: 1,369
+2025-11-04 18:01:14,446 - INFO -    Global fallback: 3,627
+2025-11-04 18:01:14,456 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:14,456 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/generated/distill_phase2_seed43/detection_results.json
+2025-11-04 18:01:14,457 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/generated/distill_phase2_seed43/statistics_by_category.json
+2025-11-04 18:01:14,463 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:14,466 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/generated/distill_phase2_seed43/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:14,466 - INFO - 
+============================================================
+2025-11-04 18:01:14,466 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:14,466 - INFO - ============================================================
+2025-11-04 18:01:14,466 - INFO - Dataset: porto_hoser
+2025-11-04 18:01:14,466 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:01:14,466 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:14,466 - INFO -   • wang_temporal_delay: 102 (2.04%)
+2025-11-04 18:01:14,466 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:01:14,466 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:01:14,466 - INFO - ============================================================
+2025-11-04 18:01:14,466 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/generated/distill_phase2_seed43
+2025-11-04 18:01:14,466 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:14,576 - INFO -         Generated: 102/5000 (2.04%) abnormal
+2025-11-04 18:01:14,577 - INFO -       Analyzing distill_phase2_seed44...
+2025-11-04 18:01:14,577 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:14,577 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 18:01:14,577 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_06-51-05_distill_phase2_seed44_test.csv
+2025-11-04 18:01:14,577 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:14,583 - INFO - 💾 Output directory: abnormal/porto_hoser/test/generated/distill_phase2_seed44
+2025-11-04 18:01:14,588 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:14,588 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:14,589 - INFO - 📂 Loading road network...
+2025-11-04 18:01:14,603 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:01:16,984 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:01:16,984 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:16,991 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:01:16,992 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:01:19,246 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:01:19,246 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:01:19,648 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:01:20,249 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:20,249 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:20,249 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:20,249 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:20,249 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:01:21,110 - INFO - 📊 Detection Results:
+2025-11-04 18:01:21,110 - INFO -    Total trajectories: 5,000
+2025-11-04 18:01:21,110 - INFO -    Abp1 (Normal): 4,934
+2025-11-04 18:01:21,110 - INFO -    Abp2 (Temporal delay): 66
+2025-11-04 18:01:21,110 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:01:21,110 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:01:21,110 - INFO -    Abnormal rate: 1.32%
+2025-11-04 18:01:21,110 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:21,110 - INFO -    OD-specific: 1,289
+2025-11-04 18:01:21,110 - INFO -    Global fallback: 3,710
+2025-11-04 18:01:21,120 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:21,121 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/generated/distill_phase2_seed44/detection_results.json
+2025-11-04 18:01:21,121 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/generated/distill_phase2_seed44/statistics_by_category.json
+2025-11-04 18:01:21,127 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:21,130 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/generated/distill_phase2_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:21,130 - INFO - 
+============================================================
+2025-11-04 18:01:21,130 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:21,131 - INFO - ============================================================
+2025-11-04 18:01:21,131 - INFO - Dataset: porto_hoser
+2025-11-04 18:01:21,131 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:01:21,131 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:21,131 - INFO -   • wang_temporal_delay: 66 (1.32%)
+2025-11-04 18:01:21,131 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:01:21,131 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:01:21,131 - INFO - ============================================================
+2025-11-04 18:01:21,131 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/generated/distill_phase2_seed44
+2025-11-04 18:01:21,131 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:21,248 - INFO -         Generated: 66/5000 (1.32%) abnormal
+2025-11-04 18:01:21,249 - INFO -       Analyzing vanilla...
+2025-11-04 18:01:21,249 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:21,249 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 18:01:21,249 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_11-31-06_vanilla_seed44_test.csv
+2025-11-04 18:01:21,249 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:21,255 - INFO - 💾 Output directory: abnormal/porto_hoser/test/generated/vanilla
+2025-11-04 18:01:21,260 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:21,261 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:21,261 - INFO - 📂 Loading road network...
+2025-11-04 18:01:21,277 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:01:23,942 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:01:23,943 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:23,950 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:01:23,950 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:01:26,352 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:01:26,353 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:01:26,755 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:01:27,359 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:27,359 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:27,359 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:27,359 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:27,359 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:01:28,252 - INFO - 📊 Detection Results:
+2025-11-04 18:01:28,252 - INFO -    Total trajectories: 5,000
+2025-11-04 18:01:28,252 - INFO -    Abp1 (Normal): 4,916
+2025-11-04 18:01:28,252 - INFO -    Abp2 (Temporal delay): 84
+2025-11-04 18:01:28,252 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:01:28,252 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:01:28,252 - INFO -    Abnormal rate: 1.68%
+2025-11-04 18:01:28,252 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:28,252 - INFO -    OD-specific: 1,305
+2025-11-04 18:01:28,252 - INFO -    Global fallback: 3,690
+2025-11-04 18:01:28,262 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:28,262 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/generated/vanilla/detection_results.json
+2025-11-04 18:01:28,263 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/generated/vanilla/statistics_by_category.json
+2025-11-04 18:01:28,269 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:28,272 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/generated/vanilla/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:28,272 - INFO - 
+============================================================
+2025-11-04 18:01:28,272 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:28,272 - INFO - ============================================================
+2025-11-04 18:01:28,272 - INFO - Dataset: porto_hoser
+2025-11-04 18:01:28,273 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:01:28,273 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:28,273 - INFO -   • wang_temporal_delay: 84 (1.68%)
+2025-11-04 18:01:28,273 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:01:28,273 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:01:28,273 - INFO - ============================================================
+2025-11-04 18:01:28,273 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/generated/vanilla
+2025-11-04 18:01:28,273 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:28,410 - INFO -         Generated: 84/5000 (1.68%) abnormal
+2025-11-04 18:01:28,411 - INFO -       Analyzing vanilla_seed43...
+2025-11-04 18:01:28,411 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:28,411 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 18:01:28,411 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_09-52-08_vanilla_seed43_test.csv
+2025-11-04 18:01:28,411 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:28,418 - INFO - 💾 Output directory: abnormal/porto_hoser/test/generated/vanilla_seed43
+2025-11-04 18:01:28,423 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:28,423 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:28,423 - INFO - 📂 Loading road network...
+2025-11-04 18:01:28,436 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:01:30,840 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:01:30,840 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:30,846 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:01:30,846 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:01:33,051 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:01:33,052 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:01:33,429 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:01:35,292 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:35,293 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:35,293 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:35,293 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:35,293 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:01:36,193 - INFO - 📊 Detection Results:
+2025-11-04 18:01:36,194 - INFO -    Total trajectories: 5,000
+2025-11-04 18:01:36,194 - INFO -    Abp1 (Normal): 4,818
+2025-11-04 18:01:36,194 - INFO -    Abp2 (Temporal delay): 182
+2025-11-04 18:01:36,194 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:01:36,194 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:01:36,194 - INFO -    Abnormal rate: 3.64%
+2025-11-04 18:01:36,194 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:36,194 - INFO -    OD-specific: 1,333
+2025-11-04 18:01:36,195 - INFO -    Global fallback: 3,666
+2025-11-04 18:01:36,205 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:36,206 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/generated/vanilla_seed43/detection_results.json
+2025-11-04 18:01:36,206 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/generated/vanilla_seed43/statistics_by_category.json
+2025-11-04 18:01:36,212 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:36,215 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/generated/vanilla_seed43/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:36,215 - INFO - 
+============================================================
+2025-11-04 18:01:36,215 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:36,215 - INFO - ============================================================
+2025-11-04 18:01:36,215 - INFO - Dataset: porto_hoser
+2025-11-04 18:01:36,216 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:01:36,216 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:36,216 - INFO -   • wang_temporal_delay: 182 (3.64%)
+2025-11-04 18:01:36,216 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:01:36,216 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:01:36,216 - INFO - ============================================================
+2025-11-04 18:01:36,216 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/generated/vanilla_seed43
+2025-11-04 18:01:36,216 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:36,344 - INFO -         Generated: 182/5000 (3.64%) abnormal
+2025-11-04 18:01:36,345 - INFO -       Analyzing vanilla_seed44...
+2025-11-04 18:01:36,345 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:36,345 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 18:01:36,345 - INFO - 📂 Input file: gene/porto_hoser/seed42/2025-11-04_11-31-06_vanilla_seed44_test.csv
+2025-11-04 18:01:36,345 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:36,351 - INFO - 💾 Output directory: abnormal/porto_hoser/test/generated/vanilla_seed44
+2025-11-04 18:01:36,358 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:36,358 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:36,358 - INFO - 📂 Loading road network...
+2025-11-04 18:01:36,370 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:01:38,808 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:01:38,808 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:38,814 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 18:01:38,814 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 18:01:41,065 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 18:01:41,065 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 18:01:41,463 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:01:42,056 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:42,056 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:42,056 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:42,057 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:42,057 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:01:42,930 - INFO - 📊 Detection Results:
+2025-11-04 18:01:42,931 - INFO -    Total trajectories: 5,000
+2025-11-04 18:01:42,931 - INFO -    Abp1 (Normal): 4,916
+2025-11-04 18:01:42,931 - INFO -    Abp2 (Temporal delay): 84
+2025-11-04 18:01:42,931 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:01:42,931 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:01:42,931 - INFO -    Abnormal rate: 1.68%
+2025-11-04 18:01:42,931 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:42,931 - INFO -    OD-specific: 1,305
+2025-11-04 18:01:42,931 - INFO -    Global fallback: 3,690
+2025-11-04 18:01:42,943 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:42,944 - INFO - ✅ Saved detection results to abnormal/porto_hoser/test/generated/vanilla_seed44/detection_results.json
+2025-11-04 18:01:42,945 - INFO - ✅ Saved statistics to abnormal/porto_hoser/test/generated/vanilla_seed44/statistics_by_category.json
+2025-11-04 18:01:42,951 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:42,955 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/porto_hoser/test/generated/vanilla_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:42,955 - INFO - 
+============================================================
+2025-11-04 18:01:42,955 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:42,955 - INFO - ============================================================
+2025-11-04 18:01:42,955 - INFO - Dataset: porto_hoser
+2025-11-04 18:01:42,955 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:01:42,955 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:42,955 - INFO -   • wang_temporal_delay: 84 (1.68%)
+2025-11-04 18:01:42,956 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:01:42,956 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:01:42,957 - INFO - ============================================================
+2025-11-04 18:01:42,957 - INFO - 💾 Results saved to: abnormal/porto_hoser/test/generated/vanilla_seed44
+2025-11-04 18:01:42,957 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:43,067 - INFO -         Generated: 84/5000 (1.68%) abnormal
+2025-11-04 18:01:43,067 - INFO - 
+    📊 Comparison Report (test):
+2025-11-04 18:01:43,067 - INFO -     ============================================================
+2025-11-04 18:01:43,067 - INFO -     Real data:   12981/137532 (9.44%)
+2025-11-04 18:01:43,067 - INFO -     ✅ distill_phase1: 68/5000 (1.36%, -8.08% vs real)
+2025-11-04 18:01:43,067 - INFO -     ✅ distill_phase1_seed43: 68/5000 (1.36%, -8.08% vs real)
+2025-11-04 18:01:43,067 - INFO -     ✅ distill_phase1_seed44: 99/5000 (1.98%, -7.46% vs real)
+2025-11-04 18:01:43,067 - INFO -     ✅ distill_phase2: 66/5000 (1.32%, -8.12% vs real)
+2025-11-04 18:01:43,067 - INFO -     ✅ distill_phase2_seed43: 102/5000 (2.04%, -7.40% vs real)
+2025-11-04 18:01:43,067 - INFO -     ✅ distill_phase2_seed44: 66/5000 (1.32%, -8.12% vs real)
+2025-11-04 18:01:43,067 - INFO -     ✅ vanilla     : 84/5000 (1.68%, -7.76% vs real)
+2025-11-04 18:01:43,067 - INFO -     ✅ vanilla_seed43: 182/5000 (3.64%, -5.80% vs real)
+2025-11-04 18:01:43,067 - INFO -     ✅ vanilla_seed44: 84/5000 (1.68%, -7.76% vs real)
+2025-11-04 18:01:43,068 - INFO -     💾 Saved comparison report to abnormal/porto_hoser/test/comparison_report.json
+2025-11-04 18:01:43,068 - INFO - 
+✅ Abnormal analysis complete for porto_hoser! Results in abnormal/porto_hoser/
+2025-11-04 18:01:43,107 - INFO - ✅ Phase abnormal completed
+2025-11-04 18:01:43,107 - INFO - ⏭️  Skipping phase: abnormal_od_extract
+2025-11-04 18:01:43,107 - INFO - ⏭️  Skipping phase: abnormal_od_generate
+2025-11-04 18:01:43,107 - INFO - ⏭️  Skipping phase: abnormal_od_evaluate
+2025-11-04 18:01:43,107 - INFO - ⏭️  Skipping phase: scenarios
+2025-11-04 18:01:43,107 - INFO - 
+✅ Pipeline completed successfully!
+2025-11-04 18:01:43,107 - INFO - ✅ Pipeline completed successfully!
+📂 Loading road network...
+📐 Calculating road centroids for 11,024 roads...
+✅ Road network loaded: 11,024 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/porto_hoser/train.csv...
+🔄 Parsing 481,359 trajectories...
+✅ Loaded 481,359 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_01-24-00_distill_phase1_seed44_train.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-03_23-53-36_distill_phase1_seed43_train.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_01-24-00_distill_phase1_seed44_train.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_04-27-50_distill_phase2_seed43_train.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_04-27-50_distill_phase2_seed43_train.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_06-02-59_distill_phase2_seed44_train.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_09-06-41_vanilla_seed43_train.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_09-06-41_vanilla_seed43_train.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_10-41-32_vanilla_seed44_train.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/porto_hoser/test.csv...
+🔄 Parsing 137,532 trajectories...
+✅ Loaded 137,532 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_00-38-29_distill_phase1_seed43_test.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_00-38-29_distill_phase1_seed43_test.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_02-09-56_distill_phase1_seed44_test.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_06-51-05_distill_phase2_seed44_test.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_05-14-53_distill_phase2_seed43_test.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_06-51-05_distill_phase2_seed44_test.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_11-31-06_vanilla_seed44_test.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_09-52-08_vanilla_seed43_test.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/porto_hoser/seed42/2025-11-04_11-31-06_vanilla_seed44_test.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)

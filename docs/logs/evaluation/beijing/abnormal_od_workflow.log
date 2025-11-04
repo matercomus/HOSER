@@ -1,0 +1,66 @@
+2025-11-03 18:42:58,023 - INFO - Running only phases: {'abnormal_od_extract', 'abnormal_od_generate', 'abnormal_od_evaluate'}
+2025-11-03 18:42:58,023 - INFO - Working directory: /home/matt/Dev/HOSER/hoser-distill-optuna-6
+2025-11-03 18:42:58,023 - INFO - Validating pipeline configuration...
+2025-11-03 18:42:58,032 - INFO - ✓ Cross-dataset evaluation enabled: BJUT_Beijing
+2025-11-03 18:42:58,096 - INFO - Configuration validation passed
+2025-11-03 18:42:58,101 - INFO - Starting HOSER Distillation Evaluation Pipeline
+2025-11-03 18:42:58,101 - INFO - Configuration: {'eval_dir': PosixPath('/home/matt/Dev/HOSER/hoser-distill-optuna-6'), 'wandb_project': 'hoser-distill-optuna-6', 'dataset': 'Beijing', 'cuda_device': 0, 'num_gene': 5000, 'seed': 42, 'models': [], 'od_sources': ['train', 'test'], 'phases': {'abnormal_od_extract', 'abnormal_od_generate', 'abnormal_od_evaluate'}, 'force': False, 'enable_wandb': True, 'verbose': False, 'beam_width': 4, 'grid_size': 0.001, 'edr_eps': 100.0, 'background_sync': True, 'run_scenarios': False, 'scenarios_config': None, 'cross_dataset_eval': '../data/BJUT_Beijing', 'cross_dataset_name': 'BJUT_Beijing', 'run_abnormal_detection': True, 'abnormal_config': 'config/abnormal_detection.yaml'}
+2025-11-03 18:42:58,101 - INFO - Enabled phases: ['abnormal_od_evaluate', 'abnormal_od_extract', 'abnormal_od_generate']
+2025-11-03 18:42:58,101 - INFO - Detected models: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-03 18:42:58,102 - INFO - Models to process: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-03 18:42:58,102 - INFO - OD sources: ['train', 'test']
+2025-11-03 18:42:58,102 - INFO - ⏭️  Skipping phase: generation
+2025-11-03 18:42:58,102 - INFO - ⏭️  Skipping phase: base_eval
+2025-11-03 18:42:58,102 - INFO - ⏭️  Skipping phase: cross_dataset
+2025-11-03 18:42:58,102 - INFO - ⏭️  Skipping phase: abnormal
+2025-11-03 18:42:58,102 - INFO - 
+======================================================================
+2025-11-03 18:42:58,102 - INFO - 🚀 Running phase: abnormal_od_extract
+2025-11-03 18:42:58,102 - INFO - ======================================================================
+2025-11-03 18:42:58,102 - INFO - 📊 Extracting abnormal OD pairs from cross-dataset...
+2025-11-03 18:42:58,103 - INFO -   Found 2 detection result files
+2025-11-03 18:42:58,174 - INFO - 
+🔍 Extracting abnormal OD pairs from BJUT_Beijing
+2025-11-03 18:42:58,175 - INFO - 
+  Processing: detection_results.json
+2025-11-03 18:42:58,175 - INFO - 📂 Loading detection results from abnormal/BJUT_Beijing/test/detection/detection_results.json
+2025-11-03 18:42:58,176 - INFO - 
+  Processing: detection_results.json
+2025-11-03 18:42:58,176 - INFO - 📂 Loading detection results from abnormal/BJUT_Beijing/train/detection/detection_results.json
+2025-11-03 18:42:58,176 - INFO - 
+📊 Summary:
+2025-11-03 18:42:58,177 - INFO -   Total abnormal trajectories: 0
+2025-11-03 18:42:58,177 - INFO -   Total unique OD pairs: 0
+2025-11-03 18:42:58,177 - INFO -     speeding: 0 OD pairs
+2025-11-03 18:42:58,177 - INFO -     detour: 0 OD pairs
+2025-11-03 18:42:58,178 - INFO -     suspicious_stops: 0 OD pairs
+2025-11-03 18:42:58,178 - INFO -     circuitous: 0 OD pairs
+2025-11-03 18:42:58,178 - INFO -     unusual_duration: 0 OD pairs
+2025-11-03 18:42:58,179 - INFO - ✅ Extracted 0 abnormal OD pairs
+2025-11-03 18:42:58,179 - INFO - 💾 Saved to abnormal_od_pairs_bjut_beijing.json
+2025-11-03 18:42:58,181 - INFO - ✅ Phase abnormal_od_extract completed
+2025-11-03 18:42:58,181 - INFO - 
+======================================================================
+2025-11-03 18:42:58,181 - INFO - 🚀 Running phase: abnormal_od_generate
+2025-11-03 18:42:58,181 - INFO - ======================================================================
+2025-11-03 18:42:58,182 - INFO - 🤖 Generating trajectories for abnormal OD pairs...
+2025-11-03 18:42:58,183 - INFO -   Using OD pairs: abnormal_od_pairs_bjut_beijing.json
+2025-11-03 18:42:58,184 - INFO -   speeding: 0 OD pairs
+2025-11-03 18:42:58,184 - INFO -   detour: 0 OD pairs
+2025-11-03 18:42:58,184 - INFO -   suspicious_stops: 0 OD pairs
+2025-11-03 18:42:58,184 - INFO -   circuitous: 0 OD pairs
+2025-11-03 18:42:58,185 - INFO -   unusual_duration: 0 OD pairs
+2025-11-03 18:42:58,185 - INFO -   Total unique OD pairs: 0
+2025-11-03 18:42:58,185 - WARNING - No OD pairs to generate for
+2025-11-03 18:42:58,185 - INFO - ✅ Phase abnormal_od_generate completed
+2025-11-03 18:42:58,186 - INFO - 
+======================================================================
+2025-11-03 18:42:58,186 - INFO - 🚀 Running phase: abnormal_od_evaluate
+2025-11-03 18:42:58,186 - INFO - ======================================================================
+2025-11-03 18:42:58,186 - INFO - 📊 Evaluating performance on abnormal OD pairs...
+2025-11-03 18:42:58,187 - ERROR - ❌ Dependency not met: Run 'abnormal_od_generate' phase first. Missing: gene_abnormal/Beijing/seed42
+2025-11-03 18:42:58,187 - INFO - ✅ Phase abnormal_od_evaluate completed
+2025-11-03 18:42:58,187 - INFO - ⏭️  Skipping phase: scenarios
+2025-11-03 18:42:58,187 - INFO - 
+✅ Pipeline completed successfully!
+2025-11-03 18:42:58,188 - INFO - ✅ Pipeline completed successfully!

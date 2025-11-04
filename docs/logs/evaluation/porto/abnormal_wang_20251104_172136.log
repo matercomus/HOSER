@@ -1,0 +1,132 @@
+2025-11-04 17:21:44,471 - INFO - Running only phases: {'abnormal'}
+2025-11-04 17:21:44,471 - INFO - Working directory: /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732
+2025-11-04 17:21:44,472 - INFO - Validating pipeline configuration...
+2025-11-04 17:21:44,504 - INFO - Configuration validation passed
+2025-11-04 17:21:44,508 - INFO - Starting HOSER Distillation Evaluation Pipeline
+2025-11-04 17:21:44,508 - INFO - Configuration: {'eval_dir': PosixPath('/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732'), 'wandb_project': 'hoser-porto-eval', 'dataset': 'porto_hoser', 'cuda_device': 0, 'num_gene': 5000, 'seed': 42, 'models': [], 'od_sources': ['train', 'test'], 'phases': {'abnormal'}, 'force': False, 'enable_wandb': True, 'verbose': False, 'beam_width': 4, 'grid_size': 0.001, 'edr_eps': 100.0, 'background_sync': True, 'run_scenarios': True, 'scenarios_config': 'config/scenarios_porto.yaml', 'cross_dataset_eval': None, 'cross_dataset_name': 'BJUT_Beijing', 'run_abnormal_detection': True, 'abnormal_config': 'config/abnormal_detection_statistical.yaml'}
+2025-11-04 17:21:44,508 - INFO - Enabled phases: ['abnormal']
+2025-11-04 17:21:44,509 - INFO - Detected models: ['distill_phase1', 'distill_phase1_seed43', 'distill_phase1_seed44', 'distill_phase2', 'distill_phase2_seed43', 'distill_phase2_seed44', 'vanilla', 'vanilla_seed43', 'vanilla_seed44']
+2025-11-04 17:21:44,509 - INFO - Models to process: ['distill_phase1', 'distill_phase1_seed43', 'distill_phase1_seed44', 'distill_phase2', 'distill_phase2_seed43', 'distill_phase2_seed44', 'vanilla', 'vanilla_seed43', 'vanilla_seed44']
+2025-11-04 17:21:44,509 - INFO - OD sources: ['train', 'test']
+2025-11-04 17:21:44,509 - INFO - ⏭️  Skipping phase: generation
+2025-11-04 17:21:44,509 - INFO - ⏭️  Skipping phase: base_eval
+2025-11-04 17:21:44,510 - INFO - ⏭️  Skipping phase: cross_dataset
+2025-11-04 17:21:44,510 - INFO - ⏭️  Skipping phase: road_network_translate
+2025-11-04 17:21:44,510 - INFO - 
+======================================================================
+2025-11-04 17:21:44,510 - INFO - 🚀 Running phase: abnormal
+2025-11-04 17:21:44,510 - INFO - ======================================================================
+2025-11-04 17:21:44,510 - INFO - 🔍 Running abnormal detection...
+2025-11-04 17:21:44,510 - INFO - 
+🔍 Starting abnormal trajectory detection analysis...
+2025-11-04 17:21:44,511 - INFO - Will analyze 1 dataset(s): ['porto_hoser']
+2025-11-04 17:21:44,511 - INFO - 
+======================================================================
+2025-11-04 17:21:44,511 - INFO - 📊 Analyzing dataset: porto_hoser (main)
+2025-11-04 17:21:44,511 - INFO - ======================================================================
+2025-11-04 17:21:44,512 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 17:21:44,517 - INFO - 
+  📂 Processing train data...
+2025-11-04 17:21:44,517 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:21:44,517 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:21:44,518 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:21:44,518 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/porto_hoser/train.csv
+2025-11-04 17:21:44,518 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:21:44,526 - INFO - 💾 Output directory: abnormal/porto_hoser/train/real_data
+2025-11-04 17:21:44,533 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:21:44,533 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:21:44,533 - INFO - 📂 Loading road network...
+2025-11-04 17:21:45,223 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:24:21,903 - INFO - ✅ Loaded 481359 trajectories
+2025-11-04 17:24:21,904 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:24:21,912 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:24:21,912 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:24:24,578 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:24:24,578 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:24:51,108 - INFO - 📊 Prepared 481359 trajectories for analysis
+2025-11-04 17:24:51,653 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:24:51,653 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:24:51,653 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:24:51,653 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:24:51,653 - INFO - 🔍 Analyzing 481,359 trajectories...
+2025-11-04 17:25:06,912 - ERROR -   ❌ Abnormal analysis failed for train: float() argument must be a string or a real number, not 'datetime.timedelta'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../tools/analyze_abnormal.py", line 502, in run_abnormal_analysis
+    results = detector.detect_abnormal_trajectories(trajectories_df)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../tools/detect_abnormal_statistical.py", line 525, in detect_abnormal_trajectories
+    pattern, details = self.classify_trajectory(road_ids, timestamps)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../tools/detect_abnormal_statistical.py", line 426, in classify_trajectory
+    actual_time_sec = self.metrics.compute_travel_time(timestamps)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../tools/detect_abnormal_statistical.py", line 280, in compute_travel_time
+    return float(timestamps[-1] - timestamps[0])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: float() argument must be a string or a real number, not 'datetime.timedelta'
+2025-11-04 17:25:08,002 - INFO - 
+  📂 Processing test data...
+2025-11-04 17:25:08,003 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:25:08,003 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:25:08,003 - INFO - 📂 Dataset: porto_hoser
+2025-11-04 17:25:08,003 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/porto_hoser/test.csv
+2025-11-04 17:25:08,003 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:25:08,009 - INFO - 💾 Output directory: abnormal/porto_hoser/test/real_data
+2025-11-04 17:25:08,015 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:25:08,015 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:25:08,015 - INFO - 📂 Loading road network...
+2025-11-04 17:25:08,027 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:25:53,272 - INFO - ✅ Loaded 137532 trajectories
+2025-11-04 17:25:53,272 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:25:53,278 - INFO - ✅ Found baselines: baselines_porto_hoser.json
+2025-11-04 17:25:53,278 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../baselines/baselines_porto_hoser.json
+2025-11-04 17:25:55,930 - INFO - ✅ Loaded baselines for 346,455 OD pairs
+2025-11-04 17:25:55,931 - INFO -    OD pairs with ≥5 samples: 17,735 (5.1%)
+2025-11-04 17:26:02,853 - INFO - 📊 Prepared 137532 trajectories for analysis
+2025-11-04 17:26:03,397 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:26:03,398 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:26:03,398 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:26:03,398 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:26:03,398 - INFO - 🔍 Analyzing 137,532 trajectories...
+2025-11-04 17:26:08,419 - ERROR -   ❌ Abnormal analysis failed for test: float() argument must be a string or a real number, not 'datetime.timedelta'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../tools/analyze_abnormal.py", line 502, in run_abnormal_analysis
+    results = detector.detect_abnormal_trajectories(trajectories_df)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../tools/detect_abnormal_statistical.py", line 525, in detect_abnormal_trajectories
+    pattern, details = self.classify_trajectory(road_ids, timestamps)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../tools/detect_abnormal_statistical.py", line 426, in classify_trajectory
+    actual_time_sec = self.metrics.compute_travel_time(timestamps)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/../tools/detect_abnormal_statistical.py", line 280, in compute_travel_time
+    return float(timestamps[-1] - timestamps[0])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: float() argument must be a string or a real number, not 'datetime.timedelta'
+2025-11-04 17:26:08,797 - INFO - 
+✅ Abnormal analysis complete for porto_hoser! Results in abnormal/porto_hoser/
+2025-11-04 17:26:08,798 - INFO - ✅ Phase abnormal completed
+2025-11-04 17:26:08,798 - INFO - ⏭️  Skipping phase: abnormal_od_extract
+2025-11-04 17:26:08,798 - INFO - ⏭️  Skipping phase: abnormal_od_generate
+2025-11-04 17:26:08,798 - INFO - ⏭️  Skipping phase: abnormal_od_evaluate
+2025-11-04 17:26:08,798 - INFO - ⏭️  Skipping phase: scenarios
+2025-11-04 17:26:08,798 - INFO - 
+✅ Pipeline completed successfully!
+2025-11-04 17:26:08,798 - INFO - ✅ Pipeline completed successfully!
+📂 Loading road network...
+📐 Calculating road centroids for 11,024 roads...
+✅ Road network loaded: 11,024 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/porto_hoser/train.csv...
+🔄 Parsing 481,359 trajectories...
+✅ Loaded 481,359 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/porto_hoser/test.csv...
+🔄 Parsing 137,532 trajectories...
+✅ Loaded 137,532 valid trajectories (dropped 0)

@@ -1,0 +1,167 @@
+2025-11-04 17:08:46,737 - INFO - Running only phases: {'abnormal'}
+2025-11-04 17:08:46,772 - INFO - Working directory: /home/matt/Dev/HOSER/hoser-distill-optuna-6
+2025-11-04 17:08:46,772 - INFO - Validating pipeline configuration...
+2025-11-04 17:08:46,781 - INFO - ✓ Cross-dataset evaluation enabled: BJUT_Beijing
+2025-11-04 17:08:46,830 - INFO - Configuration validation passed
+2025-11-04 17:08:46,899 - INFO - Starting HOSER Distillation Evaluation Pipeline
+2025-11-04 17:08:46,901 - INFO - Configuration: {'eval_dir': PosixPath('/home/matt/Dev/HOSER/hoser-distill-optuna-6'), 'wandb_project': 'hoser-distill-optuna-6', 'dataset': 'Beijing', 'cuda_device': 0, 'num_gene': 5000, 'seed': 42, 'models': [], 'od_sources': ['train', 'test'], 'phases': {'abnormal'}, 'force': False, 'enable_wandb': True, 'verbose': False, 'beam_width': 4, 'grid_size': 0.001, 'edr_eps': 100.0, 'background_sync': True, 'run_scenarios': False, 'scenarios_config': None, 'cross_dataset_eval': '../data/BJUT_Beijing', 'cross_dataset_name': 'BJUT_Beijing', 'run_abnormal_detection': True, 'abnormal_config': 'config/abnormal_detection_statistical.yaml'}
+2025-11-04 17:08:46,901 - INFO - Enabled phases: ['abnormal']
+2025-11-04 17:08:46,903 - INFO - Detected models: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-04 17:08:46,903 - INFO - Models to process: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-04 17:08:46,903 - INFO - OD sources: ['train', 'test']
+2025-11-04 17:08:46,904 - INFO - ⏭️  Skipping phase: generation
+2025-11-04 17:08:46,905 - INFO - ⏭️  Skipping phase: base_eval
+2025-11-04 17:08:46,906 - INFO - ⏭️  Skipping phase: cross_dataset
+2025-11-04 17:08:46,906 - INFO - ⏭️  Skipping phase: road_network_translate
+2025-11-04 17:08:46,907 - INFO - 
+======================================================================
+2025-11-04 17:08:46,907 - INFO - 🚀 Running phase: abnormal
+2025-11-04 17:08:46,907 - INFO - ======================================================================
+2025-11-04 17:08:46,908 - INFO - 🔍 Running abnormal detection...
+2025-11-04 17:08:46,908 - INFO - 
+🔍 Starting abnormal trajectory detection analysis...
+2025-11-04 17:08:46,911 - INFO - Will analyze 2 dataset(s): ['Beijing', 'BJUT_Beijing']
+2025-11-04 17:08:46,911 - INFO - 
+======================================================================
+2025-11-04 17:08:46,912 - INFO - 📊 Analyzing dataset: Beijing (main)
+2025-11-04 17:08:46,912 - INFO - ======================================================================
+2025-11-04 17:08:46,912 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 17:08:46,942 - INFO - 
+  📂 Processing train data...
+2025-11-04 17:08:46,942 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:08:46,942 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:08:46,942 - INFO - 📂 Dataset: Beijing
+2025-11-04 17:08:46,942 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/Beijing/train.csv
+2025-11-04 17:08:46,942 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:08:46,949 - INFO - 💾 Output directory: abnormal/Beijing/train/real_data
+2025-11-04 17:08:46,955 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:08:46,955 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:08:46,956 - INFO - 📂 Loading road network...
+2025-11-04 17:08:49,059 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:11:21,912 - INFO - ✅ Loaded 629380 trajectories
+2025-11-04 17:11:21,913 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:11:21,914 - WARNING - ⚠️  Baselines not found: baselines/baselines_beijing.json
+2025-11-04 17:11:21,914 - WARNING -    To use statistical detection, run: uv run python tools/compute_trajectory_baselines.py --dataset Beijing
+2025-11-04 17:11:21,915 - ERROR - ❌ Baselines required for statistical detection
+2025-11-04 17:11:21,915 - ERROR -   ❌ Abnormal analysis failed for train: Baseline statistics not found for Beijing. Run: uv run python tools/compute_trajectory_baselines.py
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/analyze_abnormal.py", line 453, in run_abnormal_analysis
+    raise FileNotFoundError(
+FileNotFoundError: Baseline statistics not found for Beijing. Run: uv run python tools/compute_trajectory_baselines.py
+2025-11-04 17:11:21,921 - INFO - 
+  📂 Processing test data...
+2025-11-04 17:11:21,921 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:11:21,921 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:11:21,922 - INFO - 📂 Dataset: Beijing
+2025-11-04 17:11:21,922 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/Beijing/test.csv
+2025-11-04 17:11:21,922 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:11:21,933 - INFO - 💾 Output directory: abnormal/Beijing/test/real_data
+2025-11-04 17:11:21,939 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:11:21,940 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:11:21,940 - INFO - 📂 Loading road network...
+2025-11-04 17:11:21,987 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:12:05,764 - INFO - ✅ Loaded 179823 trajectories
+2025-11-04 17:12:05,764 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:12:05,764 - WARNING - ⚠️  Baselines not found: baselines/baselines_beijing.json
+2025-11-04 17:12:05,765 - WARNING -    To use statistical detection, run: uv run python tools/compute_trajectory_baselines.py --dataset Beijing
+2025-11-04 17:12:05,765 - ERROR - ❌ Baselines required for statistical detection
+2025-11-04 17:12:05,765 - ERROR -   ❌ Abnormal analysis failed for test: Baseline statistics not found for Beijing. Run: uv run python tools/compute_trajectory_baselines.py
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/analyze_abnormal.py", line 453, in run_abnormal_analysis
+    raise FileNotFoundError(
+FileNotFoundError: Baseline statistics not found for Beijing. Run: uv run python tools/compute_trajectory_baselines.py
+2025-11-04 17:12:05,766 - INFO - 
+✅ Abnormal analysis complete for Beijing! Results in abnormal/Beijing/
+2025-11-04 17:12:05,767 - INFO - 
+======================================================================
+2025-11-04 17:12:05,767 - INFO - 📊 Analyzing dataset: BJUT_Beijing (cross-dataset)
+2025-11-04 17:12:05,767 - INFO - ======================================================================
+2025-11-04 17:12:05,767 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 17:12:05,769 - INFO - 
+  📂 Processing train data...
+2025-11-04 17:12:05,770 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:12:05,771 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:12:05,771 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 17:12:05,771 - INFO - 📂 Input file: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv
+2025-11-04 17:12:05,771 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:12:05,791 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/real_data
+2025-11-04 17:12:05,802 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:12:05,802 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:12:05,806 - INFO - 📂 Loading road network...
+2025-11-04 17:12:09,912 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:12:16,488 - INFO - ✅ Loaded 27897 trajectories
+2025-11-04 17:12:16,488 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:12:16,489 - WARNING - ⚠️  Baselines not found: baselines/baselines_bjut_beijing.json
+2025-11-04 17:12:16,489 - WARNING -    To use statistical detection, run: uv run python tools/compute_trajectory_baselines.py --dataset BJUT_Beijing
+2025-11-04 17:12:16,489 - ERROR - ❌ Baselines required for statistical detection
+2025-11-04 17:12:16,489 - ERROR -   ❌ Abnormal analysis failed for train: Baseline statistics not found for BJUT_Beijing. Run: uv run python tools/compute_trajectory_baselines.py
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/analyze_abnormal.py", line 453, in run_abnormal_analysis
+    raise FileNotFoundError(
+FileNotFoundError: Baseline statistics not found for BJUT_Beijing. Run: uv run python tools/compute_trajectory_baselines.py
+2025-11-04 17:12:16,496 - INFO - 
+  📂 Processing test data...
+2025-11-04 17:12:16,496 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:12:16,496 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:12:16,497 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 17:12:16,497 - INFO - 📂 Input file: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv
+2025-11-04 17:12:16,497 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:12:16,518 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/real_data
+2025-11-04 17:12:16,531 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:12:16,531 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:12:16,534 - INFO - 📂 Loading road network...
+2025-11-04 17:12:16,635 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:12:17,972 - INFO - ✅ Loaded 5979 trajectories
+2025-11-04 17:12:17,972 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:12:17,973 - WARNING - ⚠️  Baselines not found: baselines/baselines_bjut_beijing.json
+2025-11-04 17:12:17,973 - WARNING -    To use statistical detection, run: uv run python tools/compute_trajectory_baselines.py --dataset BJUT_Beijing
+2025-11-04 17:12:17,973 - ERROR - ❌ Baselines required for statistical detection
+2025-11-04 17:12:17,973 - ERROR -   ❌ Abnormal analysis failed for test: Baseline statistics not found for BJUT_Beijing. Run: uv run python tools/compute_trajectory_baselines.py
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/analyze_abnormal.py", line 453, in run_abnormal_analysis
+    raise FileNotFoundError(
+FileNotFoundError: Baseline statistics not found for BJUT_Beijing. Run: uv run python tools/compute_trajectory_baselines.py
+2025-11-04 17:12:17,976 - INFO - 
+✅ Abnormal analysis complete for BJUT_Beijing! Results in abnormal/BJUT_Beijing/
+2025-11-04 17:12:17,976 - INFO - ✅ Phase abnormal completed
+2025-11-04 17:12:17,976 - INFO - ⏭️  Skipping phase: abnormal_od_extract
+2025-11-04 17:12:17,976 - INFO - ⏭️  Skipping phase: abnormal_od_generate
+2025-11-04 17:12:17,976 - INFO - ⏭️  Skipping phase: abnormal_od_evaluate
+2025-11-04 17:12:17,976 - INFO - ⏭️  Skipping phase: scenarios
+2025-11-04 17:12:17,976 - INFO - 
+✅ Pipeline completed successfully!
+2025-11-04 17:12:17,977 - INFO - ✅ Pipeline completed successfully!
+📂 Loading road network...
+📐 Calculating road centroids for 40,060 roads...
+✅ Road network loaded: 40,060 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/Beijing/train.csv...
+🔄 Parsing 629,380 trajectories...
+✅ Loaded 629,380 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/Beijing/test.csv...
+🔄 Parsing 179,823 trajectories...
+✅ Loaded 179,823 valid trajectories (dropped 0)
+📂 Loading road network...
+📐 Calculating road centroids for 87,481 roads...
+✅ Road network loaded: 87,481 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv...
+🔄 Parsing 27,897 trajectories...
+✅ Loaded 27,897 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv...
+🔄 Parsing 5,979 trajectories...
+✅ Loaded 5,979 valid trajectories (dropped 0)

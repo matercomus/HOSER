@@ -1,0 +1,235 @@
+2025-11-04 17:21:42,601 - INFO - Running only phases: {'abnormal'}
+2025-11-04 17:21:42,602 - INFO - Working directory: /home/matt/Dev/HOSER/hoser-distill-optuna-6
+2025-11-04 17:21:42,602 - INFO - Validating pipeline configuration...
+2025-11-04 17:21:42,607 - INFO - ✓ Cross-dataset evaluation enabled: BJUT_Beijing
+2025-11-04 17:21:42,655 - INFO - Configuration validation passed
+2025-11-04 17:21:42,659 - INFO - Starting HOSER Distillation Evaluation Pipeline
+2025-11-04 17:21:42,659 - INFO - Configuration: {'eval_dir': PosixPath('/home/matt/Dev/HOSER/hoser-distill-optuna-6'), 'wandb_project': 'hoser-distill-optuna-6', 'dataset': 'Beijing', 'cuda_device': 0, 'num_gene': 5000, 'seed': 42, 'models': [], 'od_sources': ['train', 'test'], 'phases': {'abnormal'}, 'force': False, 'enable_wandb': True, 'verbose': False, 'beam_width': 4, 'grid_size': 0.001, 'edr_eps': 100.0, 'background_sync': True, 'run_scenarios': False, 'scenarios_config': None, 'cross_dataset_eval': '../data/BJUT_Beijing', 'cross_dataset_name': 'BJUT_Beijing', 'run_abnormal_detection': True, 'abnormal_config': 'config/abnormal_detection_statistical.yaml'}
+2025-11-04 17:21:42,659 - INFO - Enabled phases: ['abnormal']
+2025-11-04 17:21:42,660 - INFO - Detected models: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-04 17:21:42,660 - INFO - Models to process: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-04 17:21:42,660 - INFO - OD sources: ['train', 'test']
+2025-11-04 17:21:42,660 - INFO - ⏭️  Skipping phase: generation
+2025-11-04 17:21:42,660 - INFO - ⏭️  Skipping phase: base_eval
+2025-11-04 17:21:42,660 - INFO - ⏭️  Skipping phase: cross_dataset
+2025-11-04 17:21:42,660 - INFO - ⏭️  Skipping phase: road_network_translate
+2025-11-04 17:21:42,660 - INFO - 
+======================================================================
+2025-11-04 17:21:42,660 - INFO - 🚀 Running phase: abnormal
+2025-11-04 17:21:42,660 - INFO - ======================================================================
+2025-11-04 17:21:42,661 - INFO - 🔍 Running abnormal detection...
+2025-11-04 17:21:42,661 - INFO - 
+🔍 Starting abnormal trajectory detection analysis...
+2025-11-04 17:21:42,664 - INFO - Will analyze 2 dataset(s): ['Beijing', 'BJUT_Beijing']
+2025-11-04 17:21:42,665 - INFO - 
+======================================================================
+2025-11-04 17:21:42,665 - INFO - 📊 Analyzing dataset: Beijing (main)
+2025-11-04 17:21:42,665 - INFO - ======================================================================
+2025-11-04 17:21:42,665 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 17:21:42,675 - INFO - 
+  📂 Processing train data...
+2025-11-04 17:21:42,675 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:21:42,675 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:21:42,675 - INFO - 📂 Dataset: Beijing
+2025-11-04 17:21:42,676 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/Beijing/train.csv
+2025-11-04 17:21:42,676 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:21:42,684 - INFO - 💾 Output directory: abnormal/Beijing/train/real_data
+2025-11-04 17:21:42,690 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:21:42,690 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:21:42,690 - INFO - 📂 Loading road network...
+2025-11-04 17:21:44,528 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:24:14,547 - INFO - ✅ Loaded 629380 trajectories
+2025-11-04 17:24:14,547 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:24:14,554 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 17:24:14,554 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 17:24:20,104 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 17:24:20,104 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 17:24:49,449 - INFO - 📊 Prepared 629380 trajectories for analysis
+2025-11-04 17:24:51,480 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:24:51,481 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:24:51,481 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:24:51,481 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:24:51,481 - INFO - 🔍 Analyzing 629,380 trajectories...
+2025-11-04 17:25:07,135 - ERROR -   ❌ Abnormal analysis failed for train: float() argument must be a string or a real number, not 'datetime.timedelta'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/analyze_abnormal.py", line 502, in run_abnormal_analysis
+    results = detector.detect_abnormal_trajectories(trajectories_df)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 525, in detect_abnormal_trajectories
+    pattern, details = self.classify_trajectory(road_ids, timestamps)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 426, in classify_trajectory
+    actual_time_sec = self.metrics.compute_travel_time(timestamps)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 280, in compute_travel_time
+    return float(timestamps[-1] - timestamps[0])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: float() argument must be a string or a real number, not 'datetime.timedelta'
+2025-11-04 17:25:08,333 - INFO - 
+  📂 Processing test data...
+2025-11-04 17:25:08,334 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:25:08,334 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:25:08,334 - INFO - 📂 Dataset: Beijing
+2025-11-04 17:25:08,334 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/Beijing/test.csv
+2025-11-04 17:25:08,334 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:25:08,340 - INFO - 💾 Output directory: abnormal/Beijing/test/real_data
+2025-11-04 17:25:08,345 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:25:08,345 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:25:08,346 - INFO - 📂 Loading road network...
+2025-11-04 17:25:08,387 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:25:50,497 - INFO - ✅ Loaded 179823 trajectories
+2025-11-04 17:25:50,497 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:25:50,504 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 17:25:50,504 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 17:25:55,878 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 17:25:55,879 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 17:26:03,177 - INFO - 📊 Prepared 179823 trajectories for analysis
+2025-11-04 17:26:05,220 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:26:05,220 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:26:05,220 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:26:05,220 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:26:05,220 - INFO - 🔍 Analyzing 179,823 trajectories...
+2025-11-04 17:26:10,651 - ERROR -   ❌ Abnormal analysis failed for test: float() argument must be a string or a real number, not 'datetime.timedelta'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/analyze_abnormal.py", line 502, in run_abnormal_analysis
+    results = detector.detect_abnormal_trajectories(trajectories_df)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 525, in detect_abnormal_trajectories
+    pattern, details = self.classify_trajectory(road_ids, timestamps)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 426, in classify_trajectory
+    actual_time_sec = self.metrics.compute_travel_time(timestamps)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 280, in compute_travel_time
+    return float(timestamps[-1] - timestamps[0])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: float() argument must be a string or a real number, not 'datetime.timedelta'
+2025-11-04 17:26:11,116 - INFO - 
+✅ Abnormal analysis complete for Beijing! Results in abnormal/Beijing/
+2025-11-04 17:26:11,117 - INFO - 
+======================================================================
+2025-11-04 17:26:11,117 - INFO - 📊 Analyzing dataset: BJUT_Beijing (cross-dataset)
+2025-11-04 17:26:11,117 - INFO - ======================================================================
+2025-11-04 17:26:11,117 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 17:26:11,119 - INFO - 
+  📂 Processing train data...
+2025-11-04 17:26:11,119 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:26:11,120 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:26:11,120 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 17:26:11,120 - INFO - 📂 Input file: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv
+2025-11-04 17:26:11,121 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:26:11,140 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/real_data
+2025-11-04 17:26:11,153 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:26:11,153 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:26:11,157 - INFO - 📂 Loading road network...
+2025-11-04 17:26:15,356 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:26:21,863 - INFO - ✅ Loaded 27897 trajectories
+2025-11-04 17:26:21,864 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:26:21,870 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 17:26:21,871 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 17:26:26,772 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 17:26:26,773 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 17:26:27,631 - INFO - 📊 Prepared 27897 trajectories for analysis
+2025-11-04 17:26:32,117 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:26:32,117 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:26:32,117 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:26:32,117 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:26:32,117 - INFO - 🔍 Analyzing 27,897 trajectories...
+2025-11-04 17:26:32,567 - ERROR -   ❌ Abnormal analysis failed for train: float() argument must be a string or a real number, not 'datetime.timedelta'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/analyze_abnormal.py", line 502, in run_abnormal_analysis
+    results = detector.detect_abnormal_trajectories(trajectories_df)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 525, in detect_abnormal_trajectories
+    pattern, details = self.classify_trajectory(road_ids, timestamps)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 426, in classify_trajectory
+    actual_time_sec = self.metrics.compute_travel_time(timestamps)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 280, in compute_travel_time
+    return float(timestamps[-1] - timestamps[0])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: float() argument must be a string or a real number, not 'datetime.timedelta'
+2025-11-04 17:26:32,849 - INFO - 
+  📂 Processing test data...
+2025-11-04 17:26:32,850 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:26:32,850 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:26:32,850 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 17:26:32,851 - INFO - 📂 Input file: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv
+2025-11-04 17:26:32,851 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:26:32,873 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/real_data
+2025-11-04 17:26:32,884 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:26:32,884 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:26:32,888 - INFO - 📂 Loading road network...
+2025-11-04 17:26:32,992 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:26:34,384 - INFO - ✅ Loaded 5979 trajectories
+2025-11-04 17:26:34,384 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:26:34,391 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 17:26:34,391 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 17:26:39,134 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 17:26:39,134 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 17:26:39,334 - INFO - 📊 Prepared 5979 trajectories for analysis
+2025-11-04 17:26:43,621 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:26:43,621 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:26:43,621 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:26:43,622 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:26:43,622 - INFO - 🔍 Analyzing 5,979 trajectories...
+2025-11-04 17:26:43,717 - ERROR -   ❌ Abnormal analysis failed for test: float() argument must be a string or a real number, not 'datetime.timedelta'
+Traceback (most recent call last):
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../python_pipeline.py", line 1114, in _analyze_dataset_abnormalities
+    real_results = run_abnormal_analysis(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/analyze_abnormal.py", line 502, in run_abnormal_analysis
+    results = detector.detect_abnormal_trajectories(trajectories_df)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 525, in detect_abnormal_trajectories
+    pattern, details = self.classify_trajectory(road_ids, timestamps)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 426, in classify_trajectory
+    actual_time_sec = self.metrics.compute_travel_time(timestamps)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/matt/Dev/HOSER/hoser-distill-optuna-6/../tools/detect_abnormal_statistical.py", line 280, in compute_travel_time
+    return float(timestamps[-1] - timestamps[0])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: float() argument must be a string or a real number, not 'datetime.timedelta'
+2025-11-04 17:26:43,951 - INFO - 
+✅ Abnormal analysis complete for BJUT_Beijing! Results in abnormal/BJUT_Beijing/
+2025-11-04 17:26:43,951 - INFO - ✅ Phase abnormal completed
+2025-11-04 17:26:43,951 - INFO - ⏭️  Skipping phase: abnormal_od_extract
+2025-11-04 17:26:43,951 - INFO - ⏭️  Skipping phase: abnormal_od_generate
+2025-11-04 17:26:43,951 - INFO - ⏭️  Skipping phase: abnormal_od_evaluate
+2025-11-04 17:26:43,951 - INFO - ⏭️  Skipping phase: scenarios
+2025-11-04 17:26:43,951 - INFO - 
+✅ Pipeline completed successfully!
+2025-11-04 17:26:43,951 - INFO - ✅ Pipeline completed successfully!
+📂 Loading road network...
+📐 Calculating road centroids for 40,060 roads...
+✅ Road network loaded: 40,060 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/Beijing/train.csv...
+🔄 Parsing 629,380 trajectories...
+✅ Loaded 629,380 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/Beijing/test.csv...
+🔄 Parsing 179,823 trajectories...
+✅ Loaded 179,823 valid trajectories (dropped 0)
+📂 Loading road network...
+📐 Calculating road centroids for 87,481 roads...
+✅ Road network loaded: 87,481 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv...
+🔄 Parsing 27,897 trajectories...
+✅ Loaded 27,897 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv...
+🔄 Parsing 5,979 trajectories...
+✅ Loaded 5,979 valid trajectories (dropped 0)

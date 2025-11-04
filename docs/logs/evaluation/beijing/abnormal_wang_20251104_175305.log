@@ -1,0 +1,1093 @@
+2025-11-04 17:53:12,964 - INFO - Running only phases: {'abnormal'}
+2025-11-04 17:53:12,965 - INFO - Working directory: /home/matt/Dev/HOSER/hoser-distill-optuna-6
+2025-11-04 17:53:12,965 - INFO - Validating pipeline configuration...
+2025-11-04 17:53:12,972 - INFO - ✓ Cross-dataset evaluation enabled: BJUT_Beijing
+2025-11-04 17:53:13,040 - INFO - Configuration validation passed
+2025-11-04 17:53:13,052 - INFO - Starting HOSER Distillation Evaluation Pipeline
+2025-11-04 17:53:13,052 - INFO - Configuration: {'eval_dir': PosixPath('/home/matt/Dev/HOSER/hoser-distill-optuna-6'), 'wandb_project': 'hoser-distill-optuna-6', 'dataset': 'Beijing', 'cuda_device': 0, 'num_gene': 5000, 'seed': 42, 'models': [], 'od_sources': ['train', 'test'], 'phases': {'abnormal'}, 'force': False, 'enable_wandb': True, 'verbose': False, 'beam_width': 4, 'grid_size': 0.001, 'edr_eps': 100.0, 'background_sync': True, 'run_scenarios': False, 'scenarios_config': None, 'cross_dataset_eval': '../data/BJUT_Beijing', 'cross_dataset_name': 'BJUT_Beijing', 'run_abnormal_detection': True, 'abnormal_config': 'config/abnormal_detection_statistical.yaml'}
+2025-11-04 17:53:13,053 - INFO - Enabled phases: ['abnormal']
+2025-11-04 17:53:13,054 - INFO - Detected models: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-04 17:53:13,055 - INFO - Models to process: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-04 17:53:13,055 - INFO - OD sources: ['train', 'test']
+2025-11-04 17:53:13,055 - INFO - ⏭️  Skipping phase: generation
+2025-11-04 17:53:13,056 - INFO - ⏭️  Skipping phase: base_eval
+2025-11-04 17:53:13,056 - INFO - ⏭️  Skipping phase: cross_dataset
+2025-11-04 17:53:13,057 - INFO - ⏭️  Skipping phase: road_network_translate
+2025-11-04 17:53:13,057 - INFO - 
+======================================================================
+2025-11-04 17:53:13,058 - INFO - 🚀 Running phase: abnormal
+2025-11-04 17:53:13,058 - INFO - ======================================================================
+2025-11-04 17:53:13,058 - INFO - 🔍 Running abnormal detection...
+2025-11-04 17:53:13,058 - INFO - 
+🔍 Starting abnormal trajectory detection analysis...
+2025-11-04 17:53:13,061 - INFO - Will analyze 2 dataset(s): ['Beijing', 'BJUT_Beijing']
+2025-11-04 17:53:13,061 - INFO - 
+======================================================================
+2025-11-04 17:53:13,062 - INFO - 📊 Analyzing dataset: Beijing (main)
+2025-11-04 17:53:13,062 - INFO - ======================================================================
+2025-11-04 17:53:13,062 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 17:53:13,068 - INFO - 
+  📂 Processing train data...
+2025-11-04 17:53:13,068 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:53:13,068 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:53:13,068 - INFO - 📂 Dataset: Beijing
+2025-11-04 17:53:13,068 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/Beijing/train.csv
+2025-11-04 17:53:13,068 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:53:13,075 - INFO - 💾 Output directory: abnormal/Beijing/train/real_data
+2025-11-04 17:53:13,082 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:53:13,082 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:53:13,082 - INFO - 📂 Loading road network...
+2025-11-04 17:53:14,937 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:55:47,441 - INFO - ✅ Loaded 629380 trajectories
+2025-11-04 17:55:47,442 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:55:47,455 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 17:55:47,456 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 17:55:53,114 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 17:55:53,114 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 17:56:38,678 - INFO - 📊 Prepared 629380 trajectories for analysis
+2025-11-04 17:56:40,769 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:56:40,770 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:56:40,770 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:56:40,770 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:56:40,770 - INFO - 🔍 Analyzing 629,380 trajectories...
+2025-11-04 17:56:48,939 - INFO -    Processed 10,000 / 629,380 trajectories...
+2025-11-04 17:56:50,272 - INFO -    Processed 20,000 / 629,380 trajectories...
+2025-11-04 17:56:51,596 - INFO -    Processed 30,000 / 629,380 trajectories...
+2025-11-04 17:56:52,873 - INFO -    Processed 40,000 / 629,380 trajectories...
+2025-11-04 17:56:54,112 - INFO -    Processed 50,000 / 629,380 trajectories...
+2025-11-04 17:56:55,406 - INFO -    Processed 60,000 / 629,380 trajectories...
+2025-11-04 17:56:56,682 - INFO -    Processed 70,000 / 629,380 trajectories...
+2025-11-04 17:56:57,971 - INFO -    Processed 80,000 / 629,380 trajectories...
+2025-11-04 17:56:59,242 - INFO -    Processed 90,000 / 629,380 trajectories...
+2025-11-04 17:57:00,544 - INFO -    Processed 100,000 / 629,380 trajectories...
+2025-11-04 17:57:01,814 - INFO -    Processed 110,000 / 629,380 trajectories...
+2025-11-04 17:57:03,086 - INFO -    Processed 120,000 / 629,380 trajectories...
+2025-11-04 17:57:04,339 - INFO -    Processed 130,000 / 629,380 trajectories...
+2025-11-04 17:57:05,598 - INFO -    Processed 140,000 / 629,380 trajectories...
+2025-11-04 17:57:06,817 - INFO -    Processed 150,000 / 629,380 trajectories...
+2025-11-04 17:57:08,057 - INFO -    Processed 160,000 / 629,380 trajectories...
+2025-11-04 17:57:09,353 - INFO -    Processed 170,000 / 629,380 trajectories...
+2025-11-04 17:57:10,655 - INFO -    Processed 180,000 / 629,380 trajectories...
+2025-11-04 17:57:11,967 - INFO -    Processed 190,000 / 629,380 trajectories...
+2025-11-04 17:57:13,221 - INFO -    Processed 200,000 / 629,380 trajectories...
+2025-11-04 17:57:14,494 - INFO -    Processed 210,000 / 629,380 trajectories...
+2025-11-04 17:57:15,748 - INFO -    Processed 220,000 / 629,380 trajectories...
+2025-11-04 17:57:16,996 - INFO -    Processed 230,000 / 629,380 trajectories...
+2025-11-04 17:57:18,262 - INFO -    Processed 240,000 / 629,380 trajectories...
+2025-11-04 17:57:19,520 - INFO -    Processed 250,000 / 629,380 trajectories...
+2025-11-04 17:57:20,831 - INFO -    Processed 260,000 / 629,380 trajectories...
+2025-11-04 17:57:22,096 - INFO -    Processed 270,000 / 629,380 trajectories...
+2025-11-04 17:57:23,364 - INFO -    Processed 280,000 / 629,380 trajectories...
+2025-11-04 17:57:24,711 - INFO -    Processed 290,000 / 629,380 trajectories...
+2025-11-04 17:57:26,022 - INFO -    Processed 300,000 / 629,380 trajectories...
+2025-11-04 17:57:27,373 - INFO -    Processed 310,000 / 629,380 trajectories...
+2025-11-04 17:57:28,652 - INFO -    Processed 320,000 / 629,380 trajectories...
+2025-11-04 17:57:29,949 - INFO -    Processed 330,000 / 629,380 trajectories...
+2025-11-04 17:57:31,238 - INFO -    Processed 340,000 / 629,380 trajectories...
+2025-11-04 17:57:32,509 - INFO -    Processed 350,000 / 629,380 trajectories...
+2025-11-04 17:57:33,806 - INFO -    Processed 360,000 / 629,380 trajectories...
+2025-11-04 17:57:35,078 - INFO -    Processed 370,000 / 629,380 trajectories...
+2025-11-04 17:57:36,370 - INFO -    Processed 380,000 / 629,380 trajectories...
+2025-11-04 17:57:37,654 - INFO -    Processed 390,000 / 629,380 trajectories...
+2025-11-04 17:57:38,925 - INFO -    Processed 400,000 / 629,380 trajectories...
+2025-11-04 17:57:40,217 - INFO -    Processed 410,000 / 629,380 trajectories...
+2025-11-04 17:57:41,485 - INFO -    Processed 420,000 / 629,380 trajectories...
+2025-11-04 17:57:42,757 - INFO -    Processed 430,000 / 629,380 trajectories...
+2025-11-04 17:57:44,047 - INFO -    Processed 440,000 / 629,380 trajectories...
+2025-11-04 17:57:45,313 - INFO -    Processed 450,000 / 629,380 trajectories...
+2025-11-04 17:57:46,571 - INFO -    Processed 460,000 / 629,380 trajectories...
+2025-11-04 17:57:47,872 - INFO -    Processed 470,000 / 629,380 trajectories...
+2025-11-04 17:57:49,510 - INFO -    Processed 480,000 / 629,380 trajectories...
+2025-11-04 17:57:50,795 - INFO -    Processed 490,000 / 629,380 trajectories...
+2025-11-04 17:57:52,094 - INFO -    Processed 500,000 / 629,380 trajectories...
+2025-11-04 17:57:53,359 - INFO -    Processed 510,000 / 629,380 trajectories...
+2025-11-04 17:57:54,629 - INFO -    Processed 520,000 / 629,380 trajectories...
+2025-11-04 17:57:55,924 - INFO -    Processed 530,000 / 629,380 trajectories...
+2025-11-04 17:57:57,202 - INFO -    Processed 540,000 / 629,380 trajectories...
+2025-11-04 17:57:58,477 - INFO -    Processed 550,000 / 629,380 trajectories...
+2025-11-04 17:57:59,765 - INFO -    Processed 560,000 / 629,380 trajectories...
+2025-11-04 17:58:01,090 - INFO -    Processed 570,000 / 629,380 trajectories...
+2025-11-04 17:58:02,402 - INFO -    Processed 580,000 / 629,380 trajectories...
+2025-11-04 17:58:03,675 - INFO -    Processed 590,000 / 629,380 trajectories...
+2025-11-04 17:58:06,880 - INFO -    Processed 600,000 / 629,380 trajectories...
+2025-11-04 17:58:08,161 - INFO -    Processed 610,000 / 629,380 trajectories...
+2025-11-04 17:58:09,435 - INFO -    Processed 620,000 / 629,380 trajectories...
+2025-11-04 17:58:10,619 - INFO - 📊 Detection Results:
+2025-11-04 17:58:10,620 - INFO -    Total trajectories: 629,380
+2025-11-04 17:58:10,620 - INFO -    Abp1 (Normal): 490,846
+2025-11-04 17:58:10,620 - INFO -    Abp2 (Temporal delay): 138,534
+2025-11-04 17:58:10,620 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:10,620 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:10,620 - INFO -    Abnormal rate: 22.01%
+2025-11-04 17:58:10,620 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:10,621 - INFO -    OD-specific: 25,536
+2025-11-04 17:58:10,621 - INFO -    Global fallback: 603,844
+2025-11-04 17:58:11,525 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:11,785 - INFO - ✅ Saved detection results to abnormal/Beijing/train/real_data/detection_results.json
+2025-11-04 17:58:11,786 - INFO - ✅ Saved statistics to abnormal/Beijing/train/real_data/statistics_by_category.json
+2025-11-04 17:58:11,793 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:11,795 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/Beijing/train/real_data/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:11,796 - INFO - 
+============================================================
+2025-11-04 17:58:11,796 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:11,796 - INFO - ============================================================
+2025-11-04 17:58:11,796 - INFO - Dataset: Beijing
+2025-11-04 17:58:11,796 - INFO - Total trajectories analyzed: 629,380
+2025-11-04 17:58:11,796 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:11,796 - INFO -   • wang_temporal_delay: 138,534 (22.01%)
+2025-11-04 17:58:11,796 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:11,796 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:11,796 - INFO - ============================================================
+2025-11-04 17:58:11,796 - INFO - 💾 Results saved to: abnormal/Beijing/train/real_data
+2025-11-04 17:58:11,796 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:11,981 - INFO -     ✅ Real data: 138534/629380 (22.01%) abnormal
+2025-11-04 17:58:11,981 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 17:58:11,982 - INFO -       Analyzing distilled...
+2025-11-04 17:58:11,982 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:11,982 - INFO - 📂 Dataset: Beijing
+2025-11-04 17:58:11,982 - INFO - 📂 Input file: gene/Beijing/seed42/distilled_train_2025-10-08_18-23-41.csv
+2025-11-04 17:58:11,982 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:11,989 - INFO - 💾 Output directory: abnormal/Beijing/train/generated/distilled
+2025-11-04 17:58:11,995 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:11,995 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:11,995 - INFO - 📂 Loading road network...
+2025-11-04 17:58:12,037 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:14,390 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:14,391 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:14,397 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 17:58:14,397 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 17:58:19,402 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 17:58:19,402 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 17:58:19,769 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:22,034 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:22,035 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:22,035 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:22,035 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:22,035 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:58:22,900 - INFO - 📊 Detection Results:
+2025-11-04 17:58:22,901 - INFO -    Total trajectories: 5,000
+2025-11-04 17:58:22,902 - INFO -    Abp1 (Normal): 4,115
+2025-11-04 17:58:22,902 - INFO -    Abp2 (Temporal delay): 885
+2025-11-04 17:58:22,902 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:22,902 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:22,903 - INFO -    Abnormal rate: 17.70%
+2025-11-04 17:58:22,903 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:22,903 - INFO -    OD-specific: 151
+2025-11-04 17:58:22,904 - INFO -    Global fallback: 4,848
+2025-11-04 17:58:22,919 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:22,922 - INFO - ✅ Saved detection results to abnormal/Beijing/train/generated/distilled/detection_results.json
+2025-11-04 17:58:22,923 - INFO - ✅ Saved statistics to abnormal/Beijing/train/generated/distilled/statistics_by_category.json
+2025-11-04 17:58:22,930 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:22,933 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/Beijing/train/generated/distilled/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:22,933 - INFO - 
+============================================================
+2025-11-04 17:58:22,933 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:22,933 - INFO - ============================================================
+2025-11-04 17:58:22,933 - INFO - Dataset: Beijing
+2025-11-04 17:58:22,933 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:58:22,934 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:22,934 - INFO -   • wang_temporal_delay: 885 (17.70%)
+2025-11-04 17:58:22,934 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:22,934 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:22,934 - INFO - ============================================================
+2025-11-04 17:58:22,934 - INFO - 💾 Results saved to: abnormal/Beijing/train/generated/distilled
+2025-11-04 17:58:22,934 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:23,120 - INFO -         Generated: 885/5000 (17.70%) abnormal
+2025-11-04 17:58:23,120 - INFO -       Analyzing distilled_seed44...
+2025-11-04 17:58:23,121 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:23,121 - INFO - 📂 Dataset: Beijing
+2025-11-04 17:58:23,121 - INFO - 📂 Input file: gene/Beijing/seed42/distilled_seed44_train_2025-10-08_20-02-16.csv
+2025-11-04 17:58:23,121 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:23,128 - INFO - 💾 Output directory: abnormal/Beijing/train/generated/distilled_seed44
+2025-11-04 17:58:23,134 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:23,134 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:23,134 - INFO - 📂 Loading road network...
+2025-11-04 17:58:23,180 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:25,749 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:25,750 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:25,756 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 17:58:25,756 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 17:58:30,873 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 17:58:30,874 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 17:58:31,216 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:33,351 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:33,351 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:33,351 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:33,351 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:33,351 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:58:34,170 - INFO - 📊 Detection Results:
+2025-11-04 17:58:34,170 - INFO -    Total trajectories: 5,000
+2025-11-04 17:58:34,170 - INFO -    Abp1 (Normal): 4,090
+2025-11-04 17:58:34,170 - INFO -    Abp2 (Temporal delay): 910
+2025-11-04 17:58:34,170 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:34,170 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:34,170 - INFO -    Abnormal rate: 18.20%
+2025-11-04 17:58:34,171 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:34,171 - INFO -    OD-specific: 159
+2025-11-04 17:58:34,171 - INFO -    Global fallback: 4,838
+2025-11-04 17:58:34,179 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:34,181 - INFO - ✅ Saved detection results to abnormal/Beijing/train/generated/distilled_seed44/detection_results.json
+2025-11-04 17:58:34,182 - INFO - ✅ Saved statistics to abnormal/Beijing/train/generated/distilled_seed44/statistics_by_category.json
+2025-11-04 17:58:34,188 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:34,191 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/Beijing/train/generated/distilled_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:34,191 - INFO - 
+============================================================
+2025-11-04 17:58:34,191 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:34,191 - INFO - ============================================================
+2025-11-04 17:58:34,191 - INFO - Dataset: Beijing
+2025-11-04 17:58:34,191 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:58:34,191 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:34,191 - INFO -   • wang_temporal_delay: 910 (18.20%)
+2025-11-04 17:58:34,191 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:34,191 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:34,191 - INFO - ============================================================
+2025-11-04 17:58:34,191 - INFO - 💾 Results saved to: abnormal/Beijing/train/generated/distilled_seed44
+2025-11-04 17:58:34,191 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:34,434 - INFO -         Generated: 910/5000 (18.20%) abnormal
+2025-11-04 17:58:34,435 - INFO -       Analyzing vanilla...
+2025-11-04 17:58:34,435 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:34,435 - INFO - 📂 Dataset: Beijing
+2025-11-04 17:58:34,435 - INFO - 📂 Input file: gene/Beijing/seed42/vanilla_train_2025-10-08_21-25-52.csv
+2025-11-04 17:58:34,435 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:34,442 - INFO - 💾 Output directory: abnormal/Beijing/train/generated/vanilla
+2025-11-04 17:58:34,449 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:34,449 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:34,449 - INFO - 📂 Loading road network...
+2025-11-04 17:58:34,487 - INFO - 📂 Loading generated trajectories...
+2025-11-04 17:58:35,530 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 17:58:35,530 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:58:35,537 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 17:58:35,538 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 17:58:40,494 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 17:58:40,494 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 17:58:40,700 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 17:58:42,855 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:58:42,855 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:58:42,855 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:58:42,855 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:58:42,855 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 17:58:43,270 - INFO - 📊 Detection Results:
+2025-11-04 17:58:43,270 - INFO -    Total trajectories: 5,000
+2025-11-04 17:58:43,270 - INFO -    Abp1 (Normal): 4,792
+2025-11-04 17:58:43,270 - INFO -    Abp2 (Temporal delay): 208
+2025-11-04 17:58:43,270 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 17:58:43,270 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 17:58:43,270 - INFO -    Abnormal rate: 4.16%
+2025-11-04 17:58:43,271 - INFO - 📊 Baseline usage:
+2025-11-04 17:58:43,271 - INFO -    OD-specific: 51
+2025-11-04 17:58:43,271 - INFO -    Global fallback: 4,778
+2025-11-04 17:58:43,274 - INFO - 💾 Saving detection results...
+2025-11-04 17:58:43,291 - INFO - ✅ Saved detection results to abnormal/Beijing/train/generated/vanilla/detection_results.json
+2025-11-04 17:58:43,291 - INFO - ✅ Saved statistics to abnormal/Beijing/train/generated/vanilla/statistics_by_category.json
+2025-11-04 17:58:43,297 - INFO - 💾 Saving trajectory samples...
+2025-11-04 17:58:43,299 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/Beijing/train/generated/vanilla/samples/wang_temporal_delay_samples.json
+2025-11-04 17:58:43,300 - INFO - 
+============================================================
+2025-11-04 17:58:43,300 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 17:58:43,300 - INFO - ============================================================
+2025-11-04 17:58:43,300 - INFO - Dataset: Beijing
+2025-11-04 17:58:43,300 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 17:58:43,300 - INFO - 
+Abnormalities detected:
+2025-11-04 17:58:43,300 - INFO -   • wang_temporal_delay: 208 (4.16%)
+2025-11-04 17:58:43,300 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 17:58:43,300 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 17:58:43,300 - INFO - ============================================================
+2025-11-04 17:58:43,300 - INFO - 💾 Results saved to: abnormal/Beijing/train/generated/vanilla
+2025-11-04 17:58:43,300 - INFO - ✅ Analysis complete!
+2025-11-04 17:58:43,491 - INFO -         Generated: 208/5000 (4.16%) abnormal
+2025-11-04 17:58:43,491 - INFO - 
+    📊 Comparison Report (train):
+2025-11-04 17:58:43,491 - INFO -     ============================================================
+2025-11-04 17:58:43,491 - INFO -     Real data:   138534/629380 (22.01%)
+2025-11-04 17:58:43,491 - INFO -     ✅ distilled   : 885/5000 (17.70%, -4.31% vs real)
+2025-11-04 17:58:43,491 - INFO -     ✅ distilled_seed44: 910/5000 (18.20%, -3.81% vs real)
+2025-11-04 17:58:43,491 - INFO -     ✅ vanilla     : 208/5000 (4.16%, -17.85% vs real)
+2025-11-04 17:58:43,492 - INFO -     💾 Saved comparison report to abnormal/Beijing/train/comparison_report.json
+2025-11-04 17:58:43,492 - INFO - 
+  📂 Processing test data...
+2025-11-04 17:58:43,492 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 17:58:43,492 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 17:58:43,493 - INFO - 📂 Dataset: Beijing
+2025-11-04 17:58:43,493 - INFO - 📂 Input file: /home/matt/Dev/HOSER/data/Beijing/test.csv
+2025-11-04 17:58:43,493 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 17:58:43,498 - INFO - 💾 Output directory: abnormal/Beijing/test/real_data
+2025-11-04 17:58:43,505 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 17:58:43,505 - INFO - ⚙️  Loading configuration...
+2025-11-04 17:58:43,505 - INFO - 📂 Loading road network...
+2025-11-04 17:58:43,549 - INFO - 📂 Loading real trajectories...
+2025-11-04 17:59:25,498 - INFO - ✅ Loaded 179823 trajectories
+2025-11-04 17:59:25,499 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 17:59:25,514 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 17:59:25,514 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 17:59:30,408 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 17:59:30,408 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 17:59:42,164 - INFO - 📊 Prepared 179823 trajectories for analysis
+2025-11-04 17:59:44,230 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 17:59:44,231 - INFO -    Threshold strategy: hybrid
+2025-11-04 17:59:44,231 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 17:59:44,231 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 17:59:44,231 - INFO - 🔍 Analyzing 179,823 trajectories...
+2025-11-04 17:59:48,234 - INFO -    Processed 10,000 / 179,823 trajectories...
+2025-11-04 17:59:49,516 - INFO -    Processed 20,000 / 179,823 trajectories...
+2025-11-04 17:59:50,768 - INFO -    Processed 30,000 / 179,823 trajectories...
+2025-11-04 17:59:52,044 - INFO -    Processed 40,000 / 179,823 trajectories...
+2025-11-04 17:59:53,284 - INFO -    Processed 50,000 / 179,823 trajectories...
+2025-11-04 17:59:54,520 - INFO -    Processed 60,000 / 179,823 trajectories...
+2025-11-04 17:59:55,759 - INFO -    Processed 70,000 / 179,823 trajectories...
+2025-11-04 17:59:57,051 - INFO -    Processed 80,000 / 179,823 trajectories...
+2025-11-04 17:59:58,298 - INFO -    Processed 90,000 / 179,823 trajectories...
+2025-11-04 17:59:59,529 - INFO -    Processed 100,000 / 179,823 trajectories...
+2025-11-04 18:00:00,815 - INFO -    Processed 110,000 / 179,823 trajectories...
+2025-11-04 18:00:02,130 - INFO -    Processed 120,000 / 179,823 trajectories...
+2025-11-04 18:00:03,420 - INFO -    Processed 130,000 / 179,823 trajectories...
+2025-11-04 18:00:04,735 - INFO -    Processed 140,000 / 179,823 trajectories...
+2025-11-04 18:00:06,021 - INFO -    Processed 150,000 / 179,823 trajectories...
+2025-11-04 18:00:07,331 - INFO -    Processed 160,000 / 179,823 trajectories...
+2025-11-04 18:00:08,580 - INFO -    Processed 170,000 / 179,823 trajectories...
+2025-11-04 18:00:09,874 - INFO - 📊 Detection Results:
+2025-11-04 18:00:09,875 - INFO -    Total trajectories: 179,823
+2025-11-04 18:00:09,875 - INFO -    Abp1 (Normal): 140,170
+2025-11-04 18:00:09,875 - INFO -    Abp2 (Temporal delay): 39,653
+2025-11-04 18:00:09,875 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:00:09,875 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:00:09,875 - INFO -    Abnormal rate: 22.05%
+2025-11-04 18:00:09,875 - INFO - 📊 Baseline usage:
+2025-11-04 18:00:09,875 - INFO -    OD-specific: 7,151
+2025-11-04 18:00:09,875 - INFO -    Global fallback: 172,672
+2025-11-04 18:00:10,137 - INFO - 💾 Saving detection results...
+2025-11-04 18:00:10,193 - INFO - ✅ Saved detection results to abnormal/Beijing/test/real_data/detection_results.json
+2025-11-04 18:00:10,194 - INFO - ✅ Saved statistics to abnormal/Beijing/test/real_data/statistics_by_category.json
+2025-11-04 18:00:10,201 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:00:10,204 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/Beijing/test/real_data/samples/wang_temporal_delay_samples.json
+2025-11-04 18:00:10,204 - INFO - 
+============================================================
+2025-11-04 18:00:10,204 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:00:10,204 - INFO - ============================================================
+2025-11-04 18:00:10,204 - INFO - Dataset: Beijing
+2025-11-04 18:00:10,204 - INFO - Total trajectories analyzed: 179,823
+2025-11-04 18:00:10,204 - INFO - 
+Abnormalities detected:
+2025-11-04 18:00:10,204 - INFO -   • wang_temporal_delay: 39,653 (22.05%)
+2025-11-04 18:00:10,204 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:00:10,204 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:00:10,204 - INFO - ============================================================
+2025-11-04 18:00:10,204 - INFO - 💾 Results saved to: abnormal/Beijing/test/real_data
+2025-11-04 18:00:10,204 - INFO - ✅ Analysis complete!
+2025-11-04 18:00:10,548 - INFO -     ✅ Real data: 39653/179823 (22.05%) abnormal
+2025-11-04 18:00:10,548 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 18:00:10,549 - INFO -       Analyzing distilled...
+2025-11-04 18:00:10,550 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:00:10,550 - INFO - 📂 Dataset: Beijing
+2025-11-04 18:00:10,550 - INFO - 📂 Input file: gene/Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 18:00:10,550 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:00:10,556 - INFO - 💾 Output directory: abnormal/Beijing/test/generated/distilled
+2025-11-04 18:00:10,562 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:00:10,562 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:00:10,562 - INFO - 📂 Loading road network...
+2025-11-04 18:00:10,611 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:00:12,845 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:00:12,845 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:00:12,853 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:00:12,853 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:00:17,632 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:00:17,632 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:00:18,037 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:00:20,152 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:00:20,152 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:00:20,152 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:00:20,153 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:00:20,153 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:00:20,965 - INFO - 📊 Detection Results:
+2025-11-04 18:00:20,965 - INFO -    Total trajectories: 5,000
+2025-11-04 18:00:20,966 - INFO -    Abp1 (Normal): 4,075
+2025-11-04 18:00:20,966 - INFO -    Abp2 (Temporal delay): 925
+2025-11-04 18:00:20,966 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:00:20,966 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:00:20,966 - INFO -    Abnormal rate: 18.50%
+2025-11-04 18:00:20,966 - INFO - 📊 Baseline usage:
+2025-11-04 18:00:20,966 - INFO -    OD-specific: 186
+2025-11-04 18:00:20,966 - INFO -    Global fallback: 4,810
+2025-11-04 18:00:20,975 - INFO - 💾 Saving detection results...
+2025-11-04 18:00:20,977 - INFO - ✅ Saved detection results to abnormal/Beijing/test/generated/distilled/detection_results.json
+2025-11-04 18:00:20,977 - INFO - ✅ Saved statistics to abnormal/Beijing/test/generated/distilled/statistics_by_category.json
+2025-11-04 18:00:20,983 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:00:20,985 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/Beijing/test/generated/distilled/samples/wang_temporal_delay_samples.json
+2025-11-04 18:00:20,986 - INFO - 
+============================================================
+2025-11-04 18:00:20,986 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:00:20,986 - INFO - ============================================================
+2025-11-04 18:00:20,986 - INFO - Dataset: Beijing
+2025-11-04 18:00:20,986 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:00:20,986 - INFO - 
+Abnormalities detected:
+2025-11-04 18:00:20,986 - INFO -   • wang_temporal_delay: 925 (18.50%)
+2025-11-04 18:00:20,986 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:00:20,986 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:00:20,986 - INFO - ============================================================
+2025-11-04 18:00:20,986 - INFO - 💾 Results saved to: abnormal/Beijing/test/generated/distilled
+2025-11-04 18:00:20,986 - INFO - ✅ Analysis complete!
+2025-11-04 18:00:21,195 - INFO -         Generated: 925/5000 (18.50%) abnormal
+2025-11-04 18:00:21,196 - INFO -       Analyzing distilled_seed44...
+2025-11-04 18:00:21,197 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:00:21,197 - INFO - 📂 Dataset: Beijing
+2025-11-04 18:00:21,197 - INFO - 📂 Input file: gene/Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 18:00:21,197 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:00:21,207 - INFO - 💾 Output directory: abnormal/Beijing/test/generated/distilled_seed44
+2025-11-04 18:00:21,213 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:00:21,213 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:00:21,213 - INFO - 📂 Loading road network...
+2025-11-04 18:00:21,258 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:00:23,451 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:00:23,451 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:00:23,458 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:00:23,458 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:00:28,353 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:00:28,354 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:00:28,719 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:00:30,837 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:00:30,837 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:00:30,837 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:00:30,837 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:00:30,837 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:00:31,654 - INFO - 📊 Detection Results:
+2025-11-04 18:00:31,654 - INFO -    Total trajectories: 5,000
+2025-11-04 18:00:31,655 - INFO -    Abp1 (Normal): 4,075
+2025-11-04 18:00:31,655 - INFO -    Abp2 (Temporal delay): 925
+2025-11-04 18:00:31,655 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:00:31,655 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:00:31,655 - INFO -    Abnormal rate: 18.50%
+2025-11-04 18:00:31,655 - INFO - 📊 Baseline usage:
+2025-11-04 18:00:31,655 - INFO -    OD-specific: 186
+2025-11-04 18:00:31,655 - INFO -    Global fallback: 4,810
+2025-11-04 18:00:31,664 - INFO - 💾 Saving detection results...
+2025-11-04 18:00:31,666 - INFO - ✅ Saved detection results to abnormal/Beijing/test/generated/distilled_seed44/detection_results.json
+2025-11-04 18:00:31,666 - INFO - ✅ Saved statistics to abnormal/Beijing/test/generated/distilled_seed44/statistics_by_category.json
+2025-11-04 18:00:31,672 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:00:31,676 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/Beijing/test/generated/distilled_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 18:00:31,676 - INFO - 
+============================================================
+2025-11-04 18:00:31,676 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:00:31,676 - INFO - ============================================================
+2025-11-04 18:00:31,676 - INFO - Dataset: Beijing
+2025-11-04 18:00:31,676 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:00:31,677 - INFO - 
+Abnormalities detected:
+2025-11-04 18:00:31,677 - INFO -   • wang_temporal_delay: 925 (18.50%)
+2025-11-04 18:00:31,677 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:00:31,677 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:00:31,677 - INFO - ============================================================
+2025-11-04 18:00:31,677 - INFO - 💾 Results saved to: abnormal/Beijing/test/generated/distilled_seed44
+2025-11-04 18:00:31,677 - INFO - ✅ Analysis complete!
+2025-11-04 18:00:31,920 - INFO -         Generated: 925/5000 (18.50%) abnormal
+2025-11-04 18:00:31,921 - INFO -       Analyzing vanilla...
+2025-11-04 18:00:31,921 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:00:31,921 - INFO - 📂 Dataset: Beijing
+2025-11-04 18:00:31,921 - INFO - 📂 Input file: gene/Beijing/seed42/vanilla_test_2025-10-08_22-03-58.csv
+2025-11-04 18:00:31,921 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:00:31,928 - INFO - 💾 Output directory: abnormal/Beijing/test/generated/vanilla
+2025-11-04 18:00:31,934 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:00:31,934 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:00:31,934 - INFO - 📂 Loading road network...
+2025-11-04 18:00:31,979 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:00:33,150 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 18:00:33,150 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:00:33,156 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:00:33,156 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:00:38,042 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:00:38,042 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:00:38,248 - INFO - 📊 Prepared 5000 trajectories for analysis
+2025-11-04 18:00:40,439 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:00:40,440 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:00:40,440 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:00:40,440 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:00:40,440 - INFO - 🔍 Analyzing 5,000 trajectories...
+2025-11-04 18:00:40,853 - INFO - 📊 Detection Results:
+2025-11-04 18:00:40,853 - INFO -    Total trajectories: 5,000
+2025-11-04 18:00:40,853 - INFO -    Abp1 (Normal): 4,833
+2025-11-04 18:00:40,854 - INFO -    Abp2 (Temporal delay): 167
+2025-11-04 18:00:40,854 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:00:40,854 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:00:40,854 - INFO -    Abnormal rate: 3.34%
+2025-11-04 18:00:40,854 - INFO - 📊 Baseline usage:
+2025-11-04 18:00:40,854 - INFO -    OD-specific: 58
+2025-11-04 18:00:40,854 - INFO -    Global fallback: 4,793
+2025-11-04 18:00:40,858 - INFO - 💾 Saving detection results...
+2025-11-04 18:00:40,859 - INFO - ✅ Saved detection results to abnormal/Beijing/test/generated/vanilla/detection_results.json
+2025-11-04 18:00:40,859 - INFO - ✅ Saved statistics to abnormal/Beijing/test/generated/vanilla/statistics_by_category.json
+2025-11-04 18:00:40,867 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:00:40,869 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/Beijing/test/generated/vanilla/samples/wang_temporal_delay_samples.json
+2025-11-04 18:00:40,870 - INFO - 
+============================================================
+2025-11-04 18:00:40,870 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:00:40,870 - INFO - ============================================================
+2025-11-04 18:00:40,870 - INFO - Dataset: Beijing
+2025-11-04 18:00:40,870 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 18:00:40,870 - INFO - 
+Abnormalities detected:
+2025-11-04 18:00:40,870 - INFO -   • wang_temporal_delay: 167 (3.34%)
+2025-11-04 18:00:40,870 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:00:40,870 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:00:40,870 - INFO - ============================================================
+2025-11-04 18:00:40,870 - INFO - 💾 Results saved to: abnormal/Beijing/test/generated/vanilla
+2025-11-04 18:00:40,870 - INFO - ✅ Analysis complete!
+2025-11-04 18:00:41,096 - INFO -         Generated: 167/5000 (3.34%) abnormal
+2025-11-04 18:00:41,096 - INFO - 
+    📊 Comparison Report (test):
+2025-11-04 18:00:41,096 - INFO -     ============================================================
+2025-11-04 18:00:41,096 - INFO -     Real data:   39653/179823 (22.05%)
+2025-11-04 18:00:41,096 - INFO -     ✅ distilled   : 925/5000 (18.50%, -3.55% vs real)
+2025-11-04 18:00:41,096 - INFO -     ✅ distilled_seed44: 925/5000 (18.50%, -3.55% vs real)
+2025-11-04 18:00:41,097 - INFO -     ✅ vanilla     : 167/5000 (3.34%, -18.71% vs real)
+2025-11-04 18:00:41,097 - INFO -     💾 Saved comparison report to abnormal/Beijing/test/comparison_report.json
+2025-11-04 18:00:41,097 - INFO - 
+✅ Abnormal analysis complete for Beijing! Results in abnormal/Beijing/
+2025-11-04 18:00:41,136 - INFO - 
+======================================================================
+2025-11-04 18:00:41,136 - INFO - 📊 Analyzing dataset: BJUT_Beijing (cross-dataset)
+2025-11-04 18:00:41,136 - INFO - ======================================================================
+2025-11-04 18:00:41,136 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 18:00:41,137 - INFO - 
+  📂 Processing train data...
+2025-11-04 18:00:41,137 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 18:00:41,138 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:00:41,138 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 18:00:41,138 - INFO - 📂 Input file: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv
+2025-11-04 18:00:41,138 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:00:41,147 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/real_data
+2025-11-04 18:00:41,153 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:00:41,153 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:00:41,156 - INFO - 📂 Loading road network...
+2025-11-04 18:00:45,341 - INFO - 📂 Loading real trajectories...
+2025-11-04 18:00:51,992 - INFO - ✅ Loaded 27897 trajectories
+2025-11-04 18:00:51,992 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:00:51,998 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:00:51,998 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:00:56,811 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:00:56,811 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:00:58,315 - INFO - 📊 Prepared 27897 trajectories for analysis
+2025-11-04 18:01:03,023 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:03,024 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:03,024 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:03,024 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:03,024 - INFO - 🔍 Analyzing 27,897 trajectories...
+2025-11-04 18:01:05,756 - INFO -    Processed 10,000 / 27,897 trajectories...
+2025-11-04 18:01:06,967 - INFO -    Processed 20,000 / 27,897 trajectories...
+2025-11-04 18:01:07,894 - INFO - 📊 Detection Results:
+2025-11-04 18:01:07,894 - INFO -    Total trajectories: 27,897
+2025-11-04 18:01:07,894 - INFO -    Abp1 (Normal): 27,795
+2025-11-04 18:01:07,894 - INFO -    Abp2 (Temporal delay): 102
+2025-11-04 18:01:07,894 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:01:07,894 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:01:07,894 - INFO -    Abnormal rate: 0.37%
+2025-11-04 18:01:07,894 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:07,894 - INFO -    OD-specific: 0
+2025-11-04 18:01:07,895 - INFO -    Global fallback: 27,897
+2025-11-04 18:01:07,933 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:07,934 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/train/real_data/detection_results.json
+2025-11-04 18:01:07,934 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/train/real_data/statistics_by_category.json
+2025-11-04 18:01:07,941 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:07,944 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/BJUT_Beijing/train/real_data/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:07,944 - INFO - 
+============================================================
+2025-11-04 18:01:07,944 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:07,944 - INFO - ============================================================
+2025-11-04 18:01:07,944 - INFO - Dataset: BJUT_Beijing
+2025-11-04 18:01:07,945 - INFO - Total trajectories analyzed: 27,897
+2025-11-04 18:01:07,945 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:07,945 - INFO -   • wang_temporal_delay: 102 (0.37%)
+2025-11-04 18:01:07,945 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:01:07,945 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:01:07,945 - INFO - ============================================================
+2025-11-04 18:01:07,945 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/train/real_data
+2025-11-04 18:01:07,945 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:08,125 - INFO -     ✅ Real data: 102/27897 (0.37%) abnormal
+2025-11-04 18:01:08,125 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 18:01:08,126 - INFO -       ✅ Using translated file for cross-dataset: distilled_train_2025-10-08_18-23-41.csv
+2025-11-04 18:01:08,126 - INFO -       Analyzing distilled...
+2025-11-04 18:01:08,126 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:08,126 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 18:01:08,126 - INFO - 📂 Input file: gene_translated/BJUT_Beijing/seed42/distilled_train_2025-10-08_18-23-41.csv
+2025-11-04 18:01:08,126 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:08,132 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/generated/distilled
+2025-11-04 18:01:08,138 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:08,138 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:08,142 - INFO - 📂 Loading road network...
+2025-11-04 18:01:08,244 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:01:10,513 - INFO - ✅ Loaded 4979 trajectories
+2025-11-04 18:01:10,513 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:10,519 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:01:10,520 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:01:15,322 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:01:15,322 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:01:15,669 - INFO - 📊 Prepared 4979 trajectories for analysis
+2025-11-04 18:01:20,420 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:20,420 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:20,420 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:20,420 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:20,420 - INFO - 🔍 Analyzing 4,979 trajectories...
+2025-11-04 18:01:21,251 - INFO - 📊 Detection Results:
+2025-11-04 18:01:21,252 - INFO -    Total trajectories: 4,979
+2025-11-04 18:01:21,252 - INFO -    Abp1 (Normal): 1,771
+2025-11-04 18:01:21,252 - INFO -    Abp2 (Temporal delay): 85
+2025-11-04 18:01:21,252 - INFO -    Abp3 (Route deviation): 2,328
+2025-11-04 18:01:21,252 - INFO -    Abp4 (Both deviations): 795
+2025-11-04 18:01:21,252 - INFO -    Abnormal rate: 64.43%
+2025-11-04 18:01:21,252 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:21,252 - INFO -    OD-specific: 4
+2025-11-04 18:01:21,252 - INFO -    Global fallback: 4,974
+2025-11-04 18:01:21,261 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:21,267 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/train/generated/distilled/detection_results.json
+2025-11-04 18:01:21,268 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/train/generated/distilled/statistics_by_category.json
+2025-11-04 18:01:21,274 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:21,277 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/BJUT_Beijing/train/generated/distilled/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:21,281 - INFO -   ✅ Saved 50 wang_route_deviation samples to abnormal/BJUT_Beijing/train/generated/distilled/samples/wang_route_deviation_samples.json
+2025-11-04 18:01:21,283 - INFO -   ✅ Saved 50 wang_both_deviations samples to abnormal/BJUT_Beijing/train/generated/distilled/samples/wang_both_deviations_samples.json
+2025-11-04 18:01:21,284 - INFO - 
+============================================================
+2025-11-04 18:01:21,284 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:21,284 - INFO - ============================================================
+2025-11-04 18:01:21,284 - INFO - Dataset: BJUT_Beijing
+2025-11-04 18:01:21,284 - INFO - Total trajectories analyzed: 4,979
+2025-11-04 18:01:21,284 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:21,284 - INFO -   • wang_temporal_delay: 85 (1.71%)
+2025-11-04 18:01:21,284 - INFO -   • wang_route_deviation: 2,328 (46.76%)
+2025-11-04 18:01:21,284 - INFO -   • wang_both_deviations: 795 (15.97%)
+2025-11-04 18:01:21,284 - INFO - ============================================================
+2025-11-04 18:01:21,284 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/train/generated/distilled
+2025-11-04 18:01:21,284 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:21,482 - INFO -         Generated: 3208/4979 (64.43%) abnormal
+2025-11-04 18:01:21,482 - INFO -       ✅ Using translated file for cross-dataset: distilled_seed44_train_2025-10-08_20-02-16.csv
+2025-11-04 18:01:21,482 - INFO -       Analyzing distilled_seed44...
+2025-11-04 18:01:21,482 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:21,483 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 18:01:21,483 - INFO - 📂 Input file: gene_translated/BJUT_Beijing/seed42/distilled_seed44_train_2025-10-08_20-02-16.csv
+2025-11-04 18:01:21,483 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:21,489 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/generated/distilled_seed44
+2025-11-04 18:01:21,497 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:21,497 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:21,502 - INFO - 📂 Loading road network...
+2025-11-04 18:01:21,586 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:01:23,769 - INFO - ✅ Loaded 4979 trajectories
+2025-11-04 18:01:23,769 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:23,775 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:01:23,775 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:01:28,594 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:01:28,594 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:01:28,941 - INFO - 📊 Prepared 4979 trajectories for analysis
+2025-11-04 18:01:33,497 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:33,497 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:33,497 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:33,498 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:33,498 - INFO - 🔍 Analyzing 4,979 trajectories...
+2025-11-04 18:01:34,360 - INFO - 📊 Detection Results:
+2025-11-04 18:01:34,360 - INFO -    Total trajectories: 4,979
+2025-11-04 18:01:34,360 - INFO -    Abp1 (Normal): 1,716
+2025-11-04 18:01:34,360 - INFO -    Abp2 (Temporal delay): 61
+2025-11-04 18:01:34,360 - INFO -    Abp3 (Route deviation): 2,359
+2025-11-04 18:01:34,360 - INFO -    Abp4 (Both deviations): 843
+2025-11-04 18:01:34,360 - INFO -    Abnormal rate: 65.54%
+2025-11-04 18:01:34,361 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:34,361 - INFO -    OD-specific: 4
+2025-11-04 18:01:34,361 - INFO -    Global fallback: 4,972
+2025-11-04 18:01:34,372 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:34,377 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/train/generated/distilled_seed44/detection_results.json
+2025-11-04 18:01:34,377 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/train/generated/distilled_seed44/statistics_by_category.json
+2025-11-04 18:01:34,384 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:34,387 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/BJUT_Beijing/train/generated/distilled_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:34,390 - INFO -   ✅ Saved 50 wang_route_deviation samples to abnormal/BJUT_Beijing/train/generated/distilled_seed44/samples/wang_route_deviation_samples.json
+2025-11-04 18:01:34,393 - INFO -   ✅ Saved 50 wang_both_deviations samples to abnormal/BJUT_Beijing/train/generated/distilled_seed44/samples/wang_both_deviations_samples.json
+2025-11-04 18:01:34,393 - INFO - 
+============================================================
+2025-11-04 18:01:34,393 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:34,393 - INFO - ============================================================
+2025-11-04 18:01:34,393 - INFO - Dataset: BJUT_Beijing
+2025-11-04 18:01:34,393 - INFO - Total trajectories analyzed: 4,979
+2025-11-04 18:01:34,393 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:34,393 - INFO -   • wang_temporal_delay: 61 (1.23%)
+2025-11-04 18:01:34,393 - INFO -   • wang_route_deviation: 2,359 (47.38%)
+2025-11-04 18:01:34,393 - INFO -   • wang_both_deviations: 843 (16.93%)
+2025-11-04 18:01:34,393 - INFO - ============================================================
+2025-11-04 18:01:34,393 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/train/generated/distilled_seed44
+2025-11-04 18:01:34,393 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:34,581 - INFO -         Generated: 3263/4979 (65.54%) abnormal
+2025-11-04 18:01:34,581 - INFO -       ✅ Using translated file for cross-dataset: vanilla_train_2025-10-08_21-25-52.csv
+2025-11-04 18:01:34,581 - INFO -       Analyzing vanilla...
+2025-11-04 18:01:34,581 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:34,581 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 18:01:34,582 - INFO - 📂 Input file: gene_translated/BJUT_Beijing/seed42/vanilla_train_2025-10-08_21-25-52.csv
+2025-11-04 18:01:34,582 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:34,589 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/generated/vanilla
+2025-11-04 18:01:34,595 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:34,595 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:34,601 - INFO - 📂 Loading road network...
+2025-11-04 18:01:34,705 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:01:35,755 - INFO - ✅ Loaded 4979 trajectories
+2025-11-04 18:01:35,755 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:35,761 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:01:35,761 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:01:40,514 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:01:40,514 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:01:40,717 - INFO - 📊 Prepared 4979 trajectories for analysis
+2025-11-04 18:01:45,368 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:45,368 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:45,368 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:45,368 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:45,368 - INFO - 🔍 Analyzing 4,979 trajectories...
+2025-11-04 18:01:45,809 - INFO - 📊 Detection Results:
+2025-11-04 18:01:45,809 - INFO -    Total trajectories: 4,979
+2025-11-04 18:01:45,809 - INFO -    Abp1 (Normal): 2,380
+2025-11-04 18:01:45,809 - INFO -    Abp2 (Temporal delay): 4
+2025-11-04 18:01:45,809 - INFO -    Abp3 (Route deviation): 2,392
+2025-11-04 18:01:45,809 - INFO -    Abp4 (Both deviations): 203
+2025-11-04 18:01:45,809 - INFO -    Abnormal rate: 52.20%
+2025-11-04 18:01:45,809 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:45,809 - INFO -    OD-specific: 2
+2025-11-04 18:01:45,809 - INFO -    Global fallback: 4,808
+2025-11-04 18:01:45,815 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:45,837 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/train/generated/vanilla/detection_results.json
+2025-11-04 18:01:45,838 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/train/generated/vanilla/statistics_by_category.json
+2025-11-04 18:01:45,845 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:45,845 - INFO -   ✅ Saved 4 wang_temporal_delay samples to abnormal/BJUT_Beijing/train/generated/vanilla/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:45,848 - INFO -   ✅ Saved 50 wang_route_deviation samples to abnormal/BJUT_Beijing/train/generated/vanilla/samples/wang_route_deviation_samples.json
+2025-11-04 18:01:45,850 - INFO -   ✅ Saved 50 wang_both_deviations samples to abnormal/BJUT_Beijing/train/generated/vanilla/samples/wang_both_deviations_samples.json
+2025-11-04 18:01:45,851 - INFO - 
+============================================================
+2025-11-04 18:01:45,851 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:45,851 - INFO - ============================================================
+2025-11-04 18:01:45,851 - INFO - Dataset: BJUT_Beijing
+2025-11-04 18:01:45,851 - INFO - Total trajectories analyzed: 4,979
+2025-11-04 18:01:45,851 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:45,851 - INFO -   • wang_temporal_delay: 4 (0.08%)
+2025-11-04 18:01:45,851 - INFO -   • wang_route_deviation: 2,392 (48.04%)
+2025-11-04 18:01:45,851 - INFO -   • wang_both_deviations: 203 (4.08%)
+2025-11-04 18:01:45,851 - INFO - ============================================================
+2025-11-04 18:01:45,851 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/train/generated/vanilla
+2025-11-04 18:01:45,851 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:46,026 - INFO -         Generated: 2599/4979 (52.20%) abnormal
+2025-11-04 18:01:46,026 - INFO - 
+    📊 Comparison Report (train):
+2025-11-04 18:01:46,026 - INFO -     ============================================================
+2025-11-04 18:01:46,027 - INFO -     Real data:   102/27897 (0.37%)
+2025-11-04 18:01:46,027 - INFO -     ⚠️  distilled   : 3208/4979 (64.43%, +64.06% vs real)
+2025-11-04 18:01:46,027 - INFO -     ⚠️  distilled_seed44: 3263/4979 (65.54%, +65.17% vs real)
+2025-11-04 18:01:46,027 - INFO -     ⚠️  vanilla     : 2599/4979 (52.20%, +51.83% vs real)
+2025-11-04 18:01:46,027 - INFO -     💾 Saved comparison report to abnormal/BJUT_Beijing/train/comparison_report.json
+2025-11-04 18:01:46,030 - INFO - 
+  📂 Processing test data...
+2025-11-04 18:01:46,031 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 18:01:46,031 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:46,031 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 18:01:46,031 - INFO - 📂 Input file: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv
+2025-11-04 18:01:46,031 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:46,037 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/real_data
+2025-11-04 18:01:46,043 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:46,044 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:46,046 - INFO - 📂 Loading road network...
+2025-11-04 18:01:46,153 - INFO - 📂 Loading real trajectories...
+2025-11-04 18:01:47,643 - INFO - ✅ Loaded 5979 trajectories
+2025-11-04 18:01:47,644 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:01:47,650 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:01:47,650 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:01:52,403 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:01:52,404 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:01:52,746 - INFO - 📊 Prepared 5979 trajectories for analysis
+2025-11-04 18:01:57,249 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:01:57,249 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:01:57,249 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:01:57,250 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:01:57,250 - INFO - 🔍 Analyzing 5,979 trajectories...
+2025-11-04 18:01:57,947 - INFO - 📊 Detection Results:
+2025-11-04 18:01:57,947 - INFO -    Total trajectories: 5,979
+2025-11-04 18:01:57,947 - INFO -    Abp1 (Normal): 5,955
+2025-11-04 18:01:57,948 - INFO -    Abp2 (Temporal delay): 24
+2025-11-04 18:01:57,948 - INFO -    Abp3 (Route deviation): 0
+2025-11-04 18:01:57,948 - INFO -    Abp4 (Both deviations): 0
+2025-11-04 18:01:57,948 - INFO -    Abnormal rate: 0.40%
+2025-11-04 18:01:57,948 - INFO - 📊 Baseline usage:
+2025-11-04 18:01:57,948 - INFO -    OD-specific: 0
+2025-11-04 18:01:57,948 - INFO -    Global fallback: 5,979
+2025-11-04 18:01:57,954 - INFO - 💾 Saving detection results...
+2025-11-04 18:01:57,954 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/test/real_data/detection_results.json
+2025-11-04 18:01:57,955 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/test/real_data/statistics_by_category.json
+2025-11-04 18:01:57,961 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:01:57,963 - INFO -   ✅ Saved 24 wang_temporal_delay samples to abnormal/BJUT_Beijing/test/real_data/samples/wang_temporal_delay_samples.json
+2025-11-04 18:01:57,963 - INFO - 
+============================================================
+2025-11-04 18:01:57,963 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:01:57,963 - INFO - ============================================================
+2025-11-04 18:01:57,963 - INFO - Dataset: BJUT_Beijing
+2025-11-04 18:01:57,963 - INFO - Total trajectories analyzed: 5,979
+2025-11-04 18:01:57,963 - INFO - 
+Abnormalities detected:
+2025-11-04 18:01:57,963 - INFO -   • wang_temporal_delay: 24 (0.40%)
+2025-11-04 18:01:57,963 - INFO -   • wang_route_deviation: 0 (0.00%)
+2025-11-04 18:01:57,963 - INFO -   • wang_both_deviations: 0 (0.00%)
+2025-11-04 18:01:57,963 - INFO - ============================================================
+2025-11-04 18:01:57,964 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/test/real_data
+2025-11-04 18:01:57,964 - INFO - ✅ Analysis complete!
+2025-11-04 18:01:58,147 - INFO -     ✅ Real data: 24/5979 (0.40%) abnormal
+2025-11-04 18:01:58,147 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 18:01:58,148 - INFO -       ✅ Using translated file for cross-dataset: distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 18:01:58,148 - INFO -       Analyzing distilled...
+2025-11-04 18:01:58,148 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:01:58,148 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 18:01:58,148 - INFO - 📂 Input file: gene_translated/BJUT_Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 18:01:58,148 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:01:58,154 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/generated/distilled
+2025-11-04 18:01:58,160 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:01:58,160 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:01:58,164 - INFO - 📂 Loading road network...
+2025-11-04 18:01:58,283 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:02:00,389 - INFO - ✅ Loaded 4930 trajectories
+2025-11-04 18:02:00,389 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:02:00,396 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:02:00,397 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:02:05,177 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:02:05,177 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:02:05,510 - INFO - 📊 Prepared 4930 trajectories for analysis
+2025-11-04 18:02:10,002 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:02:10,002 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:02:10,003 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:02:10,003 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:02:10,003 - INFO - 🔍 Analyzing 4,930 trajectories...
+2025-11-04 18:02:10,780 - INFO - 📊 Detection Results:
+2025-11-04 18:02:10,780 - INFO -    Total trajectories: 4,930
+2025-11-04 18:02:10,780 - INFO -    Abp1 (Normal): 1,657
+2025-11-04 18:02:10,780 - INFO -    Abp2 (Temporal delay): 51
+2025-11-04 18:02:10,780 - INFO -    Abp3 (Route deviation): 2,359
+2025-11-04 18:02:10,780 - INFO -    Abp4 (Both deviations): 863
+2025-11-04 18:02:10,780 - INFO -    Abnormal rate: 66.39%
+2025-11-04 18:02:10,780 - INFO - 📊 Baseline usage:
+2025-11-04 18:02:10,780 - INFO -    OD-specific: 7
+2025-11-04 18:02:10,780 - INFO -    Global fallback: 4,919
+2025-11-04 18:02:10,790 - INFO - 💾 Saving detection results...
+2025-11-04 18:02:10,794 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/test/generated/distilled/detection_results.json
+2025-11-04 18:02:10,795 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/test/generated/distilled/statistics_by_category.json
+2025-11-04 18:02:10,801 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:02:10,804 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/BJUT_Beijing/test/generated/distilled/samples/wang_temporal_delay_samples.json
+2025-11-04 18:02:10,806 - INFO -   ✅ Saved 50 wang_route_deviation samples to abnormal/BJUT_Beijing/test/generated/distilled/samples/wang_route_deviation_samples.json
+2025-11-04 18:02:10,809 - INFO -   ✅ Saved 50 wang_both_deviations samples to abnormal/BJUT_Beijing/test/generated/distilled/samples/wang_both_deviations_samples.json
+2025-11-04 18:02:10,809 - INFO - 
+============================================================
+2025-11-04 18:02:10,809 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:02:10,809 - INFO - ============================================================
+2025-11-04 18:02:10,809 - INFO - Dataset: BJUT_Beijing
+2025-11-04 18:02:10,809 - INFO - Total trajectories analyzed: 4,930
+2025-11-04 18:02:10,809 - INFO - 
+Abnormalities detected:
+2025-11-04 18:02:10,809 - INFO -   • wang_temporal_delay: 51 (1.03%)
+2025-11-04 18:02:10,809 - INFO -   • wang_route_deviation: 2,359 (47.85%)
+2025-11-04 18:02:10,810 - INFO -   • wang_both_deviations: 863 (17.51%)
+2025-11-04 18:02:10,810 - INFO - ============================================================
+2025-11-04 18:02:10,810 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/test/generated/distilled
+2025-11-04 18:02:10,810 - INFO - ✅ Analysis complete!
+2025-11-04 18:02:10,989 - INFO -         Generated: 3273/4930 (66.39%) abnormal
+2025-11-04 18:02:10,990 - INFO -       ✅ Using translated file for cross-dataset: distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 18:02:10,990 - INFO -       Analyzing distilled_seed44...
+2025-11-04 18:02:10,990 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:02:10,990 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 18:02:10,990 - INFO - 📂 Input file: gene_translated/BJUT_Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 18:02:10,990 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:02:10,996 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/generated/distilled_seed44
+2025-11-04 18:02:11,003 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:02:11,003 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:02:11,008 - INFO - 📂 Loading road network...
+2025-11-04 18:02:11,123 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:02:13,187 - INFO - ✅ Loaded 4930 trajectories
+2025-11-04 18:02:13,188 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:02:13,194 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:02:13,194 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:02:17,872 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:02:17,872 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:02:18,215 - INFO - 📊 Prepared 4930 trajectories for analysis
+2025-11-04 18:02:22,711 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:02:22,711 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:02:22,711 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:02:22,711 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:02:22,711 - INFO - 🔍 Analyzing 4,930 trajectories...
+2025-11-04 18:02:23,516 - INFO - 📊 Detection Results:
+2025-11-04 18:02:23,516 - INFO -    Total trajectories: 4,930
+2025-11-04 18:02:23,516 - INFO -    Abp1 (Normal): 1,657
+2025-11-04 18:02:23,516 - INFO -    Abp2 (Temporal delay): 51
+2025-11-04 18:02:23,516 - INFO -    Abp3 (Route deviation): 2,359
+2025-11-04 18:02:23,516 - INFO -    Abp4 (Both deviations): 863
+2025-11-04 18:02:23,516 - INFO -    Abnormal rate: 66.39%
+2025-11-04 18:02:23,516 - INFO - 📊 Baseline usage:
+2025-11-04 18:02:23,516 - INFO -    OD-specific: 7
+2025-11-04 18:02:23,516 - INFO -    Global fallback: 4,919
+2025-11-04 18:02:23,526 - INFO - 💾 Saving detection results...
+2025-11-04 18:02:23,531 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/test/generated/distilled_seed44/detection_results.json
+2025-11-04 18:02:23,531 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/test/generated/distilled_seed44/statistics_by_category.json
+2025-11-04 18:02:23,537 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:02:23,540 - INFO -   ✅ Saved 50 wang_temporal_delay samples to abnormal/BJUT_Beijing/test/generated/distilled_seed44/samples/wang_temporal_delay_samples.json
+2025-11-04 18:02:23,543 - INFO -   ✅ Saved 50 wang_route_deviation samples to abnormal/BJUT_Beijing/test/generated/distilled_seed44/samples/wang_route_deviation_samples.json
+2025-11-04 18:02:23,546 - INFO -   ✅ Saved 50 wang_both_deviations samples to abnormal/BJUT_Beijing/test/generated/distilled_seed44/samples/wang_both_deviations_samples.json
+2025-11-04 18:02:23,546 - INFO - 
+============================================================
+2025-11-04 18:02:23,546 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:02:23,546 - INFO - ============================================================
+2025-11-04 18:02:23,546 - INFO - Dataset: BJUT_Beijing
+2025-11-04 18:02:23,546 - INFO - Total trajectories analyzed: 4,930
+2025-11-04 18:02:23,546 - INFO - 
+Abnormalities detected:
+2025-11-04 18:02:23,546 - INFO -   • wang_temporal_delay: 51 (1.03%)
+2025-11-04 18:02:23,546 - INFO -   • wang_route_deviation: 2,359 (47.85%)
+2025-11-04 18:02:23,546 - INFO -   • wang_both_deviations: 863 (17.51%)
+2025-11-04 18:02:23,546 - INFO - ============================================================
+2025-11-04 18:02:23,546 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/test/generated/distilled_seed44
+2025-11-04 18:02:23,547 - INFO - ✅ Analysis complete!
+2025-11-04 18:02:23,718 - INFO -         Generated: 3273/4930 (66.39%) abnormal
+2025-11-04 18:02:23,718 - INFO -       ✅ Using translated file for cross-dataset: vanilla_test_2025-10-08_22-03-58.csv
+2025-11-04 18:02:23,718 - INFO -       Analyzing vanilla...
+2025-11-04 18:02:23,718 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 18:02:23,718 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 18:02:23,719 - INFO - 📂 Input file: gene_translated/BJUT_Beijing/seed42/vanilla_test_2025-10-08_22-03-58.csv
+2025-11-04 18:02:23,719 - INFO - ⚙️  Config: config/abnormal_detection_statistical.yaml
+2025-11-04 18:02:23,725 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/generated/vanilla
+2025-11-04 18:02:23,731 - INFO - 🔍 Detection method: wang_statistical
+2025-11-04 18:02:23,731 - INFO - ⚙️  Loading configuration...
+2025-11-04 18:02:23,735 - INFO - 📂 Loading road network...
+2025-11-04 18:02:23,864 - INFO - 📂 Loading generated trajectories...
+2025-11-04 18:02:24,953 - INFO - ✅ Loaded 4930 trajectories
+2025-11-04 18:02:24,953 - INFO - 📊 Using Wang et al. 2018 statistical detection
+2025-11-04 18:02:24,960 - INFO - ✅ Found baselines: baselines_beijing.json
+2025-11-04 18:02:24,960 - INFO - 📊 Loading baseline statistics from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../baselines/baselines_beijing.json
+2025-11-04 18:02:29,641 - INFO - ✅ Loaded baselines for 712,435 OD pairs
+2025-11-04 18:02:29,641 - INFO -    OD pairs with ≥5 samples: 4,268 (0.6%)
+2025-11-04 18:02:29,838 - INFO - 📊 Prepared 4930 trajectories for analysis
+2025-11-04 18:02:34,473 - INFO - ✅ Wang Statistical Detector initialized
+2025-11-04 18:02:34,473 - INFO -    Threshold strategy: hybrid
+2025-11-04 18:02:34,473 - INFO -    Fixed thresholds: L_ρ=5000m, T_ρ=300s
+2025-11-04 18:02:34,473 - INFO -    Statistical multipliers: σ_length=2.5, σ_time=2.5
+2025-11-04 18:02:34,473 - INFO - 🔍 Analyzing 4,930 trajectories...
+2025-11-04 18:02:34,889 - INFO - 📊 Detection Results:
+2025-11-04 18:02:34,889 - INFO -    Total trajectories: 4,930
+2025-11-04 18:02:34,890 - INFO -    Abp1 (Normal): 2,330
+2025-11-04 18:02:34,890 - INFO -    Abp2 (Temporal delay): 0
+2025-11-04 18:02:34,890 - INFO -    Abp3 (Route deviation): 2,439
+2025-11-04 18:02:34,890 - INFO -    Abp4 (Both deviations): 161
+2025-11-04 18:02:34,890 - INFO -    Abnormal rate: 52.74%
+2025-11-04 18:02:34,890 - INFO - 📊 Baseline usage:
+2025-11-04 18:02:34,890 - INFO -    OD-specific: 4
+2025-11-04 18:02:34,890 - INFO -    Global fallback: 4,778
+2025-11-04 18:02:34,894 - INFO - 💾 Saving detection results...
+2025-11-04 18:02:34,900 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/test/generated/vanilla/detection_results.json
+2025-11-04 18:02:34,900 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/test/generated/vanilla/statistics_by_category.json
+2025-11-04 18:02:34,906 - INFO - 💾 Saving trajectory samples...
+2025-11-04 18:02:34,909 - INFO -   ✅ Saved 50 wang_route_deviation samples to abnormal/BJUT_Beijing/test/generated/vanilla/samples/wang_route_deviation_samples.json
+2025-11-04 18:02:34,911 - INFO -   ✅ Saved 50 wang_both_deviations samples to abnormal/BJUT_Beijing/test/generated/vanilla/samples/wang_both_deviations_samples.json
+2025-11-04 18:02:34,911 - INFO - 
+============================================================
+2025-11-04 18:02:34,911 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 18:02:34,912 - INFO - ============================================================
+2025-11-04 18:02:34,912 - INFO - Dataset: BJUT_Beijing
+2025-11-04 18:02:34,912 - INFO - Total trajectories analyzed: 4,930
+2025-11-04 18:02:34,912 - INFO - 
+Abnormalities detected:
+2025-11-04 18:02:34,912 - INFO -   • wang_temporal_delay: 0 (0.00%)
+2025-11-04 18:02:34,913 - INFO -   • wang_route_deviation: 2,439 (49.47%)
+2025-11-04 18:02:34,913 - INFO -   • wang_both_deviations: 161 (3.27%)
+2025-11-04 18:02:34,913 - INFO - ============================================================
+2025-11-04 18:02:34,913 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/test/generated/vanilla
+2025-11-04 18:02:34,913 - INFO - ✅ Analysis complete!
+2025-11-04 18:02:35,093 - INFO -         Generated: 2600/4930 (52.74%) abnormal
+2025-11-04 18:02:35,093 - INFO - 
+    📊 Comparison Report (test):
+2025-11-04 18:02:35,093 - INFO -     ============================================================
+2025-11-04 18:02:35,093 - INFO -     Real data:   24/5979 (0.40%)
+2025-11-04 18:02:35,093 - INFO -     ⚠️  distilled   : 3273/4930 (66.39%, +65.99% vs real)
+2025-11-04 18:02:35,093 - INFO -     ⚠️  distilled_seed44: 3273/4930 (66.39%, +65.99% vs real)
+2025-11-04 18:02:35,093 - INFO -     ⚠️  vanilla     : 2600/4930 (52.74%, +52.34% vs real)
+2025-11-04 18:02:35,094 - INFO -     💾 Saved comparison report to abnormal/BJUT_Beijing/test/comparison_report.json
+2025-11-04 18:02:35,094 - INFO - 
+✅ Abnormal analysis complete for BJUT_Beijing! Results in abnormal/BJUT_Beijing/
+2025-11-04 18:02:35,096 - INFO - ✅ Phase abnormal completed
+2025-11-04 18:02:35,097 - INFO - ⏭️  Skipping phase: abnormal_od_extract
+2025-11-04 18:02:35,097 - INFO - ⏭️  Skipping phase: abnormal_od_generate
+2025-11-04 18:02:35,097 - INFO - ⏭️  Skipping phase: abnormal_od_evaluate
+2025-11-04 18:02:35,097 - INFO - ⏭️  Skipping phase: scenarios
+2025-11-04 18:02:35,097 - INFO - 
+✅ Pipeline completed successfully!
+2025-11-04 18:02:35,097 - INFO - ✅ Pipeline completed successfully!
+📂 Loading road network...
+📐 Calculating road centroids for 40,060 roads...
+✅ Road network loaded: 40,060 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/Beijing/train.csv...
+🔄 Parsing 629,380 trajectories...
+✅ Loaded 629,380 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/distilled_train_2025-10-08_18-23-41.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/distilled_seed44_train_2025-10-08_20-02-16.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/vanilla_train_2025-10-08_21-25-52.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/Beijing/test.csv...
+🔄 Parsing 179,823 trajectories...
+✅ Loaded 179,823 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/vanilla_test_2025-10-08_22-03-58.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Loading road network...
+📐 Calculating road centroids for 87,481 roads...
+✅ Road network loaded: 87,481 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv...
+🔄 Parsing 27,897 trajectories...
+✅ Loaded 27,897 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/distilled_train_2025-10-08_18-23-41.csv...
+🔄 Parsing 4,979 trajectories...
+✅ Loaded 4,979 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/distilled_seed44_train_2025-10-08_20-02-16.csv...
+🔄 Parsing 4,979 trajectories...
+✅ Loaded 4,979 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/vanilla_train_2025-10-08_21-25-52.csv...
+🔄 Parsing 4,979 trajectories...
+✅ Loaded 4,979 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv...
+🔄 Parsing 5,979 trajectories...
+✅ Loaded 5,979 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv...
+🔄 Parsing 4,930 trajectories...
+✅ Loaded 4,930 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv...
+🔄 Parsing 4,930 trajectories...
+✅ Loaded 4,930 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/vanilla_test_2025-10-08_22-03-58.csv...
+🔄 Parsing 4,930 trajectories...
+✅ Loaded 4,930 valid trajectories (dropped 0)

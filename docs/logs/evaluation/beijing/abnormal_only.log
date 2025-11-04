@@ -1,0 +1,129 @@
+2025-11-03 17:42:57,155 - INFO - Running only phases: {'abnormal'}
+2025-11-03 17:42:57,170 - INFO - Working directory: /home/matt/Dev/HOSER/hoser-distill-optuna-6
+2025-11-03 17:42:57,170 - INFO - Validating pipeline configuration...
+2025-11-03 17:42:57,179 - INFO - ✓ Cross-dataset evaluation enabled: BJUT_Beijing
+2025-11-03 17:42:57,255 - INFO - Configuration validation passed
+2025-11-03 17:42:57,315 - INFO - Starting HOSER Distillation Evaluation Pipeline
+2025-11-03 17:42:57,316 - INFO - Configuration: {'eval_dir': PosixPath('/home/matt/Dev/HOSER/hoser-distill-optuna-6'), 'wandb_project': 'hoser-distill-optuna-6', 'dataset': 'Beijing', 'cuda_device': 0, 'num_gene': 5000, 'seed': 42, 'models': [], 'od_sources': ['train', 'test'], 'phases': {'abnormal'}, 'force': False, 'enable_wandb': True, 'verbose': False, 'beam_width': 4, 'grid_size': 0.001, 'edr_eps': 100.0, 'background_sync': True, 'run_scenarios': False, 'scenarios_config': None, 'cross_dataset_eval': '../data/BJUT_Beijing', 'cross_dataset_name': 'BJUT_Beijing', 'run_abnormal_detection': True, 'abnormal_config': 'config/abnormal_detection.yaml'}
+2025-11-03 17:42:57,317 - INFO - Enabled phases: ['abnormal']
+2025-11-03 17:42:57,318 - INFO - Detected models: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-03 17:42:57,319 - INFO - Models to process: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-03 17:42:57,319 - INFO - OD sources: ['train', 'test']
+2025-11-03 17:42:57,319 - INFO - ⏭️  Skipping phase: generation
+2025-11-03 17:42:57,320 - INFO - ⏭️  Skipping phase: base_eval
+2025-11-03 17:42:57,320 - INFO - ⏭️  Skipping phase: cross_dataset
+2025-11-03 17:42:57,320 - INFO - 
+======================================================================
+2025-11-03 17:42:57,321 - INFO - 🚀 Running phase: abnormal
+2025-11-03 17:42:57,321 - INFO - ======================================================================
+2025-11-03 17:42:57,321 - INFO - 🔍 Running abnormal detection...
+2025-11-03 17:42:57,363 - INFO - 
+🔍 Starting abnormal trajectory detection analysis...
+2025-11-03 17:42:57,363 - INFO - Analyzing dataset: BJUT_Beijing
+2025-11-03 17:42:57,363 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-03 17:42:57,366 - INFO -   Processing train data...
+2025-11-03 17:42:57,366 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-03 17:42:57,366 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-03 17:42:57,366 - INFO - 📂 Real data: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv
+2025-11-03 17:42:57,366 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-03 17:42:57,366 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/detection
+2025-11-03 17:42:57,366 - INFO - ⚙️  Loading configuration...
+2025-11-03 17:42:57,374 - INFO - 📂 Loading road network...
+2025-11-03 17:43:02,181 - INFO - 📂 Loading real trajectories...
+2025-11-03 17:43:08,905 - INFO - ✅ Loaded 27897 trajectories
+2025-11-03 17:43:09,689 - INFO - 📊 Total trajectory points: 715,289
+2025-11-03 17:43:09,689 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-03 17:43:14,059 - INFO - 🔍 Running abnormality detection...
+2025-11-03 17:43:14,059 - INFO - Analyzing 715289 trajectories for abnormalities...
+2025-11-03 17:43:25,545 - INFO - Detection complete. Found abnormalities:
+2025-11-03 17:43:25,545 - INFO -   speeding: 0 (0.00%)
+2025-11-03 17:43:25,545 - INFO -   detour: 0 (0.00%)
+2025-11-03 17:43:25,545 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-03 17:43:25,545 - INFO -   circuitous: 0 (0.00%)
+2025-11-03 17:43:25,545 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-03 17:43:25,545 - INFO - 💾 Saving detection results...
+2025-11-03 17:43:25,546 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/train/detection/detection_results.json
+2025-11-03 17:43:25,546 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/train/detection/statistics_by_category.json
+2025-11-03 17:43:25,546 - INFO - 💾 Saving trajectory samples...
+2025-11-03 17:43:25,547 - INFO - 
+============================================================
+2025-11-03 17:43:25,547 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-03 17:43:25,548 - INFO - ============================================================
+2025-11-03 17:43:25,548 - INFO - Dataset: BJUT_Beijing
+2025-11-03 17:43:25,548 - INFO - Total trajectories analyzed: 27,897
+2025-11-03 17:43:25,548 - INFO - 
+Abnormalities detected:
+2025-11-03 17:43:25,548 - INFO -   • speeding: 0 (0.00%)
+2025-11-03 17:43:25,549 - INFO -   • detour: 0 (0.00%)
+2025-11-03 17:43:25,549 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-03 17:43:25,549 - INFO -   • circuitous: 0 (0.00%)
+2025-11-03 17:43:25,549 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-03 17:43:25,549 - INFO - ============================================================
+2025-11-03 17:43:25,549 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/train/detection
+2025-11-03 17:43:25,549 - INFO - ✅ Analysis complete!
+2025-11-03 17:43:25,638 - INFO -   ✅ Detection complete: 5 abnormal categories found
+2025-11-03 17:43:25,638 - INFO - 
+📈 Step 2: Evaluating models on abnormal trajectories (train)...
+2025-11-03 17:43:25,638 - INFO -   No abnormal trajectories found, skipping model evaluation
+2025-11-03 17:43:25,640 - INFO -   Processing test data...
+2025-11-03 17:43:25,640 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-03 17:43:25,640 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-03 17:43:25,640 - INFO - 📂 Real data: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv
+2025-11-03 17:43:25,640 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-03 17:43:25,640 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/detection
+2025-11-03 17:43:25,641 - INFO - ⚙️  Loading configuration...
+2025-11-03 17:43:25,648 - INFO - 📂 Loading road network...
+2025-11-03 17:43:25,747 - INFO - 📂 Loading real trajectories...
+2025-11-03 17:43:27,278 - INFO - ✅ Loaded 5979 trajectories
+2025-11-03 17:43:27,437 - INFO - 📊 Total trajectory points: 155,527
+2025-11-03 17:43:27,437 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-03 17:43:31,902 - INFO - 🔍 Running abnormality detection...
+2025-11-03 17:43:31,902 - INFO - Analyzing 155527 trajectories for abnormalities...
+2025-11-03 17:43:34,472 - INFO - Detection complete. Found abnormalities:
+2025-11-03 17:43:34,472 - INFO -   speeding: 0 (0.00%)
+2025-11-03 17:43:34,473 - INFO -   detour: 0 (0.00%)
+2025-11-03 17:43:34,473 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-03 17:43:34,473 - INFO -   circuitous: 0 (0.00%)
+2025-11-03 17:43:34,473 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-03 17:43:34,473 - INFO - 💾 Saving detection results...
+2025-11-03 17:43:34,473 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/test/detection/detection_results.json
+2025-11-03 17:43:34,474 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/test/detection/statistics_by_category.json
+2025-11-03 17:43:34,475 - INFO - 💾 Saving trajectory samples...
+2025-11-03 17:43:34,475 - INFO - 
+============================================================
+2025-11-03 17:43:34,475 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-03 17:43:34,475 - INFO - ============================================================
+2025-11-03 17:43:34,475 - INFO - Dataset: BJUT_Beijing
+2025-11-03 17:43:34,475 - INFO - Total trajectories analyzed: 5,979
+2025-11-03 17:43:34,476 - INFO - 
+Abnormalities detected:
+2025-11-03 17:43:34,476 - INFO -   • speeding: 0 (0.00%)
+2025-11-03 17:43:34,476 - INFO -   • detour: 0 (0.00%)
+2025-11-03 17:43:34,476 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-03 17:43:34,476 - INFO -   • circuitous: 0 (0.00%)
+2025-11-03 17:43:34,476 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-03 17:43:34,476 - INFO - ============================================================
+2025-11-03 17:43:34,476 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/test/detection
+2025-11-03 17:43:34,476 - INFO - ✅ Analysis complete!
+2025-11-03 17:43:34,524 - INFO -   ✅ Detection complete: 5 abnormal categories found
+2025-11-03 17:43:34,525 - INFO - 
+📈 Step 2: Evaluating models on abnormal trajectories (test)...
+2025-11-03 17:43:34,525 - INFO -   No abnormal trajectories found, skipping model evaluation
+2025-11-03 17:43:34,525 - INFO - 
+✅ Abnormal trajectory detection complete! Results in abnormal/BJUT_Beijing/
+2025-11-03 17:43:34,530 - INFO - ✅ Phase abnormal completed
+2025-11-03 17:43:34,530 - INFO - ⏭️  Skipping phase: scenarios
+2025-11-03 17:43:34,530 - INFO - 
+✅ Pipeline completed successfully!
+2025-11-03 17:43:34,530 - INFO - ✅ Pipeline completed successfully!
+📂 Loading road network...
+📐 Calculating road centroids for 87,481 roads...
+✅ Road network loaded: 87,481 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv...
+🔄 Parsing 27,897 trajectories...
+✅ Loaded 27,897 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv...
+🔄 Parsing 5,979 trajectories...
+✅ Loaded 5,979 valid trajectories (dropped 0)

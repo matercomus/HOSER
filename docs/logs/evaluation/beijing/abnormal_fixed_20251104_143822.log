@@ -1,0 +1,843 @@
+2025-11-04 14:38:59,839 - INFO - Running only phases: {'abnormal'}
+2025-11-04 14:38:59,865 - INFO - Working directory: /home/matt/Dev/HOSER/hoser-distill-optuna-6
+2025-11-04 14:38:59,865 - INFO - Validating pipeline configuration...
+2025-11-04 14:38:59,876 - INFO - ✓ Cross-dataset evaluation enabled: BJUT_Beijing
+2025-11-04 14:38:59,938 - INFO - Configuration validation passed
+2025-11-04 14:39:00,037 - INFO - Starting HOSER Distillation Evaluation Pipeline
+2025-11-04 14:39:00,037 - INFO - Configuration: {'eval_dir': PosixPath('/home/matt/Dev/HOSER/hoser-distill-optuna-6'), 'wandb_project': 'hoser-distill-optuna-6', 'dataset': 'Beijing', 'cuda_device': 0, 'num_gene': 5000, 'seed': 42, 'models': [], 'od_sources': ['train', 'test'], 'phases': {'abnormal'}, 'force': False, 'enable_wandb': True, 'verbose': False, 'beam_width': 4, 'grid_size': 0.001, 'edr_eps': 100.0, 'background_sync': True, 'run_scenarios': False, 'scenarios_config': None, 'cross_dataset_eval': '../data/BJUT_Beijing', 'cross_dataset_name': 'BJUT_Beijing', 'run_abnormal_detection': True, 'abnormal_config': 'config/abnormal_detection.yaml'}
+2025-11-04 14:39:00,038 - INFO - Enabled phases: ['abnormal']
+2025-11-04 14:39:00,039 - INFO - Detected models: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-04 14:39:00,039 - INFO - Models to process: ['distilled', 'distilled_seed44', 'vanilla']
+2025-11-04 14:39:00,040 - INFO - OD sources: ['train', 'test']
+2025-11-04 14:39:00,040 - INFO - ⏭️  Skipping phase: generation
+2025-11-04 14:39:00,040 - INFO - ⏭️  Skipping phase: base_eval
+2025-11-04 14:39:00,041 - INFO - ⏭️  Skipping phase: cross_dataset
+2025-11-04 14:39:00,041 - INFO - ⏭️  Skipping phase: road_network_translate
+2025-11-04 14:39:00,041 - INFO - 
+======================================================================
+2025-11-04 14:39:00,041 - INFO - 🚀 Running phase: abnormal
+2025-11-04 14:39:00,041 - INFO - ======================================================================
+2025-11-04 14:39:00,042 - INFO - 🔍 Running abnormal detection...
+2025-11-04 14:39:00,042 - INFO - 
+🔍 Starting abnormal trajectory detection analysis...
+2025-11-04 14:39:00,043 - INFO - Will analyze 2 dataset(s): ['Beijing', 'BJUT_Beijing']
+2025-11-04 14:39:00,043 - INFO - 
+======================================================================
+2025-11-04 14:39:00,043 - INFO - 📊 Analyzing dataset: Beijing (main)
+2025-11-04 14:39:00,043 - INFO - ======================================================================
+2025-11-04 14:39:00,043 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 14:39:00,059 - INFO - 
+  📂 Processing train data...
+2025-11-04 14:39:00,059 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 14:39:00,060 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:39:00,060 - INFO - 📂 Dataset: Beijing
+2025-11-04 14:39:00,060 - INFO - 📂 Real data: /home/matt/Dev/HOSER/data/Beijing/train.csv
+2025-11-04 14:39:00,060 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:39:00,062 - INFO - 💾 Output directory: abnormal/Beijing/train/real_data
+2025-11-04 14:39:00,062 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:39:00,066 - INFO - 📂 Loading road network...
+2025-11-04 14:39:04,313 - INFO - 📂 Loading real trajectories...
+2025-11-04 14:41:52,701 - INFO - ✅ Loaded 629380 trajectories
+2025-11-04 14:42:18,064 - INFO - 📊 Total trajectory points: 17,822,413
+2025-11-04 14:42:18,064 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:42:20,116 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:42:20,117 - INFO - Analyzing 17822413 trajectories for abnormalities...
+2025-11-04 14:46:43,256 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:46:43,257 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:46:43,257 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:46:43,257 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:46:43,257 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:46:43,257 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:46:43,257 - INFO - 💾 Saving detection results...
+2025-11-04 14:46:43,258 - INFO - ✅ Saved detection results to abnormal/Beijing/train/real_data/detection_results.json
+2025-11-04 14:46:43,258 - INFO - ✅ Saved statistics to abnormal/Beijing/train/real_data/statistics_by_category.json
+2025-11-04 14:46:43,258 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:46:43,259 - INFO - 
+============================================================
+2025-11-04 14:46:43,259 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:46:43,259 - INFO - ============================================================
+2025-11-04 14:46:43,259 - INFO - Dataset: Beijing
+2025-11-04 14:46:43,259 - INFO - Total trajectories analyzed: 629,380
+2025-11-04 14:46:43,259 - INFO - 
+Abnormalities detected:
+2025-11-04 14:46:43,259 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:46:43,259 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:46:43,259 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:46:43,259 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:46:43,259 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:46:43,259 - INFO - ============================================================
+2025-11-04 14:46:43,259 - INFO - 💾 Results saved to: abnormal/Beijing/train/real_data
+2025-11-04 14:46:43,259 - INFO - ✅ Analysis complete!
+2025-11-04 14:46:45,265 - INFO -     ✅ Real data: 0/629380 (0.00%) abnormal
+2025-11-04 14:46:45,266 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 14:46:45,525 - INFO -       Analyzing distilled...
+2025-11-04 14:46:45,526 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:46:45,526 - INFO - 📂 Dataset: Beijing
+2025-11-04 14:46:45,526 - INFO - 📂 Real data: gene/Beijing/seed42/distilled_train_2025-10-08_18-23-41.csv
+2025-11-04 14:46:45,527 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:46:45,529 - INFO - 💾 Output directory: abnormal/Beijing/train/generated/distilled
+2025-11-04 14:46:45,529 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:46:45,541 - INFO - 📂 Loading road network...
+2025-11-04 14:46:45,589 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:46:47,964 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 14:46:48,159 - INFO - 📊 Total trajectory points: 188,626
+2025-11-04 14:46:48,159 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:46:50,210 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:46:50,210 - INFO - Analyzing 188626 trajectories for abnormalities...
+2025-11-04 14:46:52,701 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:46:52,701 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:46:52,701 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:46:52,701 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:46:52,701 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:46:52,701 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:46:52,702 - INFO - 💾 Saving detection results...
+2025-11-04 14:46:52,702 - INFO - ✅ Saved detection results to abnormal/Beijing/train/generated/distilled/detection_results.json
+2025-11-04 14:46:52,702 - INFO - ✅ Saved statistics to abnormal/Beijing/train/generated/distilled/statistics_by_category.json
+2025-11-04 14:46:52,702 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:46:52,703 - INFO - 
+============================================================
+2025-11-04 14:46:52,703 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:46:52,703 - INFO - ============================================================
+2025-11-04 14:46:52,703 - INFO - Dataset: Beijing
+2025-11-04 14:46:52,703 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 14:46:52,703 - INFO - 
+Abnormalities detected:
+2025-11-04 14:46:52,703 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:46:52,703 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:46:52,704 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:46:52,704 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:46:52,704 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:46:52,704 - INFO - ============================================================
+2025-11-04 14:46:52,704 - INFO - 💾 Results saved to: abnormal/Beijing/train/generated/distilled
+2025-11-04 14:46:52,704 - INFO - ✅ Analysis complete!
+2025-11-04 14:46:52,744 - INFO -         Generated: 0/5000 (0.00%) abnormal
+2025-11-04 14:46:52,745 - INFO -       Analyzing distilled_seed44...
+2025-11-04 14:46:52,745 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:46:52,745 - INFO - 📂 Dataset: Beijing
+2025-11-04 14:46:52,745 - INFO - 📂 Real data: gene/Beijing/seed42/distilled_seed44_train_2025-10-08_20-02-16.csv
+2025-11-04 14:46:52,745 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:46:52,746 - INFO - 💾 Output directory: abnormal/Beijing/train/generated/distilled_seed44
+2025-11-04 14:46:52,746 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:46:52,749 - INFO - 📂 Loading road network...
+2025-11-04 14:46:52,792 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:46:54,863 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 14:46:55,052 - INFO - 📊 Total trajectory points: 185,867
+2025-11-04 14:46:55,052 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:46:57,031 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:46:57,031 - INFO - Analyzing 185867 trajectories for abnormalities...
+2025-11-04 14:46:59,420 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:46:59,420 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:46:59,420 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:46:59,420 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:46:59,420 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:46:59,420 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:46:59,421 - INFO - 💾 Saving detection results...
+2025-11-04 14:46:59,421 - INFO - ✅ Saved detection results to abnormal/Beijing/train/generated/distilled_seed44/detection_results.json
+2025-11-04 14:46:59,421 - INFO - ✅ Saved statistics to abnormal/Beijing/train/generated/distilled_seed44/statistics_by_category.json
+2025-11-04 14:46:59,421 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:46:59,422 - INFO - 
+============================================================
+2025-11-04 14:46:59,422 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:46:59,422 - INFO - ============================================================
+2025-11-04 14:46:59,422 - INFO - Dataset: Beijing
+2025-11-04 14:46:59,422 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 14:46:59,422 - INFO - 
+Abnormalities detected:
+2025-11-04 14:46:59,422 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:46:59,422 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:46:59,423 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:46:59,423 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:46:59,423 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:46:59,423 - INFO - ============================================================
+2025-11-04 14:46:59,423 - INFO - 💾 Results saved to: abnormal/Beijing/train/generated/distilled_seed44
+2025-11-04 14:46:59,423 - INFO - ✅ Analysis complete!
+2025-11-04 14:46:59,465 - INFO -         Generated: 0/5000 (0.00%) abnormal
+2025-11-04 14:46:59,465 - INFO -       Analyzing vanilla...
+2025-11-04 14:46:59,465 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:46:59,465 - INFO - 📂 Dataset: Beijing
+2025-11-04 14:46:59,465 - INFO - 📂 Real data: gene/Beijing/seed42/vanilla_train_2025-10-08_21-25-52.csv
+2025-11-04 14:46:59,466 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:46:59,466 - INFO - 💾 Output directory: abnormal/Beijing/train/generated/vanilla
+2025-11-04 14:46:59,466 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:46:59,469 - INFO - 📂 Loading road network...
+2025-11-04 14:46:59,514 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:47:00,717 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 14:47:00,790 - INFO - 📊 Total trajectory points: 75,082
+2025-11-04 14:47:00,790 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:47:02,762 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:47:02,763 - INFO - Analyzing 75082 trajectories for abnormalities...
+2025-11-04 14:47:04,097 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:47:04,097 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:47:04,097 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:47:04,097 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:47:04,097 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:47:04,097 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:47:04,097 - INFO - 💾 Saving detection results...
+2025-11-04 14:47:04,098 - INFO - ✅ Saved detection results to abnormal/Beijing/train/generated/vanilla/detection_results.json
+2025-11-04 14:47:04,098 - INFO - ✅ Saved statistics to abnormal/Beijing/train/generated/vanilla/statistics_by_category.json
+2025-11-04 14:47:04,098 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:47:04,099 - INFO - 
+============================================================
+2025-11-04 14:47:04,099 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:47:04,099 - INFO - ============================================================
+2025-11-04 14:47:04,099 - INFO - Dataset: Beijing
+2025-11-04 14:47:04,099 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 14:47:04,099 - INFO - 
+Abnormalities detected:
+2025-11-04 14:47:04,099 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:47:04,099 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:47:04,099 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:47:04,099 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:47:04,100 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:47:04,100 - INFO - ============================================================
+2025-11-04 14:47:04,100 - INFO - 💾 Results saved to: abnormal/Beijing/train/generated/vanilla
+2025-11-04 14:47:04,100 - INFO - ✅ Analysis complete!
+2025-11-04 14:47:04,121 - INFO -         Generated: 0/5000 (0.00%) abnormal
+2025-11-04 14:47:04,121 - INFO - 
+    📊 Comparison Report (train):
+2025-11-04 14:47:04,122 - INFO -     ============================================================
+2025-11-04 14:47:04,122 - INFO -     Real data:   0/629380 (0.00%)
+2025-11-04 14:47:04,122 - INFO -     ✅ distilled   : 0/5000 (0.00%, +0.00% vs real)
+2025-11-04 14:47:04,122 - INFO -     ✅ distilled_seed44: 0/5000 (0.00%, +0.00% vs real)
+2025-11-04 14:47:04,122 - INFO -     ✅ vanilla     : 0/5000 (0.00%, +0.00% vs real)
+2025-11-04 14:47:04,122 - INFO -     💾 Saved comparison report to abnormal/Beijing/train/comparison_report.json
+2025-11-04 14:47:04,122 - INFO - 
+  📂 Processing test data...
+2025-11-04 14:47:04,122 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 14:47:04,123 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:47:04,123 - INFO - 📂 Dataset: Beijing
+2025-11-04 14:47:04,123 - INFO - 📂 Real data: /home/matt/Dev/HOSER/data/Beijing/test.csv
+2025-11-04 14:47:04,123 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:47:04,123 - INFO - 💾 Output directory: abnormal/Beijing/test/real_data
+2025-11-04 14:47:04,124 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:47:04,127 - INFO - 📂 Loading road network...
+2025-11-04 14:47:04,169 - INFO - 📂 Loading real trajectories...
+2025-11-04 14:47:46,758 - INFO - ✅ Loaded 179823 trajectories
+2025-11-04 14:47:52,578 - INFO - 📊 Total trajectory points: 5,087,959
+2025-11-04 14:47:52,579 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:47:54,546 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:47:54,546 - INFO - Analyzing 5087959 trajectories for abnormalities...
+2025-11-04 14:49:08,304 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:49:08,304 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:49:08,304 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:49:08,304 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:08,304 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:49:08,304 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:49:08,305 - INFO - 💾 Saving detection results...
+2025-11-04 14:49:08,305 - INFO - ✅ Saved detection results to abnormal/Beijing/test/real_data/detection_results.json
+2025-11-04 14:49:08,305 - INFO - ✅ Saved statistics to abnormal/Beijing/test/real_data/statistics_by_category.json
+2025-11-04 14:49:08,305 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:49:08,306 - INFO - 
+============================================================
+2025-11-04 14:49:08,306 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:49:08,306 - INFO - ============================================================
+2025-11-04 14:49:08,306 - INFO - Dataset: Beijing
+2025-11-04 14:49:08,306 - INFO - Total trajectories analyzed: 179,823
+2025-11-04 14:49:08,306 - INFO - 
+Abnormalities detected:
+2025-11-04 14:49:08,306 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:49:08,307 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:49:08,307 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:08,307 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:49:08,307 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:49:08,307 - INFO - ============================================================
+2025-11-04 14:49:08,307 - INFO - 💾 Results saved to: abnormal/Beijing/test/real_data
+2025-11-04 14:49:08,307 - INFO - ✅ Analysis complete!
+2025-11-04 14:49:09,404 - INFO -     ✅ Real data: 0/179823 (0.00%) abnormal
+2025-11-04 14:49:09,404 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 14:49:09,405 - INFO -       Analyzing distilled...
+2025-11-04 14:49:09,405 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:49:09,405 - INFO - 📂 Dataset: Beijing
+2025-11-04 14:49:09,405 - INFO - 📂 Real data: gene/Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 14:49:09,405 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:49:09,406 - INFO - 💾 Output directory: abnormal/Beijing/test/generated/distilled
+2025-11-04 14:49:09,406 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:49:09,409 - INFO - 📂 Loading road network...
+2025-11-04 14:49:09,451 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:49:11,546 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 14:49:11,719 - INFO - 📊 Total trajectory points: 182,913
+2025-11-04 14:49:11,720 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:49:13,693 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:49:13,694 - INFO - Analyzing 182913 trajectories for abnormalities...
+2025-11-04 14:49:16,060 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:49:16,060 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:49:16,060 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:49:16,060 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:16,060 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:49:16,060 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:49:16,060 - INFO - 💾 Saving detection results...
+2025-11-04 14:49:16,061 - INFO - ✅ Saved detection results to abnormal/Beijing/test/generated/distilled/detection_results.json
+2025-11-04 14:49:16,061 - INFO - ✅ Saved statistics to abnormal/Beijing/test/generated/distilled/statistics_by_category.json
+2025-11-04 14:49:16,061 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:49:16,062 - INFO - 
+============================================================
+2025-11-04 14:49:16,062 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:49:16,062 - INFO - ============================================================
+2025-11-04 14:49:16,062 - INFO - Dataset: Beijing
+2025-11-04 14:49:16,062 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 14:49:16,062 - INFO - 
+Abnormalities detected:
+2025-11-04 14:49:16,062 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:49:16,062 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:49:16,062 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:16,062 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:49:16,062 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:49:16,063 - INFO - ============================================================
+2025-11-04 14:49:16,063 - INFO - 💾 Results saved to: abnormal/Beijing/test/generated/distilled
+2025-11-04 14:49:16,063 - INFO - ✅ Analysis complete!
+2025-11-04 14:49:16,100 - INFO -         Generated: 0/5000 (0.00%) abnormal
+2025-11-04 14:49:16,101 - INFO -       Analyzing distilled_seed44...
+2025-11-04 14:49:16,101 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:49:16,101 - INFO - 📂 Dataset: Beijing
+2025-11-04 14:49:16,101 - INFO - 📂 Real data: gene/Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 14:49:16,101 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:49:16,102 - INFO - 💾 Output directory: abnormal/Beijing/test/generated/distilled_seed44
+2025-11-04 14:49:16,102 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:49:16,105 - INFO - 📂 Loading road network...
+2025-11-04 14:49:16,150 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:49:18,151 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 14:49:18,326 - INFO - 📊 Total trajectory points: 182,913
+2025-11-04 14:49:18,326 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:49:20,263 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:49:20,263 - INFO - Analyzing 182913 trajectories for abnormalities...
+2025-11-04 14:49:22,605 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:49:22,605 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:49:22,606 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:49:22,606 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:22,606 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:49:22,606 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:49:22,606 - INFO - 💾 Saving detection results...
+2025-11-04 14:49:22,606 - INFO - ✅ Saved detection results to abnormal/Beijing/test/generated/distilled_seed44/detection_results.json
+2025-11-04 14:49:22,607 - INFO - ✅ Saved statistics to abnormal/Beijing/test/generated/distilled_seed44/statistics_by_category.json
+2025-11-04 14:49:22,607 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:49:22,607 - INFO - 
+============================================================
+2025-11-04 14:49:22,607 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:49:22,607 - INFO - ============================================================
+2025-11-04 14:49:22,607 - INFO - Dataset: Beijing
+2025-11-04 14:49:22,608 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 14:49:22,608 - INFO - 
+Abnormalities detected:
+2025-11-04 14:49:22,608 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:49:22,608 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:49:22,608 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:22,608 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:49:22,608 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:49:22,608 - INFO - ============================================================
+2025-11-04 14:49:22,608 - INFO - 💾 Results saved to: abnormal/Beijing/test/generated/distilled_seed44
+2025-11-04 14:49:22,608 - INFO - ✅ Analysis complete!
+2025-11-04 14:49:22,646 - INFO -         Generated: 0/5000 (0.00%) abnormal
+2025-11-04 14:49:22,647 - INFO -       Analyzing vanilla...
+2025-11-04 14:49:22,647 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:49:22,647 - INFO - 📂 Dataset: Beijing
+2025-11-04 14:49:22,647 - INFO - 📂 Real data: gene/Beijing/seed42/vanilla_test_2025-10-08_22-03-58.csv
+2025-11-04 14:49:22,647 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:49:22,705 - INFO - 💾 Output directory: abnormal/Beijing/test/generated/vanilla
+2025-11-04 14:49:22,705 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:49:22,713 - INFO - 📂 Loading road network...
+2025-11-04 14:49:22,758 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:49:23,700 - INFO - ✅ Loaded 5000 trajectories
+2025-11-04 14:49:23,772 - INFO - 📊 Total trajectory points: 73,044
+2025-11-04 14:49:23,772 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:49:25,718 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:49:25,718 - INFO - Analyzing 73044 trajectories for abnormalities...
+2025-11-04 14:49:27,003 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:49:27,003 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:49:27,003 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:49:27,003 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:27,003 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:49:27,003 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:49:27,003 - INFO - 💾 Saving detection results...
+2025-11-04 14:49:27,004 - INFO - ✅ Saved detection results to abnormal/Beijing/test/generated/vanilla/detection_results.json
+2025-11-04 14:49:27,004 - INFO - ✅ Saved statistics to abnormal/Beijing/test/generated/vanilla/statistics_by_category.json
+2025-11-04 14:49:27,004 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:49:27,005 - INFO - 
+============================================================
+2025-11-04 14:49:27,005 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:49:27,005 - INFO - ============================================================
+2025-11-04 14:49:27,005 - INFO - Dataset: Beijing
+2025-11-04 14:49:27,005 - INFO - Total trajectories analyzed: 5,000
+2025-11-04 14:49:27,005 - INFO - 
+Abnormalities detected:
+2025-11-04 14:49:27,005 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:49:27,005 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:49:27,005 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:27,005 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:49:27,005 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:49:27,005 - INFO - ============================================================
+2025-11-04 14:49:27,005 - INFO - 💾 Results saved to: abnormal/Beijing/test/generated/vanilla
+2025-11-04 14:49:27,005 - INFO - ✅ Analysis complete!
+2025-11-04 14:49:27,026 - INFO -         Generated: 0/5000 (0.00%) abnormal
+2025-11-04 14:49:27,026 - INFO - 
+    📊 Comparison Report (test):
+2025-11-04 14:49:27,026 - INFO -     ============================================================
+2025-11-04 14:49:27,026 - INFO -     Real data:   0/179823 (0.00%)
+2025-11-04 14:49:27,026 - INFO -     ✅ distilled   : 0/5000 (0.00%, +0.00% vs real)
+2025-11-04 14:49:27,026 - INFO -     ✅ distilled_seed44: 0/5000 (0.00%, +0.00% vs real)
+2025-11-04 14:49:27,026 - INFO -     ✅ vanilla     : 0/5000 (0.00%, +0.00% vs real)
+2025-11-04 14:49:27,027 - INFO -     💾 Saved comparison report to abnormal/Beijing/test/comparison_report.json
+2025-11-04 14:49:27,027 - INFO - 
+✅ Abnormal analysis complete for Beijing! Results in abnormal/Beijing/
+2025-11-04 14:49:27,174 - INFO - 
+======================================================================
+2025-11-04 14:49:27,174 - INFO - 📊 Analyzing dataset: BJUT_Beijing (cross-dataset)
+2025-11-04 14:49:27,174 - INFO - ======================================================================
+2025-11-04 14:49:27,174 - INFO - 
+🔍 Step 1: Detecting abnormal trajectories in real data...
+2025-11-04 14:49:27,176 - INFO - 
+  📂 Processing train data...
+2025-11-04 14:49:27,177 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 14:49:27,177 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:49:27,177 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 14:49:27,177 - INFO - 📂 Real data: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv
+2025-11-04 14:49:27,177 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:49:27,179 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/real_data
+2025-11-04 14:49:27,179 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:49:27,185 - INFO - 📂 Loading road network...
+2025-11-04 14:49:31,386 - INFO - 📂 Loading real trajectories...
+2025-11-04 14:49:38,881 - INFO - ✅ Loaded 27897 trajectories
+2025-11-04 14:49:39,532 - INFO - 📊 Total trajectory points: 715,289
+2025-11-04 14:49:39,532 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:49:43,843 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:49:43,843 - INFO - Analyzing 715289 trajectories for abnormalities...
+2025-11-04 14:49:54,031 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:49:54,031 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:49:54,032 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:49:54,032 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:54,032 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:49:54,032 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:49:54,032 - INFO - 💾 Saving detection results...
+2025-11-04 14:49:54,032 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/train/real_data/detection_results.json
+2025-11-04 14:49:54,033 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/train/real_data/statistics_by_category.json
+2025-11-04 14:49:54,033 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:49:54,033 - INFO - 
+============================================================
+2025-11-04 14:49:54,034 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:49:54,034 - INFO - ============================================================
+2025-11-04 14:49:54,034 - INFO - Dataset: BJUT_Beijing
+2025-11-04 14:49:54,034 - INFO - Total trajectories analyzed: 27,897
+2025-11-04 14:49:54,034 - INFO - 
+Abnormalities detected:
+2025-11-04 14:49:54,034 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:49:54,034 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:49:54,034 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:49:54,034 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:49:54,034 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:49:54,034 - INFO - ============================================================
+2025-11-04 14:49:54,034 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/train/real_data
+2025-11-04 14:49:54,034 - INFO - ✅ Analysis complete!
+2025-11-04 14:49:54,113 - INFO -     ✅ Real data: 0/27897 (0.00%) abnormal
+2025-11-04 14:49:54,113 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 14:49:54,167 - INFO -       ✅ Using translated file for cross-dataset: distilled_train_2025-10-08_18-23-41.csv
+2025-11-04 14:49:54,167 - INFO -       Analyzing distilled...
+2025-11-04 14:49:54,167 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:49:54,167 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 14:49:54,168 - INFO - 📂 Real data: gene_translated/BJUT_Beijing/seed42/distilled_train_2025-10-08_18-23-41.csv
+2025-11-04 14:49:54,168 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:49:54,231 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/generated/distilled
+2025-11-04 14:49:54,232 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:49:54,249 - INFO - 📂 Loading road network...
+2025-11-04 14:49:54,350 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:49:57,462 - INFO - ✅ Loaded 4979 trajectories
+2025-11-04 14:49:57,638 - INFO - 📊 Total trajectory points: 187,934
+2025-11-04 14:49:57,638 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:50:01,970 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:50:01,970 - INFO - Analyzing 187934 trajectories for abnormalities...
+2025-11-04 14:50:04,417 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:50:04,417 - INFO -   speeding: 4428 (88.93%)
+2025-11-04 14:50:04,417 - INFO -   detour: 3077 (61.80%)
+2025-11-04 14:50:04,417 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:04,417 - INFO -   circuitous: 2913 (58.51%)
+2025-11-04 14:50:04,417 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:50:04,418 - INFO - 💾 Saving detection results...
+2025-11-04 14:50:04,431 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/train/generated/distilled/detection_results.json
+2025-11-04 14:50:04,432 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/train/generated/distilled/statistics_by_category.json
+2025-11-04 14:50:04,432 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:50:04,436 - INFO -   ✅ Saved 50 speeding samples to abnormal/BJUT_Beijing/train/generated/distilled/samples/speeding_samples.json
+2025-11-04 14:50:04,440 - INFO -   ✅ Saved 50 detour samples to abnormal/BJUT_Beijing/train/generated/distilled/samples/detour_samples.json
+2025-11-04 14:50:04,443 - INFO -   ✅ Saved 50 circuitous samples to abnormal/BJUT_Beijing/train/generated/distilled/samples/circuitous_samples.json
+2025-11-04 14:50:04,443 - INFO - 
+============================================================
+2025-11-04 14:50:04,444 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:50:04,444 - INFO - ============================================================
+2025-11-04 14:50:04,444 - INFO - Dataset: BJUT_Beijing
+2025-11-04 14:50:04,444 - INFO - Total trajectories analyzed: 4,979
+2025-11-04 14:50:04,444 - INFO - 
+Abnormalities detected:
+2025-11-04 14:50:04,444 - INFO -   • speeding: 4,428 (88.93%)
+2025-11-04 14:50:04,444 - INFO -   • detour: 3,077 (61.80%)
+2025-11-04 14:50:04,444 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:04,444 - INFO -   • circuitous: 2,913 (58.51%)
+2025-11-04 14:50:04,444 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:50:04,444 - INFO - ============================================================
+2025-11-04 14:50:04,444 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/train/generated/distilled
+2025-11-04 14:50:04,444 - INFO - ✅ Analysis complete!
+2025-11-04 14:50:04,483 - INFO -         Generated: 4455/4979 (89.48%) abnormal
+2025-11-04 14:50:04,484 - INFO -       ✅ Using translated file for cross-dataset: distilled_seed44_train_2025-10-08_20-02-16.csv
+2025-11-04 14:50:04,484 - INFO -       Analyzing distilled_seed44...
+2025-11-04 14:50:04,484 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:50:04,484 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 14:50:04,484 - INFO - 📂 Real data: gene_translated/BJUT_Beijing/seed42/distilled_seed44_train_2025-10-08_20-02-16.csv
+2025-11-04 14:50:04,484 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:50:04,486 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/generated/distilled_seed44
+2025-11-04 14:50:04,487 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:50:04,503 - INFO - 📂 Loading road network...
+2025-11-04 14:50:04,609 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:50:06,647 - INFO - ✅ Loaded 4979 trajectories
+2025-11-04 14:50:06,818 - INFO - 📊 Total trajectory points: 184,997
+2025-11-04 14:50:06,818 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:50:11,192 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:50:11,193 - INFO - Analyzing 184997 trajectories for abnormalities...
+2025-11-04 14:50:13,625 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:50:13,625 - INFO -   speeding: 4437 (89.11%)
+2025-11-04 14:50:13,625 - INFO -   detour: 3174 (63.75%)
+2025-11-04 14:50:13,625 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:13,626 - INFO -   circuitous: 3000 (60.25%)
+2025-11-04 14:50:13,626 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:50:13,626 - INFO - 💾 Saving detection results...
+2025-11-04 14:50:13,639 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/train/generated/distilled_seed44/detection_results.json
+2025-11-04 14:50:13,639 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/train/generated/distilled_seed44/statistics_by_category.json
+2025-11-04 14:50:13,640 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:50:13,644 - INFO -   ✅ Saved 50 speeding samples to abnormal/BJUT_Beijing/train/generated/distilled_seed44/samples/speeding_samples.json
+2025-11-04 14:50:13,647 - INFO -   ✅ Saved 50 detour samples to abnormal/BJUT_Beijing/train/generated/distilled_seed44/samples/detour_samples.json
+2025-11-04 14:50:13,652 - INFO -   ✅ Saved 50 circuitous samples to abnormal/BJUT_Beijing/train/generated/distilled_seed44/samples/circuitous_samples.json
+2025-11-04 14:50:13,652 - INFO - 
+============================================================
+2025-11-04 14:50:13,652 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:50:13,652 - INFO - ============================================================
+2025-11-04 14:50:13,652 - INFO - Dataset: BJUT_Beijing
+2025-11-04 14:50:13,652 - INFO - Total trajectories analyzed: 4,979
+2025-11-04 14:50:13,653 - INFO - 
+Abnormalities detected:
+2025-11-04 14:50:13,653 - INFO -   • speeding: 4,437 (89.11%)
+2025-11-04 14:50:13,653 - INFO -   • detour: 3,174 (63.75%)
+2025-11-04 14:50:13,653 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:13,653 - INFO -   • circuitous: 3,000 (60.25%)
+2025-11-04 14:50:13,653 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:50:13,653 - INFO - ============================================================
+2025-11-04 14:50:13,653 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/train/generated/distilled_seed44
+2025-11-04 14:50:13,653 - INFO - ✅ Analysis complete!
+2025-11-04 14:50:13,694 - INFO -         Generated: 4456/4979 (89.50%) abnormal
+2025-11-04 14:50:13,695 - INFO -       ✅ Using translated file for cross-dataset: vanilla_train_2025-10-08_21-25-52.csv
+2025-11-04 14:50:13,695 - INFO -       Analyzing vanilla...
+2025-11-04 14:50:13,695 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:50:13,695 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 14:50:13,695 - INFO - 📂 Real data: gene_translated/BJUT_Beijing/seed42/vanilla_train_2025-10-08_21-25-52.csv
+2025-11-04 14:50:13,695 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:50:13,696 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/train/generated/vanilla
+2025-11-04 14:50:13,696 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:50:13,704 - INFO - 📂 Loading road network...
+2025-11-04 14:50:13,811 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:50:14,789 - INFO - ✅ Loaded 4979 trajectories
+2025-11-04 14:50:14,862 - INFO - 📊 Total trajectory points: 74,820
+2025-11-04 14:50:14,862 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:50:19,246 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:50:19,247 - INFO - Analyzing 74820 trajectories for abnormalities...
+2025-11-04 14:50:21,933 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:50:21,933 - INFO -   speeding: 3506 (70.42%)
+2025-11-04 14:50:21,933 - INFO -   detour: 2544 (51.09%)
+2025-11-04 14:50:21,933 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:21,933 - INFO -   circuitous: 2569 (51.60%)
+2025-11-04 14:50:21,933 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:50:21,933 - INFO - 💾 Saving detection results...
+2025-11-04 14:50:21,945 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/train/generated/vanilla/detection_results.json
+2025-11-04 14:50:21,945 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/train/generated/vanilla/statistics_by_category.json
+2025-11-04 14:50:21,945 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:50:21,949 - INFO -   ✅ Saved 50 speeding samples to abnormal/BJUT_Beijing/train/generated/vanilla/samples/speeding_samples.json
+2025-11-04 14:50:21,954 - INFO -   ✅ Saved 50 detour samples to abnormal/BJUT_Beijing/train/generated/vanilla/samples/detour_samples.json
+2025-11-04 14:50:21,958 - INFO -   ✅ Saved 50 circuitous samples to abnormal/BJUT_Beijing/train/generated/vanilla/samples/circuitous_samples.json
+2025-11-04 14:50:21,958 - INFO - 
+============================================================
+2025-11-04 14:50:21,958 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:50:21,958 - INFO - ============================================================
+2025-11-04 14:50:21,958 - INFO - Dataset: BJUT_Beijing
+2025-11-04 14:50:21,958 - INFO - Total trajectories analyzed: 4,979
+2025-11-04 14:50:21,958 - INFO - 
+Abnormalities detected:
+2025-11-04 14:50:21,958 - INFO -   • speeding: 3,506 (70.42%)
+2025-11-04 14:50:21,958 - INFO -   • detour: 2,544 (51.09%)
+2025-11-04 14:50:21,958 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:21,958 - INFO -   • circuitous: 2,569 (51.60%)
+2025-11-04 14:50:21,958 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:50:21,958 - INFO - ============================================================
+2025-11-04 14:50:21,958 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/train/generated/vanilla
+2025-11-04 14:50:21,958 - INFO - ✅ Analysis complete!
+2025-11-04 14:50:21,984 - INFO -         Generated: 3647/4979 (73.25%) abnormal
+2025-11-04 14:50:21,984 - INFO - 
+    📊 Comparison Report (train):
+2025-11-04 14:50:21,984 - INFO -     ============================================================
+2025-11-04 14:50:21,984 - INFO -     Real data:   0/27897 (0.00%)
+2025-11-04 14:50:21,984 - INFO -     ⚠️  distilled   : 4455/4979 (89.48%, +89.48% vs real)
+2025-11-04 14:50:21,984 - INFO -     ⚠️  distilled_seed44: 4456/4979 (89.50%, +89.50% vs real)
+2025-11-04 14:50:21,984 - INFO -     ⚠️  vanilla     : 3647/4979 (73.25%, +73.25% vs real)
+2025-11-04 14:50:21,985 - INFO -     💾 Saved comparison report to abnormal/BJUT_Beijing/train/comparison_report.json
+2025-11-04 14:50:21,987 - INFO - 
+  📂 Processing test data...
+2025-11-04 14:50:21,987 - INFO -     🔍 Detecting abnormal trajectories in REAL data...
+2025-11-04 14:50:21,988 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:50:21,988 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 14:50:21,988 - INFO - 📂 Real data: /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv
+2025-11-04 14:50:21,988 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:50:21,989 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/real_data
+2025-11-04 14:50:21,989 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:50:21,996 - INFO - 📂 Loading road network...
+2025-11-04 14:50:22,107 - INFO - 📂 Loading real trajectories...
+2025-11-04 14:50:23,526 - INFO - ✅ Loaded 5979 trajectories
+2025-11-04 14:50:23,673 - INFO - 📊 Total trajectory points: 155,527
+2025-11-04 14:50:23,673 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:50:28,043 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:50:28,043 - INFO - Analyzing 155527 trajectories for abnormalities...
+2025-11-04 14:50:30,290 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:50:30,290 - INFO -   speeding: 0 (0.00%)
+2025-11-04 14:50:30,290 - INFO -   detour: 0 (0.00%)
+2025-11-04 14:50:30,290 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:30,291 - INFO -   circuitous: 0 (0.00%)
+2025-11-04 14:50:30,291 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:50:30,291 - INFO - 💾 Saving detection results...
+2025-11-04 14:50:30,291 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/test/real_data/detection_results.json
+2025-11-04 14:50:30,291 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/test/real_data/statistics_by_category.json
+2025-11-04 14:50:30,291 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:50:30,292 - INFO - 
+============================================================
+2025-11-04 14:50:30,292 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:50:30,292 - INFO - ============================================================
+2025-11-04 14:50:30,292 - INFO - Dataset: BJUT_Beijing
+2025-11-04 14:50:30,292 - INFO - Total trajectories analyzed: 5,979
+2025-11-04 14:50:30,292 - INFO - 
+Abnormalities detected:
+2025-11-04 14:50:30,292 - INFO -   • speeding: 0 (0.00%)
+2025-11-04 14:50:30,293 - INFO -   • detour: 0 (0.00%)
+2025-11-04 14:50:30,293 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:30,293 - INFO -   • circuitous: 0 (0.00%)
+2025-11-04 14:50:30,293 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:50:30,293 - INFO - ============================================================
+2025-11-04 14:50:30,293 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/test/real_data
+2025-11-04 14:50:30,293 - INFO - ✅ Analysis complete!
+2025-11-04 14:50:30,334 - INFO -     ✅ Real data: 0/5979 (0.00%) abnormal
+2025-11-04 14:50:30,334 - INFO - 
+    🤖 Detecting abnormal trajectories in GENERATED data...
+2025-11-04 14:50:30,334 - INFO -       ✅ Using translated file for cross-dataset: distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 14:50:30,334 - INFO -       Analyzing distilled...
+2025-11-04 14:50:30,334 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:50:30,334 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 14:50:30,334 - INFO - 📂 Real data: gene_translated/BJUT_Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 14:50:30,334 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:50:30,347 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/generated/distilled
+2025-11-04 14:50:30,347 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:50:30,354 - INFO - 📂 Loading road network...
+2025-11-04 14:50:30,461 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:50:32,454 - INFO - ✅ Loaded 4930 trajectories
+2025-11-04 14:50:32,621 - INFO - 📊 Total trajectory points: 180,477
+2025-11-04 14:50:32,621 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:50:36,858 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:50:36,858 - INFO - Analyzing 180477 trajectories for abnormalities...
+2025-11-04 14:50:39,208 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:50:39,208 - INFO -   speeding: 4423 (89.72%)
+2025-11-04 14:50:39,208 - INFO -   detour: 3200 (64.91%)
+2025-11-04 14:50:39,208 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:39,209 - INFO -   circuitous: 3023 (61.32%)
+2025-11-04 14:50:39,209 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:50:39,209 - INFO - 💾 Saving detection results...
+2025-11-04 14:50:39,222 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/test/generated/distilled/detection_results.json
+2025-11-04 14:50:39,223 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/test/generated/distilled/statistics_by_category.json
+2025-11-04 14:50:39,223 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:50:39,228 - INFO -   ✅ Saved 50 speeding samples to abnormal/BJUT_Beijing/test/generated/distilled/samples/speeding_samples.json
+2025-11-04 14:50:39,232 - INFO -   ✅ Saved 50 detour samples to abnormal/BJUT_Beijing/test/generated/distilled/samples/detour_samples.json
+2025-11-04 14:50:39,236 - INFO -   ✅ Saved 50 circuitous samples to abnormal/BJUT_Beijing/test/generated/distilled/samples/circuitous_samples.json
+2025-11-04 14:50:39,236 - INFO - 
+============================================================
+2025-11-04 14:50:39,236 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:50:39,236 - INFO - ============================================================
+2025-11-04 14:50:39,236 - INFO - Dataset: BJUT_Beijing
+2025-11-04 14:50:39,236 - INFO - Total trajectories analyzed: 4,930
+2025-11-04 14:50:39,236 - INFO - 
+Abnormalities detected:
+2025-11-04 14:50:39,236 - INFO -   • speeding: 4,423 (89.72%)
+2025-11-04 14:50:39,236 - INFO -   • detour: 3,200 (64.91%)
+2025-11-04 14:50:39,236 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:39,236 - INFO -   • circuitous: 3,023 (61.32%)
+2025-11-04 14:50:39,236 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:50:39,236 - INFO - ============================================================
+2025-11-04 14:50:39,236 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/test/generated/distilled
+2025-11-04 14:50:39,236 - INFO - ✅ Analysis complete!
+2025-11-04 14:50:39,278 - INFO -         Generated: 4443/4930 (90.12%) abnormal
+2025-11-04 14:50:39,278 - INFO -       ✅ Using translated file for cross-dataset: distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 14:50:39,278 - INFO -       Analyzing distilled_seed44...
+2025-11-04 14:50:39,278 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:50:39,278 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 14:50:39,278 - INFO - 📂 Real data: gene_translated/BJUT_Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv
+2025-11-04 14:50:39,278 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:50:39,279 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/generated/distilled_seed44
+2025-11-04 14:50:39,279 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:50:39,286 - INFO - 📂 Loading road network...
+2025-11-04 14:50:39,383 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:50:41,270 - INFO - ✅ Loaded 4930 trajectories
+2025-11-04 14:50:41,464 - INFO - 📊 Total trajectory points: 180,477
+2025-11-04 14:50:41,464 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:50:45,793 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:50:45,793 - INFO - Analyzing 180477 trajectories for abnormalities...
+2025-11-04 14:50:48,152 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:50:48,152 - INFO -   speeding: 4423 (89.72%)
+2025-11-04 14:50:48,152 - INFO -   detour: 3200 (64.91%)
+2025-11-04 14:50:48,152 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:48,152 - INFO -   circuitous: 3023 (61.32%)
+2025-11-04 14:50:48,152 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:50:48,152 - INFO - 💾 Saving detection results...
+2025-11-04 14:50:48,166 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/test/generated/distilled_seed44/detection_results.json
+2025-11-04 14:50:48,166 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/test/generated/distilled_seed44/statistics_by_category.json
+2025-11-04 14:50:48,167 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:50:48,171 - INFO -   ✅ Saved 50 speeding samples to abnormal/BJUT_Beijing/test/generated/distilled_seed44/samples/speeding_samples.json
+2025-11-04 14:50:48,174 - INFO -   ✅ Saved 50 detour samples to abnormal/BJUT_Beijing/test/generated/distilled_seed44/samples/detour_samples.json
+2025-11-04 14:50:48,178 - INFO -   ✅ Saved 50 circuitous samples to abnormal/BJUT_Beijing/test/generated/distilled_seed44/samples/circuitous_samples.json
+2025-11-04 14:50:48,179 - INFO - 
+============================================================
+2025-11-04 14:50:48,179 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:50:48,179 - INFO - ============================================================
+2025-11-04 14:50:48,179 - INFO - Dataset: BJUT_Beijing
+2025-11-04 14:50:48,179 - INFO - Total trajectories analyzed: 4,930
+2025-11-04 14:50:48,179 - INFO - 
+Abnormalities detected:
+2025-11-04 14:50:48,179 - INFO -   • speeding: 4,423 (89.72%)
+2025-11-04 14:50:48,179 - INFO -   • detour: 3,200 (64.91%)
+2025-11-04 14:50:48,179 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:48,179 - INFO -   • circuitous: 3,023 (61.32%)
+2025-11-04 14:50:48,179 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:50:48,179 - INFO - ============================================================
+2025-11-04 14:50:48,179 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/test/generated/distilled_seed44
+2025-11-04 14:50:48,179 - INFO - ✅ Analysis complete!
+2025-11-04 14:50:48,222 - INFO -         Generated: 4443/4930 (90.12%) abnormal
+2025-11-04 14:50:48,222 - INFO -       ✅ Using translated file for cross-dataset: vanilla_test_2025-10-08_22-03-58.csv
+2025-11-04 14:50:48,223 - INFO -       Analyzing vanilla...
+2025-11-04 14:50:48,223 - INFO - 🔍 Starting abnormal trajectory analysis...
+2025-11-04 14:50:48,223 - INFO - 📂 Dataset: BJUT_Beijing
+2025-11-04 14:50:48,223 - INFO - 📂 Real data: gene_translated/BJUT_Beijing/seed42/vanilla_test_2025-10-08_22-03-58.csv
+2025-11-04 14:50:48,223 - INFO - ⚙️  Config: config/abnormal_detection.yaml
+2025-11-04 14:50:48,223 - INFO - 💾 Output directory: abnormal/BJUT_Beijing/test/generated/vanilla
+2025-11-04 14:50:48,223 - INFO - ⚙️  Loading configuration...
+2025-11-04 14:50:48,232 - INFO - 📂 Loading road network...
+2025-11-04 14:50:48,343 - INFO - 📂 Loading generated trajectories...
+2025-11-04 14:50:49,226 - INFO - ✅ Loaded 4930 trajectories
+2025-11-04 14:50:49,297 - INFO - 📊 Total trajectory points: 71,961
+2025-11-04 14:50:49,298 - INFO - 🔧 Initializing abnormal trajectory detector...
+2025-11-04 14:50:53,649 - INFO - 🔍 Running abnormality detection...
+2025-11-04 14:50:53,649 - INFO - Analyzing 71961 trajectories for abnormalities...
+2025-11-04 14:50:54,932 - INFO - Detection complete. Found abnormalities:
+2025-11-04 14:50:54,932 - INFO -   speeding: 3427 (69.51%)
+2025-11-04 14:50:54,932 - INFO -   detour: 2556 (51.85%)
+2025-11-04 14:50:54,932 - INFO -   suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:54,932 - INFO -   circuitous: 2600 (52.74%)
+2025-11-04 14:50:54,932 - INFO -   unusual_duration: 0 (0.00%)
+2025-11-04 14:50:54,932 - INFO - 💾 Saving detection results...
+2025-11-04 14:50:54,943 - INFO - ✅ Saved detection results to abnormal/BJUT_Beijing/test/generated/vanilla/detection_results.json
+2025-11-04 14:50:54,944 - INFO - ✅ Saved statistics to abnormal/BJUT_Beijing/test/generated/vanilla/statistics_by_category.json
+2025-11-04 14:50:54,944 - INFO - 💾 Saving trajectory samples...
+2025-11-04 14:50:54,948 - INFO -   ✅ Saved 50 speeding samples to abnormal/BJUT_Beijing/test/generated/vanilla/samples/speeding_samples.json
+2025-11-04 14:50:54,953 - INFO -   ✅ Saved 50 detour samples to abnormal/BJUT_Beijing/test/generated/vanilla/samples/detour_samples.json
+2025-11-04 14:50:54,957 - INFO -   ✅ Saved 50 circuitous samples to abnormal/BJUT_Beijing/test/generated/vanilla/samples/circuitous_samples.json
+2025-11-04 14:50:54,957 - INFO - 
+============================================================
+2025-11-04 14:50:54,957 - INFO - 📋 ABNORMAL TRAJECTORY DETECTION SUMMARY
+2025-11-04 14:50:54,957 - INFO - ============================================================
+2025-11-04 14:50:54,957 - INFO - Dataset: BJUT_Beijing
+2025-11-04 14:50:54,957 - INFO - Total trajectories analyzed: 4,930
+2025-11-04 14:50:54,957 - INFO - 
+Abnormalities detected:
+2025-11-04 14:50:54,957 - INFO -   • speeding: 3,427 (69.51%)
+2025-11-04 14:50:54,957 - INFO -   • detour: 2,556 (51.85%)
+2025-11-04 14:50:54,957 - INFO -   • suspicious_stops: 0 (0.00%)
+2025-11-04 14:50:54,957 - INFO -   • circuitous: 2,600 (52.74%)
+2025-11-04 14:50:54,957 - INFO -   • unusual_duration: 0 (0.00%)
+2025-11-04 14:50:54,957 - INFO - ============================================================
+2025-11-04 14:50:54,957 - INFO - 💾 Results saved to: abnormal/BJUT_Beijing/test/generated/vanilla
+2025-11-04 14:50:54,958 - INFO - ✅ Analysis complete!
+2025-11-04 14:50:54,982 - INFO -         Generated: 3585/4930 (72.72%) abnormal
+2025-11-04 14:50:54,983 - INFO - 
+    📊 Comparison Report (test):
+2025-11-04 14:50:54,983 - INFO -     ============================================================
+2025-11-04 14:50:54,983 - INFO -     Real data:   0/5979 (0.00%)
+2025-11-04 14:50:54,983 - INFO -     ⚠️  distilled   : 4443/4930 (90.12%, +90.12% vs real)
+2025-11-04 14:50:54,983 - INFO -     ⚠️  distilled_seed44: 4443/4930 (90.12%, +90.12% vs real)
+2025-11-04 14:50:54,983 - INFO -     ⚠️  vanilla     : 3585/4930 (72.72%, +72.72% vs real)
+2025-11-04 14:50:54,983 - INFO -     💾 Saved comparison report to abnormal/BJUT_Beijing/test/comparison_report.json
+2025-11-04 14:50:54,983 - INFO - 
+✅ Abnormal analysis complete for BJUT_Beijing! Results in abnormal/BJUT_Beijing/
+2025-11-04 14:50:54,991 - INFO - ✅ Phase abnormal completed
+2025-11-04 14:50:54,991 - INFO - ⏭️  Skipping phase: abnormal_od_extract
+2025-11-04 14:50:54,991 - INFO - ⏭️  Skipping phase: abnormal_od_generate
+2025-11-04 14:50:54,991 - INFO - ⏭️  Skipping phase: abnormal_od_evaluate
+2025-11-04 14:50:54,991 - INFO - ⏭️  Skipping phase: scenarios
+2025-11-04 14:50:54,991 - INFO - 
+✅ Pipeline completed successfully!
+2025-11-04 14:50:54,991 - INFO - ✅ Pipeline completed successfully!
+📂 Loading road network...
+📐 Calculating road centroids for 40,060 roads...
+✅ Road network loaded: 40,060 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/Beijing/train.csv...
+🔄 Parsing 629,380 trajectories...
+✅ Loaded 629,380 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/distilled_train_2025-10-08_18-23-41.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/distilled_seed44_train_2025-10-08_20-02-16.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/vanilla_train_2025-10-08_21-25-52.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/data/Beijing/test.csv...
+🔄 Parsing 179,823 trajectories...
+✅ Loaded 179,823 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene/Beijing/seed42/vanilla_test_2025-10-08_22-03-58.csv...
+🔄 Parsing 5,000 trajectories...
+✅ Loaded 5,000 valid trajectories (dropped 0)
+📂 Loading road network...
+📐 Calculating road centroids for 87,481 roads...
+✅ Road network loaded: 87,481 valid roads
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/train.csv...
+🔄 Parsing 27,897 trajectories...
+✅ Loaded 27,897 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/distilled_train_2025-10-08_18-23-41.csv...
+🔄 Parsing 4,979 trajectories...
+✅ Loaded 4,979 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/distilled_seed44_train_2025-10-08_20-02-16.csv...
+🔄 Parsing 4,979 trajectories...
+✅ Loaded 4,979 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/vanilla_train_2025-10-08_21-25-52.csv...
+🔄 Parsing 4,979 trajectories...
+✅ Loaded 4,979 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from /home/matt/Dev/HOSER/hoser-distill-optuna-6/../data/BJUT_Beijing/test.csv...
+🔄 Parsing 5,979 trajectories...
+✅ Loaded 5,979 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv...
+🔄 Parsing 4,930 trajectories...
+✅ Loaded 4,930 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/distilled_seed44_test_2025-10-08_20-50-57.csv...
+🔄 Parsing 4,930 trajectories...
+✅ Loaded 4,930 valid trajectories (dropped 0)
+📂 Using cached road network...
+📂 Loading trajectories from gene_translated/BJUT_Beijing/seed42/vanilla_test_2025-10-08_22-03-58.csv...
+🔄 Parsing 4,930 trajectories...
+✅ Loaded 4,930 valid trajectories (dropped 0)
