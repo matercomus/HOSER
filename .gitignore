@@ -9,14 +9,8 @@ __pycache__/
 HOSER_paper.pdf
 HOSER_paper.txt
 EVAL_NOTES.md
-.cursor/*
-!.cursor/rules/
-!.cursor/docs/
-!.cursor/worktrees.json
-!.cursor/setup-worktree-unix.sh
-!.cursor/fix-existing-worktrees.sh
-.cursor/*.log
-# Note: .cursor/plans/ is NOT tracked - it's symlinked in worktrees for multi-agent coordination
+.cursor/
+# Note: .cursor/ contains development tooling and is fully excluded from repository
 *.pdf
 # Weights & Biases
 wandb/
