@@ -31,6 +31,16 @@ except ImportError:
     HAS_SCIPY = False
     logger.warning("scipy not available - statistical tests will be limited")
 
+try:
+    from statsmodels.stats.multitest import multipletests
+
+    HAS_STATSMODELS = True
+except ImportError:
+    HAS_STATSMODELS = False
+    logger.warning(
+        "statsmodels not available - will use Bonferroni instead of FDR correction"
+    )
+
 
 @dataclass
 class DetectionMetrics:
@@ -526,7 +536,7 @@ class WangResultsCollector:
         """Perform statistical significance tests comparing real vs generated
 
         Returns:
-            Dictionary with statistical test results
+            Dictionary with statistical test results, including multiple testing correction
         """
         test_results = {}
 
@@ -534,9 +544,12 @@ class WangResultsCollector:
             logger.warning("scipy not available - skipping statistical tests")
             return test_results
 
+        # First pass: Collect all test results with raw p-values
+        all_tests = []
+        all_p_values = []
+
         for dataset in set(c.dataset for c in self.comparisons):
             dataset_comparisons = [c for c in self.comparisons if c.dataset == dataset]
-            dataset_tests = []
 
             for comp in dataset_comparisons:
                 # Chi-square test for proportions
@@ -557,33 +570,88 @@ class WangResultsCollector:
                 try:
                     chi2, p_value = stats.chi2_contingency(contingency)[:2]
 
-                    dataset_tests.append(
-                        {
-                            "model": comp.model,
-                            "od_source": comp.od_source,
-                            "real_rate": comp.real_rate,
-                            "generated_rate": comp.generated_rate,
-                            "chi2": float(chi2),
-                            "p_value": float(p_value),
-                            "significant": p_value < 0.05,
-                            "interpretation": "Significantly different"
-                            if p_value < 0.05
-                            else "Not significantly different",
-                        }
-                    )
+                    test_result = {
+                        "dataset": dataset,
+                        "model": comp.model,
+                        "od_source": comp.od_source,
+                        "real_rate": comp.real_rate,
+                        "generated_rate": comp.generated_rate,
+                        "chi2": float(chi2),
+                        "p_value": float(p_value),
+                    }
+                    all_tests.append(test_result)
+                    all_p_values.append(p_value)
                 except Exception as e:
                     logger.warning(
                         f"Error performing chi-square test for {comp.model}: {e}"
                     )
-                    dataset_tests.append(
+                    all_tests.append(
                         {
+                            "dataset": dataset,
                             "model": comp.model,
                             "od_source": comp.od_source,
                             "error": str(e),
                         }
                     )
+                    all_p_values.append(None)
 
-            test_results[dataset] = dataset_tests
+        # Second pass: Apply multiple testing correction
+        num_comparisons = len([p for p in all_p_values if p is not None])
+        logger.info(
+            f"Applying multiple testing correction for {num_comparisons} comparisons"
+        )
+
+        if num_comparisons > 0:
+            valid_p_values = [p for p in all_p_values if p is not None]
+
+            if HAS_STATSMODELS:
+                # Use FDR (Benjamini-Hochberg) correction - recommended
+                logger.info("Using FDR (Benjamini-Hochberg) correction")
+                reject, pvals_corrected, _, _ = multipletests(
+                    valid_p_values, alpha=0.05, method="fdr_bh"
+                )
+                correction_method = "FDR (Benjamini-Hochberg)"
+            else:
+                # Fallback to Bonferroni correction
+                logger.info("Using Bonferroni correction")
+                alpha_bonferroni = 0.05 / num_comparisons
+                pvals_corrected = [
+                    min(p * num_comparisons, 1.0) for p in valid_p_values
+                ]
+                reject = [p < alpha_bonferroni for p in valid_p_values]
+                correction_method = "Bonferroni"
+
+            # Update test results with corrected p-values
+            corrected_idx = 0
+            for i, test in enumerate(all_tests):
+                if "error" not in test:
+                    test["p_value_adjusted"] = float(pvals_corrected[corrected_idx])
+                    test["significant"] = bool(reject[corrected_idx])
+                    test["interpretation"] = (
+                        "Significantly different"
+                        if reject[corrected_idx]
+                        else "Not significantly different"
+                    )
+                    corrected_idx += 1
+
+        # Organize results by dataset
+        for test in all_tests:
+            dataset = test.pop("dataset")
+            if dataset not in test_results:
+                test_results[dataset] = []
+            test_results[dataset].append(test)
+
+        # Add metadata about correction
+        test_results["_metadata"] = {
+            "num_comparisons": num_comparisons,
+            "correction_method": correction_method if num_comparisons > 0 else "None",
+            "alpha": 0.05,
+            "alpha_adjusted": (
+                0.05 / num_comparisons
+                if num_comparisons > 0 and not HAS_STATSMODELS
+                else "FDR-controlled"
+            ),
+        }
 
         return test_results
 

@@ -574,6 +574,8 @@ class GlobalMetrics:
                 continue
 
             # Create histogram bins
+            # Using 100 bins provides sufficient granularity for capturing
+            # distribution differences while maintaining statistical stability
             real_max = np.max(real_vals)
             bins = np.linspace(0, real_max, 100).tolist()
             bins.append(float("inf"))

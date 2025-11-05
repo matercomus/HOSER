@@ -123,7 +123,15 @@ Abp4: ALr > NL + L_ρ AND ATr > NT + T_ρ  → Both deviations
 **Chi-Square Tests**:
 - Compare real vs. generated abnormality rates
 - Test null hypothesis: distributions are identical
-- Significance level: α = 0.001 (Bonferroni correction for multiple comparisons)
+- Significance level: α = 0.05 with FDR correction (Benjamini-Hochberg method)
+- Both raw and adjusted p-values reported
+- Multiple testing correction accounts for all comparisons across datasets
+
+**Correction Method**:
+- **FDR (False Discovery Rate)** using Benjamini-Hochberg procedure
+- Controls expected proportion of false discoveries among rejected hypotheses
+- Less conservative than Bonferroni, more appropriate for exploratory analysis
+- Reported p-values are FDR-adjusted
 
 **Model Ranking**:
 - Rank by **absolute deviation** from real abnormality rate

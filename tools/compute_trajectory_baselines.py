@@ -6,10 +6,17 @@ Implements baseline computation from Wang et al. 2018 methodology.
 Computes mean/std/quantiles for route length, travel time, and speed
 on a per-OD-pair basis from real trajectory data.
 
+IMPORTANT: By default, baselines are computed using ONLY training data
+to avoid data leakage. This ensures valid evaluation on test data.
+
 Usage:
+    # Compute baselines (train-only, recommended):
     uv run python tools/compute_trajectory_baselines.py --dataset Beijing
     uv run python tools/compute_trajectory_baselines.py --dataset BJUT_Beijing
     uv run python tools/compute_trajectory_baselines.py --dataset porto_hoser
+
+    # Legacy mode (includes test data, causes data leakage):
+    uv run python tools/compute_trajectory_baselines.py --dataset Beijing --include-test
 """
 
 import argparse
@@ -25,15 +32,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_real_trajectories(dataset: str, data_dir: Path) -> pl.DataFrame:
-    """Load and combine train + test real trajectories
+def load_real_trajectories(
+    dataset: str, data_dir: Path, train_only: bool = True
+) -> pl.DataFrame:
+    """Load real trajectories for baseline computation
 
     Args:
         dataset: Dataset name
         data_dir: Path to data directory
+        train_only: If True, load only training data to avoid data leakage.
+                   If False, combine train + test (legacy behavior, not recommended)
 
     Returns:
-        Combined DataFrame with all real trajectories
+        DataFrame with real trajectories (train-only by default for valid baselines)
     """
     logger.info(f"📂 Loading real trajectories for {dataset}")
 
@@ -47,19 +58,28 @@ def load_real_trajectories(dataset: str, data_dir: Path) -> pl.DataFrame:
     train_df = pl.read_csv(train_file)
     logger.info(f"  ✅ Loaded {len(train_df)} train trajectory points")
 
-    if test_file.exists():
-        logger.info(f"  Loading test data from {test_file}")
-        test_df = pl.read_csv(test_file)
-        logger.info(f"  ✅ Loaded {len(test_df)} test trajectory points")
-
-        # Combine
-        combined_df = pl.concat([train_df, test_df])
-        logger.info(f"  📊 Combined: {len(combined_df)} total points")
+    if train_only:
+        logger.info("  ✅ Using train-only data (no data leakage)")
+        return train_df
     else:
-        logger.warning("  ⚠️  Test file not found, using train only")
-        combined_df = train_df
+        # Legacy behavior: combine train + test (causes data leakage!)
+        logger.warning("  ⚠️  WARNING: Combining train + test data causes DATA LEAKAGE!")
+        logger.warning("  ⚠️  Test set statistics will leak into baseline computation.")
+        logger.warning("  ⚠️  Use train_only=True for valid evaluation.")
 
-    return combined_df
+        if test_file.exists():
+            logger.info(f"  Loading test data from {test_file}")
+            test_df = pl.read_csv(test_file)
+            logger.info(f"  ✅ Loaded {len(test_df)} test trajectory points")
+
+            # Combine
+            combined_df = pl.concat([train_df, test_df])
+            logger.info(f"  📊 Combined: {len(combined_df)} total points")
+        else:
+            logger.warning("  ⚠️  Test file not found, using train only")
+            combined_df = train_df
+
+        return combined_df
 
 
 def compute_trajectory_metrics(row: dict, road_network: pl.DataFrame = None) -> dict:
@@ -111,10 +131,14 @@ def compute_od_baselines(trajectories_df: pl.DataFrame) -> dict:
     """Compute baseline statistics per OD pair
 
     Args:
-        trajectories_df: Combined train+test trajectories
+        trajectories_df: Training trajectories (should be train-only to avoid data leakage)
 
     Returns:
         Dict with baselines per OD pair and global statistics
+
+    Note:
+        To avoid data leakage, this should only receive TRAINING data.
+        Test set should be evaluated against baselines computed from train set only.
     """
     logger.info("\n📊 Computing OD-pair baseline statistics...")
 
@@ -321,6 +345,11 @@ Examples:
         default="baselines",
         help="Output directory for baseline files (default: baselines/)",
     )
+    parser.add_argument(
+        "--include-test",
+        action="store_true",
+        help="Include test data in baseline computation (NOT RECOMMENDED: causes data leakage!)",
+    )
 
     args = parser.parse_args()
 
@@ -341,8 +370,18 @@ Examples:
     logger.info(f"Data directory: {data_dir}")
     logger.info(f"Output directory: {args.output_dir}")
 
-    # Load trajectories
-    trajectories_df = load_real_trajectories(args.dataset, data_dir)
+    # Warn if including test data
+    if args.include_test:
+        logger.warning("\n⚠️  WARNING: Including test data in baseline computation!")
+        logger.warning(
+            "⚠️  This causes DATA LEAKAGE and invalidates evaluation results!"
+        )
+        logger.warning("⚠️  Use --include-test only for legacy compatibility.\n")
+
+    # Load trajectories (train-only by default to avoid data leakage)
+    trajectories_df = load_real_trajectories(
+        args.dataset, data_dir, train_only=not args.include_test
+    )
 
     # Compute baselines
     baselines = compute_od_baselines(trajectories_df)

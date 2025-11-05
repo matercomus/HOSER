@@ -139,14 +139,14 @@ where:
 1. **Distance JSD**: Compares trip distance distributions
    - Measures: How far trajectories travel (in km)
    - **Lower is better** (closer to real trip length patterns)
-   - Bins: 50 equal-width bins across distance range
+   - Bins: 100 equal-width bins across distance range
    - Example: JSD=0.018 (distilled) vs 0.145 (vanilla)
    - Interpretation: Distilled's distance distribution is much closer to reality
 
 2. **Duration JSD**: Compares trip duration distributions
    - Measures: How long trajectories take (in hours)
    - **Lower is better** (closer to real trip time patterns)
-   - Bins: 50 equal-width bins across duration range
+   - Bins: 100 equal-width bins across duration range
    - Note: Correlated with distance (longer trips take more time)
    - Less critical metric (duration derived from timestamps)
 
@@ -156,7 +156,7 @@ where:
      $$R_g = \sqrt{\frac{1}{N} \sum_{i=1}^{N} \text{dist}(p_i, \bar{p})^2}$$
      where $\bar{p}$ is the centroid of all trajectory points
    - **Lower is better** (closer to real spatial complexity)
-   - Bins: 50 equal-width bins across radius range
+   - Bins: 100 equal-width bins across radius range
    - Interpretation: Captures trajectory "spread" - tighter or more dispersed
    - Critical for understanding spatial behavior
 
@@ -935,7 +935,7 @@ JSD(P || Q) = 0.5 * KL(P || M) + 0.5 * KL(Q || M)
 where M = 0.5 * (P + Q)
 ```
 
-Bins: 50 bins for distance, 50 for duration, 50 for radius of gyration
+Bins: 100 bins for distance, 100 for duration, 100 for radius of gyration
 
 ### 9.4 Evaluation Pipeline
 
