@@ -133,6 +133,7 @@ class PipelineConfig:
         self.enable_wandb = True
         self.verbose = False
         self.beam_width = 4
+        self.beam_search = True  # Use beam search by default (set False for A* search)
         self.grid_size = 0.001
         self.edr_eps = 100.0
         self.background_sync = True  # Background WandB sync
@@ -254,7 +255,7 @@ class TrajectoryGenerator:
             seed=self.config.seed,
             num_gene=self.config.num_gene,
             cuda_device=self.config.cuda_device,
-            beam_search=True,
+            beam_search=self.config.beam_search,
             beam_width=self.config.beam_width,
             enable_wandb=False,  # We'll handle WandB separately
             wandb_project=None,
@@ -1772,6 +1773,8 @@ class EvaluationPipeline:
                     output_file=str(output_file),
                     seed=self.config.seed,
                     cuda_device=self.config.cuda_device,
+                    beam_search=self.config.beam_search,
+                    beam_width=self.config.beam_width,
                 )
 
                 if result.get("output_file"):
@@ -2123,6 +2126,11 @@ def main():
         "--num-gene", type=int, help="Number of trajectories (overrides config)"
     )
     parser.add_argument(
+        "--use-astar",
+        action="store_true",
+        help="Use A* search instead of beam search (original HOSER method)",
+    )
+    parser.add_argument(
         "--wandb-project", type=str, help="WandB project (overrides config)"
     )
     parser.add_argument(
@@ -2227,6 +2235,8 @@ def main():
         config.cuda_device = args.cuda
     if args.num_gene is not None:
         config.num_gene = args.num_gene
+    if args.use_astar:
+        config.beam_search = False
     if args.wandb_project is not None:
         config.wandb_project = args.wandb_project
     if args.no_wandb:

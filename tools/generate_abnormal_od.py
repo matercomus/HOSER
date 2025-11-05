@@ -144,6 +144,8 @@ def generate_for_abnormal_od_pairs(
                 output_file=str(output_file),
                 seed=seed,
                 cuda_device=cuda_device,
+                beam_search=True,  # Use beam search by default (4-width)
+                beam_width=4,
             )
 
             if result.get("output_file"):
