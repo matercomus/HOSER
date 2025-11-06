@@ -29,6 +29,7 @@ This research investigates **knowledge distillation** from LM-TAD into HOSER for
 ### Documentation
 
 - 📘 **[Distillation Methodology](docs/LMTAD-Distillation.md)** - Complete technical guide
+- 🏗️ **[Architecture Specification](docs/ARCHITECTURE_SPECIFICATION.md)** - Complete model architecture details
 - 💾 **[Checkpoint Strategy](docs/CHECKPOINT_STRATEGY.md)** - Model saving and loading guide
 - 📊 **[Teacher Baseline](docs/results/TEACHER_BASELINE_COMPARISON.md)** - Performance metrics
 - ✅ **[Vocabulary Mapping](docs/VOCABULARY_MAPPING_VALIDATION.md)** - Mapping validation

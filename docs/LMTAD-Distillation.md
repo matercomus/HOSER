@@ -48,6 +48,7 @@
 **Our fast, production-ready model**
 
 - **Architecture**: Hierarchical spatial reasoning using 300 learned zones + Graph Neural Network (GCN) + attention-based navigator
+- **Parameters**: ~4.45M (see [Architecture Specification](ARCHITECTURE_SPECIFICATION.md) for complete details)
 - **Speed**: ~10-12 it/s (iterations per second) = ~13ms per batch
 - **Baseline accuracy**: 57.2% (next-step prediction accuracy on validation set)
 - **Strength**: Fast enough for real-time deployment, hierarchical design captures macro-level spatial patterns
@@ -58,6 +59,7 @@
 
 - **Original purpose**: Trajectory anomaly detection via perplexity and surprisal metrics ([Mbuya et al., SIGSPATIAL 2024](https://arxiv.org/pdf/2409.15366))
 - **Architecture**: Transformer-based autoregressive causal-attention model operating on 51,663 fine-grained grid cells
+- **Parameters**: ~136.79M - 30.8× larger than HOSER (see [Architecture Specification](ARCHITECTURE_SPECIFICATION.md) for complete details)
 - **How we use it**: Repurpose the learned probability distributions for distillation (extract next-token probabilities instead of perplexity scores)
 - **Speed**: ~1.6-1.8 it/s = ~430ms per batch (teacher forward pass dominates)
 - **Strength**: Learned rich spatial transition patterns from grid-based trajectory representation
