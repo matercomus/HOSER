@@ -4,6 +4,11 @@
 
 This document presents the performance of the LM-TAD teacher model on trajectory anomaly detection tasks for both Beijing and Porto datasets. These teacher baselines are essential for understanding the compression-performance tradeoff achieved through knowledge distillation in HOSER.
 
+## Related Documentation
+
+- **[Cross-Seed Analysis](CROSS_SEED_ANALYSIS.md)** - Statistical analysis of cross-seed variance with confidence intervals
+- **[Wang Abnormality Detection](WANG_ABNORMALITY_DETECTION_RESULTS.md)** - Wang baseline anomaly detection results
+
 ## Teacher Model Architecture
 
 **LM-TAD (Language Model for Trajectory Anomaly Detection)**:
