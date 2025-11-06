@@ -73,7 +73,7 @@ def load_aggregated_results(json_path: Path) -> Dict:
 
 
 def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: str):
-    """Plot real vs generated abnormality rates for each model"""
+    """Plot real vs generated abnormality rates for each model with confidence intervals"""
     if not HAS_MATPLOTLIB:
         logger.warning("matplotlib not available, skipping visualization")
         return
@@ -85,42 +85,77 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
 
     real_rate = summary.get("mean_real_rate", 0)
 
-    # Get model names from comparisons
-    model_rates = {}
-    for comp in results.get("comparisons", []):
-        if comp.get("dataset") == dataset:
-            model = comp.get("model")
-            if model is None:  # Skip real data entries
-                continue
-            rate = comp.get("generated_rate", 0)
-            split = comp.get("od_source", "unknown")
-            key = f"{model}_{split}"
-            model_rates[key] = rate
+    # Get model rates, CIs, and effect sizes from statistical tests
+    tests = (
+        results.get("statistical_analysis", {})
+        .get("statistical_tests", {})
+        .get(dataset, [])
+    )
 
-    if not model_rates:
-        logger.warning(f"No model rates found for {dataset}")
+    model_data = {}
+    for test in tests:
+        model = test.get("model")
+        split = test.get("od_source", "unknown")
+        key = f"{model}_{split}"
+
+        rate = test.get("generated_rate", 0)
+        ci = test.get("generated_ci_95", [rate, rate])
+        effect_size = test.get("effect_size", "unknown")
+        cohens_h = test.get("cohens_h", 0)
+
+        # Calculate error bar sizes (distance from rate to CI bounds)
+        error_lower = rate - ci[0]
+        error_upper = ci[1] - rate
+
+        model_data[key] = {
+            "rate": rate,
+            "error_lower": error_lower,
+            "error_upper": error_upper,
+            "effect_size": effect_size,
+            "cohens_h": cohens_h,
+        }
+
+    if not model_data:
+        logger.warning(f"No model data found for {dataset}")
         return
 
     # Sort by rate
-    sorted_models = sorted(model_rates.items(), key=lambda x: x[1])
+    sorted_models = sorted(model_data.items(), key=lambda x: x[1]["rate"])
 
     logger.info(f"  Plotting {len(sorted_models)} models for {dataset}")
 
     fig, ax = plt.subplots(figsize=(12, max(6, len(sorted_models) * 0.5)))
     models = [m[0] for m in sorted_models]
-    rates = [m[1] for m in sorted_models]
+    rates = [m[1]["rate"] for m in sorted_models]
+    error_lowers = [m[1]["error_lower"] for m in sorted_models]
+    error_uppers = [m[1]["error_upper"] for m in sorted_models]
+    effect_sizes = [m[1]["effect_size"] for m in sorted_models]
 
-    # Plot bars
+    # Create error bars in correct format (2xN array)
+    errors = np.array([error_lowers, error_uppers])
+
+    # Plot bars with error bars
     colors = [COLORS.get(m.split("_")[0], "#95a5a6") for m in models]
-    bars = ax.barh(models, rates, color=colors, alpha=0.8)
+    bars = ax.barh(
+        models,
+        rates,
+        xerr=errors,
+        color=colors,
+        alpha=0.8,
+        error_kw={"elinewidth": 2, "capsize": 4, "capthick": 2, "alpha": 0.7},
+    )
 
-    # Add value labels on bars
-    for bar, rate in zip(bars, rates):
+    # Add value labels on bars with effect size indicators
+    effect_symbols = {"small": "✅", "medium": "⚠️", "large": "❌"}
+    for i, (bar, rate, error_upper, effect) in enumerate(
+        zip(bars, rates, error_uppers, effect_sizes)
+    ):
         width = bar.get_width()
+        symbol = effect_symbols.get(effect, "")
         ax.text(
-            width + 0.5,
+            width + error_upper + 1.0,
             bar.get_y() + bar.get_height() / 2,
-            f"{rate:.2f}%",
+            f"{rate:.2f}% {symbol}",
             ha="left",
             va="center",
             fontsize=9,
@@ -135,14 +170,32 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
         label=f"Real Data ({real_rate:.2f}%)",
     )
 
-    ax.set_xlabel("Abnormality Rate (%)", fontsize=12)
+    ax.set_xlabel("Abnormality Rate (%) with 95% CI", fontsize=12)
     ax.set_ylabel("Model", fontsize=12)
     ax.set_title(
-        f"Abnormality Rates: {dataset} - Real vs Generated",
+        f"Abnormality Rates: {dataset} - Real vs Generated\n(Error bars show 95% confidence intervals)",
         fontsize=14,
         fontweight="bold",
     )
-    ax.legend(loc="best")
+
+    # Enhanced legend
+    legend_elements = [
+        plt.Line2D(
+            [0],
+            [0],
+            color=COLORS["real"],
+            linestyle="--",
+            linewidth=2,
+            label=f"Real Data ({real_rate:.2f}%)",
+        ),
+        plt.Rectangle(
+            (0, 0), 1, 1, fc="gray", alpha=0.8, label="Generated (with 95% CI)"
+        ),
+        plt.Line2D([0], [0], marker="", linestyle="", label="✅ = Small effect (good)"),
+        plt.Line2D([0], [0], marker="", linestyle="", label="⚠️ = Medium effect"),
+        plt.Line2D([0], [0], marker="", linestyle="", label="❌ = Large effect (poor)"),
+    ]
+    ax.legend(handles=legend_elements, loc="best", fontsize=9)
     ax.grid(axis="x", alpha=0.3)
 
     plt.tight_layout()
@@ -229,11 +282,12 @@ def plot_pattern_distribution(results: Dict, output_dir: Path):
 
 
 def plot_model_rankings(results: Dict, output_dir: Path):
-    """Plot model rankings by realism (deviation from real rate)"""
+    """Plot model rankings by realism (deviation from real rate) with confidence intervals"""
     if not HAS_MATPLOTLIB:
         return
 
     rankings = results.get("statistical_analysis", {}).get("model_rankings", {})
+    tests = results.get("statistical_analysis", {}).get("statistical_tests", {})
 
     if not rankings:
         logger.warning("No model rankings found")
@@ -246,6 +300,8 @@ def plot_model_rankings(results: Dict, output_dir: Path):
 
     for ax, dataset, label in zip(axes, datasets, dataset_labels):
         dataset_rankings = rankings.get(dataset, [])
+        dataset_tests = tests.get(dataset, [])
+
         if not dataset_rankings:
             ax.text(0.5, 0.5, f"No rankings for {label}", ha="center", va="center")
             continue
@@ -256,27 +312,63 @@ def plot_model_rankings(results: Dict, output_dir: Path):
         real_rates = [m["real_rate"] for m in top_models]
         gen_rates = [m["generated_rate"] for m in top_models]
 
+        # Get CIs from statistical tests
+        real_cis = []
+        gen_cis = []
+        for m in top_models:
+            # Find matching test
+            test = next(
+                (
+                    t
+                    for t in dataset_tests
+                    if t["model"] == m["model"] and t["od_source"] == m["od_source"]
+                ),
+                None,
+            )
+            if test:
+                real_ci = test.get("real_ci_95", [m["real_rate"], m["real_rate"]])
+                gen_ci = test.get(
+                    "generated_ci_95", [m["generated_rate"], m["generated_rate"]]
+                )
+                real_cis.append(
+                    [m["real_rate"] - real_ci[0], real_ci[1] - m["real_rate"]]
+                )
+                gen_cis.append(
+                    [m["generated_rate"] - gen_ci[0], gen_ci[1] - m["generated_rate"]]
+                )
+            else:
+                real_cis.append([0, 0])
+                gen_cis.append([0, 0])
+
         x = np.arange(len(models))
         width = 0.35
+
+        # Convert CIs to format expected by matplotlib (2xN array)
+        real_errors = np.array(real_cis).T
+        gen_errors = np.array(gen_cis).T
 
         ax.bar(
             x - width / 2,
             real_rates,
             width,
-            label="Real",
+            yerr=real_errors,
+            label="Real (with 95% CI)",
             color=COLORS["real"],
             alpha=0.8,
+            error_kw={"elinewidth": 2, "capsize": 4, "capthick": 2, "alpha": 0.7},
         )
         ax.bar(
             x + width / 2,
             gen_rates,
             width,
-            label="Generated",
+            yerr=gen_errors,
+            label="Generated (with 95% CI)",
             color=COLORS.get("distilled", "#3498db"),
             alpha=0.8,
+            error_kw={"elinewidth": 2, "capsize": 4, "capthick": 2, "alpha": 0.7},
         )
 
-        ax.set_ylabel("Abnormality Rate (%)", fontsize=12)
+        ax.set_ylabel("Abnormality Rate (%) with 95% CI", fontsize=12)
         ax.set_title(f"{label}\nTop Models by Realism", fontsize=13, fontweight="bold")
         ax.set_xticks(x)
         ax.set_xticklabels(models, rotation=45, ha="right", fontsize=9)
@@ -365,7 +457,7 @@ def plot_cross_dataset_comparison(results: Dict, output_dir: Path):
 
 
 def plot_statistical_significance(results: Dict, output_dir: Path):
-    """Plot statistical significance test results (p-values)"""
+    """Plot statistical significance test results (p-values) with effect sizes"""
     if not HAS_MATPLOTLIB:
         return
 
@@ -380,30 +472,100 @@ def plot_statistical_significance(results: Dict, output_dir: Path):
     datasets = ["Beijing", "porto_hoser", "BJUT_Beijing"]
     dataset_labels = ["Beijing", "Porto", "BJUT Beijing"]
 
+    # Effect size color mapping
+    effect_colors = {
+        "small": "#2ecc71",  # Green
+        "medium": "#f39c12",  # Orange
+        "large": "#e74c3c",  # Red
+    }
+
     for ax, dataset, label in zip(axes, datasets, dataset_labels):
         dataset_tests = tests.get(dataset, [])
         if not dataset_tests:
             ax.text(0.5, 0.5, f"No tests for {label}", ha="center", va="center")
             continue
 
-        # Get p-values (log scale)
+        # Get p-values, effect sizes, and Cohen's h (log scale)
         models = [f"{t['model']}\n({t['od_source']})" for t in dataset_tests]
         p_values = [max(t["p_value"], 1e-300) for t in dataset_tests]  # Avoid log(0)
         log_p_values = [-np.log10(p) for p in p_values]
+        effect_sizes = [t.get("effect_size", "unknown") for t in dataset_tests]
+        cohens_h = [t.get("cohens_h", 0) for t in dataset_tests]
 
-        ax.barh(
-            models, log_p_values, color=COLORS.get("distilled", "#3498db"), alpha=0.8
-        )
+        # Color bars by effect size
+        bar_colors = [effect_colors.get(e, "#95a5a6") for e in effect_sizes]
+
+        bars = ax.barh(models, log_p_values, color=bar_colors, alpha=0.8)
+
+        # Add Cohen's h annotations on bars
+        for bar, h, effect in zip(bars, cohens_h, effect_sizes):
+            width = bar.get_width()
+            if width > 0:  # Only annotate if bar is visible
+                ax.text(
+                    width * 0.95,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"h={abs(h):.2f}",
+                    ha="right",
+                    va="center",
+                    fontsize=8,
+                    color="white",
+                    fontweight="bold",
+                )
+
         ax.axvline(
-            -np.log10(0.001), color="red", linestyle="--", linewidth=2, label="p=0.001"
+            -np.log10(0.001),
+            color="black",
+            linestyle="--",
+            linewidth=2,
+            alpha=0.5,
+            label="p=0.001",
         )
 
         ax.set_xlabel("-log10(p-value)", fontsize=12)
         ax.set_ylabel("Model", fontsize=12)
         ax.set_title(
-            f"{label}\nStatistical Significance", fontsize=13, fontweight="bold"
+            f"{label}\nStatistical Significance (colored by effect size)",
+            fontsize=13,
+            fontweight="bold",
         )
-        ax.legend()
+
+        # Enhanced legend
+        legend_elements = [
+            plt.Line2D(
+                [0],
+                [0],
+                color="black",
+                linestyle="--",
+                linewidth=2,
+                alpha=0.5,
+                label="p=0.001",
+            ),
+            plt.Rectangle(
+                (0, 0),
+                1,
+                1,
+                fc=effect_colors["small"],
+                alpha=0.8,
+                label="Small effect (h<0.2)",
+            ),
+            plt.Rectangle(
+                (0, 0),
+                1,
+                1,
+                fc=effect_colors["medium"],
+                alpha=0.8,
+                label="Medium effect (0.2≤h<0.5)",
+            ),
+            plt.Rectangle(
+                (0, 0),
+                1,
+                1,
+                fc=effect_colors["large"],
+                alpha=0.8,
+                label="Large effect (h≥0.5)",
+            ),
+        ]
+        ax.legend(handles=legend_elements, fontsize=9, loc="best")
         ax.grid(axis="x", alpha=0.3)
 
     plt.tight_layout()
