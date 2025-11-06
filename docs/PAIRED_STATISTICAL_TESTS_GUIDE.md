@@ -189,6 +189,296 @@ else:
 
 ---
 
+## Pipeline Integration
+
+### Overview
+
+Paired statistical tests are now fully integrated into the HOSER evaluation pipeline. Trajectory-level metrics are automatically saved during evaluation, enabling paired comparisons without manual data extraction.
+
+### Automatic Trajectory-Level Metrics
+
+When you run evaluations, the pipeline now generates two files:
+
+1. **`results.json`**: Aggregate evaluation metrics (unchanged)
+2. **`trajectory_metrics.json`**: Per-trajectory metrics for paired tests (NEW)
+
+**Location**:
+```
+./eval/{timestamp}/
+├── results.json              # Aggregate metrics
+└── trajectory_metrics.json   # Trajectory-level metrics
+```
+
+**Contents** of `trajectory_metrics.json`:
+```json
+{
+  "metadata": {
+    "generated_file": "...",
+    "od_source": "train",
+    "num_trajectory_comparisons": 1234,
+    "grid_size": 0.001,
+    "edr_eps": 100.0
+  },
+  "trajectory_metrics": [
+    {
+      "od_pair": [12345, 67890],
+      "hausdorff_norm": 0.123,
+      "dtw_norm": 0.234,
+      "edr": 0.345,
+      "len_real": 10,
+      "len_gen": 12
+    },
+    ...
+  ]
+}
+```
+
+See [TRAJECTORY_METRICS_SPECIFICATION.md](TRAJECTORY_METRICS_SPECIFICATION.md) for complete documentation.
+
+### Running Paired Analysis via Pipeline
+
+#### Method 1: As Part of Full Pipeline
+
+The `paired_analysis` phase runs automatically after `base_eval`:
+
+```bash
+cd eval-dir
+uv run python ../python_pipeline.py
+
+# Output:
+# ✅ Generation complete
+# ✅ Base evaluation complete
+# 📊 Running paired statistical analysis...
+# ✅ Paired analysis complete! 3 comparisons saved to ./paired_analysis/
+```
+
+#### Method 2: Run Paired Analysis Only
+
+If evaluations are already complete:
+
+```bash
+cd eval-dir
+uv run python ../python_pipeline.py --only paired_analysis
+
+# Output:
+# 📊 Running paired statistical analysis...
+# 📂 Processing test OD
+#   Comparing vanilla vs distilled_phase1
+#   ✓ hausdorff_norm: p=0.0012, d=0.456
+#   ✓ dtw_norm: p=0.0034, d=0.389
+#   ✓ edr: p=0.0089, d=0.312
+#   ✅ Results saved to ./paired_analysis/test/vanilla_vs_distilled_phase1/
+```
+
+#### Method 3: Skip Paired Analysis
+
+To disable paired analysis:
+
+```bash
+# Option 1: Skip via command line
+cd eval-dir
+uv run python ../python_pipeline.py --skip paired_analysis
+
+# Option 2: Remove from config/evaluation.yaml
+# Comment out or remove from phases list:
+phases:
+  - generation
+  - base_eval
+  # - paired_analysis  # DISABLED
+  - cross_dataset
+```
+
+### Output Structure
+
+Paired analysis results are saved to:
+
+```
+./paired_analysis/
+├── train/
+│   ├── vanilla_vs_distilled_phase1/
+│   │   ├── paired_comparison.json
+│   │   └── paired_comparison.md
+│   └── vanilla_vs_distilled_phase2/
+│       ├── paired_comparison.json
+│       └── paired_comparison.md
+└── test/
+    └── vanilla_vs_distilled_phase1/
+        ├── paired_comparison.json
+        └── paired_comparison.md
+```
+
+**JSON Format**:
+```json
+{
+  "model1_name": "vanilla",
+  "model2_name": "distilled_phase1",
+  "n_matched_pairs": 1234,
+  "alpha": 0.05,
+  "metrics": {
+    "hausdorff_norm": {
+      "test_name": "Paired t-test",
+      "p_value": 0.0012,
+      "cohens_d": 0.456,
+      "significant": true,
+      "model1_mean": 0.234,
+      "model2_mean": 0.178
+    },
+    ...
+  }
+}
+```
+
+**Markdown Format**: Human-readable summary with interpretation
+
+### Standalone Tool Usage
+
+For more control, use the standalone comparison tool:
+
+```bash
+# Basic usage
+uv run python tools/compare_models_paired_analysis.py \
+  --eval-dirs eval/model1/eval/2025-01-01_12-00-00 eval/model2/eval/2025-01-01_12-00-00 \
+  --model-names vanilla distilled \
+  --output paired_results.json
+
+# With custom metrics
+uv run python tools/compare_models_paired_analysis.py \
+  --eval-dirs dir1 dir2 \
+  --model-names model1 model2 \
+  --metrics hausdorff_norm dtw_norm edr \
+  --alpha 0.01 \
+  --output results.json
+```
+
+### Integration with Cross-Seed Analysis
+
+The `cross_seed_analysis.py` script now includes optional paired tests:
+
+```bash
+uv run python scripts/analysis/cross_seed_analysis.py \
+  --eval_dirs eval/model1/eval eval/model2/eval \
+  --output_dir docs/results
+
+# If trajectory_metrics.json files are available:
+# ✅ Generates CROSS_SEED_ANALYSIS.md with paired tests section
+# 📊 Compares models across all seeds using paired tests
+```
+
+The generated report includes:
+- Cross-seed statistics (mean ± std, CV)
+- **Paired Statistical Tests** section (NEW)
+  - Model comparisons on matched trajectories
+  - P-values, Cohen's d, effect sizes
+  - Aggregated across all available seeds
+
+### Interpreting Pipeline Results
+
+#### JSON Results
+
+```python
+import json
+
+with open("paired_analysis/test/vanilla_vs_distilled/paired_comparison.json") as f:
+    results = json.load(f)
+
+# Check if difference is significant
+for metric, data in results["metrics"].items():
+    if data["significant"]:
+        print(f"{metric}: Significant difference (p={data['p_value']:.4f})")
+        print(f"  Cohen's d: {data['cohens_d']:.3f}")
+        print(f"  {results['model1_name']}: {data['model1_mean']:.4f}")
+        print(f"  {results['model2_name']}: {data['model2_mean']:.4f}")
+```
+
+#### Effect Size Interpretation
+
+The pipeline automatically interprets Cohen's d:
+
+| |d| Range | Effect Size | Interpretation |
+|-----------|-------------|----------------|
+| < 0.2 | Negligible | Difference exists but practically insignificant |
+| 0.2 - 0.5 | Small | Noticeable but modest difference |
+| 0.5 - 0.8 | Medium | Substantial, meaningful difference |
+| ≥ 0.8 | Large | Very significant, impactful difference |
+
+### Best Practices
+
+#### 1. Ensure Trajectory Metrics Are Generated
+
+Trajectory metrics are generated automatically, but verify:
+
+```bash
+# Check for trajectory_metrics.json
+ls eval/*/trajectory_metrics.json
+
+# If missing, re-run evaluation:
+cd eval-dir
+uv run python ../python_pipeline.py --only base_eval
+```
+
+#### 2. Use Same OD Source for Comparisons
+
+```bash
+# ✅ GOOD: Both models on same OD source
+./eval/
+├── model1_test/  # Test OD
+└── model2_test/  # Test OD → Paired comparison valid
+
+# ❌ BAD: Different OD sources
+./eval/
+├── model1_train/  # Train OD
+└── model2_test/   # Test OD → Cannot be paired
+```
+
+#### 3. Verify Matching OD Pairs
+
+```python
+# Check matched pairs count
+n_matched = results["n_matched_pairs"]
+if n_matched < 30:
+    print(f"Warning: Only {n_matched} matched pairs, results may not be reliable")
+```
+
+Minimum recommended: 30+ matched trajectory pairs for statistical validity
+
+#### 4. Consider Multiple Comparisons
+
+When comparing multiple metrics, use FDR correction (automatically applied in pipeline):
+
+```python
+from tools.paired_statistical_tests import apply_fdr_correction
+
+# Results from multiple comparisons
+p_values = [r["p_value"] for r in results["metrics"].values()]
+metric_names = list(results["metrics"].keys())
+
+corrected_results = apply_fdr_correction(p_values, metric_names, alpha=0.05)
+
+for metric, corrected in corrected_results.items():
+    print(f"{metric}: p_corrected={corrected['p_adjusted']:.4f}, "
+          f"significant={corrected['significant']}")
+```
+
+### Troubleshooting
+
+**Problem**: `trajectory_metrics.json not found`
+- **Solution**: Run `--only base_eval` to generate trajectory metrics
+
+**Problem**: `No matching trajectory pairs found`
+- **Solution**: Ensure both models used same OD source (train or test)
+- Check that evaluations used same `grid_size` parameter
+
+**Problem**: Paired analysis shows "Only 1 model found for test OD, skipping comparisons"
+- **Solution**: Ensure multiple models have been evaluated on the same OD source
+- Check that evaluation results have proper `model_type` metadata
+
+**Problem**: High p-values (not significant) despite visible differences
+- **Check**: Sample size (`n_matched_pairs` should be ≥ 30)
+- **Check**: Effect size (Cohen's d) - small effect sizes need larger samples
+- **Consider**: Use Wilcoxon test if data is non-normal (automatically selected)
+
+---
+
 ## Complete Usage Example
 
 ### Scenario: Comparing Vanilla vs Distilled on Same OD Pairs
@@ -380,11 +670,13 @@ The paired statistical tests implementation has been validated:
 
 ### Implementation Tasks:
 1. ✅ **Create paired tests module** (`tools/paired_statistical_tests.py`)
-2. **Update evaluation pipeline** to save trajectory-level metrics
-3. **Integrate into analysis scripts** (`tools/analyze_scenarios.py`, etc.)
-4. **Re-run statistical analyses** with paired tests
-5. **Update documentation** with corrected results
-6. **Update papers/reports** with proper methodology
+2. ✅ **Update evaluation pipeline** to save trajectory-level metrics (`evaluation.py`)
+3. ✅ **Integrate into analysis scripts** (`tools/compare_models_paired_analysis.py`, `cross_seed_analysis.py`)
+4. ✅ **Add paired_analysis phase** to pipeline (`python_pipeline.py`)
+5. ✅ **Create trajectory metrics specification** (`docs/TRAJECTORY_METRICS_SPECIFICATION.md`)
+6. **Re-run statistical analyses** with paired tests (in progress)
+7. **Update documentation** with results (in progress)
+8. **Update papers/reports** with proper methodology (pending)
 
 ### Future Enhancements:
 - Add bootstrap confidence intervals for effect sizes
@@ -419,5 +711,5 @@ For questions or issues with paired statistical tests:
 ---
 
 **Last Updated**: 2025-11-06  
-**Version**: 1.0  
-**Status**: Complete
+**Version**: 2.0  
+**Status**: Pipeline Integration Complete (Issue #51)
