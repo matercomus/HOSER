@@ -128,10 +128,16 @@ def group_results_by_model_and_od(
 
 
 def compute_statistics(
-    values: List[float], confidence: float = 0.95
+    values: List[float], confidence: float = 0.95, compute_cv: bool = True
 ) -> Dict[str, float]:
     """
     Compute comprehensive statistics for a list of values.
+
+    Args:
+        values: List of numeric values to analyze
+        confidence: Confidence level for intervals (default 0.95)
+        compute_cv: Whether to compute coefficient of variation (default True).
+                   Set to False for interval scale metrics (e.g., bounded 0-1 metrics)
 
     Returns:
         Dict with mean, std, sem, ci_lower, ci_upper, cv, min, max, median
@@ -159,7 +165,11 @@ def compute_statistics(
         ci_lower = ci_upper = mean
 
     # Coefficient of variation (only for ratio scale metrics)
-    cv = (std / mean * 100) if mean != 0 else 0.0
+    # CV assumes true zero and ratio relationships - inappropriate for interval scales
+    if compute_cv:
+        cv = (std / mean * 100) if mean != 0 else 0.0
+    else:
+        cv = None  # Explicitly None for interval scale metrics
 
     return {
         "mean": mean,
@@ -188,6 +198,7 @@ def analyze_cross_seed_variance(
     analysis = {}
 
     # Metrics to analyze (exclude metadata fields)
+    # Classified by measurement scale for appropriate statistical treatment
     metric_keys = [
         "Distance_JSD",
         "Distance_real_mean",
@@ -198,12 +209,19 @@ def analyze_cross_seed_variance(
         "Radius_JSD",
         "Radius_real_mean",
         "Radius_gen_mean",
-        "Hausdorff_km",
-        "DTW_km",
-        "EDR",
+        "Hausdorff_km",  # Raw distance (ratio scale - CV appropriate)
+        "Hausdorff_norm",  # Normalized by trajectory length (ratio scale - CV appropriate)
+        "DTW_km",  # Raw distance (ratio scale - CV appropriate)
+        "DTW_norm",  # Normalized by trajectory length (ratio scale - CV appropriate)
+        "EDR",  # Edit Distance on Real sequence (interval scale, 0-1 bounded - CV problematic)
         "matched_od_pairs",
         "total_generated_od_pairs",
     ]
+
+    # Interval scale metrics (CV not appropriate - bounded or without true zero)
+    interval_scale_metrics = {
+        "EDR",  # 0-1 bounded scale
+    }
 
     for group_key, results in grouped_results.items():
         dataset, model_type, od_source = group_key
@@ -232,7 +250,9 @@ def analyze_cross_seed_variance(
                     values.append(float(result[metric]))
 
             if values:
-                stats_dict = compute_statistics(values)
+                # Determine if CV should be computed based on metric scale
+                compute_cv = metric not in interval_scale_metrics
+                stats_dict = compute_statistics(values, compute_cv=compute_cv)
                 group_analysis[metric] = stats_dict
 
         analysis[group_key] = group_analysis
@@ -294,19 +314,27 @@ def generate_markdown_report(
                         "Duration_JSD",
                         "Radius_JSD",
                         "Hausdorff_km",
+                        "Hausdorff_norm",
                         "DTW_km",
+                        "DTW_norm",
                         "EDR",
                     ]
 
                     for metric in priority_metrics:
                         if metric in metrics:
                             stats = metrics[metric]
+                            # Handle CV for interval scale metrics (None)
+                            cv_str = (
+                                f"{stats['cv']:.2f}%"
+                                if stats["cv"] is not None
+                                else "N/A*"
+                            )
                             f.write(
                                 f"| {metric} | "
                                 f"{stats['mean']:.4f} | "
                                 f"{stats['std']:.4f} | "
                                 f"[{stats['ci_lower']:.4f}, {stats['ci_upper']:.4f}] | "
-                                f"{stats['cv']:.2f}% | "
+                                f"{cv_str} | "
                                 f"{stats['n']} |\n"
                             )
 
@@ -329,9 +357,11 @@ def generate_markdown_report(
 
                     f.write("\n")
 
-                    # High variance metrics warning
+                    # High variance metrics warning (only for metrics with CV computed)
                     high_cv_metrics = [
-                        m for m, s in metrics.items() if s.get("cv", 0) > 10
+                        m
+                        for m, s in metrics.items()
+                        if s.get("cv") is not None and s.get("cv", 0) > 10
                     ]
                     if high_cv_metrics:
                         f.write(
@@ -343,13 +373,29 @@ def generate_markdown_report(
         f.write("## Statistical Notes\n\n")
         f.write("- **Mean ± Std**: Arithmetic mean with standard deviation\n")
         f.write("- **95% CI**: 95% confidence interval using t-distribution\n")
-        f.write("- **CV%**: Coefficient of variation (std/mean × 100)\n")
+        f.write(
+            "- **CV%**: Coefficient of variation (std/mean × 100) for ratio scale metrics\n"
+        )
         f.write("- **N Seeds**: Number of random seeds in analysis\n")
         f.write("\n")
-        f.write("**Interpretation**:\n")
+        f.write("**CV% Interpretation**:\n")
         f.write("- Low CV (<5%): Stable, seed-independent results\n")
         f.write("- Medium CV (5-10%): Moderate seed sensitivity\n")
         f.write("- High CV (>10%): High seed sensitivity, interpret with caution\n")
+        f.write("\n")
+        f.write(
+            "**Note**: CV% marked as 'N/A*' for interval scale metrics (e.g., EDR) where "
+            "coefficient of variation is not appropriate. EDR is bounded 0-1, making CV% "
+            "potentially misleading. For these metrics, use standard deviation and "
+            "confidence intervals instead.\n"
+        )
+        f.write("\n")
+        f.write("**Metric Scale Classification**:\n")
+        f.write(
+            "- **Ratio Scale** (CV appropriate): JSD metrics, Hausdorff (raw & normalized), "
+            "DTW (raw & normalized), real/gen means, OD match counts\n"
+        )
+        f.write("- **Interval Scale** (CV not appropriate): EDR (0-1 bounded)\n")
 
     print(f"✅ Report saved: {report_file}")
 
