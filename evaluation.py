@@ -740,6 +740,9 @@ class LocalMetrics:
         Calculates the Hausdorff distance between two trajectories u and v
         using the Haversine distance. Vectorized implementation (kept from our version).
         u and v are numpy arrays of shape (n, 2) and (m, 2) of (lat, lon) points.
+
+        Returns:
+            Hausdorff distance in kilometers (raw, unnormalized)
         """
         # haversine_vector with comb=True creates a pairwise distance matrix
         dist_matrix = haversine_vector(list(u), list(v), comb=True)
@@ -761,7 +764,12 @@ class LocalMetrics:
             traj2_coords: List of (lat, lon) tuples for trajectory 2
 
         Returns:
-            DTW distance in kilometers
+            DTW distance in kilometers (raw, unnormalized)
+
+        Note:
+            This returns the raw DTW distance. For trajectory-length independent
+            comparisons, use the normalized version (DTW_norm) which divides by
+            the average trajectory length.
         """
         # Use fastdtw directly to avoid polars-ts compatibility issues
         dist, _ = fastdtw(traj1_coords, traj2_coords, dist=haversine)
@@ -830,7 +838,9 @@ class LocalMetrics:
         gen_od_groups = self._group_by_od(self.generated_trajs)
 
         hausdorff_scores = []
+        hausdorff_norm_scores = []
         dtw_scores = []
+        dtw_norm_scores = []
         edr_scores = []
 
         num_matched_od = 0
@@ -854,17 +864,26 @@ class LocalMetrics:
                 real_traj_coords = self._get_coord_traj(self.real_trajs[real_idx])
                 gen_traj_coords = self._get_coord_traj(self.generated_trajs[gen_idx])
 
+                # Trajectory lengths (number of points)
+                len_real = len(real_traj_coords)
+                len_gen = len(gen_traj_coords)
+                avg_len = (len_real + len_gen) / 2.0
+
                 # Hausdorff (km) - vectorized version
                 h_dist = self._calculate_hausdorff_haversine(
                     gen_traj_coords, real_traj_coords
                 )
                 hausdorff_scores.append(h_dist)
+                # Normalize by average trajectory length
+                hausdorff_norm_scores.append(h_dist / avg_len if avg_len > 0 else 0)
 
-                # DTW (km) - using polars-ts for better performance
+                # DTW (km) - using fastdtw
                 dtw_dist = self._calculate_dtw_polars(gen_traj_coords, real_traj_coords)
                 dtw_scores.append(dtw_dist)
+                # Normalize by average trajectory length (following DTW normalization convention)
+                dtw_norm_scores.append(dtw_dist / avg_len if avg_len > 0 else 0)
 
-                # EDR (unitless, 0-1)
+                # EDR (unitless, 0-1) - already normalized
                 edr = self._calculate_edr(
                     real_traj_coords, gen_traj_coords, eps=self.edr_eps
                 )
@@ -872,7 +891,11 @@ class LocalMetrics:
 
         results = {
             "Hausdorff_km": np.mean(hausdorff_scores) if hausdorff_scores else 0,
+            "Hausdorff_norm": np.mean(hausdorff_norm_scores)
+            if hausdorff_norm_scores
+            else 0,
             "DTW_km": np.mean(dtw_scores) if dtw_scores else 0,
+            "DTW_norm": np.mean(dtw_norm_scores) if dtw_norm_scores else 0,
             "EDR": np.mean(edr_scores) if edr_scores else 0,
             "matched_od_pairs": num_matched_od,
             "total_generated_od_pairs": num_total_gen_od,
