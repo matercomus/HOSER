@@ -145,20 +145,25 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
         error_kw={"elinewidth": 2, "capsize": 4, "capthick": 2, "alpha": 0.7},
     )
 
-    # Add value labels on bars with effect size indicators
-    effect_symbols = {"small": "✅", "medium": "⚠️", "large": "❌"}
+    # Add value labels on bars, color-coded by effect size
+    effect_colors_text = {"small": "green", "medium": "orange", "large": "red"}
+
     for i, (bar, rate, error_upper, effect) in enumerate(
         zip(bars, rates, error_uppers, effect_sizes)
     ):
         width = bar.get_width()
-        symbol = effect_symbols.get(effect, "")
+        color = effect_colors_text.get(effect, "black")
+
+        # Rate text color-coded by effect size (green=good, orange=medium, red=poor)
         ax.text(
-            width + error_upper + 1.0,
+            width + error_upper + 0.5,
             bar.get_y() + bar.get_height() / 2,
-            f"{rate:.2f}% {symbol}",
+            f"{rate:.2f}%",
             ha="left",
             va="center",
             fontsize=9,
+            fontweight="bold",
+            color=color,
         )
 
     # Add real rate line
@@ -191,9 +196,38 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
         plt.Rectangle(
             (0, 0), 1, 1, fc="gray", alpha=0.8, label="Generated (with 95% CI)"
         ),
-        plt.Line2D([0], [0], marker="", linestyle="", label="✅ = Small effect (good)"),
-        plt.Line2D([0], [0], marker="", linestyle="", label="⚠️ = Medium effect"),
-        plt.Line2D([0], [0], marker="", linestyle="", label="❌ = Large effect (poor)"),
+        plt.Line2D(
+            [0],
+            [0],
+            marker="",
+            linestyle="",
+            label="Label colors by effect size:",
+            color="white",
+        ),
+        plt.Line2D(
+            [0],
+            [0],
+            marker="",
+            linestyle="",
+            label="  Green = Small (good)",
+            color="green",
+        ),
+        plt.Line2D(
+            [0],
+            [0],
+            marker="",
+            linestyle="",
+            label="  Orange = Medium",
+            color="orange",
+        ),
+        plt.Line2D(
+            [0],
+            [0],
+            marker="",
+            linestyle="",
+            label="  Red = Large (poor)",
+            color="red",
+        ),
     ]
     ax.legend(handles=legend_elements, loc="best", fontsize=9)
     ax.grid(axis="x", alpha=0.3)
