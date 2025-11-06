@@ -457,7 +457,7 @@ class Searcher:
         origin_road_id,
         origin_datetime,
         destination_road_id,
-        beam_width=8,
+        beam_width=4,
         max_search_step=5000,
     ):
         """Beam search that processes multiple candidates in parallel for better GPU utilization"""
@@ -2217,7 +2217,10 @@ if __name__ == "__main__":
         help="Use beam search instead of A* search",
     )
     parser.add_argument(
-        "--beam_width", type=int, default=8, help="Beam width for beam search"
+        "--beam_width",
+        type=int,
+        default=4,
+        help="Beam width for beam search (default: 4, standard across all scripts)",
     )
     parser.add_argument(
         "--vectorized", action="store_true", help="Use vectorized GPU-parallel search"
