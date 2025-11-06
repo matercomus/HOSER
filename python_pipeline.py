@@ -119,6 +119,7 @@ class PipelineConfig:
         self.phases: Set[str] = {
             "generation",
             "base_eval",
+            "paired_analysis",
             "cross_dataset",
             "road_network_translate",
             "abnormal",
@@ -1962,6 +1963,191 @@ class EvaluationPipeline:
         logger.info("🎯 Running scenario analysis...")
         self._run_scenario_analysis()
 
+    @phase("paired_analysis", critical=False)
+    def run_paired_analysis(self):
+        """Run paired statistical tests comparing models on same OD pairs"""
+        logger.info("📊 Running paired statistical analysis...")
+
+        # Check dependency: need base_eval results with trajectory metrics
+        eval_dir = Path("./eval")
+        if not eval_dir.exists():
+            logger.warning("No eval directory found, skipping paired analysis")
+            return
+
+        # Find all evaluation results with trajectory metrics
+        eval_subdirs = [d for d in eval_dir.iterdir() if d.is_dir()]
+        if not eval_subdirs:
+            logger.warning(
+                "No evaluation subdirectories found, skipping paired analysis"
+            )
+            return
+
+        # Check for trajectory_metrics.json in at least one eval dir
+        has_trajectory_metrics = any(
+            (subdir / "trajectory_metrics.json").exists() for subdir in eval_subdirs
+        )
+        if not has_trajectory_metrics:
+            logger.warning(
+                "No trajectory_metrics.json files found. "
+                "Run base_eval phase first to generate trajectory-level metrics."
+            )
+            return
+
+        # Auto-detect model pairs to compare
+        # Group evaluations by (model_type, od_source)
+        from collections import defaultdict
+        import json
+
+        evals_by_od = defaultdict(lambda: defaultdict(list))
+
+        for subdir in eval_subdirs:
+            results_file = subdir / "results.json"
+            traj_metrics_file = subdir / "trajectory_metrics.json"
+
+            if not results_file.exists() or not traj_metrics_file.exists():
+                continue
+
+            try:
+                with open(results_file) as f:
+                    results = json.load(f)
+
+                metadata = results.get("metadata", {})
+                model_type = metadata.get("model_type", "unknown")
+                od_source = metadata.get("od_source", "unknown")
+
+                if model_type != "unknown" and od_source != "unknown":
+                    evals_by_od[od_source][model_type].append(subdir)
+
+            except Exception as e:
+                logger.warning(f"Failed to read {results_file}: {e}")
+                continue
+
+        if not evals_by_od:
+            logger.warning("No valid evaluation results found for paired analysis")
+            return
+
+        # Import the paired comparison tool
+        from tools.compare_models_paired_analysis import (
+            load_trajectory_metrics,
+            match_trajectory_pairs,
+            perform_paired_comparison,
+            generate_markdown_summary,
+        )
+
+        # Output directory for paired analysis results
+        paired_output_dir = Path("./paired_analysis")
+        paired_output_dir.mkdir(exist_ok=True)
+
+        # For each OD source, compare models pairwise
+        comparison_count = 0
+        for od_source, models_dict in evals_by_od.items():
+            logger.info(f"\n📂 Processing {od_source} OD")
+
+            model_types = list(models_dict.keys())
+            if len(model_types) < 2:
+                logger.info(
+                    f"  Only 1 model found for {od_source} OD, skipping comparisons"
+                )
+                continue
+
+            # Compare each pair of models
+            for i in range(len(model_types)):
+                for j in range(i + 1, len(model_types)):
+                    model1_type = model_types[i]
+                    model2_type = model_types[j]
+
+                    # Get evaluation directories (use most recent if multiple)
+                    eval1_dir = sorted(
+                        models_dict[model1_type], key=lambda x: x.stat().st_mtime
+                    )[-1]
+                    eval2_dir = sorted(
+                        models_dict[model2_type], key=lambda x: x.stat().st_mtime
+                    )[-1]
+
+                    logger.info(f"  Comparing {model1_type} vs {model2_type}")
+
+                    try:
+                        # Load trajectory metrics
+                        data1 = load_trajectory_metrics(eval1_dir)
+                        data2 = load_trajectory_metrics(eval2_dir)
+
+                        # Match trajectory pairs
+                        matched1, matched2 = match_trajectory_pairs(
+                            data1["trajectory_metrics"], data2["trajectory_metrics"]
+                        )
+
+                        if len(matched1) == 0:
+                            logger.warning(
+                                "    No matching trajectory pairs found, skipping"
+                            )
+                            continue
+
+                        # Perform paired comparison
+                        metrics_to_compare = [
+                            "hausdorff_km",
+                            "hausdorff_norm",
+                            "dtw_km",
+                            "dtw_norm",
+                            "edr",
+                        ]
+                        comparison_results = perform_paired_comparison(
+                            matched_metrics1=matched1,
+                            matched_metrics2=matched2,
+                            model1_name=model1_type,
+                            model2_name=model2_type,
+                            metrics_to_compare=metrics_to_compare,
+                            alpha=0.05,
+                        )
+
+                        # Prepare output
+                        output_data = {
+                            "model1_name": model1_type,
+                            "model2_name": model2_type,
+                            "model1_eval_dir": str(eval1_dir),
+                            "model2_eval_dir": str(eval2_dir),
+                            "n_matched_pairs": len(matched1),
+                            "alpha": 0.05,
+                            "metrics": comparison_results,
+                            "metadata": {
+                                "model1_metadata": data1.get("metadata", {}),
+                                "model2_metadata": data2.get("metadata", {}),
+                            },
+                        }
+
+                        # Save results
+                        comparison_output_dir = (
+                            paired_output_dir
+                            / od_source
+                            / f"{model1_type}_vs_{model2_type}"
+                        )
+                        comparison_output_dir.mkdir(parents=True, exist_ok=True)
+
+                        output_file = comparison_output_dir / "paired_comparison.json"
+                        with open(output_file, "w") as f:
+                            json.dump(output_data, f, indent=2)
+
+                        # Generate markdown summary
+                        generate_markdown_summary(output_data, output_file)
+
+                        logger.info(f"    ✅ Results saved to {comparison_output_dir}")
+                        comparison_count += 1
+
+                    except Exception as e:
+                        logger.error(
+                            f"    ❌ Paired analysis failed for {model1_type} vs {model2_type}: {e}"
+                        )
+                        import traceback
+
+                        traceback.print_exc()
+                        continue
+
+        if comparison_count > 0:
+            logger.info(
+                f"\n✅ Paired analysis complete! {comparison_count} comparisons saved to {paired_output_dir}/"
+            )
+        else:
+            logger.warning("No paired comparisons were completed")
+
     def run(self):
         """Execute all enabled phases in order"""
         logger.info("Starting HOSER Distillation Evaluation Pipeline")
@@ -2046,6 +2232,7 @@ class EvaluationPipeline:
         default_order = [
             "generation",
             "base_eval",
+            "paired_analysis",
             "cross_dataset",
             "road_network_translate",
             "abnormal",
@@ -2107,7 +2294,7 @@ def main():
         type=str,
         help=(
             "Run only these phases (comma-separated). Available: "
-            "generation,base_eval,cross_dataset,road_network_translate,abnormal,"
+            "generation,base_eval,paired_analysis,cross_dataset,road_network_translate,abnormal,"
             "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,scenarios."
         ),
     )
