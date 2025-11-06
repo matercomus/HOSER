@@ -145,21 +145,16 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
         error_kw={"elinewidth": 2, "capsize": 4, "capthick": 2, "alpha": 0.7},
     )
 
-    # Add value labels on bars with effect size indicators (using ASCII symbols)
-    effect_symbols = {"small": "[S]", "medium": "[M]", "large": "[L]"}
+    # Add value labels on bars, color-coded by effect size
     effect_colors_text = {"small": "green", "medium": "orange", "large": "red"}
-
-    # Calculate max extent for axis limits
-    max_extent = max(rates) + max(error_uppers) if rates and error_uppers else 100
 
     for i, (bar, rate, error_upper, effect) in enumerate(
         zip(bars, rates, error_uppers, effect_sizes)
     ):
         width = bar.get_width()
-        symbol = effect_symbols.get(effect, "")
         color = effect_colors_text.get(effect, "black")
 
-        # Rate text in black
+        # Rate text color-coded by effect size (green=good, orange=medium, red=poor)
         ax.text(
             width + error_upper + 0.5,
             bar.get_y() + bar.get_height() / 2,
@@ -167,22 +162,9 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
             ha="left",
             va="center",
             fontsize=9,
-            color="black",
-        )
-        # Effect size indicator in color
-        ax.text(
-            width + error_upper + 4.0,
-            bar.get_y() + bar.get_height() / 2,
-            symbol,
-            ha="left",
-            va="center",
-            fontsize=9,
             fontweight="bold",
             color=color,
         )
-
-    # Adjust x-axis limits to accommodate labels (add ~15% padding)
-    ax.set_xlim(0, max_extent * 1.15)
 
     # Add real rate line
     ax.axvline(
@@ -219,7 +201,15 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
             [0],
             marker="",
             linestyle="",
-            label="[S] = Small effect (good)",
+            label="Label colors by effect size:",
+            color="white",
+        ),
+        plt.Line2D(
+            [0],
+            [0],
+            marker="",
+            linestyle="",
+            label="  Green = Small (good)",
             color="green",
         ),
         plt.Line2D(
@@ -227,7 +217,7 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
             [0],
             marker="",
             linestyle="",
-            label="[M] = Medium effect",
+            label="  Orange = Medium",
             color="orange",
         ),
         plt.Line2D(
@@ -235,7 +225,7 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
             [0],
             marker="",
             linestyle="",
-            label="[L] = Large effect (poor)",
+            label="  Red = Large (poor)",
             color="red",
         ),
     ]
