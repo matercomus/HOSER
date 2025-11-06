@@ -23,6 +23,20 @@ skip_gene: false
 skip_eval: false
 force: false
 
+# Pipeline phases (in execution order)
+# Comment out phases you want to skip
+phases:
+  - generation          # Generate trajectories
+  - base_eval          # Evaluate on base dataset
+  - paired_analysis    # Paired statistical tests between models
+  - cross_dataset      # Evaluate on cross-dataset (if configured)
+  - road_network_translate  # Translate trajectories for cross-dataset
+  - abnormal           # Abnormal trajectory detection
+  - abnormal_od_extract     # Extract abnormal OD pairs
+  - abnormal_od_generate    # Generate trajectories for abnormal ODs
+  - abnormal_od_evaluate    # Evaluate abnormal OD performance
+  - scenarios          # Scenario-based analysis
+
 # Scenario analysis (optional)
 run_scenarios: false
 scenarios_config: null  # Auto-detected if not specified
