@@ -171,33 +171,52 @@ Complete methodology for mapping road network IDs between datasets to enable cro
 
 ## Evaluation
 
-Complete evaluation methodology and results for the distillation experiments.
+📊 **[Evaluation Documentation Hub →](evaluation/README.md)** - **START HERE for all evaluation topics**
 
-### Evaluation Subproject
+Comprehensive evaluation methodology, metrics, and analysis workflows organized by topic.
 
-**[../hoser-distill-optuna-6/](../hoser-distill-optuna-6/)**
+### Quick Access
 
-The `hoser-distill-optuna-6/` directory contains all evaluation-related documentation and results:
+**Core Evaluation**:
+- **[Evaluation Pipeline Guide](EVALUATION_PIPELINE_GUIDE.md)** - How to run evaluations
+- **[Setup Evaluation Guide](SETUP_EVALUATION_GUIDE.md)** - Environment and configuration
+- **[Evaluation Comparison](EVALUATION_COMPARISON.md)** ⭐ - Cross-dataset analysis
 
-- **[README.md](../hoser-distill-optuna-6/README.md)** - Evaluation pipeline overview and quick start
-- **[EVALUATION_ANALYSIS.md](../hoser-distill-optuna-6/EVALUATION_ANALYSIS.md)** - Comprehensive results analysis (727 lines)
-  - Experimental setup and fair comparison methodology
-  - Complete results tables with all metrics
-  - Key findings: path completion, trip length realism, spatial distribution quality
-  - Why vanilla fails and what distillation transferred
-  - Statistical analysis and conclusions
-- **[PIPELINE_USAGE.md](../hoser-distill-optuna-6/PIPELINE_USAGE.md)** - Python evaluation pipeline guide
-- **[OD_MATCHING_EXPLAINED.md](../hoser-distill-optuna-6/OD_MATCHING_EXPLAINED.md)** - OD pair matching methodology
-- **[TRAJECTORY_VISUALIZATION_GUIDE.md](../hoser-distill-optuna-6/TRAJECTORY_VISUALIZATION_GUIDE.md)** - Visualization tools
-- **[VANILLA_FAILURE_ANALYSIS.md](../hoser-distill-optuna-6/VANILLA_FAILURE_ANALYSIS.md)** - Deep-dive on vanilla model failures
-- **[RESULTS_ANALYSIS.md](../hoser-distill-optuna-6/RESULTS_ANALYSIS.md)** - Additional results analysis
-- **[figures/README.md](../hoser-distill-optuna-6/figures/README.md)** - Generated figures and plots
+**Statistical Methods** 🆕:
+- **[Paired Statistical Tests Guide](PAIRED_STATISTICAL_TESTS_GUIDE.md)** ⭐ - Paired t-tests, effect sizes
+- **[Normalized Metrics Impact](NORMALIZED_METRICS_IMPACT_SUMMARY.md)** - Trajectory-length independent metrics
+- **[Effect Size Interpretation](EFFECT_SIZE_INTERPRETATION.md)** - Cohen's d, h, Cramér's V
 
-**Key Evaluation Findings:**
-- Distilled models achieve 85-89% path completion success vs vanilla's 12-18%
+**Search Methods** 🆕:
+- **[Search Method Guidance](SEARCH_METHOD_GUIDANCE.md)** - A* vs Beam search decision matrix
+- **[Beam Ablation Study](BEAM_ABLATION_STUDY.md)** - 26-hour experimental study findings
+
+**Results**:
+- **[Wang Abnormality Detection](results/WANG_ABNORMALITY_DETECTION_RESULTS.md)** - 809k trajectories analyzed
+- **[Cross-Seed Analysis](results/CROSS_SEED_ANALYSIS.md)** - Statistical variance across seeds
+- **[Teacher Baseline Comparison](results/TEACHER_BASELINE_COMPARISON.md)** - Vanilla vs distilled
+
+**→ See [evaluation/README.md](evaluation/README.md) for complete organized index of 26 evaluation documents**
+
+### Key Evaluation Findings
+
+**Model Performance**:
+- Distilled models: 85-89% OD match success
+- Vanilla models: 12-18% OD match (Beijing), 88% (Porto)
 - 87% reduction in distance distribution error (JSD)
-- 98% reduction in spatial complexity error (radius of gyration JSD)
-- Distilled models generate realistic 6.4 km trips vs vanilla's unrealistic 2.4 km trips
+- 98% reduction in spatial complexity error (radius JSD)
+
+**Search Method Dependency** 🆕:
+- A* Search: Distilled 6.0x faster than vanilla
+- Beam Search: Vanilla 1.4x faster than distilled
+- Distillation benefits depend on search method choice
+
+### Legacy Evaluation Results
+
+**[../hoser-distill-optuna-6/](../hoser-distill-optuna-6/)** - Historical evaluation subproject:
+- **[EVALUATION_ANALYSIS.md](../hoser-distill-optuna-6/EVALUATION_ANALYSIS.md)** - Original comprehensive analysis (727 lines)
+- **[VANILLA_FAILURE_ANALYSIS.md](../hoser-distill-optuna-6/VANILLA_FAILURE_ANALYSIS.md)** - Beijing failure deep-dive
+- **[figures/](../hoser-distill-optuna-6/figures/)** - Generated plots and visualizations
 
 ---
 
