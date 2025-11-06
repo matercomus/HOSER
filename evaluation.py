@@ -861,6 +861,7 @@ class LocalMetrics:
         Evaluate local metrics: Hausdorff, DTW, EDR.
         Uses grid-based OD pair matching (original author's method).
         Now tracks granular OD metrics: origin-only, destination-only, full OD pair.
+        Returns both aggregated metrics and trajectory-level data for paired statistical tests.
         """
         print("📊 Calculating local metrics...")
         real_od_groups = self._group_by_od(self.real_trajs)
@@ -871,6 +872,9 @@ class LocalMetrics:
         dtw_scores = []
         dtw_norm_scores = []
         edr_scores = []
+
+        # Trajectory-level data for paired tests (NEW)
+        trajectory_level_metrics = []
 
         # Granular OD matching metrics
         num_matched_od = 0  # Full OD pair matches
@@ -933,19 +937,37 @@ class LocalMetrics:
                 )
                 hausdorff_scores.append(h_dist)
                 # Normalize by average trajectory length
-                hausdorff_norm_scores.append(h_dist / avg_len if avg_len > 0 else 0)
+                h_norm = h_dist / avg_len if avg_len > 0 else 0
+                hausdorff_norm_scores.append(h_norm)
 
                 # DTW (km) - using fastdtw
                 dtw_dist = self._calculate_dtw_polars(gen_traj_coords, real_traj_coords)
                 dtw_scores.append(dtw_dist)
                 # Normalize by average trajectory length (following DTW normalization convention)
-                dtw_norm_scores.append(dtw_dist / avg_len if avg_len > 0 else 0)
+                dtw_norm = dtw_dist / avg_len if avg_len > 0 else 0
+                dtw_norm_scores.append(dtw_norm)
 
                 # EDR (unitless, 0-1) - already normalized
                 edr = self._calculate_edr(
                     real_traj_coords, gen_traj_coords, eps=self.edr_eps
                 )
                 edr_scores.append(edr)
+
+                # Store trajectory-level metrics for paired tests (NEW)
+                trajectory_level_metrics.append(
+                    {
+                        "od_pair": od_pair,  # Tuple of (origin_grid_id, dest_grid_id)
+                        "real_traj_idx": real_idx,
+                        "gen_traj_idx": gen_idx,
+                        "hausdorff_km": h_dist,
+                        "hausdorff_norm": h_norm,
+                        "dtw_km": dtw_dist,
+                        "dtw_norm": dtw_norm,
+                        "edr": edr,
+                        "len_real": len_real,
+                        "len_gen": len_gen,
+                    }
+                )
 
         # Calculate match rates
         origin_match_rate = (
@@ -999,6 +1021,8 @@ class LocalMetrics:
             "destination_match_rate": destination_match_rate,
             "od_pair_match_rate": od_pair_match_rate,
             "both_correct_rate": both_correct_rate,
+            # Trajectory-level metrics for paired tests (NEW)
+            "trajectory_level_metrics": trajectory_level_metrics,
         }
 
         print("✅ Local metrics calculated:")
@@ -1014,6 +1038,7 @@ class LocalMetrics:
         print(
             f"   - Both correct: {num_both_correct}/{num_total_gen_trajs} ({both_correct_rate:.1%})"
         )
+        print(f"   - Trajectory-level metrics: {len(trajectory_level_metrics)} records")
 
         return results
 
@@ -1166,6 +1191,9 @@ def evaluate_trajectories_programmatic(
         edr_eps=edr_eps,
     ).evaluate()
 
+    # Extract trajectory-level metrics before combining (NEW for paired tests)
+    trajectory_level_metrics = local_metrics.pop("trajectory_level_metrics", [])
+
     # Combine and display results
     all_results = {**global_metrics, **local_metrics}
 
@@ -1231,6 +1259,38 @@ def evaluate_trajectories_programmatic(
         json.dump(all_results, f, indent=4)
 
     print(f"Results saved to {results_file}")
+
+    # Save trajectory-level metrics for paired statistical tests (NEW)
+    if trajectory_level_metrics:
+        trajectory_metrics_file = os.path.join(output_dir, "trajectory_metrics.json")
+
+        # Convert OD pair tuples to lists for JSON serialization
+        trajectory_metrics_serializable = []
+        for metric_record in trajectory_level_metrics:
+            record_copy = metric_record.copy()
+            # Convert tuple to list for JSON
+            record_copy["od_pair"] = list(record_copy["od_pair"])
+            trajectory_metrics_serializable.append(record_copy)
+
+        trajectory_metrics_data = {
+            "metadata": {
+                "generated_file": str(generated_file),
+                "real_data_file": str(real_path),
+                "od_source": od_source,
+                "evaluation_timestamp": datetime.now().isoformat(),
+                "num_trajectory_comparisons": len(trajectory_level_metrics),
+                "grid_size": grid_size,
+                "edr_eps": edr_eps,
+            },
+            "trajectory_metrics": trajectory_metrics_serializable,
+        }
+
+        with open(trajectory_metrics_file, "w") as f:
+            json.dump(trajectory_metrics_data, f, indent=4)
+
+        print(
+            f"Trajectory-level metrics saved to {trajectory_metrics_file} ({len(trajectory_level_metrics)} records)"
+        )
 
     # Optional: log to Weights & Biases
     if enable_wandb:
