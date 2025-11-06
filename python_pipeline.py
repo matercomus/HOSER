@@ -2122,9 +2122,30 @@ class EvaluationPipeline:
                         )
                         comparison_output_dir.mkdir(parents=True, exist_ok=True)
 
+                        # Convert numpy types to native Python types for JSON serialization
+                        def convert_numpy_types(obj):
+                            """Recursively convert numpy types to native Python types."""
+                            import numpy as np
+
+                            if isinstance(obj, dict):
+                                return {
+                                    k: convert_numpy_types(v) for k, v in obj.items()
+                                }
+                            elif isinstance(obj, list):
+                                return [convert_numpy_types(item) for item in obj]
+                            elif isinstance(obj, (np.integer, np.floating)):
+                                return float(obj)
+                            elif isinstance(obj, np.bool_):
+                                return bool(obj)
+                            elif isinstance(obj, np.ndarray):
+                                return obj.tolist()
+                            return obj
+
+                        output_data_serializable = convert_numpy_types(output_data)
+
                         output_file = comparison_output_dir / "paired_comparison.json"
                         with open(output_file, "w") as f:
-                            json.dump(output_data, f, indent=2)
+                            json.dump(output_data_serializable, f, indent=2)
 
                         # Generate markdown summary
                         generate_markdown_summary(output_data, output_file)

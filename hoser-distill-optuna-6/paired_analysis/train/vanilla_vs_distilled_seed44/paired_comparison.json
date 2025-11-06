@@ -1,0 +1,18 @@
+{
+  "model1_name": "vanilla",
+  "model2_name": "distilled_seed44",
+  "model1_eval_dir": "eval/2025-11-06_19-00-30",
+  "model2_eval_dir": "eval/2025-11-06_18-52-29",
+  "n_matched_pairs": 64,
+  "alpha": 0.05,
+  "metrics": {
+    "hausdorff_km": {
+      "test_name": "Wilcoxon signed-rank test",
+      "n_pairs": 64,
+      "model1_mean": 0.7383507949280036,
+      "model2_mean": 0.30177696362378303,
+      "mean_difference": 0.43657383130422056,
+      "std_difference": 0.6870004913186231,
+      "test_statistic": 162.0,
+      "p_value": 2.651668033331151e-06,
+      "significant": 
