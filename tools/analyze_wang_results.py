@@ -13,10 +13,11 @@ Usage:
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from collections import defaultdict
 import statistics
+import math
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -33,6 +34,7 @@ except ImportError:
 
 try:
     from statsmodels.stats.multitest import multipletests
+    from statsmodels.stats.proportion import proportion_confint
 
     HAS_STATSMODELS = True
 except ImportError:
@@ -40,6 +42,111 @@ except ImportError:
     logger.warning(
         "statsmodels not available - will use Bonferroni instead of FDR correction"
     )
+
+
+def compute_cohens_h(p1: float, p2: float) -> float:
+    """
+    Compute Cohen's h effect size for difference between two proportions.
+
+    Cohen's h = 2 * (arcsin(sqrt(p1)) - arcsin(sqrt(p2)))
+
+    Interpretation:
+    - |h| < 0.2: Small effect
+    - 0.2 ≤ |h| < 0.5: Medium effect
+    - |h| ≥ 0.5: Large effect
+
+    Args:
+        p1: Proportion 1 (e.g., real abnormal rate)
+        p2: Proportion 2 (e.g., generated abnormal rate)
+
+    Returns:
+        Cohen's h effect size
+    """
+    # Convert percentages to proportions if needed
+    if p1 > 1.0:
+        p1 = p1 / 100.0
+    if p2 > 1.0:
+        p2 = p2 / 100.0
+
+    # Prevent domain errors for arcsin
+    p1 = max(0.0, min(1.0, p1))
+    p2 = max(0.0, min(1.0, p2))
+
+    phi1 = 2 * math.asin(math.sqrt(p1))
+    phi2 = 2 * math.asin(math.sqrt(p2))
+
+    return phi1 - phi2
+
+
+def interpret_cohens_h(h: float) -> str:
+    """
+    Interpret Cohen's h effect size magnitude.
+
+    Args:
+        h: Cohen's h value
+
+    Returns:
+        Interpretation string
+    """
+    abs_h = abs(h)
+    if abs_h < 0.2:
+        return "small"
+    elif abs_h < 0.5:
+        return "medium"
+    else:
+        return "large"
+
+
+def compute_proportion_ci(
+    count: int, n_total: int, confidence: float = 0.95
+) -> Tuple[float, float]:
+    """
+    Compute confidence interval for a proportion using Wilson score interval.
+
+    This is more reliable than normal approximation for proportions near 0 or 1.
+
+    Args:
+        count: Number of successes (e.g., abnormal trajectories)
+        n_total: Total number of trials (e.g., total trajectories)
+        confidence: Confidence level (default 0.95 for 95% CI)
+
+    Returns:
+        Tuple of (lower_bound, upper_bound) as percentages
+    """
+    if n_total == 0:
+        return (0.0, 0.0)
+
+    proportion = count / n_total
+
+    if HAS_STATSMODELS:
+        # Use statsmodels for Wilson score interval
+        try:
+            ci_low, ci_high = proportion_confint(
+                count, n_total, alpha=1 - confidence, method="wilson"
+            )
+            return (ci_low * 100, ci_high * 100)
+        except Exception as e:
+            logger.warning(f"Error computing CI with statsmodels: {e}, using fallback")
+
+    # Fallback: Wilson score interval manual implementation
+    z = 1.96  # For 95% CI
+    if confidence == 0.99:
+        z = 2.576
+    elif confidence == 0.90:
+        z = 1.645
+
+    denominator = 1 + z**2 / n_total
+    center = (proportion + z**2 / (2 * n_total)) / denominator
+    margin = (
+        z
+        * math.sqrt((proportion * (1 - proportion) + z**2 / (4 * n_total)) / n_total)
+        / denominator
+    )
+
+    ci_low = max(0.0, center - margin)
+    ci_high = min(1.0, center + margin)
+
+    return (ci_low * 100, ci_high * 100)
 
 
 @dataclass
@@ -570,6 +677,18 @@ class WangResultsCollector:
                 try:
                     chi2, p_value = stats.chi2_contingency(contingency)[:2]
 
+                    # Compute effect size (Cohen's h for proportions)
+                    cohens_h = compute_cohens_h(comp.real_rate, comp.generated_rate)
+                    effect_size_interpretation = interpret_cohens_h(cohens_h)
+
+                    # Compute confidence intervals for both proportions
+                    real_ci_low, real_ci_high = compute_proportion_ci(
+                        real_abnormal, comp.trajectory_count_real
+                    )
+                    gen_ci_low, gen_ci_high = compute_proportion_ci(
+                        gen_abnormal, comp.trajectory_count_generated
+                    )
+
                     test_result = {
                         "dataset": dataset,
                         "model": comp.model,
@@ -578,6 +697,12 @@ class WangResultsCollector:
                         "generated_rate": comp.generated_rate,
                         "chi2": float(chi2),
                         "p_value": float(p_value),
+                        # Effect size
+                        "cohens_h": float(cohens_h),
+                        "effect_size": effect_size_interpretation,
+                        # Confidence intervals
+                        "real_ci_95": [float(real_ci_low), float(real_ci_high)],
+                        "generated_ci_95": [float(gen_ci_low), float(gen_ci_high)],
                     }
                     all_tests.append(test_result)
                     all_p_values.append(p_value)
