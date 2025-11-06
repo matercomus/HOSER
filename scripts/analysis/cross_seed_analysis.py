@@ -17,10 +17,18 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 import numpy as np
 from scipy import stats
+
+# Import paired statistical tests (optional - only needed for paired analysis)
+try:
+    from tools.paired_statistical_tests import compare_models_paired
+
+    HAS_PAIRED_TESTS = True
+except ImportError:
+    HAS_PAIRED_TESTS = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -260,12 +268,224 @@ def analyze_cross_seed_variance(
     return analysis
 
 
+def load_trajectory_metrics_for_group(
+    eval_dirs: List[str], dataset: str, model_type: str, od_source: str
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    Load trajectory-level metrics for a specific (dataset, model, od_source) group.
+
+    Args:
+        eval_dirs: List of evaluation directory patterns
+        dataset: Dataset name (e.g., 'Beijing', 'Porto')
+        model_type: Model type (e.g., 'vanilla', 'distilled_phase1')
+        od_source: OD source ('train' or 'test')
+
+    Returns:
+        List of trajectory metrics dictionaries, one per seed, or None if not found
+    """
+    trajectory_metrics_list = []
+
+    for eval_dir_pattern in eval_dirs:
+        eval_paths = list(Path().glob(eval_dir_pattern))
+
+        for eval_dir in eval_paths:
+            if not eval_dir.is_dir():
+                continue
+
+            # Find all trajectory_metrics.json files in timestamped subdirectories
+            metrics_files = sorted(eval_dir.glob("*/trajectory_metrics.json"))
+
+            for metrics_file in metrics_files:
+                try:
+                    with open(metrics_file) as f:
+                        data = json.load(f)
+
+                    # Check if this matches our criteria
+                    metadata = data.get("metadata", {})
+                    file_od_source = metadata.get("od_source", "")
+
+                    # Check dataset and OD source match
+                    gen_file = metadata.get("generated_file", "")
+                    matches_dataset = (
+                        dataset.lower() in gen_file.lower()
+                        or dataset in metadata.get("real_data_file", "")
+                    )
+                    matches_od = file_od_source == od_source
+
+                    if matches_dataset and matches_od:
+                        # Infer model type from filename
+                        if (
+                            model_type in gen_file
+                            or model_type.replace("_", "-") in gen_file
+                        ):
+                            trajectory_metrics_list.append(data)
+
+                except Exception as e:
+                    print(f"⚠️  Failed to load {metrics_file}: {e}")
+
+    return trajectory_metrics_list if trajectory_metrics_list else None
+
+
+def run_paired_analysis_across_seeds(
+    grouped_results: Dict[Tuple[str, str, str], List[Dict[str, Any]]],
+    eval_dirs: List[str],
+    alpha: float = 0.05,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Perform paired statistical tests between models across seeds.
+
+    For each dataset and OD source, compare models pairwise on the same trajectories.
+    Results are aggregated across seeds to show consistency.
+
+    Args:
+        grouped_results: Grouped evaluation results by (dataset, model, od_source)
+        eval_dirs: Evaluation directory patterns
+        alpha: Significance level for tests
+
+    Returns:
+        Dict with paired comparison results organized by comparison key
+    """
+    if not HAS_PAIRED_TESTS:
+        print(
+            "⚠️  Paired statistical tests not available (scipy or paired_statistical_tests missing)"
+        )
+        return {}
+
+    print("\n🔬 Running paired statistical analysis between models...")
+
+    paired_results = {}
+
+    # Group by dataset and OD source to find models to compare
+    by_dataset_od = defaultdict(list)
+    for (dataset, model_type, od_source), results in grouped_results.items():
+        key = (dataset, od_source)
+        by_dataset_od[key].append((model_type, results))
+
+    # For each dataset/OD combination, compare models pairwise
+    for (dataset, od_source), models_and_results in by_dataset_od.items():
+        if len(models_and_results) < 2:
+            continue  # Need at least 2 models to compare
+
+        # Try all pairwise comparisons
+        for i in range(len(models_and_results)):
+            for j in range(i + 1, len(models_and_results)):
+                model1_type, results1 = models_and_results[i]
+                model2_type, results2 = models_and_results[j]
+
+                comparison_key = f"{dataset}_{model1_type}_vs_{model2_type}_{od_source}"
+
+                print(
+                    f"  Comparing {model1_type} vs {model2_type} on {dataset} {od_source} OD..."
+                )
+
+                # Load trajectory-level metrics for both models
+                traj_metrics1 = load_trajectory_metrics_for_group(
+                    eval_dirs, dataset, model1_type, od_source
+                )
+                traj_metrics2 = load_trajectory_metrics_for_group(
+                    eval_dirs, dataset, model2_type, od_source
+                )
+
+                if not traj_metrics1 or not traj_metrics2:
+                    print(
+                        "    ⚠️  Trajectory metrics not available, skipping paired analysis"
+                    )
+                    continue
+
+                if len(traj_metrics1) != len(traj_metrics2):
+                    print(
+                        f"    ⚠️  Different number of seeds ({len(traj_metrics1)} vs {len(traj_metrics2)}), skipping"
+                    )
+                    continue
+
+                # Perform paired tests for key metrics
+                metrics_to_test = ["hausdorff_norm", "dtw_norm", "edr"]
+                comparison_results = {}
+
+                for metric_name in metrics_to_test:
+                    # Aggregate values across seeds (matched by OD pairs within each seed)
+                    all_values1 = []
+                    all_values2 = []
+
+                    for seed_metrics1, seed_metrics2 in zip(
+                        traj_metrics1, traj_metrics2
+                    ):
+                        trajs1 = seed_metrics1.get("trajectory_metrics", [])
+                        trajs2 = seed_metrics2.get("trajectory_metrics", [])
+
+                        # Match by OD pair
+                        od_index1 = {}
+                        for traj in trajs1:
+                            od_pair = tuple(traj["od_pair"])
+                            if od_pair not in od_index1:
+                                od_index1[od_pair] = []
+                            od_index1[od_pair].append(traj[metric_name])
+
+                        for traj in trajs2:
+                            od_pair = tuple(traj["od_pair"])
+                            if od_pair in od_index1 and od_index1[od_pair]:
+                                val1 = od_index1[od_pair].pop(0)
+                                val2 = traj[metric_name]
+                                all_values1.append(val1)
+                                all_values2.append(val2)
+
+                    if len(all_values1) < 10:
+                        print(
+                            f"      ⚠️  Too few matched pairs for {metric_name} ({len(all_values1)}), skipping"
+                        )
+                        continue
+
+                    # Perform paired test
+                    try:
+                        test_result = compare_models_paired(
+                            model1_values=all_values1,
+                            model2_values=all_values2,
+                            model1_name=model1_type,
+                            model2_name=model2_type,
+                            metric_name=metric_name,
+                            alpha=alpha,
+                            check_assumptions=True,
+                        )
+
+                        comparison_results[metric_name] = {
+                            "test_name": test_result.test_name,
+                            "n_pairs": test_result.n_pairs,
+                            "model1_mean": test_result.model1_mean,
+                            "model2_mean": test_result.model2_mean,
+                            "mean_difference": test_result.mean_difference,
+                            "p_value": test_result.p_value,
+                            "significant": test_result.significant,
+                            "cohens_d": test_result.cohens_d,
+                        }
+
+                        sig_marker = "✓" if test_result.significant else "✗"
+                        print(
+                            f"      {sig_marker} {metric_name}: p={test_result.p_value:.4f}, "
+                            f"d={test_result.cohens_d:.3f}"
+                        )
+
+                    except Exception as e:
+                        print(f"      ⚠️  Paired test failed for {metric_name}: {e}")
+
+                if comparison_results:
+                    paired_results[comparison_key] = {
+                        "dataset": dataset,
+                        "model1": model1_type,
+                        "model2": model2_type,
+                        "od_source": od_source,
+                        "metrics": comparison_results,
+                    }
+
+    return paired_results
+
+
 def generate_markdown_report(
     analysis: Dict[Tuple[str, str, str], Dict[str, Dict[str, float]]],
     output_dir: Path,
     confidence: float,
+    paired_results: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> None:
-    """Generate markdown report with cross-seed statistics."""
+    """Generate markdown report with cross-seed statistics and optional paired tests."""
     output_dir.mkdir(parents=True, exist_ok=True)
     report_file = output_dir / "CROSS_SEED_ANALYSIS.md"
 
@@ -277,6 +497,13 @@ def generate_markdown_report(
             "All metrics are reported as **mean ± std** with confidence intervals.\n\n"
         )
         f.write(f"**Confidence Level**: {confidence * 100:.0f}%\n\n")
+
+        if paired_results:
+            f.write(
+                "**Paired Statistical Tests**: Model comparisons using paired tests on matched "
+                "trajectories are included in a separate section below.\n\n"
+            )
+
         f.write("---\n\n")
 
         # Group by dataset
@@ -397,6 +624,89 @@ def generate_markdown_report(
         )
         f.write("- **Interval Scale** (CV not appropriate): EDR (0-1 bounded)\n")
 
+        # Add paired statistical tests section if available
+        if paired_results:
+            f.write("\n---\n\n")
+            f.write("## Paired Statistical Tests\n\n")
+            f.write(
+                "This section presents pairwise model comparisons using paired statistical tests "
+                "on matched trajectories (same OD pairs). Tests are performed on trajectory-level "
+                "metrics and aggregated across all available seeds.\n\n"
+            )
+
+            # Group paired results by dataset
+            paired_by_dataset = defaultdict(list)
+            for comp_key, comp_data in paired_results.items():
+                dataset = comp_data["dataset"]
+                paired_by_dataset[dataset].append((comp_key, comp_data))
+
+            for dataset in sorted(paired_by_dataset.keys()):
+                f.write(f"### {dataset} Dataset\n\n")
+
+                for comp_key, comp_data in paired_by_dataset[dataset]:
+                    model1 = comp_data["model1"]
+                    model2 = comp_data["model2"]
+                    od_source = comp_data["od_source"]
+                    metrics = comp_data["metrics"]
+
+                    f.write(f"#### {model1} vs {model2} ({od_source.upper()} OD)\n\n")
+
+                    if not metrics:
+                        f.write("*No paired test results available*\n\n")
+                        continue
+
+                    # Create table
+                    f.write(
+                        "| Metric | Test | P-value | Significant | Cohen's d | Effect Size | N Pairs |\n"
+                    )
+                    f.write(
+                        "|--------|------|---------|-------------|-----------|-------------|--------|\n"
+                    )
+
+                    for metric_name, metric_results in metrics.items():
+                        sig_marker = "✓" if metric_results["significant"] else "✗"
+
+                        # Interpret effect size
+                        d = abs(metric_results["cohens_d"])
+                        if d < 0.2:
+                            effect = "Negligible"
+                        elif d < 0.5:
+                            effect = "Small"
+                        elif d < 0.8:
+                            effect = "Medium"
+                        else:
+                            effect = "Large"
+
+                        f.write(
+                            f"| {metric_name} | "
+                            f"{metric_results['test_name']} | "
+                            f"{metric_results['p_value']:.4f} | "
+                            f"{sig_marker} | "
+                            f"{metric_results['cohens_d']:.3f} | "
+                            f"{effect} | "
+                            f"{metric_results['n_pairs']} |\n"
+                        )
+
+                    f.write("\n")
+                    f.write(
+                        f"**Mean Values**: {model1} = {metrics[list(metrics.keys())[0]]['model1_mean']:.4f}, "
+                    )
+                    f.write(
+                        f"{model2} = {metrics[list(metrics.keys())[0]]['model2_mean']:.4f}\n\n"
+                    )
+
+            f.write("\n**Interpretation Guide**:\n\n")
+            f.write("- **P-value < 0.05**: Statistically significant difference\n")
+            f.write("- **Cohen's d Effect Size**:\n")
+            f.write("  - |d| < 0.2: Negligible effect\n")
+            f.write("  - 0.2 ≤ |d| < 0.5: Small effect\n")
+            f.write("  - 0.5 ≤ |d| < 0.8: Medium effect\n")
+            f.write("  - |d| ≥ 0.8: Large effect\n\n")
+            f.write(
+                "**Note**: Paired tests compare models on the same trajectories (matched by OD pairs), "
+                "providing more statistical power than unpaired comparisons.\n"
+            )
+
     print(f"✅ Report saved: {report_file}")
 
 
@@ -425,10 +735,17 @@ def main():
         print("❌ No groups with sufficient seeds for analysis")
         sys.exit(1)
 
-    # Generate report
-    generate_markdown_report(analysis, args.output_dir, args.confidence)
+    # Run paired statistical analysis if trajectory metrics are available
+    paired_results = run_paired_analysis_across_seeds(
+        grouped, args.eval_dirs, alpha=1 - args.confidence
+    )
+
+    # Generate report (with or without paired results)
+    generate_markdown_report(analysis, args.output_dir, args.confidence, paired_results)
 
     print("\n✅ Cross-seed analysis complete!")
+    if paired_results:
+        print(f"   Including {len(paired_results)} paired model comparisons")
     print("=" * 60)
 
 
