@@ -727,6 +727,34 @@ class LocalMetrics:
 
         return od_groups
 
+    def _get_origin_grid(self, trajectory):
+        """Get grid cell for trajectory origin."""
+        if len(trajectory) < 1:
+            return None
+        try:
+            origin_rid = trajectory[0][0]
+            if origin_rid not in self.road_gps:
+                return None
+            o_lon, o_lat = self.road_gps[origin_rid]
+            o_rid_x, o_rid_y = self.gps2grid(o_lon, o_lat)
+            return o_rid_x * self.img_height + o_rid_y
+        except (IndexError, KeyError):
+            return None
+
+    def _get_destination_grid(self, trajectory):
+        """Get grid cell for trajectory destination."""
+        if len(trajectory) < 2:
+            return None
+        try:
+            dest_rid = trajectory[-1][0]
+            if dest_rid not in self.road_gps:
+                return None
+            d_lon, d_lat = self.road_gps[dest_rid]
+            d_rid_x, d_rid_y = self.gps2grid(d_lon, d_lat)
+            return d_rid_x * self.img_height + d_rid_y
+        except (IndexError, KeyError):
+            return None
+
     def _get_coord_traj(self, trajectory):
         """Extract GPS coordinates from trajectory."""
         road_ids = [p[0] for p in trajectory]
@@ -832,6 +860,7 @@ class LocalMetrics:
         """
         Evaluate local metrics: Hausdorff, DTW, EDR.
         Uses grid-based OD pair matching (original author's method).
+        Now tracks granular OD metrics: origin-only, destination-only, full OD pair.
         """
         print("📊 Calculating local metrics...")
         real_od_groups = self._group_by_od(self.real_trajs)
@@ -843,8 +872,37 @@ class LocalMetrics:
         dtw_norm_scores = []
         edr_scores = []
 
-        num_matched_od = 0
+        # Granular OD matching metrics
+        num_matched_od = 0  # Full OD pair matches
+        num_origin_match = (
+            0  # Origin grid matches (may or may not have correct destination)
+        )
+        num_destination_match = (
+            0  # Destination grid matches (may or may not have correct origin)
+        )
+        num_total_gen_trajs = len(self.generated_trajs)
         num_total_gen_od = len(gen_od_groups)
+
+        # Build sets of real origins and destinations for comparison
+        real_origins = set()
+        real_destinations = set()
+        for traj in self.real_trajs:
+            origin_grid = self._get_origin_grid(traj)
+            dest_grid = self._get_destination_grid(traj)
+            if origin_grid is not None:
+                real_origins.add(origin_grid)
+            if dest_grid is not None:
+                real_destinations.add(dest_grid)
+
+        # Check each generated trajectory
+        for gen_traj in self.generated_trajs:
+            gen_origin = self._get_origin_grid(gen_traj)
+            gen_dest = self._get_destination_grid(gen_traj)
+
+            if gen_origin is not None and gen_origin in real_origins:
+                num_origin_match += 1
+            if gen_dest is not None and gen_dest in real_destinations:
+                num_destination_match += 1
 
         for od_pair, gen_indices in tqdm(
             gen_od_groups.items(), desc="Comparing OD pairs"
@@ -889,6 +947,37 @@ class LocalMetrics:
                 )
                 edr_scores.append(edr)
 
+        # Calculate match rates
+        origin_match_rate = (
+            num_origin_match / num_total_gen_trajs if num_total_gen_trajs > 0 else 0
+        )
+        destination_match_rate = (
+            num_destination_match / num_total_gen_trajs
+            if num_total_gen_trajs > 0
+            else 0
+        )
+        od_pair_match_rate = (
+            num_matched_od / num_total_gen_od if num_total_gen_od > 0 else 0
+        )
+
+        # Calculate "both correct" rate (origin AND destination individually correct)
+        # This requires checking if trajectories have both origin and dest in real sets
+        num_both_correct = 0
+        for gen_traj in self.generated_trajs:
+            gen_origin = self._get_origin_grid(gen_traj)
+            gen_dest = self._get_destination_grid(gen_traj)
+            if (
+                gen_origin is not None
+                and gen_origin in real_origins
+                and gen_dest is not None
+                and gen_dest in real_destinations
+            ):
+                num_both_correct += 1
+
+        both_correct_rate = (
+            num_both_correct / num_total_gen_trajs if num_total_gen_trajs > 0 else 0
+        )
+
         results = {
             "Hausdorff_km": np.mean(hausdorff_scores) if hausdorff_scores else 0,
             "Hausdorff_norm": np.mean(hausdorff_norm_scores)
@@ -897,13 +986,35 @@ class LocalMetrics:
             "DTW_km": np.mean(dtw_scores) if dtw_scores else 0,
             "DTW_norm": np.mean(dtw_norm_scores) if dtw_norm_scores else 0,
             "EDR": np.mean(edr_scores) if edr_scores else 0,
+            # Legacy metrics (kept for backward compatibility)
             "matched_od_pairs": num_matched_od,
             "total_generated_od_pairs": num_total_gen_od,
+            # Granular OD metrics (NEW)
+            "origin_match_count": num_origin_match,
+            "destination_match_count": num_destination_match,
+            "od_pair_match_count": num_matched_od,  # Same as matched_od_pairs
+            "both_correct_count": num_both_correct,  # Origin AND destination correct
+            "total_generated_trajectories": num_total_gen_trajs,
+            "origin_match_rate": origin_match_rate,
+            "destination_match_rate": destination_match_rate,
+            "od_pair_match_rate": od_pair_match_rate,
+            "both_correct_rate": both_correct_rate,
         }
 
+        print("✅ Local metrics calculated:")
         print(
-            f"✅ Local metrics calculated ({num_matched_od}/{num_total_gen_od} OD pairs matched)."
+            f"   - OD pair matches: {num_matched_od}/{num_total_gen_od} ({od_pair_match_rate:.1%})"
         )
+        print(
+            f"   - Origin matches: {num_origin_match}/{num_total_gen_trajs} ({origin_match_rate:.1%})"
+        )
+        print(
+            f"   - Destination matches: {num_destination_match}/{num_total_gen_trajs} ({destination_match_rate:.1%})"
+        )
+        print(
+            f"   - Both correct: {num_both_correct}/{num_total_gen_trajs} ({both_correct_rate:.1%})"
+        )
+
         return results
 
 
