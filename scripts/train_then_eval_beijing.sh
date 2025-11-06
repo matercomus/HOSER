@@ -111,6 +111,16 @@ log_info "   Epochs: 25"
 log_info "   Distillation: Disabled"
 log_info ""
 
+# Backup existing checkpoints for this seed if they exist
+if [ -d "save/Beijing/seed43_vanilla" ] || [ -d "save/Beijing/seed43_distill" ]; then
+    BACKUP_DIR="save/Beijing/seed43_backup_${TIMESTAMP}"
+    log_warn "Existing seed43 checkpoints found - backing up to $BACKUP_DIR"
+    mkdir -p "$BACKUP_DIR"
+    mv save/Beijing/seed43_* "$BACKUP_DIR/" 2>/dev/null || true
+    log_success "Backup complete"
+fi
+log_info ""
+
 # Ensure distillation is disabled for vanilla
 export TRAIN_VANILLA=1  # Flag to disable distillation if script supports it
 
@@ -144,6 +154,16 @@ log_info "   Epochs: 25"
 log_info "   Distillation: Disabled"
 log_info ""
 
+# Backup existing checkpoints for this seed if they exist
+if [ -d "save/Beijing/seed44_vanilla" ] || [ -d "save/Beijing/seed44_distill" ]; then
+    BACKUP_DIR="save/Beijing/seed44_backup_${TIMESTAMP}"
+    log_warn "Existing seed44 checkpoints found - backing up to $BACKUP_DIR"
+    mkdir -p "$BACKUP_DIR"
+    mv save/Beijing/seed44_* "$BACKUP_DIR/" 2>/dev/null || true
+    log_success "Backup complete"
+fi
+log_info ""
+
 uv run python train_with_distill.py \
     --dataset Beijing \
     --config "$CONFIG_FILE" \
@@ -174,6 +194,11 @@ log_info "   Epochs: 25"
 log_info "   Distillation: Enabled"
 log_info ""
 log_warn "   NOTE: Ensure distillation is enabled in $CONFIG_FILE"
+log_info ""
+
+# Backup handled earlier for seed43 vanilla, this is for distilled training
+# The backup above already moved seed43_distill* if it existed
+log_info "Starting distilled training (checkpoints already backed up if existed)..."
 log_info ""
 
 # Unset vanilla flag for distilled model
