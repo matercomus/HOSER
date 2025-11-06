@@ -15,7 +15,7 @@ This document provides a complete specification of the HOSER (student) and LM-TA
 This research investigates knowledge distillation from a large transformer-based teacher model (LM-TAD) into a compact student model (HOSER) for real-time trajectory prediction. The student model is **96.8% smaller** than the teacher while maintaining competitive accuracy through distillation training.
 
 **Key Metrics:**
-- **Student (HOSER)**: ~4.4M parameters, ~13ms inference latency
+- **Student (HOSER)**: ~4.45M parameters, ~13ms inference latency
 - **Teacher (LM-TAD)**: ~137M parameters, ~430ms inference latency
 - **Compression Ratio**: 30.8× smaller
 
@@ -34,10 +34,10 @@ Encodes the road network structure using learned embeddings and graph neural net
   - Parameters: 2,563,840
   
 - **Road Attribute Encoders**:
-  - Length encoder: `nn.Linear(1, 16)` → 17 params
+  - Length encoder: `nn.Linear(1, 16)` → 17 params (16 weights + 1 bias)
   - Type encoder: `nn.Embedding(10, 16)` → 160 params
-  - Longitude encoder: `nn.Linear(1, 16)` → 17 params
-  - Latitude encoder: `nn.Linear(1, 16)` → 17 params
+  - Longitude encoder: `nn.Linear(1, 16)` → 17 params (16 weights + 1 bias)
+  - Latitude encoder: `nn.Linear(1, 16)` → 17 params (16 weights + 1 bias)
   - Total attribute embedding dimension: 64 + 16 + 16 + 16 + 16 = **128**
 
 #### 1.2 Zone Embedding Layer
@@ -86,8 +86,8 @@ Processes the historical trajectory sequence using temporal encoding and transfo
 - **Time Embedding**: `nn.Linear(1, 128)`
   - Input: Normalized timestamp (0-1)
   - Output: 128-dimensional temporal embedding
-  - Activation: Cosine (`cos(time_emb(t))`)
-  - Parameters: 129
+  - Activation: Cosine (applied after linear layer: `cos(time_emb(t))`)
+  - Parameters: 129 (128 weights + 1 bias)
 
 #### 2.3 Trajectory Transformer
 - **Configuration**:
@@ -102,9 +102,11 @@ Processes the historical trajectory sequence using temporal encoding and transfo
 - **Per-Layer Architecture** (2 layers total):
   
   **Causal Self-Attention Block**:
-  - Query/Key/Value projection: `nn.Linear(256, 768)` → 196,608 params
+  - Query/Key/Value projection: `nn.Linear(256, 768)` → 196,608 params (no bias)
     - Projects to 3× hidden_dim for Q, K, V
-  - Output projection: `nn.Linear(256, 256)` → 65,536 params
+    - Calculation: 256 × 768 = 196,608 (bias=False as per code)
+  - Output projection: `nn.Linear(256, 256)` → 65,536 params (no bias)
+    - Calculation: 256 × 256 = 65,536
   - Relative position embeddings (K): `nn.Linear(2, 128)` → 256 params
     - Input: [distance, time_interval]
   - Relative position embeddings (V): `nn.Linear(2, 128)` → 256 params
@@ -287,16 +289,16 @@ The LM-TAD (Language Model for Trajectory Anomaly Detection) model is a transfor
 
 #### 3.1 Final Layer Normalization
 - **Layer**: `nn.LayerNorm(768)`
-  - Parameters: 1,536
+  - Parameters: 1,536 (scale + bias)
 
 #### 3.2 Language Model Head
 - **Layer**: `nn.Linear(768, 51663)`
   - Projects to vocabulary size for next-token prediction
   - Parameters: 39,677,184
-  - No bias
-  - Often weight-tied with token embedding
+  - No bias (bias=False)
+  - Often weight-tied with token embedding (not counted separately if tied)
 
-**Output Layer Parameters**: 39,678,720
+**Output Layer Parameters**: 1,536 (LayerNorm only; LM Head counted in total separately)
 
 ---
 
