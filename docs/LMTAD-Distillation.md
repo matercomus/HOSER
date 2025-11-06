@@ -807,16 +807,157 @@ Where:
 - Gentler gradients help optimization: sharp distributions (high confidence) create large, unstable gradients
 - Typical range: $\tau \in [2.0, 4.0]$ balances smoothing vs preserving preference order
 
-**Why forward KL (teacher → student)?**
-- Forward KL: $\text{KL}(q \| p)$ penalizes student for being *too uncertain* where teacher is confident (mode-seeking)
-- Alternative (reverse KL): $\text{KL}(p \| q)$ penalizes student for being *too confident* where teacher is uncertain (mean-seeking)
-- Forward KL matches our goal: push student toward teacher's high-confidence predictions
+**Why forward KL (teacher → student)?** (See dedicated section below for full justification)
 
 **Why preserve supervised losses?**
 - Distillation alone is insufficient: teacher may have learned biases or errors
 - Ground truth labels provide direct supervision on *what* to predict
 - Distillation adds *how confidently* and *how to rank alternatives*
 - Combined training gets best of both: label accuracy + uncertainty estimates from probability distributions
+
+### KL Divergence Direction: Forward vs Reverse
+
+**Implementation Choice**: HOSER uses **forward KL divergence** KL(Teacher || Student) as shown in line 299 of `critics/distill_hook.py`:
+
+```python
+kl = torch.sum(q_tau * (log_q_tau - log_p_tau))
+```
+
+This section provides the theoretical justification for this choice.
+
+#### Mathematical Definitions
+
+For two probability distributions $q$ (teacher) and $p$ (student):
+
+**Forward KL Divergence** (implemented):
+$$
+\text{KL}(q \| p) = \sum_{k} q(k) \log \frac{q(k)}{p(k)} = \sum_{k} q(k) [\log q(k) - \log p(k)]
+$$
+
+**Reverse KL Divergence** (alternative):
+$$
+\text{KL}(p \| q) = \sum_{k} p(k) \log \frac{p(k)}{q(k)} = \sum_{k} p(k) [\log p(k) - \log q(k)]
+$$
+
+**Key Difference**: The weighting - forward KL weights by teacher probabilities $q(k)$, reverse KL weights by student probabilities $p(k)$.
+
+#### Mode-Seeking vs Mode-Covering Behavior
+
+The choice of KL direction fundamentally affects what the student learns:
+
+**Forward KL: Mode-Seeking** (Zero-Avoiding)
+- **Behavior**: Student concentrates probability mass where teacher has high probability
+- **Mechanism**: When teacher assigns high probability ($q(k)$ large) but student doesn't ($p(k)$ small):
+  - Contribution: $q(k) \cdot [\log q(k) - \log p(k)] = q(k) \cdot [\text{large positive}]$ → **large penalty**
+  - Gradient pushes student to increase $p(k)$
+- **Result**: Student focuses on teacher's **confident predictions** (modes)
+- **Ignores**: Low-probability regions where teacher is uncertain
+- **Analogy**: "Be confident where the teacher is confident"
+
+**Reverse KL: Mode-Covering** (Zero-Forcing)
+- **Behavior**: Student spreads probability mass to cover all regions where teacher assigns non-zero probability
+- **Mechanism**: When student assigns high probability ($p(k)$ large) but teacher doesn't ($q(k)$ small):
+  - Contribution: $p(k) \cdot [\log p(k) - \log q(k)] = p(k) \cdot [\text{large positive}]$ → **large penalty**
+  - Gradient pushes student to decrease $p(k)$ or increase coverage
+- **Result**: Student tries to cover **all modes** the teacher knows about
+- **Avoids**: Being confident where teacher is uncertain
+- **Analogy**: "Don't be confident where the teacher isn't"
+
+#### Justification for Forward KL in Trajectory Generation
+
+**1. Capacity Constraints**:
+- Teacher: 85M parameters, can afford multi-modal distributions
+- Student: 6.7M parameters (12.7× smaller), must prioritize
+- **Forward KL**: Focuses limited capacity on most important behaviors (modes)
+- **Reverse KL**: Wastes capacity trying to cover all possible behaviors
+
+**2. Navigation Task Properties**:
+- Most origin-destination pairs have a **dominant optimal path**
+- Alternative paths exist but are less frequently taken
+- **Forward KL**: Student learns the primary navigation strategy
+- **Reverse KL**: Student would try to hedge across all alternatives, potentially learning none well
+
+**3. Confidence Preservation**:
+- Teacher's high-confidence predictions encode learned spatial regularities (e.g., "highways for long distances")
+- **Forward KL**: Student inherits teacher's confidence structure
+- **Reverse KL**: Student becomes overly cautious, assigning probability to unlikely routes
+
+**4. Empirical Distillation Literature**:
+- **Hinton et al. (2015)**: Original distillation paper used forward KL implicitly through cross-entropy
+- **Sanh et al. (2019)**: DistilBERT uses forward KL, achieving 97% performance retention with 40% size reduction
+- **Standard practice**: Forward KL is the default in knowledge distillation applications
+
+**5. Gradient Stability**:
+- **Forward KL**: Gradient magnitude weighted by $q(k)$ (teacher's mass distribution)
+  - Large gradients only where teacher is confident
+  - Stable optimization, teacher controls signal strength
+- **Reverse KL**: Gradient magnitude weighted by $p(k)$ (student's mass distribution)
+  - Student's early random distributions can create unstable gradients
+  - May oscillate during training
+
+#### When Reverse KL Might Be Preferred
+
+Reverse KL is useful when:
+- **Avoiding false confidence** is critical (e.g., safety-critical systems)
+- **Teacher has multiple equally valid modes** and all should be preserved
+- **Model capacity is sufficient** to represent all teacher modes
+- **Diversity matters more than precision** (e.g., generative art)
+
+For trajectory generation:
+- False confidence is mitigated by supervised loss (ground truth labels)
+- Most navigation scenarios have a primary mode (shortest path)
+- Limited student capacity (6.7M params)
+- **Precision matters** (arriving at correct destination)
+
+→ **Forward KL is the appropriate choice**
+
+#### Implementation Verification
+
+The implementation in `critics/distill_hook.py` correctly implements forward KL:
+
+```python
+# Line 288: Temperature-scale teacher probabilities
+q_tau = torch.clamp(q_c, min=1e-9).pow(1.0 / T)
+q_tau = q_tau / q_tau_sum  # Normalized teacher distribution
+
+# Line 282: Temperature-scale student logits
+p_tau = torch.softmax(s_logits / T, dim=-1)  # Student distribution
+
+# Line 296-299: Compute forward KL
+log_q_tau = torch.log(torch.clamp(q_tau, min=1e-9))
+log_p_tau = torch.log(torch.clamp(p_tau, min=1e-9))
+kl = torch.sum(q_tau * (log_q_tau - log_p_tau))  # KL(q || p)
+```
+
+**Confirmation**: The weighting term is `q_tau` (teacher), confirming forward KL direction.
+
+#### Alternative Formulation Note
+
+Some implementations use **cross-entropy** instead of explicit KL divergence:
+$$
+\mathcal{L}_{\text{CE}} = -\sum_{k} q(k) \log p(k)
+$$
+
+This is equivalent to forward KL up to a constant (entropy of $q$):
+$$
+\text{KL}(q \| p) = \underbrace{-\sum_{k} q(k) \log p(k)}_{\text{cross-entropy}} - \underbrace{\left(-\sum_{k} q(k) \log q(k)\right)}_{\text{entropy (constant)}}
+$$
+
+Since teacher $q$ is frozen, entropy is constant and doesn't affect gradients. Both formulations are mathematically equivalent for optimization.
+
+#### References
+
+1. **Hinton, G., Vinyals, O., & Dean, J. (2015)**. Distilling the knowledge in a neural network. *arXiv preprint arXiv:1503.02531*.
+   - Section 2.1: "Matching logits" (implicit forward KL through softmax cross-entropy)
+
+2. **Sanh, V., Debut, L., Chaumond, J., & Wolf, T. (2019)**. DistilBERT, a distilled version of BERT. *arXiv preprint arXiv:1910.01108*.
+   - Used forward KL (cross-entropy) for 40% compression with 97% performance retention
+
+3. **Murphy, K. P. (2012)**. Machine Learning: A Probabilistic Perspective. MIT Press.
+   - Section 2.8.3: "Forward vs reverse KL" - comprehensive comparison
+
+4. **Kullback, S., & Leibler, R. A. (1951)**. On information and sufficiency. *Annals of Mathematical Statistics*, 22(1), 79-86.
+   - Original KL divergence definition and properties
 
 ### Parameter Ranges and Effects
 
