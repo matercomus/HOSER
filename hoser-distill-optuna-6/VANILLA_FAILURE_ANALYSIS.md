@@ -176,7 +176,7 @@ Input OD: 10447 → 906, Generated: 10447 → 10282, Length: 3 roads
    - Student inherits teacher's understanding of "which roads lead where"
 
 3. **Better Exploration/Exploitation Balance:**
-   - Teacher's probability distributions are better calibrated
+   - Teacher's probability distributions provide richer signal
    - Student learns when to explore alternate routes vs stick to main paths
    - Results in more successful long-distance navigation
 
@@ -225,7 +225,7 @@ It's because:
    - **Impact:**
      - Binary signal: correct road = 1.0, all others = 0.0
      - No soft guidance about "good alternative routes"
-     - Doesn't learn uncertainty/confidence calibration
+     - Doesn't learn nuanced confidence estimates
      - Can't distinguish between "slightly wrong" and "completely wrong" roads
    - **Evidence:** Distilled adds KL loss from teacher's probability distribution
    - **Why this matters for navigation:** 

@@ -81,7 +81,7 @@ Transfer LM-TAD's learned spatial patterns to HOSER during training, then deploy
 - ✅ **No inference overhead**: HOSER runs alone at inference (fast 13ms latency)
 - ✅ **Better accuracy**: HOSER learns from both ground truth labels AND teacher's spatial reasoning
 - ✅ **Simple deployment**: Single model, no teacher needed in production
-- ✅ **Calibrated uncertainty**: HOSER learns not just *what* to predict, but *how confident* to be
+- ✅ **Uncertainty quantification**: HOSER learns not just *what* to predict, but estimates prediction confidence through probability distributions
 
 **Key insight**: LM-TAD was trained to detect trajectory anomalies by learning what "normal" spatial patterns look like. These learned distributions encode rich spatial knowledge that we can transfer to HOSER through distillation, even though LM-TAD was never trained for trajectory prediction.
 
@@ -816,7 +816,7 @@ Where:
 - Distillation alone is insufficient: teacher may have learned biases or errors
 - Ground truth labels provide direct supervision on *what* to predict
 - Distillation adds *how confidently* and *how to rank alternatives*
-- Combined training gets best of both: label accuracy + calibrated uncertainty
+- Combined training gets best of both: label accuracy + uncertainty estimates from probability distributions
 
 ### Parameter Ranges and Effects
 
@@ -1490,9 +1490,9 @@ $$
 
 **With distillation** ($\lambda=0.01$):
 - HOSER learns from both labels AND teacher's reasoning: "22080 is correct, AND it should be strongly preferred in this context"
-- Calibrates confidence based on spatial patterns: high confidence for exit ramps from ring roads, moderate confidence for ambiguous intersections
+- Produces confidence scores based on spatial patterns: higher confidence for exit ramps from ring roads, lower confidence for ambiguous intersections
 - Learns to rank alternatives: "22077 is more plausible than 33716 even though both are wrong"
-- Expected improvement: +1-3% accuracy (from calibrated confidence and better tie-breaking)
+- Expected improvement: +1-3% accuracy (from confidence-based ranking and better tie-breaking)
 
 ## Implementation Plan
 
@@ -2106,7 +2106,7 @@ Total time: 3.2 seconds
 
 2. **Improved tie-breaking**: When two roads have similar geometric features, the distilled model's learned spatial patterns help pick the more realistic option.
 
-3. **Calibrated confidence**: Distilled models learn to be confident about unambiguous decisions (e.g., highway continuation) and uncertain about truly ambiguous choices (e.g., downtown grid intersections). This leads to more stable beam rankings.
+3. **Confidence differentiation**: Distilled models assign higher confidence scores to unambiguous decisions (e.g., highway continuation) and lower scores to truly ambiguous choices (e.g., downtown grid intersections). This leads to more stable beam rankings.
 
 **Concrete example**:
 
@@ -2230,7 +2230,7 @@ $$\text{EDR}(T_{\text{real}}, T_{\text{gen}}) = \frac{\text{edit\_operations}}{\
 
 **Training OD Pairs (Memorization Test)**:
 - Both models should perform well since they've seen these patterns during training
-- Distilled model may show modest improvements due to better calibrated confidence
+- Distilled model may show modest improvements due to learned confidence estimates
 - Key insight: If both models perform similarly, it suggests they're both memorizing well
 
 **Test OD Pairs (Generalization Test)**:
