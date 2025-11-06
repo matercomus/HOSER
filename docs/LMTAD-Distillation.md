@@ -1570,6 +1570,7 @@ if optuna_trial is not None:
   - Per-epoch validation: next-step accuracy, time-prediction MAPE.
   - Metrics logged to both TensorBoard and WandB.
   - Best model saved based on validation accuracy.
+  - See [CHECKPOINT_STRATEGY.md](CHECKPOINT_STRATEGY.md) for full checkpoint documentation.
 
 ### 5) Configuration (key knobs)
 
@@ -1940,6 +1941,7 @@ $$
 - Checkpoint structure and loading
   - We export to weights‑only (`state_dict` + `model_config`) to eliminate pickle dependencies and module name collisions.
   - `_orig_mod.` prefixes are stripped before `load_state_dict`.
+  - See [CHECKPOINT_STRATEGY.md](CHECKPOINT_STRATEGY.md) for detailed checkpoint format and loading procedures.
 
 - Dtype and AMP policy
   - On RTX 2080 Ti, prefer `float16` autocast; set via config `distill.dtype: float16`.
