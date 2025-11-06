@@ -95,9 +95,14 @@ class DistillationManager:
 
         # Mapper
         self.mapper = GridMapper(grid_cfg, road_centroids, verify_hw=verify_hw)
-        self.road_to_token = torch.from_numpy(self.mapper.map_all()).to(
+        road_to_token_array = self.mapper.map_all()
+        self.road_to_token = torch.from_numpy(road_to_token_array).to(
             device
         )  # Move to GPU immediately
+
+        # Validate vocabulary mapping quality
+        if self.logger and self.cfg.verbose:
+            self._log_mapping_validation(road_to_token_array, len(road_centroids))
 
         # Pre-resolve SOT token id if available
         self.sot_id = self.teacher.sot_token()
@@ -115,6 +120,49 @@ class DistillationManager:
         if self.sot_id is not None:
             self.sot_tensor = torch.tensor(
                 [self.sot_id], device=device, dtype=torch.long
+            )
+
+    def _log_mapping_validation(
+        self, road_to_token: np.ndarray, num_roads: int
+    ) -> None:
+        """Validate and log vocabulary mapping quality metrics.
+
+        Ensures semantic equivalence is preserved in the HOSER→LM-TAD mapping.
+        """
+        grid_h, grid_w = self.mapper.grid_h, self.mapper.grid_w
+        total_cells = grid_h * grid_w
+
+        # Coverage metrics
+        invalid = np.sum((road_to_token < 0) | (road_to_token >= total_cells))
+        coverage = 100.0 * (num_roads - invalid) / num_roads
+
+        # Distribution metrics
+        token_counts = np.bincount(road_to_token, minlength=total_cells)
+        occupied = np.sum(token_counts > 0)
+        utilization = 100.0 * occupied / total_cells
+
+        mean_roads = token_counts[token_counts > 0].mean() if occupied > 0 else 0
+        max_roads = token_counts.max()
+
+        self.logger.info("[distill] Vocabulary mapping validation:")
+        self.logger.info(f"  Roads: {num_roads:,}")
+        self.logger.info(f"  Grid: {grid_h}×{grid_w} = {total_cells:,} cells")
+        self.logger.info(
+            f"  Coverage: {coverage:.2f}% ({num_roads - invalid}/{num_roads})"
+        )
+        self.logger.info(
+            f"  Utilization: {utilization:.2f}% ({occupied}/{total_cells} cells used)"
+        )
+        self.logger.info(
+            f"  Distribution: {mean_roads:.1f} ± {token_counts[token_counts > 0].std():.1f} roads/cell"
+        )
+        self.logger.info(f"  Densest cell: {max_roads} roads")
+
+        if invalid > 0:
+            self.logger.warning(f"[distill] Found {invalid} invalid token mappings!")
+        if coverage < 99.0:
+            self.logger.warning(
+                f"[distill] Mapping coverage {coverage:.2f}% is below 99%"
             )
 
     @torch.no_grad()
