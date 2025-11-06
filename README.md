@@ -1,102 +1,125 @@
-## <div align="center"> Holistic Semantic Representation for Navigational Trajectory Generation </div>
+## <div align="center"> Knowledge Distillation for Trajectory Generation </div>
+## <div align="center"> Compressing LM-TAD into HOSER </div>
 
 <div align="center">
 
-  <a href="https://ojs.aaai.org/index.php/AAAI/article/view/31978"><img src="https://img.shields.io/badge/AAAI-2025-blue"></a> &ensp;
-  <a href="https://arxiv.org/abs/2501.02737"><img src="https://img.shields.io/static/v1?label=arXiv&message=2501.02737&color=a42c25&logo=arXiv"></a> &ensp;
-  <a href="https://huggingface.co/datasets/caoji2001/HOSER-dataset/tree/main"><img src="https://img.shields.io/static/v1?label=%F0%9F%A4%97%20Hugging%20Face&message=Dataset&color=ffc107"></a> &ensp;
-  <a href="https://caoji2001.github.io/HOSER/"><img src="https://img.shields.io/badge/Home-Page-green"></a>
+[![Work in Progress](https://img.shields.io/badge/Status-Work%20in%20Progress-yellow)]()
+[![Research](https://img.shields.io/badge/Research-Knowledge%20Distillation-blue)](docs/LMTAD-Distillation.md)
+[![Built on HOSER](https://img.shields.io/badge/Built%20on-HOSER-orange)](https://github.com/caoji2001/HOSER)
+[![Teacher: LM-TAD](https://img.shields.io/badge/Teacher-LM--TAD-purple)](https://github.com/jonathankabala/LMTAD)
 
 </div>
 
-This is the official implementation of paper "Holistic Semantic Representation for Navigational Trajectory Generation".
+---
 
-⭐⭐ If you find this repository helpful, please kindly leave a star here 😊.
+### ⚠️ Work in Progress
 
-### Framework Overview
+This repository is under active development. Implementation details, APIs, and documentation are subject to change.
 
-![Framework](./assets/framework.png)
+---
 
-HOSER predicts the next spatio-temporal point based on the current state and generates the trajectory between the given OD pair through a search-based method. As illustrated above, HOSER first employs a Road Network Encoder to model the road network at different levels. Based on the road network representation, a Multi-Granularity Trajectory Encoder is proposed to extract the semantic information from the current partial trajectory. To better incorporate prior knowledge of human mobility, a Destination-Oriented Navigator is used to seamlessly integrate the current partial trajectory semantics with the destination guidance.
+### Overview
 
-### Requirements
+This research investigates **knowledge distillation** from LM-TAD (85M parameters) into HOSER (6.7M parameters) for navigational trajectory generation, achieving **12.7× model compression** with **6× inference speedup**.
 
-The required packages with Python environment is:
+**Research Goal**: Compress a large language model teacher into a deployment-ready student while retaining trajectory generation quality.
+
+⚠️ **Note**: This is a research fork. For original implementations:
+- **HOSER**: [caoji2001/HOSER](https://github.com/caoji2001/HOSER)
+- **LM-TAD**: [jonathankabala/LMTAD](https://github.com/jonathankabala/LMTAD)
+
+---
+
+### Key Results
+
+| Metric | Result |
+|--------|--------|
+| **Model Size** | 85M → 6.7M params (12.7× compression) |
+| **Inference Speed** | 6× faster (distilled vs vanilla) |
+| **Teacher F1** | 83.89% (Beijing), 91.10% (Porto) |
+| **Student Throughput** | 0.30 vs 0.05 traj/s (distilled vs vanilla) |
+
+---
+
+### Documentation
+
+- 📘 **[Distillation Methodology](docs/LMTAD-Distillation.md)** - Complete technical guide
+- 📊 **[Teacher Baseline](docs/results/TEACHER_BASELINE_COMPARISON.md)** - Performance metrics
+- ✅ **[Vocabulary Mapping](docs/VOCABULARY_MAPPING_VALIDATION.md)** - Mapping validation
+- 🔬 **[Evaluation Results](docs/EVALUATION_COMPARISON.md)** - Beijing & Porto analysis
+
+---
+
+### Reproducibility
+
+**Hardware**: NVIDIA RTX 4090 (24GB), AMD Ryzen 9 7950X, 64GB DDR5  
+**Software**: Python 3.12, PyTorch 2.5.1, CUDA 12.4
+
+**Performance** (A* search):
+- Distilled: 3.3s/trajectory (0.30 traj/s)
+- Vanilla: 20s/trajectory (0.05 traj/s)
+- **6× speedup** with distillation
+
+---
+
+### Citation & Acknowledgments
+
+This work builds upon two excellent implementations:
+
+#### HOSER (Student Architecture)
+
+```bibtex
+@inproceedings{cao2025hoser,
+  title={Holistic Semantic Representation for Navigational Trajectory Generation},
+  author={Cao, Ji and Zheng, Tongya and Guo, Qinghong and Wang, Yu and Dai, Junshu and Liu, Shunyu and Yang, Jie and Song, Jie and Song, Mingli},
+  booktitle={AAAI},
+  year={2025}
+}
 ```
-torch
-torch_geometric
-tqdm
-PyYAML
-numpy
-pandas
-scikit-learn
-shapely
-tensorboard
-haversine
-loguru
+
+**Repository**: [caoji2001/HOSER](https://github.com/caoji2001/HOSER)  
+**Paper**: [AAAI 2025](https://ojs.aaai.org/index.php/AAAI/article/view/31978) | [arXiv:2501.02737](https://arxiv.org/abs/2501.02737)
+
+#### LM-TAD (Teacher Model)
+
+```bibtex
+@inproceedings{li2024lmtad,
+  title={Trajectory Anomaly Detection with Language Models},
+  author={Li, Boyang and others},
+  booktitle={SIGSPATIAL},
+  year={2024}
+}
 ```
 
-### Running
+**Repository**: [jonathankabala/LMTAD](https://github.com/jonathankabala/LMTAD)
 
-* Data Preprocessing
-  
-  First, download the required dataset from [Hugging Face](https://huggingface.co/datasets/caoji2001/HOSER-dataset/tree/main) and place it in the `data` folder.
+#### Knowledge Distillation References
 
-  Next, We use [KaHIP](https://github.com/KaHIP/KaHIP), a graph partitioning framework, to partition the road network. Install KaHIP by running the following commands in your terminal:
+- Hinton et al. (2015). Distilling the knowledge in a neural network. *arXiv:1503.02531*
+- Sanh et al. (2019). DistilBERT, a distilled version of BERT. *arXiv:1910.01108*
 
-  ```console
-  git clone --branch v3.17 https://github.com/KaHIP/KaHIP.git
-  cd KaHIP
-  mkdir build
-  cd build 
-  cmake ../ -DCMAKE_BUILD_TYPE=Release     
-  make
-  cd ../..
-  ```
-
-  Finally, run our script to preprocess the data:
-
-  ```console
-  cd data/preprocess
-  python partition_road_network.py
-  python get_zone_trans_mat.py
-  cd ../..
-  ```
-
-* Model Training
-
-  `python train.py`
-  * `--dataset` specifies the dataset, such as `Beijing`, `Porto`, or `San Francisco`
-  * `--seed` specifies the random seed
-  * `--cuda` specifies the GPU device number
-
-* Trajectory Generation
-
-  `python gene.py`
-  * `--dataset` specifies the dataset, such as `Beijing`, `Porto`, or `San Francisco`
-  * `--seed` specifies the random seed
-  * `--cuda` specifies the GPU device number
-  * `--num_gene` specifies the number of trajectories to generate
-  * `--processes` specifies the number of processes to use when generating trajectories in parallel
-
-### Citation
-  If our work contributes to your research, please consider citing it:
-
-  ```
-  @inproceedings{cao2025hoser,
-    title={Holistic Semantic Representation for Navigational Trajectory Generation},
-    author={Cao, Ji and Zheng, Tongya and Guo, Qinghong and Wang, Yu and Dai, Junshu and Liu, Shunyu and Yang, Jie and Song, Jie and Song, Mingli},
-    booktitle={AAAI Conference on Artificial Intelligence (AAAI)},
-    year={2025},
-  }
-  ```
+---
 
 ### Acknowledgments
 
-This work is supported by the Zhejiang Province "JianBingLingYan+X" Research and Development Plan (2024C01114), Zhejiang Province High-Level Talents Special Support Program "Leading Talent of Technological Innovation of Ten-Thousands Talents Program" (No.2022R52046), the Fundamental Research Funds for the Central Universities (No.226-2024-00058), and the Scientific Research Fund of Zhejiang Provincial Education Department (Grant No.Y202457035). Also, we thank Bayou Tech (Hong Kong) Limited for providing the data used in this paper free of charge.
+**Original Works**:
+- HOSER team (Zhejiang University) for the student architecture and dataset
+- LM-TAD team for the teacher model implementation
+
+**Data**: Beijing taxi trajectory data from Bayou Tech (Hong Kong) Limited via HOSER dataset
+
+---
 
 ### Contact
 
-If you have any question, please feel free to contact
+**Issues**: [GitHub Issues](https://github.com/matercomus/HOSER/issues)
 
-Ji Cao, [caoji2001@zju.edu.cn](mailto:caoji2001@zju.edu.cn).
+For questions about original works:
+- **HOSER**: [caoji2001/HOSER](https://github.com/caoji2001/HOSER)
+- **LM-TAD**: [jonathankabala/LMTAD](https://github.com/jonathankabala/LMTAD)
+
+---
+
+### License
+
+This research fork maintains compatibility with original HOSER and LM-TAD licenses. See respective repositories for details.
