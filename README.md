@@ -31,6 +31,8 @@ This research investigates **knowledge distillation** from LM-TAD into HOSER for
 - 📘 **[Distillation Methodology](docs/LMTAD-Distillation.md)** - Complete technical guide
 - 📊 **[Teacher Baseline](docs/results/TEACHER_BASELINE_COMPARISON.md)** - Performance metrics
 - ✅ **[Vocabulary Mapping](docs/VOCABULARY_MAPPING_VALIDATION.md)** - Mapping validation
+- 🔍 **[Search Method Selection](docs/SEARCH_METHOD_GUIDANCE.md)** - A* vs Beam Search guidance
+- 📈 **[Evaluation Comparison](docs/EVALUATION_COMPARISON.md)** - Cross-dataset analysis
 
 ---
 
