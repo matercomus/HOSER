@@ -60,28 +60,35 @@ This directory organizes all evaluation-related documentation for the HOSER Know
    - Cross-seed analysis enhancement
    - CV handling for interval scale metrics
 
+7. **[Trajectory Metrics Specification](../TRAJECTORY_METRICS_SPECIFICATION.md)** 🆕
+   - JSON format for trajectory-level metrics
+   - OD pair matching mechanism
+   - Distance metrics (Hausdorff, DTW, EDR)
+   - Usage examples and integration guide
+   - Enables paired statistical tests
+
 ### Evaluation Methodologies
 
-7. **[Scenario Analysis Guide](../SCENARIO_ANALYSIS_GUIDE.md)**
+8. **[Scenario Analysis Guide](../SCENARIO_ANALYSIS_GUIDE.md)**
    - 9 scenario taxonomy (temporal + spatial)
    - OD-specific aggregation
    - Hierarchical analysis
    - Per-scenario metric computation
 
-8. **[Wang Abnormality Detection](../results/WANG_ABNORMALITY_DETECTION_RESULTS.md)** ⭐
+9. **[Wang Abnormality Detection](../results/WANG_ABNORMALITY_DETECTION_RESULTS.md)** ⭐
    - Statistical abnormality detection (Wang et al. 2018)
    - OD-pair-specific baselines
    - 4 behavior patterns (Normal, Temporal, Route, Both)
    - Comprehensive results across 809k trajectories
    - Cross-dataset transfer analysis
 
-9. **[Search Method Guidance](../SEARCH_METHOD_GUIDANCE.md)** 🆕
-   - A* vs Beam search comparison
-   - Decision matrix (speed vs quality vs OD matching)
-   - Configuration recommendations
-   - Performance benchmarks from ablation study
+10. **[Search Method Guidance](../SEARCH_METHOD_GUIDANCE.md)** 🆕
+    - A* vs Beam search comparison
+    - Decision matrix (speed vs quality vs OD matching)
+    - Configuration recommendations
+    - Performance benchmarks from ablation study
 
-10. **[Beam Ablation Study](../BEAM_ABLATION_STUDY.md)** 🆕
+11. **[Beam Ablation Study](../BEAM_ABLATION_STUDY.md)** 🆕
     - 26-hour experimental study
     - Search-method dependency findings
     - Performance tables and interpretation
@@ -93,18 +100,18 @@ This directory organizes all evaluation-related documentation for the HOSER Know
 
 ### Published Results
 
-11. **[Cross-Seed Analysis](../results/CROSS_SEED_ANALYSIS.md)**
+12. **[Cross-Seed Analysis](../results/CROSS_SEED_ANALYSIS.md)**
     - Statistical variance across seeds (42, 43, 44)
     - Mean, SD, 95% CI, CV%
     - All metrics: Global, local, normalized
     - Confidence intervals for reproducibility
 
-12. **[Teacher Baseline Comparison](../results/TEACHER_BASELINE_COMPARISON.md)**
+13. **[Teacher Baseline Comparison](../results/TEACHER_BASELINE_COMPARISON.md)**
     - Vanilla vs Distilled performance
     - LM-TAD teacher comparison
     - Dataset-specific findings
 
-13. **[Wang Abnormality Detection Results](../results/WANG_ABNORMALITY_DETECTION_RESULTS.md)**
+14. **[Wang Abnormality Detection Results](../results/WANG_ABNORMALITY_DETECTION_RESULTS.md)**
     - 12 models across 3 datasets
     - Real vs generated abnormality rates
     - Statistical significance with FDR correction
@@ -116,12 +123,12 @@ This directory organizes all evaluation-related documentation for the HOSER Know
 
 ### Practical Implementation
 
-14. **[Abnormal OD Workflow](../guides/ABNORMAL_OD_WORKFLOW.md)**
+15. **[Abnormal OD Workflow](../guides/ABNORMAL_OD_WORKFLOW.md)**
     - End-to-end workflow for abnormality analysis
     - From generation to statistical detection
     - Step-by-step execution
 
-15. **[Run Wang Abnormality Analysis](../guides/RUN_WANG_ABNORMALITY_ANALYSIS.md)**
+16. **[Run Wang Abnormality Analysis](../guides/RUN_WANG_ABNORMALITY_ANALYSIS.md)**
     - Command-line execution guide
     - Configuration options
     - Output interpretation
@@ -132,17 +139,17 @@ This directory organizes all evaluation-related documentation for the HOSER Know
 
 ### Implementation Details
 
-16. **[Baseline Statistics](../reference/BASELINE_STATISTICS.md)**
+17. **[Baseline Statistics](../reference/BASELINE_STATISTICS.md)**
     - OD-pair-specific baseline computation
     - Statistical thresholds
     - Coverage analysis
 
-17. **[Road Network Mapping](../reference/ROAD_NETWORK_MAPPING.md)**
+18. **[Road Network Mapping](../reference/ROAD_NETWORK_MAPPING.md)**
     - Vocabulary mapping validation
     - Cross-dataset translation
     - Road ID mapping methodology
 
-18. **[Model Locations](../reference/MODEL_LOCATIONS.md)**
+19. **[Model Locations](../reference/MODEL_LOCATIONS.md)**
     - Trained model checkpoints
     - Versioning and organization
     - Reproduction details
@@ -153,22 +160,22 @@ This directory organizes all evaluation-related documentation for the HOSER Know
 
 ### Specialized Analyses
 
-19. **[Vocabulary Mapping Validation](../VOCABULARY_MAPPING_VALIDATION.md)**
+20. **[Vocabulary Mapping Validation](../VOCABULARY_MAPPING_VALIDATION.md)**
     - Beijing/Porto vocabulary mapping
     - Coverage verification
     - Distribution analysis
 
-20. **[Performance Profiling Summary](../PERFORMANCE_PROFILING_SUMMARY.md)**
+21. **[Performance Profiling Summary](../PERFORMANCE_PROFILING_SUMMARY.md)**
     - Generation speed benchmarks
     - Computational efficiency
     - Bottleneck analysis
 
-21. **[Visualization Guide](../VISUALIZATION_GUIDE.md)**
+22. **[Visualization Guide](../VISUALIZATION_GUIDE.md)**
     - Trajectory visualization tools
     - Heatmap generation
     - Statistical plot creation
 
-22. **[Dynamic Heatmap Implementation](../DYNAMIC_HEATMAP_IMPLEMENTATION.md)**
+23. **[Dynamic Heatmap Implementation](../DYNAMIC_HEATMAP_IMPLEMENTATION.md)**
     - Temporal-spatial visualization
     - Implementation details
 
@@ -178,10 +185,10 @@ This directory organizes all evaluation-related documentation for the HOSER Know
 
 Historical documentation (for reference):
 
-23. **[Archive: Wang Implementation Summary](../archive/WANG_IMPLEMENTATION_SUMMARY.md)**
-24. **[Archive: Abnormal Analysis Results Beijing](../archive/ABNORMAL_ANALYSIS_RESULTS_BEIJING.md)**
-25. **[Archive: Z-Score Results Analysis](../archive/Z_SCORE_RESULTS_ANALYSIS.md)**
-26. **[Archive: Completed Plans](../archive/completed_plans/)**
+24. **[Archive: Wang Implementation Summary](../archive/WANG_IMPLEMENTATION_SUMMARY.md)**
+25. **[Archive: Abnormal Analysis Results Beijing](../archive/ABNORMAL_ANALYSIS_RESULTS_BEIJING.md)**
+26. **[Archive: Z-Score Results Analysis](../archive/Z_SCORE_RESULTS_ANALYSIS.md)**
+27. **[Archive: Completed Plans](../archive/completed_plans/)**
 
 ---
 
