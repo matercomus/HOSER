@@ -15,4 +15,111 @@
       "std_difference": 0.8772973790177211,
       "test_statistic": 54018.0,
       "p_value": 0.014157397657385459,
-      "significant": 
+      "significant": true,
+      "cohens_d": 0.07963624318110188,
+      "assumptions_met": {
+        "differences_normal": false
+      },
+      "warnings": [
+        "Differences may not be normally distributed (Shapiro-Wilk p=0.0000). Consider using Wilcoxon test instead of paired t-test.",
+        "Using non-parametric Wilcoxon test due to non-normal differences"
+      ]
+    },
+    "hausdorff_norm": {
+      "test_name": "Wilcoxon signed-rank test",
+      "n_pairs": 778,
+      "model1_mean": 0.024399057141713833,
+      "model2_mean": 0.02320207772386403,
+      "mean_difference": 0.0011969794178498042,
+      "std_difference": 0.02054781071508153,
+      "test_statistic": 68956.0,
+      "p_value": 0.030258957846839366,
+      "significant": true,
+      "cohens_d": 0.05825337961534044,
+      "assumptions_met": {
+        "differences_normal": false
+      },
+      "warnings": [
+        "Differences may not be normally distributed (Shapiro-Wilk p=0.0000). Consider using Wilcoxon test instead of paired t-test.",
+        "Using non-parametric Wilcoxon test due to non-normal differences"
+      ]
+    },
+    "dtw_km": {
+      "test_name": "Wilcoxon signed-rank test",
+      "n_pairs": 778,
+      "model1_mean": 27.391951204702742,
+      "model2_mean": 23.836229007865438,
+      "mean_difference": 3.5557221968373067,
+      "std_difference": 49.18558998309246,
+      "test_statistic": 71643.0,
+      "p_value": 0.04502402737755613,
+      "significant": true,
+      "cohens_d": 0.07229194969623391,
+      "assumptions_met": {
+        "differences_normal": false
+      },
+      "warnings": [
+        "Differences may not be normally distributed (Shapiro-Wilk p=0.0000). Consider using Wilcoxon test instead of paired t-test.",
+        "Using non-parametric Wilcoxon test due to non-normal differences"
+      ]
+    },
+    "dtw_norm": {
+      "test_name": "Wilcoxon signed-rank test",
+      "n_pairs": 778,
+      "model1_mean": 0.5304762105962049,
+      "model2_mean": 0.4772743432288211,
+      "mean_difference": 0.053201867367383776,
+      "std_difference": 0.6499518801369157,
+      "test_statistic": 70561.0,
+      "p_value": 0.015608639913314837,
+      "significant": true,
+      "cohens_d": 0.08185508649682885,
+      "assumptions_met": {
+        "differences_normal": false
+      },
+      "warnings": [
+        "Differences may not be normally distributed (Shapiro-Wilk p=0.0000). Consider using Wilcoxon test instead of paired t-test.",
+        "Using non-parametric Wilcoxon test due to non-normal differences"
+      ]
+    },
+    "edr": {
+      "test_name": "Wilcoxon signed-rank test",
+      "n_pairs": 778,
+      "model1_mean": 0.47805575323775445,
+      "model2_mean": 0.45961253652526207,
+      "mean_difference": 0.018443216712492383,
+      "std_difference": 0.28219735111417477,
+      "test_statistic": 66796.0,
+      "p_value": 0.05385680198593102,
+      "significant": false,
+      "cohens_d": 0.06535574001554113,
+      "assumptions_met": {
+        "differences_normal": false
+      },
+      "warnings": [
+        "Differences may not be normally distributed (Shapiro-Wilk p=0.0000). Consider using Wilcoxon test instead of paired t-test.",
+        "Using non-parametric Wilcoxon test due to non-normal differences"
+      ]
+    }
+  },
+  "metadata": {
+    "model1_metadata": {
+      "generated_file": "gene/Beijing/seed42/2025-11-06_14-07-04_distilled_test.csv",
+      "real_data_file": "/home/matt/Dev/HOSER-dataset/test.csv",
+      "od_source": "test",
+      "evaluation_timestamp": "2025-11-06T18:46:13.014572",
+      "num_trajectory_comparisons": 862,
+      "grid_size": 0.001,
+      "edr_eps": 100.0
+    },
+    "model2_metadata": {
+      "generated_file": "gene/Beijing/seed42/2025-11-06_14-25-21_distilled_seed44_test.csv",
+      "real_data_file": "/home/matt/Dev/HOSER-dataset/test.csv",
+      "od_source": "test",
+      "evaluation_timestamp": "2025-11-06T18:54:24.595160",
+      "num_trajectory_comparisons": 879,
+      "grid_size": 0.001,
+      "edr_eps": 100.0
+    }
+  }
+}
