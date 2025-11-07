@@ -737,6 +737,9 @@ def main(
             grid_size=float(getattr(config.distill, "grid_size", 0.001)),
             downsample_factor=int(getattr(config.distill, "downsample", 1)),
             verify_grid_dims=True,
+            verbose=bool(
+                getattr(config.distill, "verbose", False)
+            ),  # Read from YAML, default False
         )
         distill_mgr = DistillationManager(
             dcfg,
