@@ -615,7 +615,17 @@ class EvaluationPipeline:
 
         # Check for existing generated file
         gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
-        generated_files = list(gene_dir.glob(f"*{model_type}*{od_source}od*.csv"))
+
+        # Try multiple patterns to support both Porto and Beijing naming conventions
+        patterns = [
+            f"*{model_type}*{od_source}.csv",  # Primary: Porto and most Beijing
+            f"*{model_type}*{od_source}od*.csv",  # Backward compatibility
+            f"{model_type}*{od_source}*.csv",  # Beijing: model_type first
+        ]
+
+        generated_files = []
+        for pattern in patterns:
+            generated_files.extend(gene_dir.glob(pattern))
 
         if generated_files:
             latest_file = max(generated_files, key=lambda x: x.stat().st_mtime)

@@ -2,14 +2,18 @@
 ###############################################################################
 # A* Search Evaluation Pipeline Runner
 # 
-# Usage: ./run_astar_evaluation.sh <dataset>
+# Usage: ./run_astar_evaluation.sh <dataset> [--skip-backup]
 #   dataset: beijing or porto
+#   --skip-backup: Optional flag to skip backing up existing eval directory
 #
 # This script:
 #   1. Creates timestamped log files
-#   2. Backs up existing eval directory
+#   2. Backs up existing eval directory (unless --skip-backup is used)
 #   3. Runs full pipeline with A* search
 #   4. Handles errors and provides status updates
+#
+# Example:
+#   ./run_astar_evaluation.sh porto --skip-backup
 ###############################################################################
 
 set -euo pipefail  # Exit on error, undefined variables, pipe failures
@@ -39,9 +43,10 @@ log_error() {
 }
 
 # Check arguments
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 <dataset>"
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <dataset> [--skip-backup]"
     echo "  dataset: beijing or porto"
+    echo "  --skip-backup: Skip backing up existing eval directory"
     exit 1
 fi
 
@@ -51,6 +56,16 @@ DATASET=$(echo "$1" | tr '[:upper:]' '[:lower:]')
 if [[ "$DATASET" != "beijing" && "$DATASET" != "porto" ]]; then
     echo "Error: Dataset must be 'beijing' or 'porto'"
     exit 1
+fi
+
+# Parse optional flags
+SKIP_BACKUP=false
+if [ $# -gt 1 ]; then
+    for arg in "$@"; do
+        if [ "$arg" == "--skip-backup" ]; then
+            SKIP_BACKUP=true
+        fi
+    done
 fi
 
 # Project root
@@ -92,36 +107,41 @@ fi
 cd "$EVAL_DIR"
 
 # Step 1: Backup existing eval directory
-log_info "Step 1: Backing up existing evaluation directory..."
+if [ "$SKIP_BACKUP" = false ]; then
+    log_info "Step 1: Backing up existing evaluation directory..."
 
-if [ -d "eval" ]; then
-    BACKUP_DIR="eval.backup.astar_${TIMESTAMP}"
-    log_info "Creating backup: $BACKUP_DIR"
-    
-    cp -r eval "$BACKUP_DIR"
-    
-    if [ $? -eq 0 ]; then
-        BACKUP_SIZE=$(du -sh "$BACKUP_DIR" | cut -f1)
-        log_success "Backup created successfully: $BACKUP_DIR (Size: $BACKUP_SIZE)"
+    if [ -d "eval" ]; then
+        BACKUP_DIR="eval.backup.astar_${TIMESTAMP}"
+        log_info "Creating backup: $BACKUP_DIR"
+        
+        cp -r eval "$BACKUP_DIR"
+        
+        if [ $? -eq 0 ]; then
+            BACKUP_SIZE=$(du -sh "$BACKUP_DIR" | cut -f1)
+            log_success "Backup created successfully: $BACKUP_DIR (Size: $BACKUP_SIZE)"
+        else
+            log_error "Backup failed!"
+            exit 1
+        fi
     else
-        log_error "Backup failed!"
-        exit 1
+        log_warn "No existing eval directory found, skipping backup"
     fi
+
+    # Step 2: Backup existing paired_analysis directory if it exists
+    if [ -d "paired_analysis" ]; then
+        PAIRED_BACKUP_DIR="paired_analysis.backup.astar_${TIMESTAMP}"
+        log_info "Backing up paired_analysis: $PAIRED_BACKUP_DIR"
+        cp -r paired_analysis "$PAIRED_BACKUP_DIR"
+        log_success "Paired analysis backup created"
+    fi
+
+    log_info ""
 else
-    log_warn "No existing eval directory found, skipping backup"
+    log_info "Step 1: Skipping backup (--skip-backup flag set)"
+    log_info ""
 fi
 
-# Step 2: Backup existing paired_analysis directory if it exists
-if [ -d "paired_analysis" ]; then
-    PAIRED_BACKUP_DIR="paired_analysis.backup.astar_${TIMESTAMP}"
-    log_info "Backing up paired_analysis: $PAIRED_BACKUP_DIR"
-    cp -r paired_analysis "$PAIRED_BACKUP_DIR"
-    log_success "Paired analysis backup created"
-fi
-
-log_info ""
-
-# Step 3: Check for existing A* results
+# Step 2: Check for existing A* results
 log_info "Step 2: Checking for existing generated trajectories..."
 
 GENE_DIR=$(find . -type d -name "gene" -o -name "generated" | head -1)
@@ -141,7 +161,7 @@ fi
 
 log_info ""
 
-# Step 4: Run the pipeline
+# Step 3: Run the pipeline
 log_info "Step 3: Running full evaluation pipeline with A* search..."
 log_info "This will:"
 log_info "  1. Generate trajectories using A* search"
@@ -181,7 +201,7 @@ fi
 log_info "Duration: ${HOURS}h ${MINUTES}m ${SECONDS}s"
 log_info "End time: $(date)"
 
-# Step 5: Verify results
+# Step 4: Verify results
 log_info ""
 log_info "Step 4: Verifying results..."
 
@@ -202,9 +222,17 @@ fi
 
 # Check for A* generated files
 if [ -n "$GENE_DIR" ]; then
-    NEW_ASTAR_CSV=$(find "$GENE_DIR" -name "*_astar.csv" -newer "$BACKUP_DIR" 2>/dev/null | wc -l)
-    if [ $NEW_ASTAR_CSV -gt 0 ]; then
-        log_success "Generated $NEW_ASTAR_CSV new A* trajectory files"
+    if [ "$SKIP_BACKUP" = false ] && [ -n "${BACKUP_DIR:-}" ]; then
+        NEW_ASTAR_CSV=$(find "$GENE_DIR" -name "*_astar.csv" -newer "$BACKUP_DIR" 2>/dev/null | wc -l)
+        if [ $NEW_ASTAR_CSV -gt 0 ]; then
+            log_success "Generated $NEW_ASTAR_CSV new A* trajectory files"
+        fi
+    else
+        # If backup was skipped, just count all A* files
+        ASTAR_CSV=$(find "$GENE_DIR" -name "*_astar.csv" 2>/dev/null | wc -l)
+        if [ $ASTAR_CSV -gt 0 ]; then
+            log_info "Found $ASTAR_CSV A* trajectory files"
+        fi
     fi
 fi
 
@@ -217,7 +245,11 @@ log_info "Duration: ${HOURS}h ${MINUTES}m ${SECONDS}s"
 log_info "Logs saved to:"
 log_info "  - Main log: $MAIN_LOG"
 log_info "  - Pipeline log: $PIPELINE_LOG"
-log_info "Backup location: $BACKUP_DIR"
+if [ "$SKIP_BACKUP" = false ] && [ -n "${BACKUP_DIR:-}" ]; then
+    log_info "Backup location: $BACKUP_DIR"
+else
+    log_info "Backup: Skipped (--skip-backup flag was used)"
+fi
 log_info "================================================================"
 
 exit $PIPELINE_EXIT_CODE
