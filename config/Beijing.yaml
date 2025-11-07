@@ -45,13 +45,15 @@ optimizer_config:
   max_norm: 1.0
 
 # Distillation settings (used by train_with_distill.py)
+# Best hyperparameters from Optuna tuning study: hoser_tuning_20251003_162916
+# Best trial: 7, Best val_acc: 0.5724
 distill:
   enable: true
   repo: /home/matt/Dev/LMTAD
   ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
-  window: 4  # Much more aggressive - 4x original size
-  lambda: 0.01
-  temperature: 2.0
+  window: 7  # Tuned: 7 (from Optuna study)
+  lambda: 0.0014233948822000568  # Tuned: ~0.00142 (from Optuna study)
+  temperature: 4.372898776918818  # Tuned: ~4.37 (from Optuna study)
   grid_size: 0.001  # Based on LM-TAD training: grip_size="205 252" (no downsampling)
   downsample: 1     # No downsampling for this model
 
