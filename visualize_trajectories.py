@@ -1554,17 +1554,38 @@ class TrajectoryVisualizer:
             # Parse filename to extract model and OD type
             filename = csv_file.name
 
-            # Skip old unnamed files
-            if not any(m in filename for m in ["distilled", "vanilla"]):
+            # Skip old unnamed files (check for both Beijing and Porto conventions)
+            if not any(m in filename for m in ["distill", "vanilla"]):
                 continue
 
             model = None
             od_type = None
 
-            if "distilled_seed44" in filename:
+            # Porto convention (distill_phase1, distill_phase2 with seeds)
+            if "distill_phase2_seed44" in filename:
+                model = "distill_phase2_seed44"
+            elif "distill_phase2_seed43" in filename:
+                model = "distill_phase2_seed43"
+            elif "distill_phase2" in filename:
+                model = "distill_phase2"
+            elif "distill_phase1_seed44" in filename:
+                model = "distill_phase1_seed44"
+            elif "distill_phase1_seed43" in filename:
+                model = "distill_phase1_seed43"
+            elif "distill_phase1" in filename:
+                model = "distill_phase1"
+            # Beijing convention (distilled with seeds)
+            elif "distilled_seed44" in filename:
                 model = "distilled_seed44"
+            elif "distilled_seed43" in filename:
+                model = "distilled_seed43"
             elif "distilled" in filename:
                 model = "distilled"
+            # Vanilla with seeds (both conventions)
+            elif "vanilla_seed44" in filename:
+                model = "vanilla_seed44"
+            elif "vanilla_seed43" in filename:
+                model = "vanilla_seed43"
             elif "vanilla" in filename:
                 model = "vanilla"
 
@@ -2151,10 +2172,18 @@ class TrajectoryVisualizer:
                 logger.warning(f"⚠️  Not enough models loaded for {od_type} OD")
                 continue
 
-            # Get all scenarios (no filtering)
-            scenarios = list(
-                self.scenario_results["overview"]["scenario_distribution"].keys()
-            )
+            # Get all scenarios from trajectory mapping
+            all_scenarios = set()
+            for traj_info in trajectory_mapping:
+                all_scenarios.update(traj_info.get("scenarios", []))
+            scenarios = sorted(list(all_scenarios))
+
+            if not scenarios:
+                logger.warning(
+                    f"⚠️  No scenarios found in trajectory mapping for {od_type} OD"
+                )
+                continue
+
             logger.info(f"  Found {len(scenarios)} scenarios")
 
             # Track OD pairs and their scenarios for multi-scenario plots

@@ -81,11 +81,23 @@ class EvaluationVisualizer:
     def _load_results(self) -> List[Dict]:
         """Load all results.json files from eval directory"""
         results = []
-        for results_file in self.eval_dir.glob("*/results.json"):
-            with open(results_file, "r") as f:
-                data = json.load(f)
-                results.append(data)
+        # Search in eval/ subdirectory for timestamp directories
+        eval_subdir = self.eval_dir / "eval"
+        if eval_subdir.exists():
+            for results_file in eval_subdir.glob("*/results.json"):
+                with open(results_file, "r") as f:
+                    data = json.load(f)
+                    results.append(data)
         return results
+
+    def _get_unique_models(self) -> List[str]:
+        """Get sorted list of unique model types from results"""
+        models = set()
+        for result in self.results:
+            model_type, _ = self._parse_model_info(result)
+            if model_type != "unknown":
+                models.add(model_type)
+        return sorted(models)
 
     def _parse_model_info(self, result: Dict) -> Tuple[str, str]:
         """Extract model type and OD source from result metadata"""
@@ -114,10 +126,31 @@ class EvaluationVisualizer:
 
         # Fallback to file-based detection if timestamp mapping fails
         if model_type == "unknown":
-            if "distilled_seed44" in gen_file:
+            # Porto convention (distill_phase1, distill_phase2 with seeds)
+            if "distill_phase2_seed44" in gen_file:
+                model_type = "distill_phase2_seed44"
+            elif "distill_phase2_seed43" in gen_file:
+                model_type = "distill_phase2_seed43"
+            elif "distill_phase2" in gen_file:
+                model_type = "distill_phase2"
+            elif "distill_phase1_seed44" in gen_file:
+                model_type = "distill_phase1_seed44"
+            elif "distill_phase1_seed43" in gen_file:
+                model_type = "distill_phase1_seed43"
+            elif "distill_phase1" in gen_file:
+                model_type = "distill_phase1"
+            # Beijing convention (distilled with seeds)
+            elif "distilled_seed44" in gen_file:
                 model_type = "distilled_seed44"
+            elif "distilled_seed43" in gen_file:
+                model_type = "distilled_seed43"
             elif "distilled" in gen_file:
                 model_type = "distilled"
+            # Vanilla with seeds (both conventions)
+            elif "vanilla_seed44" in gen_file:
+                model_type = "vanilla_seed44"
+            elif "vanilla_seed43" in gen_file:
+                model_type = "vanilla_seed43"
             elif "vanilla" in gen_file:
                 model_type = "vanilla"
 
@@ -242,8 +275,8 @@ class EvaluationVisualizer:
         train_data = {k: v for k, v in data.items() if v["od"] == "train"}
         test_data = {k: v for k, v in data.items() if v["od"] == "test"}
 
-        # Plot
-        models = ["distilled", "distilled_seed44", "vanilla"]
+        # Plot - dynamically detect all models
+        models = self._get_unique_models()
         x_pos = np.arange(len(models))
 
         train_rates = [train_data.get(f"{m}_train", {}).get("rate", 0) for m in models]
@@ -310,7 +343,8 @@ class EvaluationVisualizer:
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
-        models = ["distilled", "distilled_seed44", "vanilla"]
+        # Dynamically detect all models
+        models = self._get_unique_models()
 
         # Distance JSD
         for od_source in ["train", "test"]:
@@ -399,7 +433,7 @@ class EvaluationVisualizer:
             data_list.append((model_type, od_source, row))
 
         # Sort by model type then OD source
-        model_order = ["distilled", "distilled_seed44", "vanilla"]
+        model_order = self._get_unique_models()
         od_order = ["train", "test"]
         data_list.sort(
             key=lambda x: (
@@ -484,7 +518,8 @@ class EvaluationVisualizer:
             "Generated Distance (km)",
         ]
 
-        models = ["distilled", "distilled_seed44", "vanilla"]
+        # Dynamically detect all models
+        models = self._get_unique_models()
         x_pos = np.arange(len(models))
         bar_width = 0.35
 
@@ -574,10 +609,69 @@ class EvaluationVisualizer:
             "Generated Distance (km)",
         ]
 
+        # Get all model names and group by base name (without seed suffix)
+        all_models = self._get_unique_models()
+
+        # Find base models (e.g., "distill_phase1" from "distill_phase1_seed43")
+        base_models = set()
+        for model in all_models:
+            # Remove seed suffix to get base model name
+            if "_seed" in model:
+                base_name = model.rsplit("_seed", 1)[0]
+            else:
+                base_name = model
+            base_models.add(base_name)
+
         for idx, (metric, title) in enumerate(zip(metrics, titles)):
             ax = axes[idx]
 
-            # Get values for both distilled seeds
+            # Plot lines for each base model comparing its seeds
+            for base_model in sorted(base_models):
+                # Find all seed variants of this base model
+                seed_variants = [m for m in all_models if m.startswith(base_model)]
+
+                if len(seed_variants) < 2:
+                    continue  # Skip if no seed variants to compare
+
+                for od_source in ["train", "test"]:
+                    seed_values = []
+
+                    for variant in sorted(seed_variants):
+                        for result in self.results:
+                            m, o = self._parse_model_info(result)
+                            if m == variant and o == od_source:
+                                seed_values.append(result.get(metric, 0))
+                                break
+
+                    if len(seed_values) >= 2:
+                        # Plot line for this base model
+                        ax.plot(
+                            range(len(seed_values)),
+                            seed_values,
+                            "o-",
+                            label=f"{base_model} - {od_source.title()} OD",
+                            linewidth=2,
+                            markersize=10,
+                            alpha=0.7,
+                        )
+
+            ax.set_xticks(range(len(seed_variants) if seed_variants else 2))
+            ax.set_xticklabels(
+                [
+                    f"Seed {i + 42}"
+                    for i in range(len(seed_variants) if seed_variants else 2)
+                ]
+            )
+            ax.set_ylabel(title)
+            ax.set_title(title)
+            ax.legend()
+            ax.grid(axis="y", alpha=0.3)
+
+            # Skip old CV calculation since we now support multiple model groups
+            continue
+
+        # Old code below this line is replaced by the above
+        if False:  # Disable old code
             for od_source in ["train", "test"]:
                 seed42_val = None
                 seed44_val = None
@@ -642,7 +736,8 @@ class EvaluationVisualizer:
         local_metrics = ["Hausdorff_km", "DTW_km", "EDR"]
         titles = ["Hausdorff Distance (km)", "DTW Distance (km)", "EDR (normalized)"]
 
-        models = ["distilled", "distilled_seed44", "vanilla"]
+        # Dynamically detect all models
+        models = self._get_unique_models()
         x_pos = np.arange(len(models))
         bar_width = 0.35
 
@@ -736,7 +831,10 @@ class EvaluationVisualizer:
 
         models_data = {}
 
-        for model in ["distilled", "distilled_seed44", "vanilla"]:
+        # Dynamically detect all models
+        models = self._get_unique_models()
+
+        for model in models:
             # Average across train and test
             od_coverage = []
             dist_jsd = []

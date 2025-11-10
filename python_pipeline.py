@@ -609,7 +609,11 @@ class EvaluationPipeline:
     def _check_existing_results(
         self, model_type: str, od_source: str
     ) -> Optional[Path]:
-        """Check if results already exist and return path if found"""
+        """Check if A* generated file exists and return path if found.
+
+        Only returns files that are confirmed to be A* search (beam_search_enabled: false).
+        If only beam search files exist, returns None to trigger A* generation.
+        """
         if self.config.force:
             return None
 
@@ -627,11 +631,58 @@ class EvaluationPipeline:
         for pattern in patterns:
             generated_files.extend(gene_dir.glob(pattern))
 
-        if generated_files:
-            latest_file = max(generated_files, key=lambda x: x.stat().st_mtime)
-            logger.info(f"Found existing generated file: {latest_file}")
-            return latest_file
+        if not generated_files:
+            return None
 
+        # Check each file to see if it's A* (beam_search_enabled: false)
+        # Sort by modification time, newest first
+        generated_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+
+        import json
+
+        for csv_file in generated_files:
+            # Check for corresponding perf.json file
+            perf_file = csv_file.parent / f"{csv_file.stem}_perf.json"
+
+            if perf_file.exists():
+                try:
+                    with open(perf_file) as f:
+                        perf_data = json.load(f)
+
+                    # Check if this is an A* file (beam_search_enabled: false)
+                    beam_search_enabled = perf_data.get("beam_search_enabled", True)
+
+                    if not beam_search_enabled:
+                        logger.info(
+                            f"Found existing A* generated file: {csv_file.name}"
+                        )
+                        return csv_file
+                    else:
+                        logger.debug(
+                            f"Skipping beam search file: {csv_file.name} "
+                            f"(looking for A* file)"
+                        )
+                        continue
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.warning(
+                        f"Could not parse perf.json for {csv_file.name}: {e}. "
+                        f"Assuming beam search, skipping."
+                    )
+                    continue
+            else:
+                # No perf.json file - assume it's an old file or beam search
+                # Skip it and continue looking
+                logger.debug(
+                    f"No perf.json found for {csv_file.name}, skipping "
+                    f"(looking for A* file)"
+                )
+                continue
+
+        # No A* files found, only beam search files exist
+        logger.info(
+            f"No A* generated file found for {model_type} ({od_source} OD). "
+            f"Will generate with A* search."
+        )
         return None
 
     def _handle_error(
@@ -1385,7 +1436,7 @@ class EvaluationPipeline:
 
                 logger.info(f"Evaluating {model_type} ({od_source} OD)")
 
-                # Find generated file
+                # Find generated file (prefer A* files)
                 gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
 
                 # Try new naming pattern first: {timestamp}_{model_type}_{od_source}.csv
@@ -1393,26 +1444,58 @@ class EvaluationPipeline:
                 generated_files = list(gene_dir.glob(pattern))
 
                 if not generated_files:
-                    # Fallback: try old timestamp-only pattern for backward compatibility
-                    generated_files = list(gene_dir.glob("*.csv"))
+                    # Fallback: try other patterns
+                    patterns = [
+                        f"*{model_type}*{od_source}.csv",
+                        f"*{model_type}*{od_source}od*.csv",
+                        f"{model_type}*{od_source}*.csv",
+                    ]
+                    for p in patterns:
+                        generated_files.extend(gene_dir.glob(p))
+
                     if not generated_files:
                         error_msg = f"No existing generated file found for {model_type} ({od_source} OD)"
                         logger.error(error_msg)
                         failed_operations.append(error_msg)
                         continue
-                    # Use latest if multiple matches
+
+                # Filter for A* files only (check perf.json for beam_search_enabled: false)
+                import json
+
+                astar_files = []
+
+                for csv_file in generated_files:
+                    perf_file = csv_file.parent / f"{csv_file.stem}_perf.json"
+
+                    if perf_file.exists():
+                        try:
+                            with open(perf_file) as f:
+                                perf_data = json.load(f)
+
+                            beam_search_enabled = perf_data.get(
+                                "beam_search_enabled", True
+                            )
+                            if not beam_search_enabled:
+                                astar_files.append(csv_file)
+                        except (json.JSONDecodeError, KeyError):
+                            # Skip files with invalid perf.json
+                            continue
+
+                if astar_files:
+                    # Use most recent A* file
+                    generated_file = max(astar_files, key=lambda x: x.stat().st_mtime)
+                    logger.info(f"Found existing A* file: {generated_file.name}")
+                else:
+                    # No A* files found - this shouldn't happen if generation phase worked
+                    # But log a warning and use the most recent file anyway
                     generated_file = max(
                         generated_files, key=lambda x: x.stat().st_mtime
                     )
                     logger.warning(
-                        f"Using legacy filename format: {generated_file.name}"
+                        f"No A* file found for {model_type} ({od_source} OD), "
+                        f"using most recent file: {generated_file.name}. "
+                        f"This may be a beam search file."
                     )
-                else:
-                    # Use most recent file matching pattern
-                    generated_file = max(
-                        generated_files, key=lambda x: x.stat().st_mtime
-                    )
-                    logger.info(f"Found existing file: {generated_file.name}")
 
                 # Evaluation phase
                 try:

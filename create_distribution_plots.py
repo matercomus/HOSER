@@ -242,25 +242,55 @@ class DistributionPlotter:
         real_train = self._load_real_data(self.data_dir / "train.csv")
         real_test = self._load_real_data(self.data_dir / "test.csv")
 
-        # Load generated data
+        # Load generated data - handle both Beijing and Porto naming conventions
+        # Use rglob to search recursively (handles seed subdirectories)
         generated_data = {}
-        for csv_file in sorted(self.gene_dir.glob("*.csv")):
-            if "vanilla_train" in csv_file.name:
-                generated_data["vanilla_train"] = self._load_generated_data(csv_file)
-            elif "vanilla_test" in csv_file.name:
-                generated_data["vanilla_test"] = self._load_generated_data(csv_file)
-            elif "distilled_seed44_train" in csv_file.name:
-                generated_data["distilled_seed44_train"] = self._load_generated_data(
-                    csv_file
-                )
-            elif "distilled_seed44_test" in csv_file.name:
-                generated_data["distilled_seed44_test"] = self._load_generated_data(
-                    csv_file
-                )
-            elif "distilled_train" in csv_file.name:
-                generated_data["distilled_train"] = self._load_generated_data(csv_file)
-            elif "distilled_test" in csv_file.name:
-                generated_data["distilled_test"] = self._load_generated_data(csv_file)
+        for csv_file in sorted(self.gene_dir.rglob("*.csv")):
+            filename = csv_file.name
+
+            # Skip files that don't match expected patterns
+            if not any(m in filename for m in ["distill", "vanilla"]):
+                continue
+
+            # Determine model name (check Porto first, then Beijing, then vanilla)
+            model_name = None
+            if "distill_phase2_seed44" in filename:
+                model_name = "distill_phase2_seed44"
+            elif "distill_phase2_seed43" in filename:
+                model_name = "distill_phase2_seed43"
+            elif "distill_phase2" in filename:
+                model_name = "distill_phase2"
+            elif "distill_phase1_seed44" in filename:
+                model_name = "distill_phase1_seed44"
+            elif "distill_phase1_seed43" in filename:
+                model_name = "distill_phase1_seed43"
+            elif "distill_phase1" in filename:
+                model_name = "distill_phase1"
+            elif "distilled_seed44" in filename:
+                model_name = "distilled_seed44"
+            elif "distilled_seed43" in filename:
+                model_name = "distilled_seed43"
+            elif "distilled" in filename:
+                model_name = "distilled"
+            elif "vanilla_seed44" in filename:
+                model_name = "vanilla_seed44"
+            elif "vanilla_seed43" in filename:
+                model_name = "vanilla_seed43"
+            elif "vanilla" in filename:
+                model_name = "vanilla"
+
+            # Determine OD type
+            od_type = None
+            if "train" in filename:
+                od_type = "train"
+            elif "test" in filename:
+                od_type = "test"
+
+            # Load data if both model and OD type were detected
+            if model_name and od_type:
+                key = f"{model_name}_{od_type}"
+                generated_data[key] = self._load_generated_data(csv_file)
+                logger.info(f"  Loaded: {key}")
 
         # Create plots for train OD
         self._plot_distance_comparison(
