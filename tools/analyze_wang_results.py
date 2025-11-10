@@ -216,6 +216,65 @@ class WangResultsCollector:
         for det_file in detection_files:
             self._process_detection_results(det_file)
 
+        # Rebuild comparisons with corrected abnormal_rate values
+        self._rebuild_comparisons()
+
+    def _rebuild_comparisons(self) -> None:
+        """Rebuild comparisons using corrected abnormal_rate values from DetectionMetrics
+
+        This is necessary because comparison_report.json files may have outdated
+        abnormal_rate values (0.0), while detection_results.json has the correct
+        values calculated from pattern counts.
+        """
+        logger.info("  Rebuilding comparisons with corrected rates...")
+
+        # Clear existing comparisons
+        self.comparisons.clear()
+
+        # Group results by dataset and od_source
+        results_by_dataset_od = {}
+        for result in self.results:
+            key = (result.dataset, result.od_source)
+            if key not in results_by_dataset_od:
+                results_by_dataset_od[key] = {"real": None, "generated": {}}
+
+            if result.is_real:
+                results_by_dataset_od[key]["real"] = result
+            else:
+                results_by_dataset_od[key]["generated"][result.model] = result
+
+        # Create comparisons with corrected rates
+        for (dataset, od_source), data in results_by_dataset_od.items():
+            real_data = data["real"]
+            generated_data = data["generated"]
+
+            if not real_data:
+                continue  # No real data to compare against
+
+            for model_name, gen_result in generated_data.items():
+                real_rate = real_data.abnormal_rate
+                gen_rate = gen_result.abnormal_rate
+
+                self.comparisons.append(
+                    StatisticalComparison(
+                        dataset=dataset,
+                        od_source=od_source,
+                        model=model_name,
+                        real_rate=real_rate,
+                        generated_rate=gen_rate,
+                        difference=gen_rate - real_rate,
+                        relative_difference_pct=(
+                            ((gen_rate - real_rate) / real_rate * 100)
+                            if real_rate > 0
+                            else 0.0
+                        ),
+                        trajectory_count_real=real_data.total_trajectories,
+                        trajectory_count_generated=gen_result.total_trajectories,
+                    )
+                )
+
+        logger.info(f"  ✅ Rebuilt {len(self.comparisons)} comparisons")
+
     def _process_comparison_report(self, comp_file: Path, eval_dir: Path) -> None:
         """Process a comparison_report.json file
 
