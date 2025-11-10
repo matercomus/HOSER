@@ -12,7 +12,7 @@ Usage:
 import json
 import logging
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 try:
     import matplotlib.pyplot as plt
@@ -519,12 +519,25 @@ def plot_statistical_significance(results: Dict, output_dir: Path):
             ax.text(0.5, 0.5, f"No tests for {label}", ha="center", va="center")
             continue
 
+        # Filter out tests with errors (missing p_value key)
+        valid_tests = [t for t in dataset_tests if "p_value" in t]
+
+        if not valid_tests:
+            ax.text(
+                0.5,
+                0.5,
+                f"No valid tests for {label}\n(all tests failed)",
+                ha="center",
+                va="center",
+            )
+            continue
+
         # Get p-values, effect sizes, and Cohen's h (log scale)
-        models = [f"{t['model']}\n({t['od_source']})" for t in dataset_tests]
-        p_values = [max(t["p_value"], 1e-300) for t in dataset_tests]  # Avoid log(0)
+        models = [f"{t['model']}\n({t['od_source']})" for t in valid_tests]
+        p_values = [max(t["p_value"], 1e-300) for t in valid_tests]  # Avoid log(0)
         log_p_values = [-np.log10(p) for p in p_values]
-        effect_sizes = [t.get("effect_size", "unknown") for t in dataset_tests]
-        cohens_h = [t.get("cohens_h", 0) for t in dataset_tests]
+        effect_sizes = [t.get("effect_size", "unknown") for t in valid_tests]
+        cohens_h = [t.get("cohens_h", 0) for t in valid_tests]
 
         # Color bars by effect size
         bar_colors = [effect_colors.get(e, "#95a5a6") for e in effect_sizes]
@@ -612,19 +625,47 @@ def plot_statistical_significance(results: Dict, output_dir: Path):
     logger.info("✅ Saved: statistical_significance.png")
 
 
-def main():
-    """Main entry point"""
+def generate_wang_visualizations(
+    results_file: Optional[Path] = None, output_dir: Optional[Path] = None
+) -> None:
+    """
+    Generate Wang abnormality detection visualizations from aggregated results.
+
+    This function can be called programmatically from other scripts or via CLI.
+
+    Args:
+        results_file: Path to aggregated results JSON file. If None, uses
+                     wang_results_aggregated.json in project root
+        output_dir: Output directory for visualizations. If None, uses
+                   figures/wang_abnormality/ in project root
+
+    Example:
+        >>> from tools.visualize_wang_results import generate_wang_visualizations
+        >>> generate_wang_visualizations(
+        ...     results_file=Path("eval_dir/wang_results.json"),
+        ...     output_dir=Path("eval_dir/figures/wang_abnormality")
+        ... )
+    """
+    if not HAS_MATPLOTLIB:
+        logger.error("matplotlib not available. Install with: uv add matplotlib")
+        return
+
     project_root = Path(__file__).parent.parent
-    results_file = project_root / "wang_results_aggregated.json"
-    output_dir = project_root / "figures" / "wang_abnormality"
+
+    # Default paths
+    if results_file is None:
+        results_file = project_root / "wang_results_aggregated.json"
+    else:
+        results_file = Path(results_file)
+
+    if output_dir is None:
+        output_dir = project_root / "figures" / "wang_abnormality"
+    else:
+        output_dir = Path(output_dir)
 
     if not results_file.exists():
         logger.error(f"Results file not found: {results_file}")
         logger.info("Run: uv run python tools/analyze_wang_results.py")
-        return
-
-    if not HAS_MATPLOTLIB:
-        logger.error("matplotlib not available. Install with: uv add matplotlib")
         return
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -650,6 +691,46 @@ def main():
     logger.info("   - model_rankings.png/svg")
     logger.info("   - cross_dataset_comparison.png/svg")
     logger.info("   - statistical_significance.png/svg")
+
+
+def main():
+    """Main CLI entry point"""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate Wang abnormality detection visualizations",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Use default paths (wang_results_aggregated.json in project root)
+  uv run python tools/visualize_wang_results.py
+
+  # Specify custom input and output
+  uv run python tools/visualize_wang_results.py \\
+    --input custom_results.json \\
+    --output-dir custom_figures/
+
+  # Generate visualizations for specific evaluation directory
+  uv run python tools/visualize_wang_results.py \\
+    --input hoser-distill-optuna-porto-eval-xyz/wang_results_aggregated.json \\
+    --output-dir hoser-distill-optuna-porto-eval-xyz/figures/wang_abnormality
+        """,
+    )
+
+    parser.add_argument(
+        "--input",
+        type=Path,
+        help="Input JSON file with aggregated results (default: wang_results_aggregated.json in project root)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Output directory for visualizations (default: figures/wang_abnormality/ in project root)",
+    )
+
+    args = parser.parse_args()
+
+    generate_wang_visualizations(results_file=args.input, output_dir=args.output_dir)
 
 
 if __name__ == "__main__":

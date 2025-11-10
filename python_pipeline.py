@@ -126,6 +126,7 @@ class PipelineConfig:
             "abnormal_od_extract",
             "abnormal_od_generate",
             "abnormal_od_evaluate",
+            "wang_abnormality",
             "scenarios",
         }
 
@@ -146,6 +147,10 @@ class PipelineConfig:
         )
         self.run_abnormal_detection = False  # NEW: Run abnormal trajectory detection
         self.abnormal_config = None  # NEW: Path to abnormal detection config
+        self.run_wang_detection = (
+            False  # NEW: Run Wang statistical abnormality detection
+        )
+        self.wang_config = None  # NEW: Path to Wang statistical detection config
 
         # Load from YAML if provided
         if config_path:
@@ -2046,6 +2051,67 @@ class EvaluationPipeline:
 
         logger.info(f"\n✅ Evaluation complete! Results in {output_dir}/")
 
+    @phase("wang_abnormality", critical=False)
+    def run_wang_abnormality(self):
+        """Run Wang statistical abnormality detection pipeline"""
+        if not self.config.run_wang_detection:
+            logger.info("Wang statistical detection not configured, skipping")
+            return
+
+        logger.info("📊 Running Wang statistical abnormality detection pipeline...")
+
+        # Auto-detect Wang config if not provided
+        if not self.config.wang_config:
+            wang_config = Path("./config/abnormal_detection_statistical.yaml")
+            if not wang_config.exists():
+                logger.warning(
+                    "No Wang statistical detection config found, skipping Wang analysis"
+                )
+                return
+        else:
+            wang_config = Path(self.config.wang_config)
+
+        if not wang_config.exists():
+            logger.error(f"Wang detection config not found: {wang_config}")
+            return
+
+        # Import the pipeline runner
+        import subprocess
+
+        # Run the Wang detection pipeline
+        cmd = [
+            "uv",
+            "run",
+            "python",
+            str(PROJECT_ROOT / "tools" / "run_wang_detection_pipeline.py"),
+            "--eval-dir",
+            str(self.eval_dir),
+            "--dataset",
+            self.config.dataset,
+        ]
+
+        logger.info(f"Executing: {' '.join(cmd)}")
+
+        try:
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=False,
+                text=True,
+                cwd=PROJECT_ROOT,
+            )
+            logger.info("✅ Wang statistical detection pipeline completed successfully")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(
+                f"❌ Wang detection pipeline failed with exit code {e.returncode}"
+            )
+            raise
+
+        except Exception as e:
+            logger.error(f"❌ Wang detection pipeline failed: {e}")
+            raise
+
     @phase("scenarios", critical=False)
     def run_scenarios(self):
         """Run scenario analysis"""
@@ -2353,6 +2419,7 @@ class EvaluationPipeline:
             "abnormal_od_extract",
             "abnormal_od_generate",
             "abnormal_od_evaluate",
+            "wang_abnormality",
             "scenarios",
         ]
         extras = [phase for phase in self.config.phases if phase not in default_order]
@@ -2409,7 +2476,7 @@ def main():
         help=(
             "Run only these phases (comma-separated). Available: "
             "generation,base_eval,paired_analysis,cross_dataset,road_network_translate,abnormal,"
-            "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,scenarios."
+            "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,wang_abnormality,scenarios."
         ),
     )
     parser.add_argument(
@@ -2472,6 +2539,16 @@ def main():
         "--abnormal-config",
         type=str,
         help="Path to abnormal detection config YAML (default: config/abnormal_detection.yaml)",
+    )
+    parser.add_argument(
+        "--run-wang",
+        action="store_true",
+        help="Run Wang statistical abnormality detection and visualization",
+    )
+    parser.add_argument(
+        "--wang-config",
+        type=str,
+        help="Path to Wang detection config YAML (default: config/abnormal_detection_statistical.yaml)",
     )
 
     args = parser.parse_args()
@@ -2556,6 +2633,10 @@ def main():
         config.run_abnormal_detection = True
     if args.abnormal_config:
         config.abnormal_config = args.abnormal_config
+    if args.run_wang:
+        config.run_wang_detection = True
+    if args.wang_config:
+        config.wang_config = args.wang_config
 
     # Run pipeline
     try:

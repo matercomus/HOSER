@@ -28,6 +28,9 @@ try:
 except ImportError:
     cx = None
 
+# Import shared model detection utility
+from tools.model_detection import detect_model_files
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -1589,63 +1592,31 @@ class TrajectoryVisualizer:
         logger.info("✅ Visualization pipeline completed!")
 
     def _detect_gene_files(self) -> List[Dict]:
-        """Detect generated trajectory CSV files"""
+        """Detect generated trajectory CSV files using shared utility"""
         logger.info(
             f"🔍 Detecting generated trajectory files in {self.config.gene_dir}"
         )
 
+        # Use shared model detection utility
+        model_files = detect_model_files(
+            self.config.gene_dir,
+            pattern="*.csv",
+            require_model=True,
+            require_od_type=True,
+            recursive=True,
+        )
+
+        # Convert to legacy format for backward compatibility
         gene_files = []
-
-        # Search recursively for CSV files (handles seed subdirectories)
-        for csv_file in self.config.gene_dir.rglob("*.csv"):
-            # Parse filename to extract model and OD type
-            filename = csv_file.name
-
-            # Skip old unnamed files (check for both Beijing and Porto conventions)
-            if not any(m in filename for m in ["distill", "vanilla"]):
-                continue
-
-            model = None
-            od_type = None
-
-            # Porto convention (distill_phase1, distill_phase2 with seeds)
-            if "distill_phase2_seed44" in filename:
-                model = "distill_phase2_seed44"
-            elif "distill_phase2_seed43" in filename:
-                model = "distill_phase2_seed43"
-            elif "distill_phase2" in filename:
-                model = "distill_phase2"
-            elif "distill_phase1_seed44" in filename:
-                model = "distill_phase1_seed44"
-            elif "distill_phase1_seed43" in filename:
-                model = "distill_phase1_seed43"
-            elif "distill_phase1" in filename:
-                model = "distill_phase1"
-            # Beijing convention (distilled with seeds)
-            elif "distilled_seed44" in filename:
-                model = "distilled_seed44"
-            elif "distilled_seed43" in filename:
-                model = "distilled_seed43"
-            elif "distilled" in filename:
-                model = "distilled"
-            # Vanilla with seeds (both conventions)
-            elif "vanilla_seed44" in filename:
-                model = "vanilla_seed44"
-            elif "vanilla_seed43" in filename:
-                model = "vanilla_seed43"
-            elif "vanilla" in filename:
-                model = "vanilla"
-
-            if "train" in filename:
-                od_type = "train"
-            elif "test" in filename:
-                od_type = "test"
-
-            if model and od_type:
-                gene_files.append(
-                    {"path": csv_file, "model": model, "od_type": od_type}
-                )
-                logger.info(f"  Found: {model} - {od_type} OD")
+        for model_file in model_files:
+            gene_files.append(
+                {
+                    "path": model_file.path,
+                    "model": model_file.model,
+                    "od_type": model_file.od_type,
+                }
+            )
+            logger.info(f"  Found: {model_file.model} - {model_file.od_type} OD")
 
         return gene_files
 
