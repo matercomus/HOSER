@@ -370,6 +370,22 @@ class WangResultsCollector:
                     result.wang_metadata = wang_metadata
                     if baseline_usage:
                         result.baseline_usage = baseline_usage
+
+                    # Recalculate abnormal_count and abnormal_rate from Wang patterns
+                    # All patterns except Abp1_normal are considered abnormal
+                    if pattern_counts:
+                        total_abnormal = (
+                            pattern_counts.get("Abp2_temporal_delay", 0)
+                            + pattern_counts.get("Abp3_route_deviation", 0)
+                            + pattern_counts.get("Abp4_both_deviations", 0)
+                        )
+                        result.abnormal_count = total_abnormal
+                        if result.total_trajectories > 0:
+                            result.abnormal_rate = (
+                                total_abnormal / result.total_trajectories
+                            ) * 100
+                        else:
+                            result.abnormal_rate = 0.0
                     break
 
         except Exception as e:

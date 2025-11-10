@@ -247,7 +247,7 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
 
 
 def plot_pattern_distribution(results: Dict, output_dir: Path):
-    """Plot pattern distribution (Abp1-4) for each dataset"""
+    """Plot pattern distribution (Abp1-4) for each dataset as separate files"""
     if not HAS_MATPLOTLIB:
         return
 
@@ -259,16 +259,23 @@ def plot_pattern_distribution(results: Dict, output_dir: Path):
         logger.warning("No pattern distribution data found")
         return
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-
     datasets = ["Beijing", "porto_hoser", "BJUT_Beijing"]
-    dataset_labels = ["Beijing", "Porto", "BJUT Beijing"]
+    dataset_labels = {
+        "Beijing": "Beijing",
+        "porto_hoser": "Porto",
+        "BJUT_Beijing": "BJUT Beijing",
+    }
 
-    for ax, dataset, label in zip(axes, datasets, dataset_labels):
+    # Generate separate plot for each dataset
+    for dataset in datasets:
         data = pattern_data.get(dataset, {})
         if not data:
-            ax.text(0.5, 0.5, f"No data for {label}", ha="center", va="center")
+            logger.info(
+                f"  No pattern distribution data for {dataset_labels[dataset]}, skipping"
+            )
             continue
+
+        fig, ax = plt.subplots(figsize=(8, 6))
 
         percentages = data.get("pattern_percentages", {})
         patterns = [
@@ -288,8 +295,12 @@ def plot_pattern_distribution(results: Dict, output_dir: Path):
 
         bars = ax.bar(pattern_labels, values, color=colors)
         ax.set_ylabel("Percentage (%)", fontsize=12)
-        ax.set_title(f"{label}\nPattern Distribution", fontsize=13, fontweight="bold")
-        ax.set_ylim(0, max(values) * 1.1 if values else 100)
+        ax.set_title(
+            f"{dataset_labels[dataset]} - Pattern Distribution",
+            fontsize=14,
+            fontweight="bold",
+        )
+        ax.set_ylim(0, max(values) * 1.1 if values and max(values) > 0 else 100)
         ax.grid(axis="y", alpha=0.3)
 
         # Add value labels on bars
@@ -306,13 +317,15 @@ def plot_pattern_distribution(results: Dict, output_dir: Path):
                 )
 
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+        plt.tight_layout()
 
-    plt.tight_layout()
-    plt.savefig(output_dir / "pattern_distributions.png", dpi=300, bbox_inches="tight")
-    plt.savefig(output_dir / "pattern_distributions.svg", bbox_inches="tight")
-    plt.close()
+        # Save separate files for each dataset
+        filename_base = f"pattern_distribution_{dataset}"
+        plt.savefig(output_dir / f"{filename_base}.png", dpi=300, bbox_inches="tight")
+        plt.savefig(output_dir / f"{filename_base}.svg", bbox_inches="tight")
+        plt.close()
 
-    logger.info("✅ Saved: pattern_distributions.png")
+        logger.info(f"✅ Saved: {filename_base}.png")
 
 
 def plot_model_rankings(results: Dict, output_dir: Path):
