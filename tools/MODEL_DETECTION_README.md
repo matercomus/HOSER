@@ -6,20 +6,33 @@ Centralized utility for detecting and managing model names across the HOSER code
 
 The `model_detection.py` module provides a **single source of truth** for model name patterns, display names, and visualization colors. This ensures consistency across all analysis and visualization scripts.
 
-### Supported Models
+### Automatic Model Detection
 
-- **Beijing Models**: `distilled`, `distilled_seed42`, `distilled_seed43`, `distilled_seed44`
-- **Porto Phase 1**: `distill_phase1`, `distill_phase1_seed42/43/44`
-- **Porto Phase 2**: `distill_phase2`, `distill_phase2_seed42/43/44`
-- **Vanilla Models**: `vanilla`, `vanilla_seed42`, `vanilla_seed43`, `vanilla_seed44`
+The utility uses **regex-based pattern matching** to automatically detect new models following existing naming conventions. This means:
+
+- ✅ **No manual updates needed** for new seed variants (e.g., `seed45`, `seed99`)
+- ✅ **No manual updates needed** for new phase models (e.g., `distill_phase3`, `distill_phase4`)
+- ✅ **Automatic display names** generated for new models
+- ✅ **Automatic color assignment** based on model family
+
+### Supported Naming Conventions
+
+The utility automatically recognizes models following these patterns:
+
+- **Beijing Models**: `distilled`, `distilled_seed<N>` (e.g., `distilled_seed42`, `distilled_seed99`)
+- **Porto Phases**: `distill_phase<N>`, `distill_phase<N>_seed<M>` (e.g., `distill_phase1`, `distill_phase3_seed45`)
+- **Vanilla Models**: `vanilla`, `vanilla_seed<N>` (e.g., `vanilla_seed42`, `vanilla_seed100`)
+
+Where `<N>` and `<M>` can be **any number**.
 
 ## Features
 
-✅ **Handles multiple naming conventions** (Beijing `distilled`, Porto `distill_phase1/phase2`)  
-✅ **Supports all seed variants** (`seed42`, `seed43`, `seed44`)  
+✅ **Automatic detection** of new models following conventions  
+✅ **Handles multiple naming conventions** (Beijing `distilled`, Porto `distill_phase<N>`)  
+✅ **Supports any seed variant** (`seed42`, `seed43`, `seed99`, etc.)  
+✅ **Dynamic display names** generated automatically  
+✅ **Smart color assignment** based on model family  
 ✅ **Structured `ModelFile` dataclass** with metadata  
-✅ **Display names** for visualizations  
-✅ **Consistent color mapping** across all plots  
 ✅ **Fully documented** with CLI testing support  
 ✅ **Type-safe** with dataclasses
 
@@ -34,11 +47,17 @@ from tools.model_detection import extract_model_name, get_display_name, get_mode
 filename = "hoser_distilled_seed44_trainod_gene.csv"
 model = extract_model_name(filename)  # Returns: "distilled_seed44"
 
-# Get display name for plots
-display_name = get_display_name(model)  # Returns: "Distilled (seed 44)"
+# Works with new models automatically!
+filename_new = "hoser_distill_phase3_seed99_trainod.csv"
+model_new = extract_model_name(filename_new)  # Returns: "distill_phase3_seed99"
 
-# Get color for visualizations
+# Get display name for plots (automatically generated)
+display_name = get_display_name(model)  # Returns: "Distilled (seed 44)"
+display_name_new = get_display_name(model_new)  # Returns: "Distill Phase 3 (seed 99)"
+
+# Get color for visualizations (automatically assigned)
 color = get_model_color(model)  # Returns: "#27ae60"
+color_new = get_model_color(model_new)  # Returns a color from phase family
 ```
 
 ### Detection from Directory
@@ -166,13 +185,18 @@ display = get_display_name(model)
 
 #### `extract_model_name(filename: str) -> str`
 
-Extract model name from filename using pattern matching.
+Extract model name from filename using regex-based pattern matching.
+
+**Automatically detects:**
+- New seed variants (e.g., `seed45`, `seed99`)
+- New phase models (e.g., `distill_phase3`, `distill_phase4`)
+- Any combination following conventions
 
 **Args:**
 - `filename`: Filename or path to extract model name from
 
 **Returns:**
-- Model name string (e.g., "distilled_seed44", "distill_phase2_seed43")
+- Model name string (e.g., "distilled_seed44", "distill_phase2_seed43", "distill_phase3_seed99")
 - Returns "unknown" if no pattern matches
 
 **Examples:**
@@ -181,11 +205,15 @@ Extract model name from filename using pattern matching.
 'distilled_seed44'
 >>> extract_model_name("hoser_distill_phase2_seed43_testod_gene.csv")
 'distill_phase2_seed43'
+>>> extract_model_name("hoser_distill_phase3_seed99_trainod.csv")  # New model!
+'distill_phase3_seed99'
 ```
 
 #### `get_display_name(model_name: str) -> str`
 
 Get human-readable display name for visualizations.
+
+**Automatically generates** display names for new models following conventions.
 
 **Args:**
 - `model_name`: Model name from `extract_model_name()`
@@ -199,11 +227,20 @@ Get human-readable display name for visualizations.
 'Distilled (seed 44)'
 >>> get_display_name("distill_phase2_seed43")
 'Distill Phase 2 (seed 43)'
+>>> get_display_name("distill_phase3_seed99")  # Automatic!
+'Distill Phase 3 (seed 99)'
 ```
 
 #### `get_model_color(model_name: str) -> str`
 
 Get color code for consistent visualization.
+
+**Automatically assigns** colors to new models based on their family:
+- `distilled*` → green family
+- `distill_phase1*` → blue family
+- `distill_phase2*` → purple family
+- `distill_phase3+` → cycles through color palette
+- `vanilla*` → red family
 
 **Args:**
 - `model_name`: Model name from `extract_model_name()`
@@ -273,17 +310,21 @@ Structured representation of a model file with metadata.
 
 ### Constants
 
-#### `MODEL_PATTERNS`
+#### `MODEL_CONVENTIONS`
 
-List of model patterns in priority order (most specific first).
+List of regex patterns and templates used for automatic model detection. These define the naming conventions that are automatically recognized.
+
+#### `KNOWN_MODEL_PATTERNS` (backward compatibility)
+
+List of explicitly known model patterns. New models don't need to be added here - they're detected automatically via `MODEL_CONVENTIONS`.
 
 #### `DISPLAY_NAMES`
 
-Dictionary mapping model names to human-readable display names.
+Dictionary mapping known model names to human-readable display names. New models get automatic names via pattern matching.
 
 #### `MODEL_COLORS`
 
-Dictionary mapping model names to hex color codes.
+Dictionary mapping known model names to hex color codes. New models get automatic colors based on their family.
 
 #### `MODEL_LINE_STYLES`
 
@@ -295,17 +336,35 @@ Dictionary mapping model names to matplotlib line styles.
 
 All model patterns, names, and colors are defined in one place. No more hunting through multiple files to update model definitions.
 
-### Easy to Add New Models
+### Automatic Support for New Models
 
-Adding a new model requires changes in just **2 lines** in one file:
+**No code changes needed!** New models following existing conventions are automatically:
+- ✅ Detected and extracted from filenames
+- ✅ Given appropriate display names
+- ✅ Assigned colors from the correct family
+- ✅ Handled consistently across all scripts
+
+**Example:** Adding a new phase model:
 ```python
-# In MODEL_PATTERNS
-"new_model_seed45",
+# Old way (would require updates in multiple places):
+# 1. Add to MODEL_PATTERNS
+# 2. Add to DISPLAY_NAMES
+# 3. Add to MODEL_COLORS
+# 4. Update 4+ different scripts
 
-# In DISPLAY_NAMES
-"new_model_seed45": "New Model (seed 45)",
+# New way: NOTHING! Just use it:
+filename = "hoser_distill_phase5_seed99_trainod.csv"
+model = extract_model_name(filename)  # Works immediately!
+display = get_display_name(model)     # "Distill Phase 5 (seed 99)"
+color = get_model_color(model)        # Assigned automatically
+```
 
-# In MODEL_COLORS
+### Easy to Add New Conventions (if needed)
+
+If you need to add a completely new naming convention (not phase/seed variant):
+```python
+# In MODEL_CONVENTIONS, add one line:
+(r'new_pattern_(\d+)', 'new_pattern_{}'),
 "new_model_seed45": "#hexcode",
 ```
 

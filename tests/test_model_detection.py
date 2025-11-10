@@ -84,6 +84,25 @@ class TestExtractModelName:
         """Test that detection works with full paths."""
         path = "/home/user/eval/gene/porto/seed42/hoser_distilled_seed44_trainod.csv"
         assert extract_model_name(path) == "distilled_seed44"
+    
+    def test_new_phase_models(self):
+        """Test automatic detection of new phase models not in predefined list."""
+        # Phase 3 models (not explicitly in KNOWN_MODEL_PATTERNS)
+        assert extract_model_name("hoser_distill_phase3_trainod.csv") == "distill_phase3"
+        assert extract_model_name("hoser_distill_phase3_seed42_testod.csv") == "distill_phase3_seed42"
+        assert extract_model_name("hoser_distill_phase3_seed45_trainod.csv") == "distill_phase3_seed45"
+        
+        # Phase 4 and beyond
+        assert extract_model_name("hoser_distill_phase4_seed99_trainod.csv") == "distill_phase4_seed99"
+        assert extract_model_name("distill_phase5_results.csv") == "distill_phase5"
+    
+    def test_new_seed_variants(self):
+        """Test automatic detection of new seed numbers."""
+        # Seed 45, 50, etc (not explicitly in KNOWN_MODEL_PATTERNS)
+        assert extract_model_name("hoser_distilled_seed45_trainod.csv") == "distilled_seed45"
+        assert extract_model_name("hoser_distilled_seed50_testod.csv") == "distilled_seed50"
+        assert extract_model_name("hoser_vanilla_seed99_trainod.csv") == "vanilla_seed99"
+        assert extract_model_name("hoser_distill_phase2_seed100_testod.csv") == "distill_phase2_seed100"
 
 
 class TestGetDisplayName:
@@ -121,6 +140,17 @@ class TestGetDisplayName:
         """Test display names for special cases."""
         assert get_display_name("real") == "Real"
         assert get_display_name("unknown") == "Unknown"
+    
+    def test_new_model_display_names(self):
+        """Test automatic display name generation for new models."""
+        # New phase models
+        assert get_display_name("distill_phase3") == "Distill Phase 3"
+        assert get_display_name("distill_phase3_seed45") == "Distill Phase 3 (seed 45)"
+        assert get_display_name("distill_phase4_seed99") == "Distill Phase 4 (seed 99)"
+        
+        # New seed variants
+        assert get_display_name("distilled_seed45") == "Distilled (seed 45)"
+        assert get_display_name("vanilla_seed100") == "Vanilla (seed 100)"
 
 
 class TestGetModelColor:
@@ -167,6 +197,21 @@ class TestGetModelColor:
             assert len(color) == 7
             # Check that it's a valid hex string
             int(color[1:], 16)
+    
+    def test_new_model_colors(self):
+        """Test automatic color assignment for new models."""
+        # New phase 3 models should get a color from the cycle
+        color_phase3 = get_model_color("distill_phase3")
+        assert color_phase3.startswith("#")
+        assert len(color_phase3) == 7
+        
+        # New distilled seeds should get green family color
+        color_distilled45 = get_model_color("distilled_seed45")
+        assert color_distilled45 == "#2ecc71"  # Same as distilled
+        
+        # New vanilla seeds should get red family color
+        color_vanilla99 = get_model_color("vanilla_seed99")
+        assert color_vanilla99 == "#e74c3c"  # Same as vanilla
 
 
 class TestGetModelLineStyle:
@@ -182,6 +227,13 @@ class TestGetModelLineStyle:
     def test_unknown_model(self):
         """Test that unknown models return dashed line."""
         assert get_model_line_style("unknown") == "--"
+    
+    def test_new_models(self):
+        """Test that new models following conventions get solid lines."""
+        assert get_model_line_style("distill_phase3") == "-"
+        assert get_model_line_style("distill_phase3_seed45") == "-"
+        assert get_model_line_style("distilled_seed99") == "-"
+        assert get_model_line_style("vanilla_seed100") == "-"
 
 
 class TestParseModelComponents:
@@ -214,6 +266,20 @@ class TestParseModelComponents:
         result = parse_model_components("distill_phase1")
         assert result["base_model"] == "distill_phase1"
         assert result["seed"] is None
+    
+    def test_new_seed_parsing(self):
+        """Test parsing new seed numbers automatically."""
+        result = parse_model_components("distilled_seed45")
+        assert result["base_model"] == "distilled"
+        assert result["seed"] == "seed45"
+        
+        result = parse_model_components("distill_phase3_seed99")
+        assert result["base_model"] == "distill_phase3"
+        assert result["seed"] == "seed99"
+        
+        result = parse_model_components("vanilla_seed100")
+        assert result["base_model"] == "vanilla"
+        assert result["seed"] == "seed100"
 
 
 class TestModelFile:

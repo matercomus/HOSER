@@ -18,10 +18,11 @@ Usage as CLI:
 """
 
 import argparse
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 
 
 @dataclass
@@ -47,8 +48,26 @@ class ModelFile:
             self.filename = self.path.name
 
 
-# Model name patterns - order matters, check most specific first
-MODEL_PATTERNS = [
+# Model naming convention patterns (using regex for automatic detection)
+# Order matters: more specific patterns should be checked first
+MODEL_CONVENTIONS = [
+    # Porto distill_phase<N>_seed<M> pattern
+    (r'distill_phase(\d+)_seed(\d+)', 'distill_phase{}_seed{}'),
+    # Porto distill_phase<N> pattern (no seed)
+    (r'distill_phase(\d+)(?!_seed)', 'distill_phase{}'),
+    # Beijing distilled_seed<M> pattern
+    (r'distilled_seed(\d+)', 'distilled_seed{}'),
+    # Beijing distilled pattern (no seed)
+    (r'distilled(?!_seed)', 'distilled'),
+    # Vanilla_seed<M> pattern
+    (r'vanilla_seed(\d+)', 'vanilla_seed{}'),
+    # Vanilla pattern (no seed)
+    (r'vanilla(?!_seed)', 'vanilla'),
+]
+
+# Known model patterns for backward compatibility and testing
+# These are examples of models that follow the conventions above
+KNOWN_MODEL_PATTERNS = [
     # Porto distill_phase2 variants (most specific)
     "distill_phase2_seed44",
     "distill_phase2_seed43",
@@ -73,6 +92,9 @@ MODEL_PATTERNS = [
     "vanilla_seed42",
     "vanilla",
 ]
+
+# Keep MODEL_PATTERNS for backward compatibility
+MODEL_PATTERNS = KNOWN_MODEL_PATTERNS
 
 # Display names for visualizations
 DISPLAY_NAMES = {
@@ -165,8 +187,16 @@ def extract_model_name(filename: str) -> str:
     """
     Extract model name from filename using pattern matching.
     
-    Order matters: checks most specific patterns first (e.g., distill_phase2_seed44
-    before distill_phase2, distilled_seed44 before distilled).
+    Automatically detects models following naming conventions:
+    - distill_phase<N>_seed<M> (e.g., distill_phase2_seed44, distill_phase3_seed45)
+    - distill_phase<N> (e.g., distill_phase1, distill_phase2)
+    - distilled_seed<M> (e.g., distilled_seed42, distilled_seed45)
+    - distilled
+    - vanilla_seed<M> (e.g., vanilla_seed43)
+    - vanilla
+    
+    New models following these conventions are automatically supported without
+    requiring updates to the MODEL_PATTERNS list.
     
     Args:
         filename: Filename or path to extract model name from
@@ -180,14 +210,23 @@ def extract_model_name(filename: str) -> str:
         'distilled_seed44'
         >>> extract_model_name("hoser_distill_phase2_seed43_testod_gene.csv")
         'distill_phase2_seed43'
+        >>> extract_model_name("hoser_distill_phase3_seed45_trainod_gene.csv")
+        'distill_phase3_seed45'
         >>> extract_model_name("hoser_vanilla_trainod_gene.csv")
         'vanilla'
     """
     filename_lower = str(filename).lower()
     
-    for pattern in MODEL_PATTERNS:
-        if pattern in filename_lower:
-            return pattern
+    # Try each convention pattern
+    for pattern, template in MODEL_CONVENTIONS:
+        match = re.search(pattern, filename_lower)
+        if match:
+            # Format the template with captured groups
+            groups = match.groups()
+            if groups:
+                return template.format(*groups)
+            else:
+                return template
     
     return "unknown"
 
@@ -195,6 +234,9 @@ def extract_model_name(filename: str) -> str:
 def get_display_name(model_name: str) -> str:
     """
     Get human-readable display name for a model.
+    
+    Automatically generates display names for models following conventions,
+    even if not explicitly defined in DISPLAY_NAMES.
     
     Args:
         model_name: Model name from extract_model_name()
@@ -207,13 +249,49 @@ def get_display_name(model_name: str) -> str:
         'Distilled (seed 44)'
         >>> get_display_name("distill_phase2_seed43")
         'Distill Phase 2 (seed 43)'
+        >>> get_display_name("distill_phase3_seed45")
+        'Distill Phase 3 (seed 45)'
     """
-    return DISPLAY_NAMES.get(model_name, model_name.replace("_", " ").title())
+    # Check if we have an explicit display name
+    if model_name in DISPLAY_NAMES:
+        return DISPLAY_NAMES[model_name]
+    
+    # Generate display name dynamically based on pattern
+    # Handle distill_phase<N>_seed<M>
+    match = re.match(r'distill_phase(\d+)_seed(\d+)', model_name)
+    if match:
+        phase, seed = match.groups()
+        return f"Distill Phase {phase} (seed {seed})"
+    
+    # Handle distill_phase<N>
+    match = re.match(r'distill_phase(\d+)', model_name)
+    if match:
+        phase = match.group(1)
+        return f"Distill Phase {phase}"
+    
+    # Handle distilled_seed<M>
+    match = re.match(r'distilled_seed(\d+)', model_name)
+    if match:
+        seed = match.group(1)
+        return f"Distilled (seed {seed})"
+    
+    # Handle vanilla_seed<M>
+    match = re.match(r'vanilla_seed(\d+)', model_name)
+    if match:
+        seed = match.group(1)
+        return f"Vanilla (seed {seed})"
+    
+    # Default: title case with underscores replaced by spaces
+    return model_name.replace("_", " ").title()
 
 
 def get_model_color(model_name: str) -> str:
     """
     Get color code for a model for consistent visualization.
+    
+    Automatically assigns colors to models following conventions based on their
+    base model type (distilled = green, distill_phase1 = blue, distill_phase2 = purple,
+    vanilla = red). New models get colors from the same family as their base type.
     
     Args:
         model_name: Model name from extract_model_name()
@@ -226,13 +304,48 @@ def get_model_color(model_name: str) -> str:
         '#27ae60'
         >>> get_model_color("distill_phase2_seed43")
         '#8e44ad'
+        >>> get_model_color("distill_phase3_seed45")  # New phase, gets purple family
+        '#9b59b6'
     """
-    return MODEL_COLORS.get(model_name, MODEL_COLORS["unknown"])
+    # Check if we have an explicit color
+    if model_name in MODEL_COLORS:
+        return MODEL_COLORS[model_name]
+    
+    # Assign color based on model family
+    # distill_phase1 family -> blue
+    if model_name.startswith('distill_phase1'):
+        return MODEL_COLORS.get('distill_phase1', '#3498db')
+    
+    # distill_phase2 family -> purple
+    if model_name.startswith('distill_phase2'):
+        return MODEL_COLORS.get('distill_phase2', '#9b59b6')
+    
+    # distill_phase3+ (new phases) -> alternate colors
+    match = re.match(r'distill_phase(\d+)', model_name)
+    if match:
+        phase_num = int(match.group(1))
+        # Cycle through color families for new phases
+        colors = ['#3498db', '#9b59b6', '#e67e22', '#1abc9c', '#f39c12']  # blue, purple, orange, teal, yellow
+        return colors[phase_num % len(colors)]
+    
+    # distilled family -> green
+    if model_name.startswith('distilled'):
+        return MODEL_COLORS.get('distilled', '#2ecc71')
+    
+    # vanilla family -> red
+    if model_name.startswith('vanilla'):
+        return MODEL_COLORS.get('vanilla', '#e74c3c')
+    
+    # Unknown -> gray
+    return MODEL_COLORS.get('unknown', '#95a5a6')
 
 
 def get_model_line_style(model_name: str) -> str:
     """
     Get line style for a model for consistent visualization.
+    
+    Automatically assigns line styles to new models following conventions.
+    All known models get solid lines, unknown models get dashed lines.
     
     Args:
         model_name: Model name from extract_model_name()
@@ -243,15 +356,30 @@ def get_model_line_style(model_name: str) -> str:
     Examples:
         >>> get_model_line_style("distilled_seed44")
         '-'
+        >>> get_model_line_style("distill_phase3_seed45")
+        '-'
         >>> get_model_line_style("unknown")
         '--'
     """
-    return MODEL_LINE_STYLES.get(model_name, MODEL_LINE_STYLES["unknown"])
+    # Check explicit mapping first
+    if model_name in MODEL_LINE_STYLES:
+        return MODEL_LINE_STYLES[model_name]
+    
+    # If model follows a known convention, use solid line
+    if (model_name.startswith(('distill_phase', 'distilled', 'vanilla')) or 
+        model_name == 'real'):
+        return '-'
+    
+    # Unknown models get dashed line
+    return '--'
 
 
 def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
     """
     Parse model name into components.
+    
+    Automatically extracts seed numbers from models following conventions,
+    supporting any seed number (not just 42, 43, 44).
     
     Args:
         model_name: Model name from extract_model_name()
@@ -264,23 +392,26 @@ def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
         {'base_model': 'distilled', 'seed': 'seed44'}
         >>> parse_model_components("distill_phase2_seed43")
         {'base_model': 'distill_phase2', 'seed': 'seed43'}
+        >>> parse_model_components("distill_phase3_seed45")
+        {'base_model': 'distill_phase3', 'seed': 'seed45'}
         >>> parse_model_components("vanilla")
         {'base_model': 'vanilla', 'seed': None}
     """
-    # Check for seed pattern
-    seed = None
-    base_model = model_name
+    # Check for seed pattern using regex to support any seed number
+    match = re.search(r'_seed(\d+)', model_name)
+    if match:
+        seed_num = match.group(1)
+        seed = f"seed{seed_num}"
+        base_model = model_name.replace(f"_seed{seed_num}", "")
+        return {
+            "base_model": base_model,
+            "seed": seed,
+        }
     
-    for seed_num in ["42", "43", "44"]:
-        seed_pattern = f"_seed{seed_num}"
-        if seed_pattern in model_name:
-            seed = f"seed{seed_num}"
-            base_model = model_name.replace(seed_pattern, "")
-            break
-    
+    # No seed found
     return {
-        "base_model": base_model,
-        "seed": seed,
+        "base_model": model_name,
+        "seed": None,
     }
 
 
