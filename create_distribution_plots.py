@@ -21,6 +21,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 
+# Import model detection utility
+from tools.model_detection import get_model_color, extract_model_name, MODEL_COLORS
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -39,13 +42,11 @@ plt.rcParams.update(
     }
 )
 
-# Color scheme
+# Color scheme (extended from model_detection utility)
 COLORS = {
     "real_train": "#34495e",  # Dark gray
     "real_test": "#7f8c8d",  # Medium gray
-    "distilled": "#27ae60",  # Green
-    "distilled_seed44": "#16a085",  # Teal
-    "vanilla": "#e74c3c",  # Red
+    **MODEL_COLORS,  # Include all model colors
 }
 
 
@@ -245,22 +246,20 @@ class DistributionPlotter:
         # Load generated data
         generated_data = {}
         for csv_file in sorted(self.gene_dir.glob("*.csv")):
-            if "vanilla_train" in csv_file.name:
-                generated_data["vanilla_train"] = self._load_generated_data(csv_file)
-            elif "vanilla_test" in csv_file.name:
-                generated_data["vanilla_test"] = self._load_generated_data(csv_file)
-            elif "distilled_seed44_train" in csv_file.name:
-                generated_data["distilled_seed44_train"] = self._load_generated_data(
-                    csv_file
-                )
-            elif "distilled_seed44_test" in csv_file.name:
-                generated_data["distilled_seed44_test"] = self._load_generated_data(
-                    csv_file
-                )
-            elif "distilled_train" in csv_file.name:
-                generated_data["distilled_train"] = self._load_generated_data(csv_file)
-            elif "distilled_test" in csv_file.name:
-                generated_data["distilled_test"] = self._load_generated_data(csv_file)
+            # Extract model name and OD type
+            model = extract_model_name(csv_file.name)
+            
+            # Determine OD type
+            if "train" in csv_file.name.lower():
+                od_type = "train"
+            elif "test" in csv_file.name.lower():
+                od_type = "test"
+            else:
+                continue  # Skip files without clear OD type
+            
+            # Create key and load data
+            key = f"{model}_{od_type}"
+            generated_data[key] = self._load_generated_data(csv_file)
 
         # Create plots for train OD
         self._plot_distance_comparison(
