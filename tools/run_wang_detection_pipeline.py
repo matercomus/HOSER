@@ -240,6 +240,7 @@ def run_wang_detection_pipeline(
                         str(config_file),
                         "--output_dir",
                         str(abnormal_dir / "test" / "generated" / model_name),
+                        "--is-generated",  # Flag for generated trajectory format
                     ]
                     if run_command(cmd, f"Generated model detection: {model_name}"):
                         success_count += 1

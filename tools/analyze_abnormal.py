@@ -770,6 +770,12 @@ Examples:
         help="Directory to save detection results and samples",
     )
 
+    parser.add_argument(
+        "--is-generated",
+        action="store_true",
+        help="Set this flag if analyzing generated trajectories (uses gene_trace_* columns)",
+    )
+
     args = parser.parse_args()
 
     try:
@@ -778,6 +784,7 @@ Examples:
             dataset=args.dataset,
             config_path=args.config,
             output_dir=args.output_dir,
+            is_real_data=not args.is_generated,
         )
     except Exception as e:
         logger.error(f"❌ Analysis failed: {e}")
