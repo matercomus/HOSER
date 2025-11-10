@@ -65,28 +65,15 @@ map_manager.py
 
 # Backup files
 backup_*.tar.gz
+*-backup-*.tar.gz
 
 # Generated scenario analysis figures
 hoser-distill-optuna-6/figures/scenarios/
 */figures/scenarios/
 
-# Porto evaluation directory
-hoser-distill-optuna-porto-eval-*/eval/
-hoser-distill-optuna-porto-eval-*/eval.backup/
-hoser-distill-optuna-porto-eval-*/gene/
-hoser-distill-optuna-porto-eval-*/wandb/
-hoser-distill-optuna-porto-eval-*/wandb.backup/
-hoser-distill-optuna-porto-eval-*/figures/
-hoser-distill-optuna-porto-eval-*/figures.backup/
-hoser-distill-optuna-porto-eval-*/analysis/
-hoser-distill-optuna-porto-eval-*/paired_analysis/
-hoser-distill-optuna-porto-eval-*/models/
-hoser-distill-optuna-porto-eval-*/scenarios/
-hoser-distill-optuna-porto-eval-*/abnormal/
-hoser-distill-optuna-porto-eval-*/gene_translated/
-hoser-distill-optuna-porto-eval-*/road_mapping_*.json
-hoser-distill-optuna-porto-eval-*/*.log
-hoser-distill-optuna-porto-eval-*/config/evaluation.yaml
+# Porto evaluation directory (entire directory and its backups)
+hoser-distill-optuna-porto-eval-*/
+hoser-distill-optuna-porto-eval-*-backup-*.tar.gz
 
 # Root level pipeline logs
 pipeline.log
