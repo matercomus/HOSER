@@ -14,6 +14,9 @@ import logging
 from pathlib import Path
 from typing import Dict
 
+# Import model detection utility
+from tools.model_detection import get_model_color, MODEL_COLORS
+
 try:
     import matplotlib.pyplot as plt
     import numpy as np
@@ -42,21 +45,9 @@ if HAS_MATPLOTLIB:
         }
     )
 
-# Color scheme
-COLORS = {
-    "real": "#34495e",  # Dark gray
-    "distilled": "#2ecc71",  # Green
-    "distilled_seed44": "#27ae60",  # Dark green
-    "vanilla": "#e74c3c",  # Red
-    "vanilla_seed43": "#c0392b",  # Dark red
-    "vanilla_seed44": "#a93226",  # Darker red
-    "distill_phase1": "#3498db",  # Blue
-    "distill_phase1_seed43": "#2980b9",  # Dark blue
-    "distill_phase1_seed44": "#1f618d",  # Darker blue
-    "distill_phase2": "#9b59b6",  # Purple
-    "distill_phase2_seed43": "#8e44ad",  # Dark purple
-    "distill_phase2_seed44": "#7d3c98",  # Darker purple
-}
+# Color scheme (imported from model_detection utility for consistency)
+# Use get_model_color() function or MODEL_COLORS dict
+COLORS = MODEL_COLORS  # For backward compatibility
 
 PATTERN_COLORS = {
     "Abp1_normal": "#2ecc71",  # Green
