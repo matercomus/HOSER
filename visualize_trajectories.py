@@ -82,6 +82,14 @@ class VisualizationConfig:
     # Visualization
     margin: float = 0.002  # Map padding in degrees (~200m)
 
+    # Selective regeneration mode
+    regenerate_mode: bool = False  # Enable selective regeneration
+    target_od_pairs: List[Tuple[int, int]] = field(
+        default_factory=list
+    )  # Specific OD pairs
+    target_scenarios: List[str] = field(default_factory=list)  # Specific scenarios
+    plot_types: str = "both"  # "single", "multi", or "both"
+
     # Paths (set by __post_init__)
     roadmap_path: Path = None
     train_csv_path: Path = None
@@ -1434,6 +1442,9 @@ class TrajectoryVisualizer:
     def __init__(self, config: VisualizationConfig):
         self.config = config
 
+        # Track generated plots for reporting
+        self.generated_plots = []
+
         # Load road network
         road_loader = RoadNetworkLoader(config.roadmap_path)
         self.road_network = road_loader.load()
@@ -1510,9 +1521,36 @@ class TrajectoryVisualizer:
         logger.warning("No scenario results found (neither cross-model nor individual)")
         return None
 
+    def _should_regenerate_od_pair(
+        self, od_pair: Tuple[int, int], scenario: Optional[str] = None
+    ) -> bool:
+        """Check if an OD pair should be regenerated based on config"""
+        if not self.config.regenerate_mode:
+            return True  # Full mode - regenerate all
+
+        # Check if this OD pair is in target list
+        if self.config.target_od_pairs and od_pair in self.config.target_od_pairs:
+            return True
+
+        # Check if this scenario is in target list
+        if self.config.target_scenarios and scenario in self.config.target_scenarios:
+            return True
+
+        return False
+
     def run(self):
         """Run the complete visualization pipeline"""
         logger.info("🚀 Starting trajectory visualization pipeline")
+
+        # Log regeneration mode
+        if self.config.regenerate_mode:
+            logger.info("\n🔄 SELECTIVE REGENERATION MODE")
+            if self.config.target_od_pairs:
+                logger.info(f"  Target OD pairs: {self.config.target_od_pairs}")
+            if self.config.target_scenarios:
+                logger.info(f"  Target scenarios: {self.config.target_scenarios}")
+            logger.info(f"  Plot types: {self.config.plot_types}")
+            logger.info("")
 
         # Detect generated trajectory files
         gene_files = self._detect_gene_files()
@@ -1538,6 +1576,15 @@ class TrajectoryVisualizer:
                 logger.warning(
                     "⚠️  Scenario cross-model mode requires scenario analysis results"
                 )
+
+        # Display regenerated plots summary (only in regenerate mode)
+        if self.config.regenerate_mode and self.generated_plots:
+            logger.info("\n" + "=" * 70)
+            logger.info(f"📄 Regenerated {len(self.generated_plots)} files:")
+            logger.info("=" * 70)
+            for plot_path in sorted(self.generated_plots):
+                logger.info(f"  • {plot_path}")
+            logger.info("=" * 70)
 
         logger.info("✅ Visualization pipeline completed!")
 
@@ -1825,6 +1872,14 @@ class TrajectoryVisualizer:
         for i, od_pair in enumerate(sampled_od_pairs):
             origin, destination = od_pair
 
+            # Check if we should regenerate this plot
+            if not self._should_regenerate_od_pair(od_pair, scenario):
+                continue
+
+            # Check plot type filter for single-scenario plots
+            if scenario and self.config.plot_types == "multi":
+                continue  # Skip single-scenario plots if only multi is requested
+
             # Collect one trajectory from each model for this OD pair
             comparison_trajs = {}
             missing_models = []
@@ -1853,6 +1908,9 @@ class TrajectoryVisualizer:
                 title=title,
                 missing_models=missing_models,
             )
+            # Track generated plots
+            self.generated_plots.append(f"{output_path}.pdf")
+            self.generated_plots.append(f"{output_path}.png")
             logger.info(f"  ✅ Saved comparison {i + 1}/{len(sampled_od_pairs)}")
 
     def _sample_od_pairs_for_comparison(
@@ -2015,6 +2073,15 @@ class TrajectoryVisualizer:
 
         for od_pair, scenarios_dict in varied_pairs.items():
             origin, destination = od_pair
+
+            # Check if we should regenerate this plot
+            if not self._should_regenerate_od_pair(od_pair):
+                continue
+
+            # Check plot type filter for multi-scenario plots
+            if self.config.plot_types == "single":
+                continue  # Skip multi-scenario plots if only single is requested
+
             scenario_names = sorted(scenarios_dict.keys())
 
             logger.info(
@@ -2059,6 +2126,10 @@ class TrajectoryVisualizer:
             plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
             plt.savefig(f"{output_path}.png", dpi=self.config.dpi, bbox_inches="tight")
             plt.close()
+
+            # Track generated plots
+            self.generated_plots.append(f"{output_path}.pdf")
+            self.generated_plots.append(f"{output_path}.png")
 
             logger.info(f"    ✅ Saved: {output_path}.{{pdf,png}}")
 
@@ -2191,6 +2262,14 @@ class TrajectoryVisualizer:
 
             # For each scenario: filter trajectories and call existing OD matching
             for scenario in scenarios:
+                # Skip scenarios not in target list (if in regenerate mode)
+                if (
+                    self.config.regenerate_mode
+                    and self.config.target_scenarios
+                    and scenario not in self.config.target_scenarios
+                ):
+                    continue
+
                 logger.info(f"  📍 Scenario: {scenario}")
 
                 # Filter trajectories by scenario for each model
@@ -2324,9 +2403,57 @@ Examples:
     )
     parser.add_argument("--dpi", type=int, default=300, help="Output resolution (DPI)")
 
+    # Selective regeneration arguments
+    regen_group = parser.add_argument_group("Selective Regeneration")
+    regen_group.add_argument(
+        "--regenerate-od-pairs",
+        type=str,
+        help='Regenerate specific OD pairs (format: "origin1,dest1;origin2,dest2")',
+    )
+    regen_group.add_argument(
+        "--regenerate-scenarios",
+        type=str,
+        help='Regenerate all plots for specific scenarios (comma-separated: "city_center,peak")',
+    )
+    regen_group.add_argument(
+        "--plot-type",
+        choices=["single", "multi", "both"],
+        default="both",
+        help="Which plot types to regenerate: single-scenario, multi-scenario, or both",
+    )
+
     args = parser.parse_args()
 
+    # Parse regeneration arguments
+    regenerate_mode = False
+    target_od_pairs = []
+    target_scenarios = []
+
+    if args.regenerate_od_pairs or args.regenerate_scenarios:
+        regenerate_mode = True
+
+        if args.regenerate_od_pairs:
+            # Parse "origin1,dest1;origin2,dest2" format
+            for pair_str in args.regenerate_od_pairs.split(";"):
+                origin, dest = map(int, pair_str.strip().split(","))
+                target_od_pairs.append((origin, dest))
+
+        if args.regenerate_scenarios:
+            target_scenarios = [s.strip() for s in args.regenerate_scenarios.split(",")]
+
     # Create configuration
+    # In regenerate mode, only enable scenario cross-model generation
+    if regenerate_mode:
+        generate_separate = False
+        generate_overlaid = False
+        generate_cross_model = False
+        generate_scenario_cross_model = True
+    else:
+        generate_separate = not args.no_separate
+        generate_overlaid = not args.no_overlaid
+        generate_cross_model = args.cross_model
+        generate_scenario_cross_model = args.scenario_cross_model
+
     config = VisualizationConfig(
         eval_dir=args.eval_dir,
         dataset=args.dataset,
@@ -2334,14 +2461,18 @@ Examples:
         samples_per_type=args.samples_per_type,
         max_scenarios_to_plot=args.max_scenarios,
         random_seed=args.random_seed,
-        generate_separate=not args.no_separate,
-        generate_overlaid=not args.no_overlaid,
-        generate_cross_model=args.cross_model,
+        generate_separate=generate_separate,
+        generate_overlaid=generate_overlaid,
+        generate_cross_model=generate_cross_model,
         include_real_in_cross_model=not args.no_real,
-        generate_scenario_cross_model=args.scenario_cross_model,
+        generate_scenario_cross_model=generate_scenario_cross_model,
         basemap_style=args.basemap_style,
         basemap_timeout=args.basemap_timeout,
         dpi=args.dpi,
+        regenerate_mode=regenerate_mode,
+        target_od_pairs=target_od_pairs,
+        target_scenarios=target_scenarios,
+        plot_types=args.plot_type,
     )
 
     # Run visualizer
