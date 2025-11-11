@@ -23,6 +23,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 
+# Import model detection utility
+from tools.model_detection import (
+    get_model_color,
+    get_model_line_style,
+    get_display_name,
+    extract_model_name,
+)
+
 try:
     import contextily as cx
 except ImportError:
@@ -628,26 +636,31 @@ class TrajectoryComparisonPlotter:
         self.road_network = road_network
 
         # Model styling constants
-        self.model_colors = {
-            "vanilla": "#e74c3c",  # Red
-            "distilled": "#3498db",  # Blue
-            "distilled_seed44": "#2ecc71",  # Green
-            "real": "#f39c12",  # Orange/Gold
-        }
-
-        self.model_linestyles = {
-            "vanilla": "-",
-            "distilled": "-",
-            "distilled_seed44": "-",
-            "real": "--",  # Dashed for real
-        }
-
-        self.model_labels = {
-            "vanilla": "Vanilla",
-            "distilled": "Distilled (seed 42)",
-            "distilled_seed44": "Distilled (seed 44)",
-            "real": "Real Trajectory",
-        }
+        # Model visualization settings (use model_detection utility)
+        # For dynamic generation, we'll build these on-the-fly when needed
+        self.model_colors = {}
+        self.model_linestyles = {}
+        self.model_labels = {}
+        
+        # Pre-populate with known models
+        for model in ["vanilla", "distilled", "distilled_seed44", "real"]:
+            self.model_colors[model] = get_model_color(model)
+            self.model_linestyles[model] = get_model_line_style(model)
+            self.model_labels[model] = get_display_name(model)
+        
+        # Real trajectory special case
+        self.model_colors["real"] = "#f39c12"  # Orange/Gold for real
+        self.model_linestyles["real"] = "--"  # Dashed for real
+        self.model_labels["real"] = "Real Trajectory"
+    
+    def _ensure_model_in_dicts(self, model_name: str):
+        """Ensure model is in visualization dicts, adding dynamically if needed."""
+        if model_name not in self.model_colors:
+            self.model_colors[model_name] = get_model_color(model_name)
+        if model_name not in self.model_linestyles:
+            self.model_linestyles[model_name] = get_model_line_style(model_name)
+        if model_name not in self.model_labels:
+            self.model_labels[model_name] = get_display_name(model_name)
 
     def plot_comparison(
         self,
@@ -676,6 +689,9 @@ class TrajectoryComparisonPlotter:
 
         # Plot each model's trajectory
         for model_name in sorted(trajectories.keys(), key=lambda x: (x != "real", x)):
+            # Ensure model is in visualization dicts
+            self._ensure_model_in_dicts(model_name)
+            
             traj = trajectories[model_name]
             if not traj.coords:
                 continue
@@ -1597,14 +1613,30 @@ class TrajectoryVisualizer:
             f"🔍 Detecting generated trajectory files in {self.config.gene_dir}"
         )
 
-        # Use shared model detection utility
-        model_files = detect_model_files(
-            self.config.gene_dir,
-            pattern="*.csv",
-            require_model=True,
-            require_od_type=True,
-            recursive=True,
-        )
+        gene_files = []
+
+        # Search recursively for CSV files (handles seed subdirectories)
+        for csv_file in self.config.gene_dir.rglob("*.csv"):
+            # Parse filename to extract model and OD type
+            filename = csv_file.name
+
+            # Skip old unnamed files
+            if not any(m in filename for m in ["distilled", "vanilla"]):
+                continue
+
+            model = None
+            od_type = None
+
+            model = extract_model_name(filename)
+            
+            # Skip if model is unknown
+            if model == "unknown":
+                continue
+
+            if "train" in filename:
+                od_type = "train"
+            elif "test" in filename:
+                od_type = "test"
 
         # Convert to legacy format for backward compatibility
         gene_files = []

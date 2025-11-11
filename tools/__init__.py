@@ -1,25 +1,33 @@
 """
-Tools package for HOSER evaluation pipeline.
+HOSER Tools Package
 
-Contains shared utilities for model detection, analysis, and visualization.
+Utilities and scripts for HOSER trajectory generation and analysis.
 """
 
 from tools.model_detection import (
-    ModelFile,
-    detect_model_files,
     extract_model_name,
-    extract_od_type,
     get_display_name,
-    group_by_model,
-    group_by_od_type,
+    get_model_color,
+    get_model_line_style,
+    parse_model_components,
+    detect_model_files,
+    ModelFile,
+    MODEL_PATTERNS,
+    DISPLAY_NAMES,
+    MODEL_COLORS,
+    MODEL_LINE_STYLES,
 )
 
 __all__ = [
-    "ModelFile",
-    "detect_model_files",
     "extract_model_name",
-    "extract_od_type",
     "get_display_name",
-    "group_by_model",
-    "group_by_od_type",
+    "get_model_color",
+    "get_model_line_style",
+    "parse_model_components",
+    "detect_model_files",
+    "ModelFile",
+    "MODEL_PATTERNS",
+    "DISPLAY_NAMES",
+    "MODEL_COLORS",
+    "MODEL_LINE_STYLES",
 ]

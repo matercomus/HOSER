@@ -21,6 +21,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 
+# Import model detection utility
+from tools.model_detection import get_model_color, extract_model_name, MODEL_COLORS
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -39,13 +42,11 @@ plt.rcParams.update(
     }
 )
 
-# Color scheme
+# Color scheme (extended from model_detection utility)
 COLORS = {
     "real_train": "#34495e",  # Dark gray
     "real_test": "#7f8c8d",  # Medium gray
-    "distilled": "#27ae60",  # Green
-    "distilled_seed44": "#16a085",  # Teal
-    "vanilla": "#e74c3c",  # Red
+    **MODEL_COLORS,  # Include all model colors
 }
 
 
@@ -245,52 +246,21 @@ class DistributionPlotter:
         # Load generated data - handle both Beijing and Porto naming conventions
         # Use rglob to search recursively (handles seed subdirectories)
         generated_data = {}
-        for csv_file in sorted(self.gene_dir.rglob("*.csv")):
-            filename = csv_file.name
-
-            # Skip files that don't match expected patterns
-            if not any(m in filename for m in ["distill", "vanilla"]):
-                continue
-
-            # Determine model name (check Porto first, then Beijing, then vanilla)
-            model_name = None
-            if "distill_phase2_seed44" in filename:
-                model_name = "distill_phase2_seed44"
-            elif "distill_phase2_seed43" in filename:
-                model_name = "distill_phase2_seed43"
-            elif "distill_phase2" in filename:
-                model_name = "distill_phase2"
-            elif "distill_phase1_seed44" in filename:
-                model_name = "distill_phase1_seed44"
-            elif "distill_phase1_seed43" in filename:
-                model_name = "distill_phase1_seed43"
-            elif "distill_phase1" in filename:
-                model_name = "distill_phase1"
-            elif "distilled_seed44" in filename:
-                model_name = "distilled_seed44"
-            elif "distilled_seed43" in filename:
-                model_name = "distilled_seed43"
-            elif "distilled" in filename:
-                model_name = "distilled"
-            elif "vanilla_seed44" in filename:
-                model_name = "vanilla_seed44"
-            elif "vanilla_seed43" in filename:
-                model_name = "vanilla_seed43"
-            elif "vanilla" in filename:
-                model_name = "vanilla"
-
+        for csv_file in sorted(self.gene_dir.glob("*.csv")):
+            # Extract model name and OD type
+            model = extract_model_name(csv_file.name)
+            
             # Determine OD type
-            od_type = None
-            if "train" in filename:
+            if "train" in csv_file.name.lower():
                 od_type = "train"
-            elif "test" in filename:
+            elif "test" in csv_file.name.lower():
                 od_type = "test"
-
-            # Load data if both model and OD type were detected
-            if model_name and od_type:
-                key = f"{model_name}_{od_type}"
-                generated_data[key] = self._load_generated_data(csv_file)
-                logger.info(f"  Loaded: {key}")
+            else:
+                continue  # Skip files without clear OD type
+            
+            # Create key and load data
+            key = f"{model}_{od_type}"
+            generated_data[key] = self._load_generated_data(csv_file)
 
         # Create plots for train OD
         self._plot_distance_comparison(

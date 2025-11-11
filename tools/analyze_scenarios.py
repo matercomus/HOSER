@@ -47,6 +47,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # Import existing evaluation metrics (reuse, don't rewrite)
 from evaluation import GlobalMetrics, LocalMetrics  # noqa: E402
 from shapely.geometry import LineString  # noqa: E402
+from tools.model_detection import extract_model_name  # noqa: E402
 
 # Configure logging
 logging.basicConfig(
@@ -880,18 +881,8 @@ def run_scenario_analysis(
         trained_on_dataset: Name of the dataset the model was trained on (for cross-dataset)
     """
     # Extract model name from filename if not provided
-    # Order matters: check for more specific patterns first
     if model_name is None:
-        if "distilled_seed44" in generated_file.name:
-            model_name = "distilled_seed44"
-        elif "distilled_seed43" in generated_file.name:
-            model_name = "distilled_seed43"
-        elif "distilled" in generated_file.name:
-            model_name = "distilled"
-        elif "vanilla" in generated_file.name:
-            model_name = "vanilla"
-        else:
-            model_name = "unknown"
+        model_name = extract_model_name(generated_file.name)
     # Load data
     logger.info(f"📂 Loading data from {generated_file.name}...")
     generated_df = pl.read_csv(generated_file)
@@ -1434,18 +1425,7 @@ Examples:
             # Process each file
             for gen_file in generated_files:
                 # Extract model name from filename
-                # Example: hoser_vanilla_testod_gene_20241024_123456.csv
-                # Order matters: check for more specific patterns first
-                if "distilled_seed44" in gen_file.name:
-                    model_name = "distilled_seed44"
-                elif "distilled_seed43" in gen_file.name:
-                    model_name = "distilled_seed43"
-                elif "distilled" in gen_file.name:
-                    model_name = "distilled"
-                elif "vanilla" in gen_file.name:
-                    model_name = "vanilla"
-                else:
-                    model_name = "unknown"
+                model_name = extract_model_name(gen_file.name)
 
                 output_dir = eval_dir / "scenarios" / od_source / model_name
 

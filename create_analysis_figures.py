@@ -16,6 +16,9 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+# Import model detection utility
+from tools.model_detection import get_model_color, extract_model_name, MODEL_COLORS
+
 # Set publication-quality defaults
 plt.rcParams.update(
     {
@@ -31,13 +34,8 @@ plt.rcParams.update(
     }
 )
 
-# Color scheme
-COLORS = {
-    "distilled": "#2ecc71",  # Green
-    "distilled_seed44": "#27ae60",  # Dark green
-    "vanilla": "#e74c3c",  # Red
-    "real": "#34495e",  # Dark gray
-}
+# Color scheme (imported from model_detection utility for consistency)
+COLORS = MODEL_COLORS
 
 MARKERS = {
     "distilled": "o",
@@ -126,33 +124,7 @@ class EvaluationVisualizer:
 
         # Fallback to file-based detection if timestamp mapping fails
         if model_type == "unknown":
-            # Porto convention (distill_phase1, distill_phase2 with seeds)
-            if "distill_phase2_seed44" in gen_file:
-                model_type = "distill_phase2_seed44"
-            elif "distill_phase2_seed43" in gen_file:
-                model_type = "distill_phase2_seed43"
-            elif "distill_phase2" in gen_file:
-                model_type = "distill_phase2"
-            elif "distill_phase1_seed44" in gen_file:
-                model_type = "distill_phase1_seed44"
-            elif "distill_phase1_seed43" in gen_file:
-                model_type = "distill_phase1_seed43"
-            elif "distill_phase1" in gen_file:
-                model_type = "distill_phase1"
-            # Beijing convention (distilled with seeds)
-            elif "distilled_seed44" in gen_file:
-                model_type = "distilled_seed44"
-            elif "distilled_seed43" in gen_file:
-                model_type = "distilled_seed43"
-            elif "distilled" in gen_file:
-                model_type = "distilled"
-            # Vanilla with seeds (both conventions)
-            elif "vanilla_seed44" in gen_file:
-                model_type = "vanilla_seed44"
-            elif "vanilla_seed43" in gen_file:
-                model_type = "vanilla_seed43"
-            elif "vanilla" in gen_file:
-                model_type = "vanilla"
+            model_type = extract_model_name(gen_file)
 
         return model_type, od_source
 

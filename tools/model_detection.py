@@ -2,364 +2,529 @@
 """
 Model Detection Utility
 
-Shared utility for detecting and parsing model names from generated trajectory files.
-Handles multiple naming conventions (Beijing distilled, Porto phase1/2) and seed variants.
+Centralized utility for detecting and managing model names across the HOSER codebase.
+Handles multiple naming conventions (Beijing distilled, Porto distill_phase1/phase2)
+and supports all seed variants (seed42, seed43, seed44).
+
+Usage as a module:
+    from tools.model_detection import extract_model_name, get_display_name, get_model_color
+    
+    model = extract_model_name("hoser_distilled_seed44_trainod_gene.csv")
+    display_name = get_display_name(model)
+    color = get_model_color(model)
+
+Usage as CLI:
+    python tools/model_detection.py eval_dir/gene/dataset/seed42 --group-by model
 """
 
-import logging
+import argparse
+import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
-
-logger = logging.getLogger(__name__)
-
-
-# Model naming patterns (order matters - check longer names first to avoid false matches)
-MODEL_PATTERNS = [
-    # Porto convention - phase 2 with seeds
-    "distill_phase2_seed44",
-    "distill_phase2_seed43",
-    "distill_phase2",
-    # Porto convention - phase 1 with seeds
-    "distill_phase1_seed44",
-    "distill_phase1_seed43",
-    "distill_phase1",
-    # Beijing convention - distilled with seeds
-    "distilled_seed44",
-    "distilled_seed43",
-    "distilled",
-    # Vanilla with seeds (both conventions)
-    "vanilla_seed44",
-    "vanilla_seed43",
-    "vanilla",
-]
-
-
-# Model display names for visualizations and reports
-MODEL_DISPLAY_NAMES = {
-    "vanilla": "Vanilla",
-    "vanilla_seed43": "Vanilla (seed 43)",
-    "vanilla_seed44": "Vanilla (seed 44)",
-    "distilled": "Distilled (seed 42)",
-    "distilled_seed43": "Distilled (seed 43)",
-    "distilled_seed44": "Distilled (seed 44)",
-    "distill_phase1": "Distill Phase 1 (seed 42)",
-    "distill_phase1_seed43": "Distill Phase 1 (seed 43)",
-    "distill_phase1_seed44": "Distill Phase 1 (seed 44)",
-    "distill_phase2": "Distill Phase 2 (seed 42)",
-    "distill_phase2_seed43": "Distill Phase 2 (seed 43)",
-    "distill_phase2_seed44": "Distill Phase 2 (seed 44)",
-    "real": "Real Trajectory",
-}
+from typing import List, Optional, Dict, Tuple
 
 
 @dataclass
 class ModelFile:
-    """Detected model file metadata"""
-
-    path: Path  # Full path to file
-    filename: str  # Just the filename
-    model: str  # Model name (e.g., "distill_phase1", "vanilla_seed44")
-    od_type: Optional[str] = None  # "train" or "test" (None if not applicable)
-    split: Optional[str] = None  # Alias for od_type for backward compatibility
-
+    """
+    Structured representation of a model file with metadata.
+    
+    Attributes:
+        path: Full path to the file
+        model_name: Detected model name (e.g., "distilled_seed44", "distill_phase2_seed43")
+        seed: Seed variant if present (e.g., "seed42", "seed43", "seed44")
+        base_model: Base model name without seed (e.g., "distilled", "distill_phase2")
+        filename: Original filename
+    """
+    path: Path
+    model_name: str
+    seed: Optional[str] = None
+    base_model: Optional[str] = None
+    filename: Optional[str] = None
+    
     def __post_init__(self):
-        """Set split as alias for od_type"""
-        if self.split is None and self.od_type is not None:
-            self.split = self.od_type
+        if self.filename is None:
+            self.filename = self.path.name
 
 
-def extract_model_name(filename: str) -> Optional[str]:
+# Model naming convention patterns (using regex for automatic detection)
+# Order matters: more specific patterns should be checked first
+MODEL_CONVENTIONS = [
+    # Porto distill_phase<N>_seed<M> pattern
+    (r'distill_phase(\d+)_seed(\d+)', 'distill_phase{}_seed{}'),
+    # Porto distill_phase<N> pattern (no seed)
+    (r'distill_phase(\d+)(?!_seed)', 'distill_phase{}'),
+    # Beijing distilled_seed<M> pattern
+    (r'distilled_seed(\d+)', 'distilled_seed{}'),
+    # Beijing distilled pattern (no seed)
+    (r'distilled(?!_seed)', 'distilled'),
+    # Vanilla_seed<M> pattern
+    (r'vanilla_seed(\d+)', 'vanilla_seed{}'),
+    # Vanilla pattern (no seed)
+    (r'vanilla(?!_seed)', 'vanilla'),
+]
+
+# Known model patterns for backward compatibility and testing
+# These are examples of models that follow the conventions above
+KNOWN_MODEL_PATTERNS = [
+    # Porto distill_phase2 variants (most specific)
+    "distill_phase2_seed44",
+    "distill_phase2_seed43",
+    "distill_phase2_seed42",
+    "distill_phase2",
+    
+    # Porto distill_phase1 variants
+    "distill_phase1_seed44",
+    "distill_phase1_seed43", 
+    "distill_phase1_seed42",
+    "distill_phase1",
+    
+    # Beijing distilled variants
+    "distilled_seed44",
+    "distilled_seed43",
+    "distilled_seed42",
+    "distilled",
+    
+    # Vanilla variants
+    "vanilla_seed44",
+    "vanilla_seed43",
+    "vanilla_seed42",
+    "vanilla",
+]
+
+# Keep MODEL_PATTERNS for backward compatibility
+MODEL_PATTERNS = KNOWN_MODEL_PATTERNS
+
+# Display names for visualizations
+DISPLAY_NAMES = {
+    # Beijing distilled models
+    "distilled": "Distilled",
+    "distilled_seed42": "Distilled (seed 42)",
+    "distilled_seed43": "Distilled (seed 43)",
+    "distilled_seed44": "Distilled (seed 44)",
+    
+    # Porto phase 1 models
+    "distill_phase1": "Distill Phase 1",
+    "distill_phase1_seed42": "Distill Phase 1 (seed 42)",
+    "distill_phase1_seed43": "Distill Phase 1 (seed 43)",
+    "distill_phase1_seed44": "Distill Phase 1 (seed 44)",
+    
+    # Porto phase 2 models
+    "distill_phase2": "Distill Phase 2",
+    "distill_phase2_seed42": "Distill Phase 2 (seed 42)",
+    "distill_phase2_seed43": "Distill Phase 2 (seed 43)",
+    "distill_phase2_seed44": "Distill Phase 2 (seed 44)",
+    
+    # Vanilla models
+    "vanilla": "Vanilla",
+    "vanilla_seed42": "Vanilla (seed 42)",
+    "vanilla_seed43": "Vanilla (seed 43)",
+    "vanilla_seed44": "Vanilla (seed 44)",
+    
+    # Special cases
+    "real": "Real",
+    "unknown": "Unknown",
+}
+
+# Color scheme for visualizations
+MODEL_COLORS = {
+    # Real data
+    "real": "#34495e",  # Dark gray
+    
+    # Beijing distilled models (green family)
+    "distilled": "#2ecc71",  # Green
+    "distilled_seed42": "#2ecc71",  # Green
+    "distilled_seed43": "#27ae60",  # Medium green
+    "distilled_seed44": "#27ae60",  # Dark green
+    
+    # Porto phase 1 models (blue family)
+    "distill_phase1": "#3498db",  # Blue
+    "distill_phase1_seed42": "#3498db",  # Blue
+    "distill_phase1_seed43": "#2980b9",  # Dark blue
+    "distill_phase1_seed44": "#1f618d",  # Darker blue
+    
+    # Porto phase 2 models (purple family)
+    "distill_phase2": "#9b59b6",  # Purple
+    "distill_phase2_seed42": "#9b59b6",  # Purple
+    "distill_phase2_seed43": "#8e44ad",  # Dark purple
+    "distill_phase2_seed44": "#7d3c98",  # Darker purple
+    
+    # Vanilla models (red family)
+    "vanilla": "#e74c3c",  # Red
+    "vanilla_seed42": "#e74c3c",  # Red
+    "vanilla_seed43": "#c0392b",  # Dark red
+    "vanilla_seed44": "#a93226",  # Darker red
+    
+    # Unknown
+    "unknown": "#95a5a6",  # Gray
+}
+
+# Line styles for visualizations
+MODEL_LINE_STYLES = {
+    "real": "-",
+    "distilled": "-",
+    "distilled_seed42": "-",
+    "distilled_seed43": "-",
+    "distilled_seed44": "-",
+    "distill_phase1": "-",
+    "distill_phase1_seed42": "-",
+    "distill_phase1_seed43": "-",
+    "distill_phase1_seed44": "-",
+    "distill_phase2": "-",
+    "distill_phase2_seed42": "-",
+    "distill_phase2_seed43": "-",
+    "distill_phase2_seed44": "-",
+    "vanilla": "-",
+    "vanilla_seed42": "-",
+    "vanilla_seed43": "-",
+    "vanilla_seed44": "-",
+    "unknown": "--",
+}
+
+
+def extract_model_name(filename: str) -> str:
     """
     Extract model name from filename using pattern matching.
-
-    Checks patterns in order of specificity (longest first) to avoid false matches.
-
+    
+    Automatically detects models following naming conventions:
+    - distill_phase<N>_seed<M> (e.g., distill_phase2_seed44, distill_phase3_seed45)
+    - distill_phase<N> (e.g., distill_phase1, distill_phase2)
+    - distilled_seed<M> (e.g., distilled_seed42, distilled_seed45)
+    - distilled
+    - vanilla_seed<M> (e.g., vanilla_seed43)
+    - vanilla
+    
+    New models following these conventions are automatically supported without
+    requiring updates to the MODEL_PATTERNS list.
+    
     Args:
-        filename: File name or path string
-
+        filename: Filename or path to extract model name from
+        
     Returns:
-        Model name if detected, None otherwise
-
+        Model name string (e.g., "distilled_seed44", "distill_phase2_seed43", "vanilla")
+        Returns "unknown" if no pattern matches.
+        
     Examples:
-        >>> extract_model_name("2025-11-07_03-23-44_distill_phase1_test.csv")
-        'distill_phase1'
-        >>> extract_model_name("distilled_seed44_train.csv")
+        >>> extract_model_name("hoser_distilled_seed44_trainod_gene.csv")
         'distilled_seed44'
-        >>> extract_model_name("vanilla_test.csv")
+        >>> extract_model_name("hoser_distill_phase2_seed43_testod_gene.csv")
+        'distill_phase2_seed43'
+        >>> extract_model_name("hoser_distill_phase3_seed45_trainod_gene.csv")
+        'distill_phase3_seed45'
+        >>> extract_model_name("hoser_vanilla_trainod_gene.csv")
         'vanilla'
     """
-    filename_lower = filename.lower()
-
-    for pattern in MODEL_PATTERNS:
-        if pattern in filename_lower:
-            return pattern
-
-    return None
-
-
-def extract_od_type(filename: str) -> Optional[str]:
-    """
-    Extract OD type (train/test) from filename.
-
-    Args:
-        filename: File name or path string
-
-    Returns:
-        "train" or "test" if detected, None otherwise
-
-    Examples:
-        >>> extract_od_type("distill_phase1_test.csv")
-        'test'
-        >>> extract_od_type("vanilla_train.csv")
-        'train'
-    """
-    filename_lower = filename.lower()
-
-    if "test" in filename_lower:
-        return "test"
-    elif "train" in filename_lower:
-        return "train"
-
-    return None
+    filename_lower = str(filename).lower()
+    
+    # Try each convention pattern
+    for pattern, template in MODEL_CONVENTIONS:
+        match = re.search(pattern, filename_lower)
+        if match:
+            # Format the template with captured groups
+            groups = match.groups()
+            if groups:
+                return template.format(*groups)
+            else:
+                return template
+    
+    return "unknown"
 
 
-def detect_model_files(
-    directory: Path,
-    pattern: str = "*.csv",
-    require_model: bool = True,
-    require_od_type: bool = False,
-    recursive: bool = True,
-) -> List[ModelFile]:
-    """
-    Detect and parse model files in a directory.
-
-    Args:
-        directory: Directory to search
-        pattern: Glob pattern for files (default: "*.csv")
-        require_model: Only return files with detected model names
-        require_od_type: Only return files with detected OD type
-        recursive: Search recursively in subdirectories
-
-    Returns:
-        List of ModelFile objects with detected metadata
-
-    Examples:
-        >>> files = detect_model_files(Path("gene/porto_hoser/seed42"))
-        >>> len(files)
-        18
-        >>> files[0].model
-        'distill_phase1'
-        >>> files[0].od_type
-        'test'
-    """
-    if not directory.exists():
-        logger.warning(f"Directory not found: {directory}")
-        return []
-
-    logger.info(f"🔍 Detecting model files in {directory}")
-
-    # Search for files
-    if recursive:
-        files = list(directory.rglob(pattern))
-    else:
-        files = list(directory.glob(pattern))
-
-    detected_files = []
-
-    for file_path in files:
-        filename = file_path.name
-
-        # Extract model name
-        model = extract_model_name(filename)
-
-        if require_model and model is None:
-            continue
-
-        # Extract OD type
-        od_type = extract_od_type(filename)
-
-        if require_od_type and od_type is None:
-            continue
-
-        detected_files.append(
-            ModelFile(
-                path=file_path,
-                filename=filename,
-                model=model,
-                od_type=od_type,
-            )
-        )
-
-        if model:
-            logger.debug(
-                f"  Found: {model}"
-                + (f" - {od_type}" if od_type else "")
-                + f" ({filename})"
-            )
-
-    logger.info(f"✅ Detected {len(detected_files)} model files")
-
-    return detected_files
-
-
-def group_by_model(model_files: List[ModelFile]) -> Dict[str, List[ModelFile]]:
-    """
-    Group model files by model name.
-
-    Args:
-        model_files: List of detected model files
-
-    Returns:
-        Dictionary mapping model_name -> list of ModelFile objects
-
-    Examples:
-        >>> files = detect_model_files(Path("gene/porto_hoser/seed42"))
-        >>> grouped = group_by_model(files)
-        >>> sorted(grouped.keys())
-        ['distill_phase1', 'distill_phase1_seed43', 'distill_phase1_seed44', ...]
-    """
-    grouped = {}
-
-    for model_file in model_files:
-        if model_file.model not in grouped:
-            grouped[model_file.model] = []
-        grouped[model_file.model].append(model_file)
-
-    return grouped
-
-
-def group_by_od_type(model_files: List[ModelFile]) -> Dict[str, List[ModelFile]]:
-    """
-    Group model files by OD type (train/test).
-
-    Args:
-        model_files: List of detected model files
-
-    Returns:
-        Dictionary mapping od_type -> list of ModelFile objects
-
-    Examples:
-        >>> files = detect_model_files(Path("gene/porto_hoser/seed42"))
-        >>> grouped = group_by_od_type(files)
-        >>> len(grouped['test'])
-        9
-        >>> len(grouped['train'])
-        9
-    """
-    grouped = {}
-
-    for model_file in model_files:
-        od_type = model_file.od_type
-        if od_type is None:
-            od_type = "unknown"
-
-        if od_type not in grouped:
-            grouped[od_type] = []
-        grouped[od_type].append(model_file)
-
-    return grouped
-
-
-def get_display_name(model: str) -> str:
+def get_display_name(model_name: str) -> str:
     """
     Get human-readable display name for a model.
-
+    
+    Automatically generates display names for models following conventions,
+    even if not explicitly defined in DISPLAY_NAMES.
+    
     Args:
-        model: Model identifier
-
+        model_name: Model name from extract_model_name()
+        
     Returns:
-        Display name for visualization and reports
-
+        Display name suitable for plots and visualizations
+        
     Examples:
-        >>> get_display_name("distill_phase1")
-        'Distill Phase 1 (seed 42)'
-        >>> get_display_name("vanilla_seed44")
-        'Vanilla (seed 44)'
+        >>> get_display_name("distilled_seed44")
+        'Distilled (seed 44)'
+        >>> get_display_name("distill_phase2_seed43")
+        'Distill Phase 2 (seed 43)'
+        >>> get_display_name("distill_phase3_seed45")
+        'Distill Phase 3 (seed 45)'
     """
-    return MODEL_DISPLAY_NAMES.get(model, model.replace("_", " ").title())
+    # Check if we have an explicit display name
+    if model_name in DISPLAY_NAMES:
+        return DISPLAY_NAMES[model_name]
+    
+    # Generate display name dynamically based on pattern
+    # Handle distill_phase<N>_seed<M>
+    match = re.match(r'distill_phase(\d+)_seed(\d+)', model_name)
+    if match:
+        phase, seed = match.groups()
+        return f"Distill Phase {phase} (seed {seed})"
+    
+    # Handle distill_phase<N>
+    match = re.match(r'distill_phase(\d+)', model_name)
+    if match:
+        phase = match.group(1)
+        return f"Distill Phase {phase}"
+    
+    # Handle distilled_seed<M>
+    match = re.match(r'distilled_seed(\d+)', model_name)
+    if match:
+        seed = match.group(1)
+        return f"Distilled (seed {seed})"
+    
+    # Handle vanilla_seed<M>
+    match = re.match(r'vanilla_seed(\d+)', model_name)
+    if match:
+        seed = match.group(1)
+        return f"Vanilla (seed {seed})"
+    
+    # Default: title case with underscores replaced by spaces
+    return model_name.replace("_", " ").title()
+
+
+def get_model_color(model_name: str) -> str:
+    """
+    Get color code for a model for consistent visualization.
+    
+    Automatically assigns colors to models following conventions based on their
+    base model type (distilled = green, distill_phase1 = blue, distill_phase2 = purple,
+    vanilla = red). New models get colors from the same family as their base type.
+    
+    Args:
+        model_name: Model name from extract_model_name()
+        
+    Returns:
+        Hex color code
+        
+    Examples:
+        >>> get_model_color("distilled_seed44")
+        '#27ae60'
+        >>> get_model_color("distill_phase2_seed43")
+        '#8e44ad'
+        >>> get_model_color("distill_phase3_seed45")  # New phase, gets purple family
+        '#9b59b6'
+    """
+    # Check if we have an explicit color
+    if model_name in MODEL_COLORS:
+        return MODEL_COLORS[model_name]
+    
+    # Assign color based on model family
+    # distill_phase1 family -> blue
+    if model_name.startswith('distill_phase1'):
+        return MODEL_COLORS.get('distill_phase1', '#3498db')
+    
+    # distill_phase2 family -> purple
+    if model_name.startswith('distill_phase2'):
+        return MODEL_COLORS.get('distill_phase2', '#9b59b6')
+    
+    # distill_phase3+ (new phases) -> alternate colors
+    match = re.match(r'distill_phase(\d+)', model_name)
+    if match:
+        phase_num = int(match.group(1))
+        # Cycle through color families for new phases
+        colors = ['#3498db', '#9b59b6', '#e67e22', '#1abc9c', '#f39c12']  # blue, purple, orange, teal, yellow
+        return colors[phase_num % len(colors)]
+    
+    # distilled family -> green
+    if model_name.startswith('distilled'):
+        return MODEL_COLORS.get('distilled', '#2ecc71')
+    
+    # vanilla family -> red
+    if model_name.startswith('vanilla'):
+        return MODEL_COLORS.get('vanilla', '#e74c3c')
+    
+    # Unknown -> gray
+    return MODEL_COLORS.get('unknown', '#95a5a6')
+
+
+def get_model_line_style(model_name: str) -> str:
+    """
+    Get line style for a model for consistent visualization.
+    
+    Automatically assigns line styles to new models following conventions.
+    All known models get solid lines, unknown models get dashed lines.
+    
+    Args:
+        model_name: Model name from extract_model_name()
+        
+    Returns:
+        Matplotlib line style string
+        
+    Examples:
+        >>> get_model_line_style("distilled_seed44")
+        '-'
+        >>> get_model_line_style("distill_phase3_seed45")
+        '-'
+        >>> get_model_line_style("unknown")
+        '--'
+    """
+    # Check explicit mapping first
+    if model_name in MODEL_LINE_STYLES:
+        return MODEL_LINE_STYLES[model_name]
+    
+    # If model follows a known convention, use solid line
+    if (model_name.startswith(('distill_phase', 'distilled', 'vanilla')) or 
+        model_name == 'real'):
+        return '-'
+    
+    # Unknown models get dashed line
+    return '--'
+
+
+def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
+    """
+    Parse model name into components.
+    
+    Automatically extracts seed numbers from models following conventions,
+    supporting any seed number (not just 42, 43, 44).
+    
+    Args:
+        model_name: Model name from extract_model_name()
+        
+    Returns:
+        Dictionary with 'base_model' and 'seed' keys
+        
+    Examples:
+        >>> parse_model_components("distilled_seed44")
+        {'base_model': 'distilled', 'seed': 'seed44'}
+        >>> parse_model_components("distill_phase2_seed43")
+        {'base_model': 'distill_phase2', 'seed': 'seed43'}
+        >>> parse_model_components("distill_phase3_seed45")
+        {'base_model': 'distill_phase3', 'seed': 'seed45'}
+        >>> parse_model_components("vanilla")
+        {'base_model': 'vanilla', 'seed': None}
+    """
+    # Check for seed pattern using regex to support any seed number
+    match = re.search(r'_seed(\d+)', model_name)
+    if match:
+        seed_num = match.group(1)
+        seed = f"seed{seed_num}"
+        base_model = model_name.replace(f"_seed{seed_num}", "")
+        return {
+            "base_model": base_model,
+            "seed": seed,
+        }
+    
+    # No seed found
+    return {
+        "base_model": model_name,
+        "seed": None,
+    }
+
+
+def detect_model_files(directory: Path, pattern: str = "*.csv") -> List[ModelFile]:
+    """
+    Detect all model files in a directory and extract metadata.
+    
+    Args:
+        directory: Directory to search
+        pattern: File pattern to match (default: "*.csv")
+        
+    Returns:
+        List of ModelFile objects with detected metadata
+        
+    Examples:
+        >>> files = detect_model_files(Path("eval_dir/gene/porto/seed42"))
+        >>> for f in files:
+        ...     print(f.model_name, f.seed, f.base_model)
+    """
+    directory = Path(directory)
+    model_files = []
+    
+    for file_path in directory.glob(pattern):
+        model_name = extract_model_name(file_path.name)
+        components = parse_model_components(model_name)
+        
+        model_file = ModelFile(
+            path=file_path,
+            model_name=model_name,
+            seed=components["seed"],
+            base_model=components["base_model"],
+            filename=file_path.name,
+        )
+        model_files.append(model_file)
+    
+    return model_files
 
 
 def main():
-    """Command-line interface for testing model detection"""
-    import argparse
-    import sys
-
+    """CLI interface for testing and using model detection utility."""
     parser = argparse.ArgumentParser(
-        description="Test model file detection",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Detect models in evaluation directory
-  uv run python tools/model_detection.py hoser-distill-optuna-porto-eval-xyz/gene/porto_hoser
-
-  # Show grouped by model
-  uv run python tools/model_detection.py gene/Beijing/seed42 --group-by model
-        """,
+        description="Model Detection Utility - detect and analyze model files"
     )
-    parser.add_argument("directory", type=Path, help="Directory to search")
     parser.add_argument(
-        "--pattern", default="*.csv", help="File pattern (default: *.csv)"
+        "directory",
+        type=Path,
+        help="Directory to scan for model files",
+    )
+    parser.add_argument(
+        "--pattern",
+        default="*.csv",
+        help="File pattern to match (default: *.csv)",
     )
     parser.add_argument(
         "--group-by",
-        choices=["model", "od_type"],
-        help="Group results by model or OD type",
+        choices=["model", "seed", "base_model"],
+        default="model",
+        help="Group files by model, seed, or base_model",
     )
-    parser.add_argument(
-        "--require-od-type",
-        action="store_true",
-        help="Only show files with detected OD type",
-    )
-
+    
     args = parser.parse_args()
-
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-    )
-
-    # Detect files
-    files = detect_model_files(
-        args.directory,
-        pattern=args.pattern,
-        require_od_type=args.require_od_type,
-    )
-
-    if not files:
-        print("❌ No model files detected")
-        sys.exit(1)
-
-    # Display results
-    print("\n" + "=" * 70)
-    print(f"Detected {len(files)} model files")
-    print("=" * 70)
-
-    if args.group_by == "model":
-        grouped = group_by_model(files)
-        for model, model_files in sorted(grouped.items()):
-            print(f"\n📦 {get_display_name(model)} ({len(model_files)} files):")
-            for mf in model_files:
-                od_str = f" ({mf.od_type})" if mf.od_type else ""
-                print(f"  • {mf.filename}{od_str}")
-
-    elif args.group_by == "od_type":
-        grouped = group_by_od_type(files)
-        for od_type, model_files in sorted(grouped.items()):
-            print(f"\n📊 {od_type.upper()} ({len(model_files)} files):")
-            for mf in model_files:
-                model_str = f" [{mf.model}]" if mf.model else ""
-                print(f"  • {mf.filename}{model_str}")
-
-    else:
-        # Flat list
-        for mf in files:
-            model_str = mf.model or "unknown"
-            od_str = f" ({mf.od_type})" if mf.od_type else ""
-            print(f"  • {model_str}{od_str}: {mf.filename}")
-
-    print("=" * 70)
+    
+    if not args.directory.exists():
+        print(f"Error: Directory not found: {args.directory}", file=sys.stderr)
+        return 1
+    
+    print(f"Scanning {args.directory} for {args.pattern} files...")
+    print()
+    
+    model_files = detect_model_files(args.directory, args.pattern)
+    
+    if not model_files:
+        print("No model files found.")
+        return 0
+    
+    print(f"Found {len(model_files)} files")
+    print()
+    
+    # Group by specified attribute
+    groups = {}
+    for mf in model_files:
+        if args.group_by == "model":
+            key = mf.model_name
+        elif args.group_by == "seed":
+            key = mf.seed or "no-seed"
+        else:  # base_model
+            key = mf.base_model or "unknown"
+        
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(mf)
+    
+    # Print grouped results
+    for group_name in sorted(groups.keys()):
+        files = groups[group_name]
+        print(f"{group_name}: {len(files)} files")
+        
+        # Show display name and color
+        if args.group_by == "model":
+            display = get_display_name(group_name)
+            color = get_model_color(group_name)
+            print(f"  Display: {display}")
+            print(f"  Color: {color}")
+        
+        # Show first few files
+        for mf in files[:3]:
+            print(f"  - {mf.filename}")
+        if len(files) > 3:
+            print(f"  ... and {len(files) - 3} more")
+        print()
+    
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

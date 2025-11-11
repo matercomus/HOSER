@@ -11,6 +11,9 @@ from typing import Dict, List, Optional, Tuple
 import seaborn as sns
 import yaml
 
+# Import model detection utility
+from tools.model_detection import extract_model_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -205,7 +208,7 @@ def get_metric_value(
 def classify_models(
     data: Dict, od_source: str = "train"
 ) -> Tuple[List[str], List[str]]:
-    """Classify models into vanilla and distilled lists
+    """Classify models into vanilla and distilled lists using model detection utility.
 
     Args:
         data: Loaded scenario data
@@ -219,8 +222,21 @@ def classify_models(
         return [], []
 
     models = sorted(data[od_source].keys())
-    vanilla_models = sorted([m for m in models if "vanilla" in m.lower()])
-    distilled_models = sorted([m for m in models if "distill" in m.lower()])
+    
+    # Use model detection to classify
+    vanilla_models = []
+    distilled_models = []
+    
+    for m in models:
+        # Extract base model type (handles seed variants automatically)
+        model_lower = m.lower()
+        if "vanilla" in model_lower:
+            vanilla_models.append(m)
+        elif "distill" in model_lower:
+            distilled_models.append(m)
+    
+    vanilla_models = sorted(vanilla_models)
+    distilled_models = sorted(distilled_models)
 
     logger.info(
         f"Detected {len(vanilla_models)} vanilla and {len(distilled_models)} distilled models"
