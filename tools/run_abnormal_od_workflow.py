@@ -63,6 +63,12 @@ from tools.generate_abnormal_od import generate_abnormal_od_trajectories
 from tools.evaluate_abnormal_od import evaluate_abnormal_od
 from tools.analyze_wang_results import analyze_wang_results
 from tools.visualize_wang_results import generate_wang_visualizations
+from tools.translate_od_pairs import (
+    load_road_mapping,
+    translate_od_pairs,
+    filter_od_pairs_by_quality,
+    save_translated_od_pairs,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -271,6 +277,114 @@ class AbnormalODWorkflowRunner:
         logger.info(f"   Categories: {list(od_data['od_pairs_by_category'].keys())}")
 
         return self.od_pairs_file
+
+    def translate_od_pairs(self) -> Path:
+        """Translate and filter OD pairs using road network mapping
+
+        Returns:
+            Path to translated and filtered OD pairs JSON file
+        """
+        # Determine source and target datasets for translation
+        source_dataset = getattr(self.config, "source_dataset", self.dataset)
+        target_dataset = getattr(self.config, "target_dataset", self.config.dataset)
+
+        # Assert translation is needed (always required)
+        assert source_dataset and target_dataset, (
+            "Source and target datasets must be configured for translation"
+        )
+        assert source_dataset != target_dataset, (
+            f"Source dataset ({source_dataset}) and target dataset ({target_dataset}) "
+            f"must be different for translation to be required"
+        )
+
+        logger.info("=" * 80)
+        logger.info("🗺️  Translation: Translating OD Pairs")
+        logger.info("=" * 80)
+        logger.info(f"Source dataset: {source_dataset}")
+        logger.info(f"Target dataset: {target_dataset}")
+        logger.info(f"Max distance threshold: {self.config.translation_max_distance}m")
+
+        # Load original OD pairs
+        logger.info(f"Loading OD pairs from {self.od_pairs_file}")
+        with open(self.od_pairs_file, "r") as f:
+            original_data = json.load(f)
+
+        # Collect all OD pairs from all categories
+        all_od_pairs = []
+        category_od_pairs = {}
+        for category, pairs in original_data.get("od_pairs_by_category", {}).items():
+            category_od_pairs[category] = pairs
+            all_od_pairs.extend(pairs)
+
+        if not all_od_pairs:
+            logger.warning("No OD pairs found to translate")
+            return self.od_pairs_file
+
+        logger.info(
+            f"Found {len(all_od_pairs)} total OD pairs across {len(category_od_pairs)} categories"
+        )
+
+        # Load mapping file
+        mapping_file = self.config.get_translation_mapping_file()
+        assert mapping_file and mapping_file.exists(), (
+            f"Translation mapping file not found: {mapping_file}. "
+            f"Translation is required for cross-dataset evaluation."
+        )
+
+        logger.info(f"Loading mapping from {mapping_file}")
+        mapping = load_road_mapping(mapping_file)
+
+        # Translate OD pairs
+        logger.info("Translating OD pairs...")
+        translated_pairs = translate_od_pairs(all_od_pairs, mapping)
+
+        # Filter by quality
+        logger.info("Filtering by quality...")
+        max_distance = getattr(self.config, "translation_max_distance", 20.0)
+        filtered_pairs, stats = filter_od_pairs_by_quality(
+            translated_pairs, mapping, max_distance
+        )
+
+        # Redistribute filtered pairs to categories
+        # This is a simplified approach - in practice, we'd track which pairs belong to which category
+        translated_by_category = {}
+        total_translated = 0
+
+        for category, original_pairs in category_od_pairs.items():
+            num_pairs_in_category = len(original_pairs)
+            if total_translated + num_pairs_in_category <= len(filtered_pairs):
+                # Take pairs for this category
+                category_start = total_translated
+                category_end = category_start + num_pairs_in_category
+                category_translated = filtered_pairs[category_start:category_end]
+                translated_by_category[category] = category_translated
+                total_translated = category_end
+            else:
+                # Take remaining pairs
+                category_translated = filtered_pairs[total_translated:]
+                if category_translated:
+                    translated_by_category[category] = category_translated
+                total_translated = len(filtered_pairs)
+                break
+
+        # Save translated pairs
+        translated_file = (
+            self.od_pairs_file.parent / f"{self.od_pairs_file.stem}_translated.json"
+        )
+        save_translated_od_pairs(
+            original_data=original_data,
+            translated_pairs_by_category=translated_by_category,
+            translation_stats=stats,
+            source_dataset=source_dataset,
+            target_dataset=target_dataset,
+            output_file=translated_file,
+        )
+
+        # Update od_pairs_file to point to translated file
+        self.od_pairs_file = translated_file
+
+        logger.info(f"✅ Translation complete: {translated_file}")
+        return translated_file
 
     def generate_trajectories(self) -> Path:
         """
