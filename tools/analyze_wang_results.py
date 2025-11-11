@@ -216,6 +216,65 @@ class WangResultsCollector:
         for det_file in detection_files:
             self._process_detection_results(det_file)
 
+        # Rebuild comparisons with corrected abnormal_rate values
+        self._rebuild_comparisons()
+
+    def _rebuild_comparisons(self) -> None:
+        """Rebuild comparisons using corrected abnormal_rate values from DetectionMetrics
+
+        This is necessary because comparison_report.json files may have outdated
+        abnormal_rate values (0.0), while detection_results.json has the correct
+        values calculated from pattern counts.
+        """
+        logger.info("  Rebuilding comparisons with corrected rates...")
+
+        # Clear existing comparisons
+        self.comparisons.clear()
+
+        # Group results by dataset and od_source
+        results_by_dataset_od = {}
+        for result in self.results:
+            key = (result.dataset, result.od_source)
+            if key not in results_by_dataset_od:
+                results_by_dataset_od[key] = {"real": None, "generated": {}}
+
+            if result.is_real:
+                results_by_dataset_od[key]["real"] = result
+            else:
+                results_by_dataset_od[key]["generated"][result.model] = result
+
+        # Create comparisons with corrected rates
+        for (dataset, od_source), data in results_by_dataset_od.items():
+            real_data = data["real"]
+            generated_data = data["generated"]
+
+            if not real_data:
+                continue  # No real data to compare against
+
+            for model_name, gen_result in generated_data.items():
+                real_rate = real_data.abnormal_rate
+                gen_rate = gen_result.abnormal_rate
+
+                self.comparisons.append(
+                    StatisticalComparison(
+                        dataset=dataset,
+                        od_source=od_source,
+                        model=model_name,
+                        real_rate=real_rate,
+                        generated_rate=gen_rate,
+                        difference=gen_rate - real_rate,
+                        relative_difference_pct=(
+                            ((gen_rate - real_rate) / real_rate * 100)
+                            if real_rate > 0
+                            else 0.0
+                        ),
+                        trajectory_count_real=real_data.total_trajectories,
+                        trajectory_count_generated=gen_result.total_trajectories,
+                    )
+                )
+
+        logger.info(f"  ✅ Rebuilt {len(self.comparisons)} comparisons")
+
     def _process_comparison_report(self, comp_file: Path, eval_dir: Path) -> None:
         """Process a comparison_report.json file
 
@@ -370,6 +429,22 @@ class WangResultsCollector:
                     result.wang_metadata = wang_metadata
                     if baseline_usage:
                         result.baseline_usage = baseline_usage
+
+                    # Recalculate abnormal_count and abnormal_rate from Wang patterns
+                    # All patterns except Abp1_normal are considered abnormal
+                    if pattern_counts:
+                        total_abnormal = (
+                            pattern_counts.get("Abp2_temporal_delay", 0)
+                            + pattern_counts.get("Abp3_route_deviation", 0)
+                            + pattern_counts.get("Abp4_both_deviations", 0)
+                        )
+                        result.abnormal_count = total_abnormal
+                        if result.total_trajectories > 0:
+                            result.abnormal_rate = (
+                                total_abnormal / result.total_trajectories
+                            ) * 100
+                        else:
+                            result.abnormal_rate = 0.0
                     break
 
         except Exception as e:
@@ -829,33 +904,77 @@ class WangResultsCollector:
         )
 
 
-def main():
-    """Main entry point"""
+def analyze_wang_results(
+    eval_dirs: Optional[List[Path]] = None, output_file: Optional[Path] = None
+) -> Path:
+    """
+    Analyze Wang abnormality detection results from evaluation directories.
+
+    This function can be called programmatically from other scripts or via CLI.
+
+    Args:
+        eval_dirs: List of evaluation directories to analyze. If None, auto-discovers
+                   standard evaluation directories (hoser-distill-optuna-6, etc.)
+        output_file: Path to output JSON file. If None, uses wang_results_aggregated.json
+                    in project root
+
+    Returns:
+        Path to the generated output file
+
+    Example:
+        >>> from tools.analyze_wang_results import analyze_wang_results
+        >>> analyze_wang_results(
+        ...     eval_dirs=[Path("hoser-distill-optuna-porto-eval-xyz")],
+        ...     output_file=Path("hoser-distill-optuna-porto-eval-xyz/wang_results.json")
+        ... )
+    """
     project_root = Path(__file__).parent.parent
+
+    # Default output file location
+    if output_file is None:
+        output_file = project_root / "wang_results_aggregated.json"
+    else:
+        output_file = Path(output_file)
 
     collector = WangResultsCollector(project_root)
 
-    # Collect from Beijing eval directory
-    beijing_eval = project_root / "hoser-distill-optuna-6"
-    if beijing_eval.exists():
-        collector.collect_from_eval_dir(beijing_eval)
-    else:
-        logger.warning(f"Beijing eval directory not found: {beijing_eval}")
+    # Auto-discover or use provided directories
+    if eval_dirs is None:
+        logger.info("🔍 Auto-discovering evaluation directories...")
 
-    # Collect from Porto eval directory
-    porto_eval_pattern = "hoser-distill-optuna-porto-eval-*"
-    porto_eval_dirs = list(project_root.glob(porto_eval_pattern))
-    if porto_eval_dirs:
-        for porto_eval in porto_eval_dirs:
-            collector.collect_from_eval_dir(porto_eval)
+        # Collect from Beijing eval directory
+        beijing_eval = project_root / "hoser-distill-optuna-6"
+        if beijing_eval.exists():
+            collector.collect_from_eval_dir(beijing_eval)
+        else:
+            logger.warning(f"Beijing eval directory not found: {beijing_eval}")
+
+        # Collect from Porto eval directory
+        porto_eval_pattern = "hoser-distill-optuna-porto-eval-*"
+        porto_eval_dirs = list(project_root.glob(porto_eval_pattern))
+        if porto_eval_dirs:
+            for porto_eval in porto_eval_dirs:
+                collector.collect_from_eval_dir(porto_eval)
+        else:
+            logger.warning(f"Porto eval directory not found: {porto_eval_pattern}")
     else:
-        logger.warning(f"Porto eval directory not found: {porto_eval_pattern}")
+        # Use provided directories
+        logger.info(
+            f"📂 Analyzing {len(eval_dirs)} evaluation director{'y' if len(eval_dirs) == 1 else 'ies'}..."
+        )
+        for eval_dir in eval_dirs:
+            eval_path = Path(eval_dir)
+            if not eval_path.is_absolute():
+                eval_path = project_root / eval_path
+            if eval_path.exists():
+                collector.collect_from_eval_dir(eval_path)
+            else:
+                logger.warning(f"Evaluation directory not found: {eval_path}")
 
     logger.info(f"✅ Collected {len(collector.results)} result entries")
     logger.info(f"✅ Collected {len(collector.comparisons)} comparisons")
 
     # Save aggregated results
-    output_file = project_root / "wang_results_aggregated.json"
     collector.save_aggregated_results(output_file)
 
     # Print summary
@@ -894,6 +1013,56 @@ def main():
     print("\n" + "=" * 70)
     print(f"💾 Results saved to: {output_file}")
     print("=" * 70)
+
+    return output_file
+
+
+def main():
+    """Main CLI entry point"""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Analyze Wang statistical abnormality detection results",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Auto-discover all evaluation directories (default behavior)
+  uv run python tools/analyze_wang_results.py
+
+  # Analyze specific evaluation directory
+  uv run python tools/analyze_wang_results.py --eval-dir hoser-distill-optuna-porto-eval-xyz
+
+  # Analyze multiple directories with custom output
+  uv run python tools/analyze_wang_results.py \\
+    --eval-dir hoser-distill-optuna-6 \\
+    --eval-dir hoser-distill-optuna-porto-eval-xyz \\
+    --output custom_wang_results.json
+
+  # Analyze directory and save results inside it
+  uv run python tools/analyze_wang_results.py \\
+    --eval-dir hoser-distill-optuna-porto-eval-xyz \\
+    --output hoser-distill-optuna-porto-eval-xyz/wang_results_aggregated.json
+        """,
+    )
+
+    parser.add_argument(
+        "--eval-dir",
+        action="append",
+        dest="eval_dirs",
+        help="Evaluation directory to analyze (can specify multiple times). If not provided, auto-discovers standard directories.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Output JSON file path (default: wang_results_aggregated.json in project root)",
+    )
+
+    args = parser.parse_args()
+
+    # Convert eval_dirs strings to Path objects
+    eval_dirs = [Path(d) for d in args.eval_dirs] if args.eval_dirs else None
+
+    analyze_wang_results(eval_dirs=eval_dirs, output_file=args.output)
 
 
 if __name__ == "__main__":

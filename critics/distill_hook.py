@@ -31,6 +31,7 @@ class DistillConfig:
     grid_size: Optional[float] = None
     downsample_factor: int = 1
     verify_grid_dims: bool = True
+    verbose: bool = False  # Enable verbose diagnostic logging
 
 
 class DistillationManager:

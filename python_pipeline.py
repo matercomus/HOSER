@@ -126,6 +126,7 @@ class PipelineConfig:
             "abnormal_od_extract",
             "abnormal_od_generate",
             "abnormal_od_evaluate",
+            "wang_abnormality",
             "scenarios",
         }
 
@@ -146,6 +147,10 @@ class PipelineConfig:
         )
         self.run_abnormal_detection = False  # NEW: Run abnormal trajectory detection
         self.abnormal_config = None  # NEW: Path to abnormal detection config
+        self.run_wang_detection = (
+            False  # NEW: Run Wang statistical abnormality detection
+        )
+        self.wang_config = None  # NEW: Path to Wang statistical detection config
 
         # Load from YAML if provided
         if config_path:
@@ -609,19 +614,80 @@ class EvaluationPipeline:
     def _check_existing_results(
         self, model_type: str, od_source: str
     ) -> Optional[Path]:
-        """Check if results already exist and return path if found"""
+        """Check if A* generated file exists and return path if found.
+
+        Only returns files that are confirmed to be A* search (beam_search_enabled: false).
+        If only beam search files exist, returns None to trigger A* generation.
+        """
         if self.config.force:
             return None
 
         # Check for existing generated file
         gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
-        generated_files = list(gene_dir.glob(f"*{model_type}*{od_source}od*.csv"))
 
-        if generated_files:
-            latest_file = max(generated_files, key=lambda x: x.stat().st_mtime)
-            logger.info(f"Found existing generated file: {latest_file}")
-            return latest_file
+        # Try multiple patterns to support both Porto and Beijing naming conventions
+        patterns = [
+            f"*{model_type}*{od_source}.csv",  # Primary: Porto and most Beijing
+            f"*{model_type}*{od_source}od*.csv",  # Backward compatibility
+            f"{model_type}*{od_source}*.csv",  # Beijing: model_type first
+        ]
 
+        generated_files = []
+        for pattern in patterns:
+            generated_files.extend(gene_dir.glob(pattern))
+
+        if not generated_files:
+            return None
+
+        # Check each file to see if it's A* (beam_search_enabled: false)
+        # Sort by modification time, newest first
+        generated_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+
+        import json
+
+        for csv_file in generated_files:
+            # Check for corresponding perf.json file
+            perf_file = csv_file.parent / f"{csv_file.stem}_perf.json"
+
+            if perf_file.exists():
+                try:
+                    with open(perf_file) as f:
+                        perf_data = json.load(f)
+
+                    # Check if this is an A* file (beam_search_enabled: false)
+                    beam_search_enabled = perf_data.get("beam_search_enabled", True)
+
+                    if not beam_search_enabled:
+                        logger.info(
+                            f"Found existing A* generated file: {csv_file.name}"
+                        )
+                        return csv_file
+                    else:
+                        logger.debug(
+                            f"Skipping beam search file: {csv_file.name} "
+                            f"(looking for A* file)"
+                        )
+                        continue
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.warning(
+                        f"Could not parse perf.json for {csv_file.name}: {e}. "
+                        f"Assuming beam search, skipping."
+                    )
+                    continue
+            else:
+                # No perf.json file - assume it's an old file or beam search
+                # Skip it and continue looking
+                logger.debug(
+                    f"No perf.json found for {csv_file.name}, skipping "
+                    f"(looking for A* file)"
+                )
+                continue
+
+        # No A* files found, only beam search files exist
+        logger.info(
+            f"No A* generated file found for {model_type} ({od_source} OD). "
+            f"Will generate with A* search."
+        )
         return None
 
     def _handle_error(
@@ -1375,7 +1441,7 @@ class EvaluationPipeline:
 
                 logger.info(f"Evaluating {model_type} ({od_source} OD)")
 
-                # Find generated file
+                # Find generated file (prefer A* files)
                 gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
 
                 # Try new naming pattern first: {timestamp}_{model_type}_{od_source}.csv
@@ -1383,26 +1449,58 @@ class EvaluationPipeline:
                 generated_files = list(gene_dir.glob(pattern))
 
                 if not generated_files:
-                    # Fallback: try old timestamp-only pattern for backward compatibility
-                    generated_files = list(gene_dir.glob("*.csv"))
+                    # Fallback: try other patterns
+                    patterns = [
+                        f"*{model_type}*{od_source}.csv",
+                        f"*{model_type}*{od_source}od*.csv",
+                        f"{model_type}*{od_source}*.csv",
+                    ]
+                    for p in patterns:
+                        generated_files.extend(gene_dir.glob(p))
+
                     if not generated_files:
                         error_msg = f"No existing generated file found for {model_type} ({od_source} OD)"
                         logger.error(error_msg)
                         failed_operations.append(error_msg)
                         continue
-                    # Use latest if multiple matches
+
+                # Filter for A* files only (check perf.json for beam_search_enabled: false)
+                import json
+
+                astar_files = []
+
+                for csv_file in generated_files:
+                    perf_file = csv_file.parent / f"{csv_file.stem}_perf.json"
+
+                    if perf_file.exists():
+                        try:
+                            with open(perf_file) as f:
+                                perf_data = json.load(f)
+
+                            beam_search_enabled = perf_data.get(
+                                "beam_search_enabled", True
+                            )
+                            if not beam_search_enabled:
+                                astar_files.append(csv_file)
+                        except (json.JSONDecodeError, KeyError):
+                            # Skip files with invalid perf.json
+                            continue
+
+                if astar_files:
+                    # Use most recent A* file
+                    generated_file = max(astar_files, key=lambda x: x.stat().st_mtime)
+                    logger.info(f"Found existing A* file: {generated_file.name}")
+                else:
+                    # No A* files found - this shouldn't happen if generation phase worked
+                    # But log a warning and use the most recent file anyway
                     generated_file = max(
                         generated_files, key=lambda x: x.stat().st_mtime
                     )
                     logger.warning(
-                        f"Using legacy filename format: {generated_file.name}"
+                        f"No A* file found for {model_type} ({od_source} OD), "
+                        f"using most recent file: {generated_file.name}. "
+                        f"This may be a beam search file."
                     )
-                else:
-                    # Use most recent file matching pattern
-                    generated_file = max(
-                        generated_files, key=lambda x: x.stat().st_mtime
-                    )
-                    logger.info(f"Found existing file: {generated_file.name}")
 
                 # Evaluation phase
                 try:
@@ -1953,6 +2051,67 @@ class EvaluationPipeline:
 
         logger.info(f"\n✅ Evaluation complete! Results in {output_dir}/")
 
+    @phase("wang_abnormality", critical=False)
+    def run_wang_abnormality(self):
+        """Run Wang statistical abnormality detection pipeline"""
+        if not self.config.run_wang_detection:
+            logger.info("Wang statistical detection not configured, skipping")
+            return
+
+        logger.info("📊 Running Wang statistical abnormality detection pipeline...")
+
+        # Auto-detect Wang config if not provided
+        if not self.config.wang_config:
+            wang_config = Path("./config/abnormal_detection_statistical.yaml")
+            if not wang_config.exists():
+                logger.warning(
+                    "No Wang statistical detection config found, skipping Wang analysis"
+                )
+                return
+        else:
+            wang_config = Path(self.config.wang_config)
+
+        if not wang_config.exists():
+            logger.error(f"Wang detection config not found: {wang_config}")
+            return
+
+        # Import the pipeline runner
+        import subprocess
+
+        # Run the Wang detection pipeline
+        cmd = [
+            "uv",
+            "run",
+            "python",
+            str(PROJECT_ROOT / "tools" / "run_wang_detection_pipeline.py"),
+            "--eval-dir",
+            str(self.eval_dir),
+            "--dataset",
+            self.config.dataset,
+        ]
+
+        logger.info(f"Executing: {' '.join(cmd)}")
+
+        try:
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=False,
+                text=True,
+                cwd=PROJECT_ROOT,
+            )
+            logger.info("✅ Wang statistical detection pipeline completed successfully")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(
+                f"❌ Wang detection pipeline failed with exit code {e.returncode}"
+            )
+            raise
+
+        except Exception as e:
+            logger.error(f"❌ Wang detection pipeline failed: {e}")
+            raise
+
     @phase("scenarios", critical=False)
     def run_scenarios(self):
         """Run scenario analysis"""
@@ -2260,6 +2419,7 @@ class EvaluationPipeline:
             "abnormal_od_extract",
             "abnormal_od_generate",
             "abnormal_od_evaluate",
+            "wang_abnormality",
             "scenarios",
         ]
         extras = [phase for phase in self.config.phases if phase not in default_order]
@@ -2316,7 +2476,7 @@ def main():
         help=(
             "Run only these phases (comma-separated). Available: "
             "generation,base_eval,paired_analysis,cross_dataset,road_network_translate,abnormal,"
-            "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,scenarios."
+            "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,wang_abnormality,scenarios."
         ),
     )
     parser.add_argument(
@@ -2379,6 +2539,16 @@ def main():
         "--abnormal-config",
         type=str,
         help="Path to abnormal detection config YAML (default: config/abnormal_detection.yaml)",
+    )
+    parser.add_argument(
+        "--run-wang",
+        action="store_true",
+        help="Run Wang statistical abnormality detection and visualization",
+    )
+    parser.add_argument(
+        "--wang-config",
+        type=str,
+        help="Path to Wang detection config YAML (default: config/abnormal_detection_statistical.yaml)",
     )
 
     args = parser.parse_args()
@@ -2463,6 +2633,10 @@ def main():
         config.run_abnormal_detection = True
     if args.abnormal_config:
         config.abnormal_config = args.abnormal_config
+    if args.run_wang:
+        config.run_wang_detection = True
+    if args.wang_config:
+        config.wang_config = args.wang_config
 
     # Run pipeline
     try:

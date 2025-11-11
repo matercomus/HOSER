@@ -240,6 +240,7 @@ def main(
     return_metrics: bool = False,
     optuna_trial=None,  # Pass Optuna trial for intermediate reporting
     profile_max_batches: int = 0,
+    force_no_distill: bool = False,  # Force disable distillation (vanilla training)
 ):
     """
     Main training function that can be called programmatically or from CLI.
@@ -285,6 +286,11 @@ def main(
             default=0,
             help="Stop after N training batches (profiling)",
         )
+        parser.add_argument(
+            "--no-distill",
+            action="store_true",
+            help="Force disable distillation (vanilla training), overrides config",
+        )
         args = parser.parse_args()
 
         dataset = args.dataset
@@ -294,6 +300,7 @@ def main(
         data_dir = args.data_dir
         return_metrics = args.return_metrics
         profile_max_batches = args.profile_max_batches
+        force_no_distill = args.no_distill
 
     set_seed(seed)
     device = f"cuda:{cuda}"
@@ -352,7 +359,11 @@ def main(
         )
 
     # Determine suffix based on distillation mode (prevents directory collision)
-    distill_enabled = getattr(getattr(config, "distill", {}), "enable", False)
+    # Respect --no-distill flag if provided, otherwise use config
+    if force_no_distill:
+        distill_enabled = False
+    else:
+        distill_enabled = getattr(getattr(config, "distill", {}), "enable", False)
     dir_suffix = "distill" if distill_enabled else "vanilla"
 
     save_dir = f"./save/{dataset_name}/seed{seed}_{dir_suffix}"
@@ -720,11 +731,19 @@ def main(
     if hasattr(config, "distill") and hasattr(config.distill, "window"):
         distill_window_cfg = int(config.distill.window)
 
-    # Enable distill if config says so
-    enable_distill = False
-    if hasattr(config, "distill") and hasattr(config.distill, "enable"):
-        enable_distill = bool(config.distill.enable)
-    if enable_distill:
+    # Use distill_enabled (already calculated above, respects --no-distill flag)
+    # Initialize distillation manager if enabled
+    if distill_enabled:
+        logger.info("[distill] Distillation enabled from config")
+    else:
+        if force_no_distill:
+            logger.info(
+                "[distill] Distillation disabled via --no-distill flag (vanilla training)"
+            )
+        else:
+            logger.info("[distill] Distillation disabled (vanilla training)")
+
+    if distill_enabled:
         dcfg = DistillConfig(
             enabled=True,
             repo_path=getattr(config.distill, "repo", "/home/matt/Dev/LMTAD"),
@@ -737,6 +756,9 @@ def main(
             grid_size=float(getattr(config.distill, "grid_size", 0.001)),
             downsample_factor=int(getattr(config.distill, "downsample", 1)),
             verify_grid_dims=True,
+            verbose=bool(
+                getattr(config.distill, "verbose", False)
+            ),  # Read from YAML, default False
         )
         distill_mgr = DistillationManager(
             dcfg,
