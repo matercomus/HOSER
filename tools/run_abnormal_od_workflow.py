@@ -272,7 +272,7 @@ class AbnormalODWorkflowRunner:
 
         return self.od_pairs_file
 
-    def run_phase_4_generate_trajectories(self) -> Path:
+    def generate_trajectories(self) -> Path:
         """
         Phase 4: Generate trajectories for abnormal OD pairs.
 
@@ -759,7 +759,7 @@ class AbnormalODWorkflowRunner:
             self.extract_abnormal_od_pairs()
 
             # Phase 4: Generate trajectories
-            self.run_phase_4_generate_trajectories()
+            self.generate_trajectories()
 
             # Phase 5: Evaluate
             self.run_phase_5_evaluate()
