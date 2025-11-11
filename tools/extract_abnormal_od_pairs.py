@@ -238,5 +238,66 @@ Examples:
     logger.info(f"\n✅ Saved abnormal OD pairs to {output_path}")
 
 
+def extract_and_save_abnormal_od_pairs(
+    detection_results_files: List[Path],
+    real_data_files: List[Path],
+    dataset_name: str,
+    output_file: Path,
+) -> Path:
+    """
+    Extract abnormal OD pairs and save to file (programmatic interface).
+    
+    Args:
+        detection_results_files: List of detection result JSON files
+        real_data_files: List of corresponding real data CSV files
+        dataset_name: Name of the dataset
+        output_file: Path to output JSON file
+    
+    Returns:
+        Path to the saved output file
+    
+    Example:
+        >>> from pathlib import Path
+        >>> from tools.extract_abnormal_od_pairs import extract_and_save_abnormal_od_pairs
+        >>> 
+        >>> output = extract_and_save_abnormal_od_pairs(
+        ...     detection_results_files=[
+        ...         Path("abnormal/train/real_data/detection_results.json"),
+        ...         Path("abnormal/test/real_data/detection_results.json")
+        ...     ],
+        ...     real_data_files=[
+        ...         Path("data/train.csv"),
+        ...         Path("data/test.csv")
+        ...     ],
+        ...     dataset_name="porto_hoser",
+        ...     output_file=Path("abnormal_od_pairs.json")
+        ... )
+    """
+    # Validate inputs
+    assert len(detection_results_files) == len(real_data_files), \
+        f"Mismatch: {len(detection_results_files)} detection files vs {len(real_data_files)} data files"
+    
+    for f in detection_results_files + real_data_files:
+        assert f.exists(), f"File not found: {f}"
+    
+    # Extract OD pairs
+    result = extract_abnormal_od_pairs(
+        detection_results_files,
+        real_data_files,
+        dataset_name,
+    )
+    
+    # Save to output file
+    output_file = Path(output_file)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_file, "w") as f:
+        json.dump(result, f, indent=2)
+    
+    logger.info(f"\n✅ Saved abnormal OD pairs to {output_file}")
+    
+    return output_file
+
+
 if __name__ == "__main__":
     main()

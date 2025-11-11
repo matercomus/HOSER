@@ -14,16 +14,11 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional
 
+import matplotlib.pyplot as plt
+import numpy as np
+
 # Import model detection utility
-from tools.model_detection import get_model_color, MODEL_COLORS
-
-try:
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    HAS_MATPLOTLIB = True
-except ImportError:
-    HAS_MATPLOTLIB = False
+from tools.model_detection import MODEL_COLORS, get_model_color
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -31,19 +26,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Set publication-quality defaults
-if HAS_MATPLOTLIB:
-    plt.rcParams.update(
-        {
-            "font.size": 11,
-            "axes.labelsize": 12,
-            "axes.titlesize": 14,
-            "xtick.labelsize": 10,
-            "ytick.labelsize": 10,
-            "legend.fontsize": 10,
-            "figure.titlesize": 16,
-            "font.family": "sans-serif",
-        }
-    )
+plt.rcParams.update(
+    {
+        "font.size": 11,
+        "axes.labelsize": 12,
+        "axes.titlesize": 14,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "figure.titlesize": 16,
+        "font.family": "sans-serif",
+    }
+)
 
 # Color scheme (imported from model_detection utility for consistency)
 # Use get_model_color() function or MODEL_COLORS dict
@@ -65,10 +59,6 @@ def load_aggregated_results(json_path: Path) -> Dict:
 
 def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: str):
     """Plot real vs generated abnormality rates for each model with confidence intervals"""
-    if not HAS_MATPLOTLIB:
-        logger.warning("matplotlib not available, skipping visualization")
-        return
-
     summary = results.get("summary_statistics", {}).get(dataset, {})
     if not summary:
         logger.warning(f"No summary statistics for {dataset}")
@@ -288,9 +278,6 @@ def plot_abnormality_rates_comparison(results: Dict, output_dir: Path, dataset: 
 
 def plot_pattern_distribution(results: Dict, output_dir: Path):
     """Plot pattern distribution (Abp1-4) for each dataset as separate files"""
-    if not HAS_MATPLOTLIB:
-        return
-
     pattern_data = results.get("statistical_analysis", {}).get(
         "pattern_distributions", {}
     )
@@ -370,9 +357,6 @@ def plot_pattern_distribution(results: Dict, output_dir: Path):
 
 def plot_model_rankings(results: Dict, output_dir: Path):
     """Plot model rankings by realism (deviation from real rate) with confidence intervals as separate files"""
-    if not HAS_MATPLOTLIB:
-        return
-
     rankings = results.get("statistical_analysis", {}).get("model_rankings", {})
     tests = results.get("statistical_analysis", {}).get("statistical_tests", {})
 
@@ -502,9 +486,6 @@ def plot_model_rankings(results: Dict, output_dir: Path):
 
 def plot_cross_dataset_comparison(results: Dict, output_dir: Path):
     """Plot cross-dataset comparison (Beijing → BJUT)"""
-    if not HAS_MATPLOTLIB:
-        return
-
     cross_data = results.get("statistical_analysis", {}).get(
         "cross_dataset_comparison", {}
     )
@@ -575,9 +556,6 @@ def plot_cross_dataset_comparison(results: Dict, output_dir: Path):
 
 def plot_statistical_significance(results: Dict, output_dir: Path):
     """Plot statistical significance test results (p-values) with effect sizes as separate files"""
-    if not HAS_MATPLOTLIB:
-        return
-
     tests = results.get("statistical_analysis", {}).get("statistical_tests", {})
 
     if not tests:
@@ -750,10 +728,6 @@ def generate_wang_visualizations(
         ...     output_dir=Path("eval_dir/figures/wang_abnormality")
         ... )
     """
-    if not HAS_MATPLOTLIB:
-        logger.error("matplotlib not available. Install with: uv add matplotlib")
-        return
-
     project_root = Path(__file__).parent.parent
 
     # Default paths

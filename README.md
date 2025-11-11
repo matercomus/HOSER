@@ -37,6 +37,13 @@ This research investigates **knowledge distillation** from LM-TAD into HOSER for
 - 📈 **[Evaluation Comparison](docs/EVALUATION_COMPARISON.md)** - Cross-dataset analysis
 - 📊 **[Paired Statistical Tests](docs/PAIRED_STATISTICAL_TESTS_GUIDE.md)** - Model comparison methodology
 
+#### Workflow Guides
+
+- 🚗 **[Abnormal OD Workflow](docs/ABNORMAL_OD_WORKFLOW_GUIDE.md)** - Complete guide for abnormal trajectory analysis
+- 🔧 **[Tools & Programmatic Interfaces](tools/TOOLS_README.md)** - How to use tools as modules
+- 📊 **[Evaluation Pipeline](docs/EVALUATION_PIPELINE_GUIDE.md)** - Standard evaluation workflow
+- 🎨 **[Visualization Guide](docs/VISUALIZATION_GUIDE.md)** - Creating publication-quality figures
+
 ---
 
 ### Acknowledgments
