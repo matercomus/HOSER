@@ -88,6 +88,8 @@ def generate_for_abnormal_od_pairs(
     num_traj_per_od: int,
     seed: int,
     cuda_device: int = 0,
+    beam_search: bool = False,
+    beam_width: int = 4,
 ):
     """Generate trajectories for abnormal OD pairs using all models
 
@@ -143,8 +145,8 @@ def generate_for_abnormal_od_pairs(
                 output_file=str(output_file),
                 seed=seed,
                 cuda_device=cuda_device,
-                beam_search=True,  # Use beam search by default (4-width)
-                beam_width=4,
+                beam_search=beam_search,  # Use A* search by default (original HOSER method)
+                beam_width=beam_width,
             )
 
             if result.get("output_file"):
@@ -282,6 +284,8 @@ def generate_abnormal_od_trajectories(
     max_pairs_per_category: Optional[int] = None,
     seed: int = 42,
     cuda_device: int = 0,
+    beam_search: bool = False,
+    beam_width: int = 4,
 ) -> Path:
     """
     Generate trajectories for abnormal OD pairs (programmatic interface).
@@ -335,6 +339,8 @@ def generate_abnormal_od_trajectories(
         num_traj_per_od=num_traj_per_od,
         seed=seed,
         cuda_device=cuda_device,
+        beam_search=beam_search,
+        beam_width=beam_width,
     )
 
     return output_dir
