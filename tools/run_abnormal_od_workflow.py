@@ -302,9 +302,11 @@ class AbnormalODWorkflowRunner:
         logger.info("=" * 80)
         logger.info(f"Source dataset: {source_dataset}")
         logger.info(f"Target dataset: {target_dataset}")
-        logger.info(f"Max distance threshold: {self.config.translation_max_distance}m")
+        logger.info(f"Max distance threshold: {self.config.translation_max_distance}")
 
-        # Load original OD pairs
+        # Create mapping file if it doesn't exist
+        self.create_road_mapping()
+
         logger.info(f"Loading OD pairs from {self.od_pairs_file}")
         with open(self.od_pairs_file, "r") as f:
             original_data = json.load(f)
@@ -385,6 +387,68 @@ class AbnormalODWorkflowRunner:
 
         logger.info(f"✅ Translation complete: {translated_file}")
         return translated_file
+
+    def create_road_mapping(self) -> None:
+        """Create road network mapping file if it doesn't exist
+
+        Automatically creates the mapping file needed for cross-dataset translation
+        using the source and target datasets specified in the config.
+        """
+        source_dataset = getattr(self.config, "source_dataset", self.dataset)
+        target_dataset = getattr(self.config, "target_dataset", self.config.dataset)
+
+        # Check if mapping already exists
+        mapping_file = self.config.get_translation_mapping_file()
+        if mapping_file and mapping_file.exists():
+            logger.info(f"🗺️  Road mapping file already exists: {mapping_file}")
+            return
+
+        logger.info("🗺️  Road mapping file not found - creating it...")
+        logger.info(f"Source dataset: {source_dataset}")
+        logger.info(f"Target dataset: {target_dataset}")
+
+        # Import here to avoid circular imports
+        import sys
+
+        sys.path.append(str(Path(__file__).parent.parent))
+
+        from tools.map_road_networks import create_road_mapping_programmatic
+
+        # Create mapping file programmatically
+        source_roadmap = Path(self.real_data_dir) / "roadmap.geo"
+        target_roadmap = Path(self.config.data_dir) / "roadmap.geo"
+        output_file = (
+            self.eval_dir
+            / f"road_mapping_{source_dataset.lower()}_to_{target_dataset.lower()}.json"
+        )
+
+        # Use default max distance from config or 50m if not specified
+        max_distance = (
+            getattr(self.config, "translation_max_distance", 20.0) * 2.5
+        )  # Use 2.5x threshold for mapping
+
+        logger.info("Creating mapping:")
+        logger.info(f"  Source roadmap: {source_roadmap}")
+        logger.info(f"  Target roadmap: {target_roadmap}")
+        logger.info(f"  Output file: {output_file}")
+        logger.info(f"  Max distance: {max_distance}m")
+
+        create_road_mapping_programmatic(
+            source_roadmap=source_roadmap,
+            target_roadmap=target_roadmap,
+            output_file=output_file,
+            max_distance_m=max_distance,
+            source_dataset=source_dataset,
+            target_dataset=target_dataset,
+        )
+
+        logger.info(f"✅ Road mapping created: {output_file}")
+
+        # Update config mapping file if it was auto-detected
+        if not mapping_file:
+            # This would require updating the config object, but for now
+            # the get_translation_mapping_file should find the auto-generated file
+            pass
 
     def generate_trajectories(self) -> Path:
         """

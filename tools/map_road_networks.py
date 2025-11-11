@@ -441,18 +441,71 @@ Examples:
 
     save_comprehensive_output(
         result=result,
-        source_dataset=source_dataset,
-        target_dataset=target_dataset,
         source_geo=source_geo,
         target_geo=target_geo,
-        max_distance=args.max_distance,
-        output_file=output_file,
+        output_file=Path(args.output),
+        source_dataset=source_dataset,
+        target_dataset=target_dataset,
     )
 
     logger.info("\n✅ Mapping complete!")
-    logger.info(f"  📄 Mapping: {output_file}")
+    logger.info(f"  📄 Mapping: {Path(args.output)}")
     logger.info(
-        f"  📊 Stats: {output_file.parent / (output_file.stem + '_stats.json')}"
+        f"  📊 Stats: {Path(args.output).parent / (Path(args.output).stem + '_stats.json')}"
+    )
+
+
+def create_road_mapping_programmatic(
+    source_roadmap: Path,
+    target_roadmap: Path,
+    output_file: Path,
+    max_distance_m: float = 50.0,
+    source_dataset: str = None,
+    target_dataset: str = None,
+) -> None:
+    """Programmatic interface for creating road network mapping
+
+    Args:
+        source_roadmap: Path to source roadmap .geo file
+        target_roadmap: Path to target roadmap .geo file
+        output_file: Path for output mapping JSON file
+        max_distance_m: Maximum distance threshold in meters
+        source_dataset: Source dataset name (auto-detected from path if None)
+        target_dataset: Target dataset name (auto-detected from path if None)
+    """
+    # Auto-detect dataset names from path
+    if source_dataset is None:
+        source_dataset = source_roadmap.parent.name
+    if target_dataset is None:
+        target_dataset = target_roadmap.parent.name
+
+    # Validate inputs
+    assert source_roadmap.exists(), f"Source roadmap not found: {source_roadmap}"
+    assert target_roadmap.exists(), f"Target roadmap not found: {target_roadmap}"
+
+    logger.info(f"\n{'=' * 70}")
+    logger.info(f"🗺️  ROAD NETWORK MAPPING: {source_dataset} → {target_dataset}")
+    logger.info(f"{'=' * 70}")
+
+    # Load road networks
+    source_roads = load_road_network_with_coords(source_roadmap)
+    target_roads = load_road_network_with_coords(target_roadmap)
+
+    # Create mapping
+    result = find_nearest_road_batch(
+        source_roads=source_roads,
+        target_roads=target_roads,
+        max_distance_m=max_distance_m,
+    )
+
+    # Save results
+    save_comprehensive_output(
+        result=result,
+        source_geo=source_roadmap,
+        target_geo=target_roadmap,
+        output_file=output_file,
+        source_dataset=source_dataset,
+        target_dataset=target_dataset,
     )
 
 
