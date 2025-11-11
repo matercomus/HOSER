@@ -143,6 +143,20 @@ Reference for finding and using trained model checkpoints:
 - Generation and evaluation commands
 - Model comparison summary
 
+### Checkpoint Strategy
+
+**[CHECKPOINT_STRATEGY.md](CHECKPOINT_STRATEGY.md)**
+
+Complete guide to model checkpointing in HOSER training:
+
+- Checkpointing frequency and timing
+- Model selection criteria (validation accuracy)
+- Checkpoint retention policies
+- Early stopping and Optuna pruning
+- File locations and directory structure
+- Loading and resuming training
+- Best practices and troubleshooting
+
 ### Baseline Statistics
 
 **[reference/BASELINE_STATISTICS.md](reference/BASELINE_STATISTICS.md)**
