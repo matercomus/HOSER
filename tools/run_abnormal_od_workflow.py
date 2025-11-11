@@ -872,7 +872,10 @@ class AbnormalODWorkflowRunner:
             # Phase 3: Extract OD pairs
             self.extract_abnormal_od_pairs()
 
-            # Phase 4: Generate trajectories
+            # Translate and filter OD pairs (always required)
+            self.translate_od_pairs()
+
+            # Generate trajectories
             self.generate_trajectories()
 
             # Phase 5: Evaluate
