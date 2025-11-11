@@ -232,7 +232,7 @@ class AbnormalODWorkflowRunner:
             output_dir=output_dir,
         )
 
-    def run_phase_3_extract_od_pairs(self) -> Path:
+    def extract_abnormal_od_pairs(self) -> Path:
         """
         Phase 3: Extract abnormal OD pairs from detection results.
 
@@ -756,7 +756,7 @@ class AbnormalODWorkflowRunner:
             self.detect_abnormalities()
 
             # Phase 3: Extract OD pairs
-            self.run_phase_3_extract_od_pairs()
+            self.extract_abnormal_od_pairs()
 
             # Phase 4: Generate trajectories
             self.run_phase_4_generate_trajectories()
