@@ -308,7 +308,7 @@ class AbnormalODWorkflowRunner:
 
         return self.gene_dir
 
-    def run_phase_5_evaluate(self) -> Path:
+    def evaluate_trajectories(self) -> Path:
         """
         Phase 5: Evaluate models on abnormal OD trajectories.
 
@@ -762,7 +762,7 @@ class AbnormalODWorkflowRunner:
             self.generate_trajectories()
 
             # Phase 5: Evaluate
-            self.run_phase_5_evaluate()
+            self.evaluate_trajectories()
 
             # Analysis and visualization
             self.run_analysis_and_visualization()
