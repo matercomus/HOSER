@@ -48,33 +48,83 @@ def extract_od_pairs_from_trajectories(
     """
     logger.info(f"📂 Loading real data from {real_data_file}")
 
-    # Read only the columns we need
-    df = pl.read_csv(
-        real_data_file,
-        columns=["traj_id", "road_id"],
-    )
+    # First, read a sample to detect the format
+    sample_df = pl.read_csv(real_data_file, n_rows=1)
 
-    logger.info(f"✅ Loaded {len(df)} trajectory points")
-
-    # Filter to abnormal trajectories
-    abnormal_df = df.filter(pl.col("traj_id").is_in(abnormal_traj_ids))
-
-    # Group by trajectory and get first/last road_id (origin/destination)
-    od_pairs = (
-        abnormal_df.group_by("traj_id")
-        .agg(
-            [
-                pl.col("road_id").first().alias("origin"),
-                pl.col("road_id").last().alias("destination"),
-            ]
+    # Detect format: road_id (point-based) vs rid_list (trajectory-based)
+    if "road_id" in sample_df.columns:
+        # Point-based format: each row is a point in a trajectory
+        df = pl.read_csv(
+            real_data_file,
+            columns=["traj_id", "road_id"],
         )
-        .select(["origin", "destination"])
-    )
 
-    # Convert to list of tuples and deduplicate
-    od_list = [
-        (row["origin"], row["destination"]) for row in od_pairs.iter_rows(named=True)
-    ]
+        logger.info(f"✅ Loaded {len(df)} trajectory points (road_id format)")
+
+        # Filter to abnormal trajectories
+        abnormal_df = df.filter(pl.col("traj_id").is_in(abnormal_traj_ids))
+
+        # Group by trajectory and get first/last road_id (origin/destination)
+        od_pairs = (
+            abnormal_df.group_by("traj_id")
+            .agg(
+                [
+                    pl.col("road_id").first().alias("origin"),
+                    pl.col("road_id").last().alias("destination"),
+                ]
+            )
+            .select(["origin", "destination"])
+        )
+
+        # Convert to list of tuples
+        od_list = [
+            (row["origin"], row["destination"])
+            for row in od_pairs.iter_rows(named=True)
+        ]
+    elif "rid_list" in sample_df.columns:
+        # Trajectory-based format: each row is a complete trajectory
+        df = pl.read_csv(
+            real_data_file,
+            columns=["traj_id", "rid_list"],
+        )
+
+        logger.info(f"✅ Loaded {len(df)} trajectories (rid_list format)")
+
+        # Filter to abnormal trajectories
+        abnormal_df = df.filter(pl.col("traj_id").is_in(abnormal_traj_ids))
+
+        # Extract first and last road ID from each rid_list
+        od_list = []
+        for row in abnormal_df.iter_rows(named=True):
+            try:
+                # Parse rid_list string (e.g., "[1, 2, 3, 4]" or "1,2,3,4")
+                rid_list_str = row["rid_list"]
+                if isinstance(rid_list_str, str):
+                    # Remove brackets if present and split
+                    rid_list_str = rid_list_str.strip("[]")
+                    rid_list = [
+                        int(x.strip()) for x in rid_list_str.split(",") if x.strip()
+                    ]
+                else:
+                    # Already a list
+                    rid_list = list(rid_list_str)
+
+                if len(rid_list) >= 2:
+                    origin = rid_list[0]
+                    destination = rid_list[-1]
+                    od_list.append((origin, destination))
+            except (ValueError, AttributeError) as e:
+                logger.warning(
+                    f"⚠️  Failed to parse rid_list for traj_id {row['traj_id']}: {e}"
+                )
+                continue
+    else:
+        raise ValueError(
+            f"Unknown data format: expected 'road_id' or 'rid_list' column. "
+            f"Found columns: {sample_df.columns}"
+        )
+
+    # Deduplicate
     od_set = set(od_list)
 
     logger.info(f"🔍 Extracted {len(od_list)} OD pairs ({len(od_set)} unique)")
@@ -99,14 +149,8 @@ def extract_abnormal_od_pairs(
     """
     logger.info(f"\n🔍 Extracting abnormal OD pairs from {dataset_name}")
 
-    # Store OD pairs by category
-    od_pairs_by_category = {
-        "speeding": set(),
-        "detour": set(),
-        "suspicious_stops": set(),
-        "circuitous": set(),
-        "unusual_duration": set(),
-    }
+    # Store OD pairs by category (dynamically populated from detection results)
+    od_pairs_by_category = {}
 
     all_abnormal_traj_ids = set()
 
@@ -122,6 +166,10 @@ def extract_abnormal_od_pairs(
         for category, traj_ids in abnormal_indices.items():
             if not traj_ids:
                 continue
+
+            # Initialize category if not seen before
+            if category not in od_pairs_by_category:
+                od_pairs_by_category[category] = set()
 
             logger.info(f"    {category}: {len(traj_ids)} abnormal trajectories")
 
@@ -246,20 +294,20 @@ def extract_and_save_abnormal_od_pairs(
 ) -> Path:
     """
     Extract abnormal OD pairs and save to file (programmatic interface).
-    
+
     Args:
         detection_results_files: List of detection result JSON files
         real_data_files: List of corresponding real data CSV files
         dataset_name: Name of the dataset
         output_file: Path to output JSON file
-    
+
     Returns:
         Path to the saved output file
-    
+
     Example:
         >>> from pathlib import Path
         >>> from tools.extract_abnormal_od_pairs import extract_and_save_abnormal_od_pairs
-        >>> 
+        >>>
         >>> output = extract_and_save_abnormal_od_pairs(
         ...     detection_results_files=[
         ...         Path("abnormal/train/real_data/detection_results.json"),
@@ -274,28 +322,29 @@ def extract_and_save_abnormal_od_pairs(
         ... )
     """
     # Validate inputs
-    assert len(detection_results_files) == len(real_data_files), \
+    assert len(detection_results_files) == len(real_data_files), (
         f"Mismatch: {len(detection_results_files)} detection files vs {len(real_data_files)} data files"
-    
+    )
+
     for f in detection_results_files + real_data_files:
         assert f.exists(), f"File not found: {f}"
-    
+
     # Extract OD pairs
     result = extract_abnormal_od_pairs(
         detection_results_files,
         real_data_files,
         dataset_name,
     )
-    
+
     # Save to output file
     output_file = Path(output_file)
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    
+
     with open(output_file, "w") as f:
         json.dump(result, f, indent=2)
-    
+
     logger.info(f"\n✅ Saved abnormal OD pairs to {output_file}")
-    
+
     return output_file
 
 
