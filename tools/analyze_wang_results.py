@@ -857,17 +857,27 @@ class WangResultsCollector:
 
     def _ensure_json_serializable(self, obj):
         """Recursively convert object to JSON-serializable types"""
-        import numpy as np
+        try:
+            import numpy as np
+            HAS_NUMPY = True
+        except ImportError:
+            HAS_NUMPY = False
 
         if isinstance(obj, dict):
             return {k: self._ensure_json_serializable(v) for k, v in obj.items()}
         elif isinstance(obj, (list, tuple)):
             return [self._ensure_json_serializable(item) for item in obj]
-        elif isinstance(obj, (np.bool_, bool)):
+        elif HAS_NUMPY and isinstance(obj, (np.bool_, bool)):
             return bool(obj)
-        elif isinstance(obj, (np.integer, int)):
+        elif isinstance(obj, bool):
+            return bool(obj)
+        elif HAS_NUMPY and isinstance(obj, (np.integer, int)):
             return int(obj)
-        elif isinstance(obj, (np.floating, float)):
+        elif isinstance(obj, int):
+            return int(obj)
+        elif HAS_NUMPY and isinstance(obj, (np.floating, float)):
+            return float(obj)
+        elif isinstance(obj, float):
             return float(obj)
         elif isinstance(obj, str):
             return obj
