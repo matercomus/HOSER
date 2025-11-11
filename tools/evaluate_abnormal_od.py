@@ -285,5 +285,58 @@ Examples:
     )
 
 
+def evaluate_abnormal_od(
+    generated_dir: Path,
+    real_abnormal_file: Path,
+    abnormal_od_pairs_file: Path,
+    output_dir: Path,
+    dataset: str = "Beijing",
+) -> Path:
+    """
+    Evaluate model performance on abnormal OD pairs (programmatic interface).
+    
+    Args:
+        generated_dir: Directory containing generated trajectory CSV files
+        real_abnormal_file: Path to real data CSV with abnormal trajectories
+        abnormal_od_pairs_file: Path to JSON file with abnormal OD pairs
+        output_dir: Directory to save evaluation results
+        dataset: Dataset name
+    
+    Returns:
+        Path to output directory
+    
+    Example:
+        >>> from pathlib import Path
+        >>> from tools.evaluate_abnormal_od import evaluate_abnormal_od
+        >>> 
+        >>> output_dir = evaluate_abnormal_od(
+        ...     generated_dir=Path("gene_abnormal/porto_hoser/seed42"),
+        ...     real_abnormal_file=Path("data/porto_hoser/train.csv"),
+        ...     abnormal_od_pairs_file=Path("abnormal_od_pairs.json"),
+        ...     output_dir=Path("eval_abnormal/porto_hoser"),
+        ...     dataset="porto_hoser"
+        ... )
+    """
+    # Validate inputs
+    assert generated_dir.exists(), f"Generated directory not found: {generated_dir}"
+    assert real_abnormal_file.exists(), f"Real abnormal file not found: {real_abnormal_file}"
+    assert abnormal_od_pairs_file.exists(), f"OD pairs file not found: {abnormal_od_pairs_file}"
+    
+    # Load abnormal OD pairs data
+    abnormal_od_data = load_abnormal_od_pairs(abnormal_od_pairs_file)
+    
+    # Run evaluation
+    output_dir = Path(output_dir)
+    evaluate_abnormal_od_trajectories(
+        generated_dir=generated_dir,
+        real_abnormal_file=real_abnormal_file,
+        abnormal_od_data=abnormal_od_data,
+        output_dir=output_dir,
+        dataset=dataset,
+    )
+    
+    return output_dir
+
+
 if __name__ == "__main__":
     main()

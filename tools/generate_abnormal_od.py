@@ -274,5 +274,72 @@ Examples:
     )
 
 
+def generate_abnormal_od_trajectories(
+    od_pairs_file: Path,
+    model_dir: Path,
+    output_dir: Path,
+    dataset: str,
+    num_traj_per_od: int = 50,
+    max_pairs_per_category: Optional[int] = None,
+    seed: int = 42,
+    cuda_device: int = 0,
+) -> Path:
+    """
+    Generate trajectories for abnormal OD pairs (programmatic interface).
+    
+    Args:
+        od_pairs_file: Path to JSON file with abnormal OD pairs
+        model_dir: Directory containing model files
+        output_dir: Directory to save generated trajectories
+        dataset: Dataset name (e.g., "Beijing", "porto_hoser")
+        num_traj_per_od: Number of trajectories to generate per OD pair
+        max_pairs_per_category: Maximum OD pairs per category (None = all)
+        seed: Random seed
+        cuda_device: CUDA device ID
+    
+    Returns:
+        Path to output directory
+    
+    Example:
+        >>> from pathlib import Path
+        >>> from tools.generate_abnormal_od import generate_abnormal_od_trajectories
+        >>> 
+        >>> output_dir = generate_abnormal_od_trajectories(
+        ...     od_pairs_file=Path("abnormal_od_pairs.json"),
+        ...     model_dir=Path("models"),
+        ...     output_dir=Path("gene_abnormal/porto_hoser/seed42"),
+        ...     dataset="porto_hoser",
+        ...     num_traj_per_od=50,
+        ...     max_pairs_per_category=20,
+        ...     seed=42
+        ... )
+    """
+    # Validate inputs
+    assert od_pairs_file.exists(), f"OD pairs file not found: {od_pairs_file}"
+    assert model_dir.exists(), f"Model directory not found: {model_dir}"
+    
+    # Load OD pairs
+    od_pairs_data = load_abnormal_od_pairs(od_pairs_file)
+    
+    # Create flat list of OD pairs
+    od_pairs = create_od_pair_list(od_pairs_data, max_pairs_per_category)
+    
+    assert len(od_pairs) > 0, "No OD pairs found in input file"
+    
+    # Generate trajectories
+    output_dir = Path(output_dir)
+    generate_for_abnormal_od_pairs(
+        od_pairs=od_pairs,
+        model_dir=model_dir,
+        output_dir=output_dir,
+        dataset=dataset,
+        num_traj_per_od=num_traj_per_od,
+        seed=seed,
+        cuda_device=cuda_device,
+    )
+    
+    return output_dir
+
+
 if __name__ == "__main__":
     main()
