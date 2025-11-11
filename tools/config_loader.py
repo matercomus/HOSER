@@ -57,6 +57,11 @@ class EvaluationConfig:
         None  # Path to distance file (deprecated, distances now in mapping)
     )
 
+    # Analysis-focused workflow configuration
+    skip_generation: bool = (
+        False  # Skip trajectory generation, focus on analysis of real data
+    )
+
     # Additional config values stored as dict
     _raw_config: Dict[str, Any] = field(default_factory=dict)
 
@@ -201,6 +206,9 @@ def load_evaluation_config(
         if not translation_distance_file.is_absolute():
             translation_distance_file = eval_dir / translation_distance_file
 
+    # Extract skip_generation
+    skip_generation = raw_config.get("skip_generation", False)
+
     # Create config object
     config = EvaluationConfig(
         eval_dir=eval_dir,
@@ -219,6 +227,7 @@ def load_evaluation_config(
         translation_max_distance=translation_max_distance,
         translation_mapping_file=translation_mapping_file,
         translation_distance_file=translation_distance_file,
+        skip_generation=skip_generation,
         _raw_config=raw_config,
     )
 
