@@ -581,9 +581,11 @@ class AbnormalODWorkflowRunner:
     def run_analysis_and_visualization(self):
         """
         Analyze and visualize abnormal OD workflow results using programmatic interfaces.
+
+        If generation was skipped, focuses on analysis of real abnormal detection data.
         """
         logger.info("=" * 80)
-        logger.info("📊 Analysis: Aggregating and Visualizing Results")
+        logger.info("📊 Analysis: Aggregating and Visualizing Abnormal Results")
         logger.info("=" * 80)
 
         # Create analysis directory
@@ -607,11 +609,13 @@ class AbnormalODWorkflowRunner:
 
         logger.info(f"✅ Wang visualizations generated: {wang_figures_dir}")
 
-        # Generate abnormal OD evaluation plots
-        logger.info("Generating abnormal OD evaluation plots...")
-        self._generate_abnormal_od_plots()
-
-        logger.info(f"✅ Abnormal OD plots generated: {self.figures_dir}")
+        # Generate abnormal OD analysis plots
+        if getattr(self.config, "skip_generation", False):
+            logger.info("Generating real abnormal data analysis...")
+            self._generate_real_abnormal_analysis()
+        else:
+            logger.info("Generating abnormal OD evaluation plots...")
+            self._generate_abnormal_od_plots()
 
         # Create summary report
         self._create_summary_report()
@@ -932,6 +936,296 @@ class AbnormalODWorkflowRunner:
         plt.savefig(self.figures_dir / "metrics_heatmap.svg", bbox_inches="tight")
         plt.close()
 
+    def _generate_real_abnormal_analysis(self):
+        """Generate analysis plots for real abnormal data (no generation)"""
+        # Create figures directory
+        self.figures_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info("Analyzing real abnormal trajectory data...")
+
+        # Load OD pairs data
+        with open(self.od_pairs_file, "r") as f:
+            od_data = json.load(f)
+
+        # Generate various analysis plots
+        self._plot_abnormal_od_distribution(od_data)
+        self._plot_abnormal_categories_summary(od_data)
+        self._plot_temporal_delay_analysis()
+        self._plot_abnormal_od_heatmap(od_data)
+
+        logger.info(f"   Generated 4 analysis plot types in {self.figures_dir}")
+
+    def _plot_abnormal_od_distribution(self, od_data: Dict[str, Any]):
+        """Plot distribution of abnormal OD pairs"""
+        # Count frequency of each origin and destination
+        origin_counts = {}
+        dest_counts = {}
+
+        for category, pairs in od_data.get("od_pairs_by_category", {}).items():
+            for origin, dest in pairs:
+                origin_counts[origin] = origin_counts.get(origin, 0) + 1
+                dest_counts[dest] = dest_counts.get(dest, 0) + 1
+
+        # Get top 20 most frequent origins and destinations
+        top_origins = sorted(origin_counts.items(), key=lambda x: x[1], reverse=True)[
+            :20
+        ]
+        top_dests = sorted(dest_counts.items(), key=lambda x: x[1], reverse=True)[:20]
+
+        # Create subplot
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+        # Plot origins
+        origins, origin_freqs = zip(*top_origins)
+        bars1 = ax1.barh(range(len(origins)), origin_freqs, color="#3498db", alpha=0.8)
+        ax1.set_yticks(range(len(origins)))
+        ax1.set_yticklabels([f"Road {o}" for o in origins])
+        ax1.set_xlabel("Frequency in Abnormal Trajectories")
+        ax1.set_title("Top 20 Abnormal Origins", fontweight="bold")
+        ax1.grid(axis="x", alpha=0.3)
+
+        # Add frequency labels
+        for i, (bar, freq) in enumerate(zip(bars1, origin_freqs)):
+            width = bar.get_width()
+            ax1.text(
+                width + 0.1,
+                bar.get_y() + bar.get_height() / 2,
+                f"{freq}",
+                ha="left",
+                va="center",
+                fontsize=9,
+            )
+
+        # Plot destinations
+        dests, dest_freqs = zip(*top_dests)
+        bars2 = ax2.barh(range(len(dests)), dest_freqs, color="#e74c3c", alpha=0.8)
+        ax2.set_yticks(range(len(dests)))
+        ax2.set_yticklabels([f"Road {d}" for d in dests])
+        ax2.set_xlabel("Frequency in Abnormal Trajectories")
+        ax2.set_title("Top 20 Abnormal Destinations", fontweight="bold")
+        ax2.grid(axis="x", alpha=0.3)
+
+        # Add frequency labels
+        for i, (bar, freq) in enumerate(zip(bars2, dest_freqs)):
+            width = bar.get_width()
+            ax2.text(
+                width + 0.1,
+                bar.get_y() + bar.get_height() / 2,
+                f"{freq}",
+                ha="left",
+                va="center",
+                fontsize=9,
+            )
+
+        plt.suptitle(
+            f"Abnormal OD Distribution - {self.dataset}", fontsize=16, fontweight="bold"
+        )
+        plt.tight_layout()
+        plt.savefig(
+            self.figures_dir / "abnormal_od_distribution.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+        plt.savefig(
+            self.figures_dir / "abnormal_od_distribution.svg", bbox_inches="tight"
+        )
+        plt.close()
+
+    def _plot_abnormal_categories_summary(self, od_data: Dict[str, Any]):
+        """Plot summary of abnormal categories"""
+        categories = list(od_data.get("od_pairs_by_category", {}).keys())
+        counts = [
+            len(pairs) for pairs in od_data.get("od_pairs_by_category", {}).values()
+        ]
+
+        if not categories:
+            logger.warning("No abnormal categories found")
+            return
+
+        # Create pie chart
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        colors = plt.cm.Set3(np.linspace(0, 1, len(categories)))
+        wedges, texts, autotexts = ax.pie(
+            counts, labels=categories, colors=colors, autopct="%1.1f%%", startangle=90
+        )
+
+        # Enhance appearance
+        for autotext in autotexts:
+            autotext.set_color("white")
+            autotext.set_fontweight("bold")
+
+        ax.set_title(
+            f"Abnormal Categories Distribution - {self.dataset}\n"
+            f"Total: {sum(counts):,} unique OD pairs",
+            fontsize=14,
+            fontweight="bold",
+        )
+
+        plt.tight_layout()
+        plt.savefig(
+            self.figures_dir / "abnormal_categories_summary.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+        plt.savefig(
+            self.figures_dir / "abnormal_categories_summary.svg", bbox_inches="tight"
+        )
+        plt.close()
+
+    def _plot_temporal_delay_analysis(self):
+        """Plot analysis of temporal delays from Wang samples"""
+        # Load Wang samples
+        train_samples_file = (
+            self.abnormal_dir
+            / "train"
+            / "real_data"
+            / "samples"
+            / "wang_temporal_delay_samples.json"
+        )
+        test_samples_file = (
+            self.abnormal_dir
+            / "test"
+            / "real_data"
+            / "samples"
+            / "wang_temporal_delay_samples.json"
+        )
+
+        all_samples = []
+        for samples_file in [train_samples_file, test_samples_file]:
+            if samples_file.exists():
+                with open(samples_file, "r") as f:
+                    samples = json.load(f)
+                    all_samples.extend(samples)
+
+        if not all_samples:
+            logger.warning("No temporal delay samples found for analysis")
+            return
+
+        # Extract time deviations
+        time_deviations = []
+        length_deviations = []
+        baseline_types = []
+
+        for sample in all_samples:
+            details = sample.get("details", {})
+            time_deviations.append(details.get("time_deviation_sec", 0))
+            length_deviations.append(details.get("length_deviation_m", 0))
+            baseline_types.append(details.get("baseline_type", "unknown"))
+
+        # Create analysis plots
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+
+        # Time deviation histogram
+        ax1.hist(
+            time_deviations, bins=30, color="#3498db", alpha=0.7, edgecolor="black"
+        )
+        ax1.set_xlabel("Time Deviation (seconds)")
+        ax1.set_ylabel("Frequency")
+        ax1.set_title("Distribution of Time Deviations")
+        ax1.grid(alpha=0.3)
+
+        # Length deviation histogram
+        ax2.hist(
+            length_deviations, bins=30, color="#e74c3c", alpha=0.7, edgecolor="black"
+        )
+        ax2.set_xlabel("Length Deviation (meters)")
+        ax2.set_ylabel("Frequency")
+        ax2.set_title("Distribution of Length Deviations")
+        ax2.grid(alpha=0.3)
+
+        # Baseline types distribution
+        baseline_counts = {}
+        for bt in baseline_types:
+            baseline_counts[bt] = baseline_counts.get(bt, 0) + 1
+
+        ax3.bar(
+            baseline_counts.keys(), baseline_counts.values(), color="#2ecc71", alpha=0.8
+        )
+        ax3.set_xlabel("Baseline Type")
+        ax3.set_ylabel("Count")
+        ax3.set_title("Baseline Types in Abnormal Detection")
+        ax3.tick_params(axis="x", rotation=45)
+
+        # Time vs Length deviation scatter
+        ax4.scatter(length_deviations, time_deviations, alpha=0.6, color="#9b59b6")
+        ax4.set_xlabel("Length Deviation (meters)")
+        ax4.set_ylabel("Time Deviation (seconds)")
+        ax4.set_title("Time vs Length Deviations")
+        ax4.grid(alpha=0.3)
+
+        plt.suptitle(
+            f"Temporal Delay Analysis - {self.dataset}", fontsize=16, fontweight="bold"
+        )
+        plt.tight_layout()
+        plt.savefig(
+            self.figures_dir / "temporal_delay_analysis.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+        plt.savefig(
+            self.figures_dir / "temporal_delay_analysis.svg", bbox_inches="tight"
+        )
+        plt.close()
+
+    def _plot_abnormal_od_heatmap(self, od_data: Dict[str, Any]):
+        """Create heatmap of most frequent abnormal OD pairs"""
+        # Count frequency of each OD pair
+        od_counts = {}
+        for category, pairs in od_data.get("od_pairs_by_category", {}).items():
+            for origin, dest in pairs:
+                od_key = (origin, dest)
+                od_counts[od_key] = od_counts.get(od_key, 0) + 1
+
+        # Get top OD pairs for visualization
+        top_ods = sorted(od_counts.items(), key=lambda x: x[1], reverse=True)[:50]
+
+        if not top_ods:
+            logger.warning("No OD pairs found for heatmap")
+            return
+
+        # Create matrix for heatmap (simplified - show top origins vs top destinations)
+        top_origins = list(set([od[0] for od, count in top_ods[:20]]))
+        top_dests = list(set([od[1] for od, count in top_ods[:20]]))
+
+        # Create adjacency matrix
+        matrix = np.zeros((len(top_origins), len(top_dests)))
+        for i, origin in enumerate(top_origins):
+            for j, dest in enumerate(top_dests):
+                count = od_counts.get((origin, dest), 0)
+                matrix[i, j] = count
+
+        # Create heatmap
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        im = ax.imshow(matrix, cmap="Reds", aspect="auto")
+
+        # Set ticks
+        ax.set_xticks(np.arange(len(top_dests)))
+        ax.set_yticks(np.arange(len(top_origins)))
+        ax.set_xticklabels([f"R{d}" for d in top_dests], rotation=45, ha="right")
+        ax.set_yticklabels([f"R{o}" for o in top_origins])
+
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label("Frequency in Abnormal Trajectories", rotation=270, labelpad=20)
+
+        ax.set_title(
+            f"Top Abnormal OD Pairs Heatmap - {self.dataset}\n"
+            f"(Top {len(top_origins)} origins × {len(top_dests)} destinations)",
+            fontsize=14,
+            fontweight="bold",
+        )
+        ax.set_xlabel("Destination Roads")
+        ax.set_ylabel("Origin Roads")
+
+        plt.tight_layout()
+        plt.savefig(
+            self.figures_dir / "abnormal_od_heatmap.png", dpi=300, bbox_inches="tight"
+        )
+        plt.savefig(self.figures_dir / "abnormal_od_heatmap.svg", bbox_inches="tight")
+        plt.close()
+
     def _create_summary_report(self):
         """Create a summary report of the workflow execution"""
         summary_file = self.analysis_dir / "workflow_summary.json"
@@ -1017,11 +1311,20 @@ class AbnormalODWorkflowRunner:
                 )
                 logger.info("   → Within-dataset evaluation mode")
 
-            # Generate trajectories
-            self.generate_trajectories()
+            # Check if we should skip generation and focus on analysis
+            if getattr(self.config, "skip_generation", False):
+                logger.info(
+                    "🟢 Skipping trajectory generation - focusing on analysis of real abnormal data"
+                )
+                logger.info(
+                    "   → Using existing abnormal detection results and OD pairs"
+                )
+            else:
+                # Generate trajectories
+                self.generate_trajectories()
 
-            # Phase 5: Evaluate
-            self.evaluate_trajectories()
+                # Phase 5: Evaluate
+                self.evaluate_trajectories()
 
             # Analysis and visualization
             self.run_analysis_and_visualization()
