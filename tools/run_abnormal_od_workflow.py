@@ -282,21 +282,33 @@ class AbnormalODWorkflowRunner:
         """Translate and filter OD pairs using road network mapping
 
         Returns:
-            Path to translated and filtered OD pairs JSON file
+            Path to translated and filtered OD pairs JSON file (or original if no translation)
         """
         # Determine source and target datasets for translation
         source_dataset = getattr(self.config, "source_dataset", self.dataset)
         target_dataset = getattr(self.config, "target_dataset", self.config.dataset)
 
+        # Check if translation is configured
+        if not source_dataset or not target_dataset:
+            logger.info(
+                "🟢 No translation configuration found - using OD pairs directly"
+            )
+            logger.info("   → Within-dataset evaluation mode")
+            return self.od_pairs_file
+
         # Assert translation is needed (always required)
         assert source_dataset and target_dataset, (
             "Source and target datasets must be configured for translation"
         )
-        assert source_dataset != target_dataset, (
-            f"Source dataset ({source_dataset}) and target dataset ({target_dataset}) "
-            f"must be different for translation to be required"
-        )
 
+        # Within-dataset evaluation - no translation needed
+        if source_dataset == target_dataset:
+            logger.info("🟢 Within-dataset evaluation: Skipping translation entirely")
+            logger.info("   → OD pairs will be used directly for trajectory generation")
+            logger.info("   → Models trained on the same dataset as abnormal detection")
+            return self.od_pairs_file
+
+        # Cross-dataset evaluation with translation
         logger.info("=" * 80)
         logger.info("🗺️  Translation: Translating OD Pairs")
         logger.info("=" * 80)
@@ -332,33 +344,34 @@ class AbnormalODWorkflowRunner:
                 except Exception as e:
                     logger.warning(f"Could not check mapping file: {e}")
 
-        # Create mapping file if it doesn't exist
-        self.create_road_mapping()
+            # Create mapping file if it doesn't exist
+            self.create_road_mapping()
 
-        # After creating mapping, check if it has any valid mappings
-        mapping_file = self.config.get_translation_mapping_file()
-        if mapping_file and mapping_file.exists():
-            try:
-                import json
+            # After creating mapping, check if it has any valid mappings
+            mapping_file = self.config.get_translation_mapping_file()
+            if mapping_file and mapping_file.exists():
+                try:
+                    import json
 
-                with open(mapping_file, "r") as f:
-                    mapping_data = json.load(f)
+                    with open(mapping_file, "r") as f:
+                        mapping_data = json.load(f)
 
-                if not mapping_data or len(mapping_data) == 0:
-                    logger.warning(
-                        "⚠️  Mapping failed - no roads could be mapped between datasets"
-                    )
-                    logger.warning(
-                        "🗺️  Cross-continental evaluation detected, skipping translation"
-                    )
-                    logger.info(
-                        "Continuing with original OD pairs for cross-continental evaluation"
-                    )
-                    return self.od_pairs_file
+                    if not mapping_data or len(mapping_data) == 0:
+                        logger.warning(
+                            "⚠️  Mapping failed - no roads could be mapped between datasets"
+                        )
+                        logger.warning(
+                            "🗺️  Cross-continental evaluation detected, skipping translation"
+                        )
+                        logger.info(
+                            "Continuing with original OD pairs for cross-continental evaluation"
+                        )
+                        return self.od_pairs_file
 
-            except Exception as e:
-                logger.warning(f"Could not validate mapping file: {e}")
+                except Exception as e:
+                    logger.warning(f"Could not validate mapping file: {e}")
 
+        # Continue with translation logic
         logger.info(f"Loading OD pairs from {self.od_pairs_file}")
         with open(self.od_pairs_file, "r") as f:
             original_data = json.load(f)
@@ -988,8 +1001,21 @@ class AbnormalODWorkflowRunner:
             # Phase 3: Extract OD pairs
             self.extract_abnormal_od_pairs()
 
-            # Translate and filter OD pairs (always required)
-            self.translate_od_pairs()
+            # Translation step - only if configured
+            if (
+                hasattr(self.config, "source_dataset")
+                and hasattr(self.config, "target_dataset")
+                and self.config.source_dataset
+                and self.config.target_dataset
+            ):
+                # Translation is configured, perform the step
+                self.translate_od_pairs()
+            else:
+                # No translation configured, use OD pairs directly
+                logger.info(
+                    "🟢 No translation configuration found - using OD pairs directly"
+                )
+                logger.info("   → Within-dataset evaluation mode")
 
             # Generate trajectories
             self.generate_trajectories()
