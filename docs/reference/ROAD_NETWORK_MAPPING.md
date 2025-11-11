@@ -369,3 +369,145 @@ Difference:               0-7 percentage points ✅ (acceptable for transfer)
 4. **Visual inspection tool**: Plot matches on map for manual review
 5. **Adaptive thresholds**: Use different thresholds for urban vs rural roads
 
+### 8. OD Pair Translation in Abnormal Workflow
+
+**New Feature**: Automatic OD pair translation integrated into the abnormal OD workflow to enable cross-dataset evaluation.
+
+**Problem**: When running abnormal OD analysis with cross-dataset evaluation (e.g., OD pairs from BJUT_Beijing, models trained on Porto), the extracted OD pairs use source dataset road IDs but models expect target dataset road IDs.
+
+**Solution**: 
+- **Translation is always required** - not conditional detection
+- **Fail-fast assertions** - no fallbacks, assert all required files exist
+- **Quality filtering** - filter out OD pairs with poor mapping quality (distance > threshold)
+- **Programmatic interfaces** - all functions use Python modules, never CLI/subprocess
+
+#### Translation Workflow
+
+**File**: `tools/run_abnormal_od_workflow.py`
+
+**Integration Points**:
+1. **Configuration** - `tools/config_loader.py` extends `EvaluationConfig` with translation fields:
+   ```python
+   source_dataset: str      # Where OD pairs come from
+   target_dataset: str      # Where models are trained  
+   translation_max_distance: float = 20.0  # Quality threshold
+   translation_mapping_file: Path  # Road mapping JSON
+   ```
+
+2. **Translation Step** - Always executed after `extract_abnormal_od_pairs()`:
+   ```python
+   # Workflow: detect → extract → translate → generate → evaluate
+   self.detect_abnormalities()
+   self.extract_abnormal_od_pairs()
+   self.translate_od_pairs()  # NEW: Always required
+   self.generate_trajectories()
+   self.evaluate_trajectories()
+   ```
+
+3. **Fail-Fast Behavior**:
+   - Assert mapping file exists: `Translation mapping file not found: {path}. Translation is required.`
+   - Assert source != target: `Source dataset and target dataset must be different for translation.`
+   - Assert all OD pairs mapped: `Origin road {id} not found in mapping. All roads must be mapped.`
+   - Assert quality threshold: `All OD pairs filtered out. No pairs passed quality threshold {threshold}m.`
+
+#### Quality Filtering
+
+**Default threshold**: 20.0 meters (configurable via `translation_max_distance`)
+
+**Process**:
+- For each OD pair (origin, destination):
+  - Check origin mapping distance ≤ threshold
+  - Check destination mapping distance ≤ threshold  
+  - Include pair only if BOTH pass
+- Statistics tracked:
+  - Total pairs before/after filtering
+  - Filter rate percentage
+  - Breakdown by filter reason (origin, destination, both)
+
+#### Extended JSON Format
+
+**Translated OD pairs file** includes metadata:
+```json
+{
+  "dataset": "BJUT_Beijing",           # Source dataset
+  "translated_dataset": "porto_hoser",  # Target dataset
+  "translation_applied": true,          # Flag for detection
+  "translation_stats": {
+    "total_pairs_before": 150,
+    "total_pairs_after": 120,
+    "filtered_pairs": 30,
+    "filter_rate_pct": 20.0,
+    "max_distance_threshold_m": 20.0
+  },
+  "od_pairs_by_category": {
+    "speeding": [[1001, 2002], ...],  # Translated road IDs
+    "detour": [[3003, 4004], ...]
+  }
+}
+```
+
+#### Configuration Example
+
+**In `config/evaluation.yaml`**:
+```yaml
+# Required for cross-dataset evaluation
+dataset: porto_hoser                    # Target (models trained here)
+source_dataset: BJUT_Beijing           # Source (OD pairs from here)
+translation_max_distance: 20.0         # Filter threshold (meters)
+
+# Optional: explicit mapping file path
+translation_mapping_file: road_mapping_bjut_beijing_to_porto_hoser.json
+
+# Auto-detected if not specified:
+# road_mapping_{source}_to_{target}.json
+```
+
+#### Error Messages
+
+**All errors include clear action items**:
+- `Mapping file not found: {path}. Translation is required.`
+  - **Action**: Create mapping file or verify path
+- `Source dataset and target dataset must be different for translation.`
+  - **Action**: Check configuration, they should be different
+- `All OD pairs filtered out. No pairs passed quality threshold 20.0m.`
+  - **Action**: Increase `translation_max_distance` threshold
+- `Origin road 12345 not found in mapping. All roads must be mapped.`
+  - **Action**: Regenerate mapping to include this road
+
+#### Quality Metrics
+
+**Mapping Quality Validation** (from mapping creation):
+- ✅ Good: Mapping rate >85%, Average distance <15m
+- ⚠️ Fair: Mapping rate >70%, Average distance <30m  
+- ❌ Poor: Mapping rate <70% or Average distance >30m
+
+**Filtering Impact**:
+- Conservative (≤10m): High confidence, fewer pairs
+- Moderate (≤20m): Balanced quality/coverage (default)
+- Liberal (≤50m): More pairs, lower confidence
+
+#### API Usage
+
+**Programmatic Interface**:
+```python
+from tools.run_abnormal_od_workflow import run_abnormal_od_workflow
+
+analysis_dir = run_abnormal_od_workflow(
+    eval_dir=Path("hoser-distill-optuna-eval"),
+    dataset="BJUT_Beijing",           # Source dataset
+    real_data_dir=Path("data/BJUT_Beijing"),
+    num_trajectories=50,
+    max_pairs_per_category=20,
+    seed=42,
+    skip_detection=True              # If detection already done
+)
+```
+
+**Automatic Behavior**:
+- Loads configuration with translation settings
+- Creates road mapping if needed
+- Translates and filters OD pairs automatically
+- Uses translated pairs for generation and evaluation
+
+**Note**: Translation is **always required** for cross-dataset scenarios. The workflow will fail fast if any required files or configurations are missing.
+
