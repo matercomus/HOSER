@@ -304,8 +304,60 @@ class AbnormalODWorkflowRunner:
         logger.info(f"Target dataset: {target_dataset}")
         logger.info(f"Max distance threshold: {self.config.translation_max_distance}")
 
+        # Check if mapping is needed and feasible
+        if source_dataset != target_dataset:
+            # For cross-dataset evaluation, check if mapping already exists
+            mapping_file = self.config.get_translation_mapping_file()
+            if mapping_file and mapping_file.exists():
+                # Load mapping to check if it's valid (has mappings, not empty)
+                logger.info(f"Checking existing mapping file: {mapping_file}")
+                try:
+                    import json
+
+                    with open(mapping_file, "r") as f:
+                        mapping_data = json.load(f)
+
+                    if not mapping_data or len(mapping_data) == 0:
+                        logger.warning(
+                            "⚠️  Mapping file exists but is empty - cross-continental datasets detected"
+                        )
+                        logger.warning(
+                            "🗺️  Cross-continental mapping not feasible, using alternative approach"
+                        )
+                        logger.info(
+                            "Continuing without translation for cross-continental evaluation"
+                        )
+                        return self.od_pairs_file
+
+                except Exception as e:
+                    logger.warning(f"Could not check mapping file: {e}")
+
         # Create mapping file if it doesn't exist
         self.create_road_mapping()
+
+        # After creating mapping, check if it has any valid mappings
+        mapping_file = self.config.get_translation_mapping_file()
+        if mapping_file and mapping_file.exists():
+            try:
+                import json
+
+                with open(mapping_file, "r") as f:
+                    mapping_data = json.load(f)
+
+                if not mapping_data or len(mapping_data) == 0:
+                    logger.warning(
+                        "⚠️  Mapping failed - no roads could be mapped between datasets"
+                    )
+                    logger.warning(
+                        "🗺️  Cross-continental evaluation detected, skipping translation"
+                    )
+                    logger.info(
+                        "Continuing with original OD pairs for cross-continental evaluation"
+                    )
+                    return self.od_pairs_file
+
+            except Exception as e:
+                logger.warning(f"Could not validate mapping file: {e}")
 
         logger.info(f"Loading OD pairs from {self.od_pairs_file}")
         with open(self.od_pairs_file, "r") as f:
