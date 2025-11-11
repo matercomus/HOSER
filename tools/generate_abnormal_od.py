@@ -19,7 +19,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import sys
 
 # Add parent directory to path for imports
@@ -137,10 +137,9 @@ def generate_for_abnormal_od_pairs(
             output_file = output_dir / f"{model_name}_abnormal_od.csv"
 
             result = generate_trajectories_programmatic(
-                model_path=str(model_file),
                 dataset=dataset,
-                num_generate=len(od_list_expanded),
-                od_list=od_list_expanded,  # Use specific OD pairs
+                model_path=str(model_file),
+                od_pairs=od_list_expanded,  # Use specific OD pairs
                 output_file=str(output_file),
                 seed=seed,
                 cuda_device=cuda_device,
@@ -286,7 +285,7 @@ def generate_abnormal_od_trajectories(
 ) -> Path:
     """
     Generate trajectories for abnormal OD pairs (programmatic interface).
-    
+
     Args:
         od_pairs_file: Path to JSON file with abnormal OD pairs
         model_dir: Directory containing model files
@@ -296,14 +295,14 @@ def generate_abnormal_od_trajectories(
         max_pairs_per_category: Maximum OD pairs per category (None = all)
         seed: Random seed
         cuda_device: CUDA device ID
-    
+
     Returns:
         Path to output directory
-    
+
     Example:
         >>> from pathlib import Path
         >>> from tools.generate_abnormal_od import generate_abnormal_od_trajectories
-        >>> 
+        >>>
         >>> output_dir = generate_abnormal_od_trajectories(
         ...     od_pairs_file=Path("abnormal_od_pairs.json"),
         ...     model_dir=Path("models"),
@@ -317,15 +316,15 @@ def generate_abnormal_od_trajectories(
     # Validate inputs
     assert od_pairs_file.exists(), f"OD pairs file not found: {od_pairs_file}"
     assert model_dir.exists(), f"Model directory not found: {model_dir}"
-    
+
     # Load OD pairs
     od_pairs_data = load_abnormal_od_pairs(od_pairs_file)
-    
+
     # Create flat list of OD pairs
     od_pairs = create_od_pair_list(od_pairs_data, max_pairs_per_category)
-    
+
     assert len(od_pairs) > 0, "No OD pairs found in input file"
-    
+
     # Generate trajectories
     output_dir = Path(output_dir)
     generate_for_abnormal_od_pairs(
@@ -337,7 +336,7 @@ def generate_abnormal_od_trajectories(
         seed=seed,
         cuda_device=cuda_device,
     )
-    
+
     return output_dir
 
 

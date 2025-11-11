@@ -5,6 +5,8 @@ import math
 from datetime import datetime, timedelta
 import random
 from collections import Counter
+from typing import List, Tuple, Optional, Union
+from pathlib import Path
 import yaml
 from tqdm import tqdm
 import polars as pl
@@ -1818,12 +1820,126 @@ def load_and_preprocess_data(dataset, od_source="train"):
     return data
 
 
+def sample_od_pairs(
+    dataset: str,
+    od_source: str,
+    num_pairs: int,
+    seed: int = 42,
+) -> List[Tuple[int, int]]:
+    """
+    Sample OD pairs from dataset with weighted probability.
+
+    Args:
+        dataset: Dataset name (e.g., 'Beijing')
+        od_source: Source for OD pairs ('train' or 'test')
+        num_pairs: Number of OD pairs to sample
+        seed: Random seed for reproducibility
+
+    Returns:
+        List of (origin, destination) tuples sampled from dataset
+    """
+    set_seed(seed)
+    data = load_and_preprocess_data(dataset, od_source=od_source)
+    num_roads = data["num_roads"]
+
+    print(" ... Filtering valid OD pairs...")
+    valid_destinations = {
+        i for i in range(num_roads) if len(data["reachable_road_id_dict"][i]) > 0
+    }
+    valid_od_pairs = [
+        (o, d) for (o, d), count in data["od_counts"].items() if d in valid_destinations
+    ]
+    valid_od_counts = np.array(
+        [data["od_counts"][od] for od in valid_od_pairs], dtype=np.float32
+    )
+
+    if not valid_od_pairs:
+        raise ValueError(
+            "No valid origin-destination pairs found (all destinations are dead-ends)"
+        )
+
+    od_probabilities = valid_od_counts / valid_od_counts.sum()
+    print(f"✅ Found {len(valid_od_pairs)} valid {od_source} OD pairs.")
+
+    print(f"🎲 Sampling {num_pairs} OD pairs from {od_source} set...")
+    sampled_indices = np.random.choice(
+        len(valid_od_pairs), size=num_pairs, p=od_probabilities
+    )
+    od_coords = [valid_od_pairs[i] for i in sampled_indices]
+
+    return od_coords
+
+
+def select_timestamps_for_od_pairs(
+    od_pairs: List[Tuple[int, int]],
+    data: dict,
+    od_source: str,
+) -> Tuple[List[int], List[datetime]]:
+    """
+    Select timestamps for OD pairs from dataset.
+
+    Args:
+        od_pairs: List of (origin, destination) tuples
+        data: Preprocessed data dictionary from load_and_preprocess_data
+        od_source: Source dataset for timestamps ('train' or 'test')
+
+    Returns:
+        Tuple of (source_indices, origin_datetime_list)
+    """
+    source_indices = []
+    origin_datetime_list = []
+
+    # Use appropriate dataset for timestamps
+    if od_source == "test":
+        source_traj_df = data.get(
+            "test_traj", data["train_traj"]
+        )  # Fallback to train if test not loaded
+        od_to_indices = data.get("od_to_test_indices", data["od_to_train_indices"])
+    else:
+        source_traj_df = data["train_traj"]
+        od_to_indices = data["od_to_train_indices"]
+
+    for od in od_pairs:
+        candidates = od_to_indices.get(od, [])
+        if candidates:
+            src_idx = random.choice(candidates)
+            # Handle both Polars and Pandas cached DataFrames
+            if hasattr(source_traj_df, "get_column"):
+                time_list_str = source_traj_df.get_column("time_list")[src_idx]
+            else:
+                time_list_str = (
+                    source_traj_df["time_list"].iloc[src_idx]
+                    if hasattr(source_traj_df, "iloc")
+                    else source_traj_df["time_list"][src_idx]
+                )
+            src_time_str = time_list_str.split(",")[0]
+            origin_dt = datetime.strptime(src_time_str, "%Y-%m-%dT%H:%M:%SZ")
+        else:
+            # Fallback: use a random start time from train set (for timestamp stats)
+            train_traj_df = data["train_traj"]
+            time_values = (
+                train_traj_df.get_column("time_list").to_list()
+                if hasattr(train_traj_df, "get_column")
+                else train_traj_df["time_list"].tolist()
+            )
+            time_list_str = random.choice(time_values)
+            src_time_str = time_list_str.split(",")[0]
+            origin_dt = datetime.strptime(src_time_str, "%Y-%m-%dT%H:%M:%SZ")
+            src_idx = -1
+        source_indices.append(src_idx)
+        origin_datetime_list.append(origin_dt)
+
+    return source_indices, origin_datetime_list
+
+
 def generate_trajectories_programmatic(
     dataset: str,
     model_path: str,
     od_source: str = "train",
     seed: int = 42,
     num_gene: int = 100,
+    od_pairs: Optional[List[Tuple[int, int]]] = None,
+    output_file: Optional[Union[Path, str]] = None,
     cuda_device: int = 0,
     beam_search: bool = True,
     beam_width: int = 4,
@@ -1836,12 +1952,19 @@ def generate_trajectories_programmatic(
     """
     Programmatic interface for trajectory generation with performance profiling.
 
+    Supports two interfaces:
+    1. Old interface (backward compatible): Use od_source and num_gene to sample OD pairs
+    2. New interface: Provide custom od_pairs list directly
+
     Args:
         dataset: Dataset name (e.g., 'Beijing')
         model_path: Path to trained model checkpoint
-        od_source: Source for OD pairs ('train' or 'test')
+        od_source: Source for OD pairs ('train' or 'test') - used when od_pairs=None
         seed: Random seed
-        num_gene: Number of trajectories to generate
+        num_gene: Number of trajectories to generate - used when od_pairs=None
+        od_pairs: Optional list of (origin, destination) tuples. If provided, uses these
+                  instead of sampling. When provided, od_source and num_gene are ignored.
+        output_file: Optional path for output CSV file. If None, auto-generates path.
         cuda_device: CUDA device ID
         beam_search: Use beam search
         beam_width: Beam width for beam search
@@ -1849,12 +1972,31 @@ def generate_trajectories_programmatic(
         wandb_project: WandB project name
         wandb_run_name: WandB run name
         wandb_tags: WandB tags
+        model_type: Optional model type identifier for output filename
 
     Returns:
         Dict with keys:
         - 'output_file': Path to generated CSV
         - 'num_generated': Number of trajectories generated
         - 'performance': Dict with timing statistics (mean/std/min/max/p95, forward pass metrics, throughput)
+
+    Example:
+        # Old interface (sampling mode)
+        result = generate_trajectories_programmatic(
+            dataset="Beijing",
+            model_path="save/Beijing/seed42/best.pth",
+            od_source="train",
+            num_gene=100
+        )
+
+        # New interface (custom OD pairs)
+        custom_ods = [(1, 2), (3, 4), (5, 6)]
+        result = generate_trajectories_programmatic(
+            dataset="Beijing",
+            model_path="save/Beijing/seed42/best.pth",
+            od_pairs=custom_ods,
+            output_file="custom_output.csv"
+        )
     """
     from datetime import datetime
     import os
@@ -1907,8 +2049,34 @@ def generate_trajectories_programmatic(
         )
         print(f"📊 Logging to WandB: {wandb.run.url}")
 
+    # Determine OD pairs: use custom if provided, otherwise sample
+    if od_pairs is not None:
+        # New interface: use provided OD pairs
+        if not od_pairs:
+            raise ValueError("od_pairs list cannot be empty")
+        od_coords = od_pairs
+        num_gene = len(od_pairs)
+        print(f"✅ Using {len(od_pairs)} custom OD pairs")
+    else:
+        # Old interface: sample OD pairs
+        od_coords = sample_od_pairs(dataset, od_source, num_gene, seed)
+        print(f"✅ Sampled {len(od_coords)} OD pairs from {od_source} set")
+
+    # Load data for validation and timestamp selection
     data = load_and_preprocess_data(dataset, od_source=od_source)
     num_roads = data["num_roads"]
+
+    # Validate custom OD pairs if provided
+    if od_pairs is not None:
+        valid_destinations = {
+            i for i in range(num_roads) if len(data["reachable_road_id_dict"][i]) > 0
+        }
+        for origin, dest in od_pairs:
+            if dest not in valid_destinations:
+                raise ValueError(
+                    f"Destination {dest} is not reachable from any origin. "
+                    f"OD pair ({origin}, {dest}) is invalid."
+                )
 
     with open(f"../config/{dataset}.yaml", "r") as file:
         config = yaml.safe_load(file)
@@ -1927,74 +2095,10 @@ def generate_trajectories_programmatic(
     config.road_network_encoder_feature.zone_edge_index = data["zone_edge_index"]
     config.road_network_encoder_feature.zone_edge_weight = data["zone_edge_weight"]
 
-    print(" ... Filtering valid OD pairs...")
-    valid_destinations = {
-        i for i in range(num_roads) if len(data["reachable_road_id_dict"][i]) > 0
-    }
-    valid_od_pairs = [
-        (o, d) for (o, d), count in data["od_counts"].items() if d in valid_destinations
-    ]
-    valid_od_counts = np.array(
-        [data["od_counts"][od] for od in valid_od_pairs], dtype=np.float32
+    # Select timestamps for OD pairs using helper function
+    source_indices, origin_datetime_list = select_timestamps_for_od_pairs(
+        od_coords, data, od_source
     )
-
-    if not valid_od_pairs:
-        raise ValueError(
-            "No valid origin-destination pairs found (all destinations are dead-ends)"
-        )
-
-    od_probabilities = valid_od_counts / valid_od_counts.sum()
-    print(f"✅ Found {len(valid_od_pairs)} valid {od_source} OD pairs.")
-
-    print(f"🎲 Sampling {num_gene} OD pairs from {od_source} set...")
-    sampled_indices = np.random.choice(
-        len(valid_od_pairs), size=num_gene, p=od_probabilities
-    )
-    od_coords = [valid_od_pairs[i] for i in sampled_indices]
-
-    # For each sampled OD, get start time from corresponding dataset
-    source_indices = []
-    origin_datetime_list = []
-
-    # Use appropriate dataset for timestamps
-    if od_source == "test":
-        source_traj_df = data.get(
-            "test_traj", data["train_traj"]
-        )  # Fallback to train if test not loaded
-        od_to_indices = data.get("od_to_test_indices", data["od_to_train_indices"])
-    else:
-        source_traj_df = data["train_traj"]
-        od_to_indices = data["od_to_train_indices"]
-
-    for od in od_coords:
-        candidates = od_to_indices.get(od, [])
-        if candidates:
-            src_idx = random.choice(candidates)
-            # Handle both Polars and Pandas cached DataFrames
-            if hasattr(source_traj_df, "get_column"):
-                time_list_str = source_traj_df.get_column("time_list")[src_idx]
-            else:
-                time_list_str = (
-                    source_traj_df["time_list"].iloc[src_idx]
-                    if hasattr(source_traj_df, "iloc")
-                    else source_traj_df["time_list"][src_idx]
-                )
-            src_time_str = time_list_str.split(",")[0]
-            origin_dt = datetime.strptime(src_time_str, "%Y-%m-%dT%H:%M:%SZ")
-        else:
-            # Fallback: use a random start time from train set (for timestamp stats)
-            train_traj_df = data["train_traj"]
-            time_values = (
-                train_traj_df.get_column("time_list").to_list()
-                if hasattr(train_traj_df, "get_column")
-                else train_traj_df["time_list"].tolist()
-            )
-            time_list_str = random.choice(time_values)
-            src_time_str = time_list_str.split(",")[0]
-            origin_dt = datetime.strptime(src_time_str, "%Y-%m-%dT%H:%M:%SZ")
-            src_idx = -1
-        source_indices.append(src_idx)
-        origin_datetime_list.append(origin_dt)
 
     print("🧠 Loading trained model...")
     if os.path.exists(model_path):
@@ -2116,15 +2220,24 @@ def generate_trajectories_programmatic(
         }
     )
 
-    gene_dir = f"./gene/{dataset}/seed{seed}"
-    os.makedirs(gene_dir, exist_ok=True)
-    now = datetime.now()
-    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
-    if model_type:
-        filename = f"{timestamp}_{model_type}_{od_source}.csv"
+    # Determine output file path
+    if output_file is not None:
+        # New interface: use provided output file
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path = str(output_path)
     else:
-        filename = f"{timestamp}.csv"  # Backward compatibility
-    output_path = os.path.join(gene_dir, filename)
+        # Old interface: auto-generate path
+        gene_dir = f"./gene/{dataset}/seed{seed}"
+        os.makedirs(gene_dir, exist_ok=True)
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+        if model_type:
+            filename = f"{timestamp}_{model_type}_{od_source}.csv"
+        else:
+            filename = f"{timestamp}.csv"  # Backward compatibility
+        output_path = os.path.join(gene_dir, filename)
+
     res_df.write_csv(output_path)
     print(f"🎉 Trajectory generation complete. Saved to {output_path}")
 

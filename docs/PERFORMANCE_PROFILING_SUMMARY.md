@@ -84,11 +84,15 @@ Added comprehensive inference performance profiling to HOSER trajectory generati
 
 ### Programmatic API
 
+The `generate_trajectories_programmatic()` function supports two interfaces:
+
+#### Old Interface (Sampling Mode - Backward Compatible)
+
 ```python
 from gene import generate_trajectories_programmatic
 from evaluation import evaluate_trajectories_programmatic
 
-# Generate trajectories with performance profiling
+# Generate trajectories with performance profiling (sampling mode)
 result = generate_trajectories_programmatic(
     dataset='Beijing',
     model_path='./save/Beijing/seed42_distill/best.pth',
@@ -108,6 +112,41 @@ performance = result['performance']
 print(f"Generated {num_generated} trajectories")
 print(f"Throughput: {performance['throughput_traj_per_sec']:.2f} traj/s")
 print(f"Mean time: {performance['total_time_mean']:.3f}s")
+```
+
+#### New Interface (Custom OD Pairs)
+
+```python
+from gene import generate_trajectories_programmatic
+from pathlib import Path
+
+# Generate trajectories for specific OD pairs
+custom_od_pairs = [(100, 200), (150, 250), (300, 400)]  # (origin, destination) tuples
+
+result = generate_trajectories_programmatic(
+    dataset='Beijing',
+    model_path='./save/Beijing/seed42_distill/best.pth',
+    od_pairs=custom_od_pairs,  # Use custom OD pairs
+    output_file='custom_output.csv',  # Specify output path
+    seed=42,
+    cuda_device=0,
+    beam_search=True,
+    beam_width=4
+)
+
+# Extract results
+output_file = result['output_file']
+num_generated = result['num_generated']
+performance = result['performance']
+
+print(f"Generated {num_generated} trajectories for {len(custom_od_pairs)} OD pairs")
+print(f"Throughput: {performance['throughput_traj_per_sec']:.2f} traj/s")
+```
+
+#### Evaluation with Performance Metrics
+
+```python
+from evaluation import evaluate_trajectories_programmatic
 
 # Evaluate with performance metrics
 eval_results = evaluate_trajectories_programmatic(
@@ -173,7 +212,7 @@ Total generation time     52.3s
 To test the implementation:
 
 ```bash
-# Test generation only (small batch)
+# Test generation only (small batch) - Old interface
 cd hoser-distill-optuna-6
 uv run python -c "
 import sys
@@ -192,6 +231,28 @@ result = generate_trajectories_programmatic(
 )
 
 print(f\"Generated: {result['num_generated']} trajectories\")
+print(f\"Performance: {result['performance']['throughput_traj_per_sec']:.2f} traj/s\")
+"
+
+# Test generation with custom OD pairs - New interface
+uv run python -c "
+import sys
+sys.path.insert(0, '..')
+from gene import generate_trajectories_programmatic
+
+custom_ods = [(100, 200), (150, 250), (300, 400)]
+result = generate_trajectories_programmatic(
+    dataset='Beijing',
+    model_path='./models/distilled_25epoch_seed42.pth',
+    od_pairs=custom_ods,
+    output_file='test_custom_od.csv',
+    seed=42,
+    cuda_device=0,
+    beam_search=True,
+    beam_width=4
+)
+
+print(f\"Generated: {result['num_generated']} trajectories for {len(custom_ods)} OD pairs\")
 print(f\"Performance: {result['performance']['throughput_traj_per_sec']:.2f} traj/s\")
 "
 

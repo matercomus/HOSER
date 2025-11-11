@@ -1865,10 +1865,9 @@ class EvaluationPipeline:
                 output_file = output_dir / f"{model_type}_abnormal_od.csv"
 
                 result = generate_trajectories_programmatic(
-                    model_path=str(model_file),
                     dataset=self.config.dataset,
-                    num_generate=len(od_list_expanded),
-                    od_list=od_list_expanded,
+                    model_path=str(model_file),
+                    od_pairs=od_list_expanded,
                     output_file=str(output_file),
                     seed=self.config.seed,
                     cuda_device=self.config.cuda_device,
