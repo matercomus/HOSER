@@ -446,6 +446,7 @@ Examples:
         output_file=Path(args.output),
         source_dataset=source_dataset,
         target_dataset=target_dataset,
+        max_distance=args.max_distance,
     )
 
     logger.info("\n✅ Mapping complete!")
@@ -506,6 +507,7 @@ def create_road_mapping_programmatic(
         output_file=output_file,
         source_dataset=source_dataset,
         target_dataset=target_dataset,
+        max_distance=max_distance_m,
     )
 
 
