@@ -12,36 +12,22 @@ Usage:
 
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, asdict
-from collections import defaultdict
-import statistics
 import math
+import statistics
+from collections import defaultdict
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+from scipy import stats
+from statsmodels.stats.multitest import multipletests
+from statsmodels.stats.proportion import proportion_confint
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-try:
-    from scipy import stats
-
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-    logger.warning("scipy not available - statistical tests will be limited")
-
-try:
-    from statsmodels.stats.multitest import multipletests
-    from statsmodels.stats.proportion import proportion_confint
-
-    HAS_STATSMODELS = True
-except ImportError:
-    HAS_STATSMODELS = False
-    logger.warning(
-        "statsmodels not available - will use Bonferroni instead of FDR correction"
-    )
 
 
 def compute_cohens_h(p1: float, p2: float) -> float:
@@ -118,34 +104,10 @@ def compute_proportion_ci(
 
     proportion = count / n_total
 
-    if HAS_STATSMODELS:
-        # Use statsmodels for Wilson score interval
-        try:
-            ci_low, ci_high = proportion_confint(
-                count, n_total, alpha=1 - confidence, method="wilson"
-            )
-            return (ci_low * 100, ci_high * 100)
-        except Exception as e:
-            logger.warning(f"Error computing CI with statsmodels: {e}, using fallback")
-
-    # Fallback: Wilson score interval manual implementation
-    z = 1.96  # For 95% CI
-    if confidence == 0.99:
-        z = 2.576
-    elif confidence == 0.90:
-        z = 1.645
-
-    denominator = 1 + z**2 / n_total
-    center = (proportion + z**2 / (2 * n_total)) / denominator
-    margin = (
-        z
-        * math.sqrt((proportion * (1 - proportion) + z**2 / (4 * n_total)) / n_total)
-        / denominator
+    # Use statsmodels for Wilson score interval
+    ci_low, ci_high = proportion_confint(
+        count, n_total, alpha=1 - confidence, method="wilson"
     )
-
-    ci_low = max(0.0, center - margin)
-    ci_high = min(1.0, center + margin)
-
     return (ci_low * 100, ci_high * 100)
 
 
@@ -722,10 +684,6 @@ class WangResultsCollector:
         """
         test_results = {}
 
-        if not HAS_SCIPY:
-            logger.warning("scipy not available - skipping statistical tests")
-            return test_results
-
         # First pass: Collect all test results with raw p-values
         all_tests = []
         all_p_values = []
@@ -804,22 +762,12 @@ class WangResultsCollector:
         if num_comparisons > 0:
             valid_p_values = [p for p in all_p_values if p is not None]
 
-            if HAS_STATSMODELS:
-                # Use FDR (Benjamini-Hochberg) correction - recommended
-                logger.info("Using FDR (Benjamini-Hochberg) correction")
-                reject, pvals_corrected, _, _ = multipletests(
-                    valid_p_values, alpha=0.05, method="fdr_bh"
-                )
-                correction_method = "FDR (Benjamini-Hochberg)"
-            else:
-                # Fallback to Bonferroni correction
-                logger.info("Using Bonferroni correction")
-                alpha_bonferroni = 0.05 / num_comparisons
-                pvals_corrected = [
-                    min(p * num_comparisons, 1.0) for p in valid_p_values
-                ]
-                reject = [p < alpha_bonferroni for p in valid_p_values]
-                correction_method = "Bonferroni"
+            # Use FDR (Benjamini-Hochberg) correction - recommended
+            logger.info("Using FDR (Benjamini-Hochberg) correction")
+            reject, pvals_corrected, _, _ = multipletests(
+                valid_p_values, alpha=0.05, method="fdr_bh"
+            )
+            correction_method = "FDR (Benjamini-Hochberg)"
 
             # Update test results with corrected p-values
             corrected_idx = 0
@@ -846,38 +794,22 @@ class WangResultsCollector:
             "num_comparisons": num_comparisons,
             "correction_method": correction_method if num_comparisons > 0 else "None",
             "alpha": 0.05,
-            "alpha_adjusted": (
-                0.05 / num_comparisons
-                if num_comparisons > 0 and not HAS_STATSMODELS
-                else "FDR-controlled"
-            ),
+            "alpha_adjusted": "FDR-controlled",
         }
 
         return test_results
 
     def _ensure_json_serializable(self, obj):
         """Recursively convert object to JSON-serializable types"""
-        try:
-            import numpy as np
-            HAS_NUMPY = True
-        except ImportError:
-            HAS_NUMPY = False
-
         if isinstance(obj, dict):
             return {k: self._ensure_json_serializable(v) for k, v in obj.items()}
         elif isinstance(obj, (list, tuple)):
             return [self._ensure_json_serializable(item) for item in obj]
-        elif HAS_NUMPY and isinstance(obj, (np.bool_, bool)):
+        elif isinstance(obj, (np.bool_, bool)):
             return bool(obj)
-        elif isinstance(obj, bool):
-            return bool(obj)
-        elif HAS_NUMPY and isinstance(obj, (np.integer, int)):
+        elif isinstance(obj, (np.integer, int)):
             return int(obj)
-        elif isinstance(obj, int):
-            return int(obj)
-        elif HAS_NUMPY and isinstance(obj, (np.floating, float)):
-            return float(obj)
-        elif isinstance(obj, float):
+        elif isinstance(obj, (np.floating, float)):
             return float(obj)
         elif isinstance(obj, str):
             return obj

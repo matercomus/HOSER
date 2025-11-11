@@ -302,28 +302,19 @@ class TestGenerateWangVisualizationsProgrammaticInterface:
         
         output_dir = tmp_path / "figures"
         
-        # Test the function (should not crash regardless of matplotlib availability)
+        # Test the function - matplotlib is now required
         generate_wang_visualizations(
             results_file=results_file,
             output_dir=output_dir
         )
         
-        # Check matplotlib availability and verify output accordingly
-        try:
-            import matplotlib
-            # If matplotlib is available, output_dir should be created
-            assert output_dir.exists()
-        except ImportError:
-            # matplotlib not available - function should complete without creating output
-            # (it logs an error but doesn't crash)
-            pass
+        # Verify output was created
+        assert output_dir.exists()
 
     def test_visualize_with_none_defaults(self):
         """Test that default parameters work (None values)."""
-        # Should handle missing file gracefully
-        with patch('tools.visualize_wang_results.HAS_MATPLOTLIB', False):
-            # This should log an error but not crash
-            generate_wang_visualizations()
+        # Should handle missing file gracefully (logs error but doesn't crash)
+        generate_wang_visualizations()
 
     def test_handles_missing_results_file(self, tmp_path):
         """Test that function handles missing results file gracefully."""
