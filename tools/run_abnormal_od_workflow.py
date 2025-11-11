@@ -179,7 +179,7 @@ class AbnormalODWorkflowRunner:
                 f"Detection config not found: {self.detection_config}"
             )
 
-    def run_phase_0_detection(self) -> bool:
+    def detect_abnormalities(self) -> bool:
         """
         Phase 0: Run Wang statistical detection on real data.
 
@@ -753,7 +753,7 @@ class AbnormalODWorkflowRunner:
 
         try:
             # Phase 0: Detection (if needed)
-            self.run_phase_0_detection()
+            self.detect_abnormalities()
 
             # Phase 3: Extract OD pairs
             self.run_phase_3_extract_od_pairs()

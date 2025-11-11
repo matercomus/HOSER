@@ -185,13 +185,17 @@ def find_nearest_road_batch(
         dist_m = haversine_distance(source_lat, source_lon, target_lat, target_lon)
 
         if dist_m <= max_distance_m:
-            mapping[source_id] = target_id
+            mapping[source_id] = {
+                "target_road_id": target_id,
+                "distance_m": float(dist_m),
+            }
             distances.append(dist_m)
 
             # Track many-to-one (multiple sources map to same target)
             if target_id not in many_to_one:
                 many_to_one[target_id] = []
             many_to_one[target_id].append(source_id)
+
         else:
             unmapped_roads.append(
                 {
@@ -267,7 +271,7 @@ def save_comprehensive_output(
         max_distance: Max distance threshold used
         output_file: Output JSON file path
     """
-    # Save main mapping file
+    # Save main mapping file (now includes both target ID and distance)
     logger.info(f"\n💾 Saving mapping to {output_file}")
     with open(output_file, "w") as f:
         json.dump(result["mapping"], f, indent=2)

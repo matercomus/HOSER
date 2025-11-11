@@ -42,6 +42,21 @@ class EvaluationConfig:
     grid_size: float = 0.001
     edr_eps: float = 100.0
 
+    # Translation configuration (new)
+    source_dataset: Optional[str] = (
+        None  # Source dataset name (where OD pairs come from)
+    )
+    target_dataset: Optional[str] = (
+        None  # Target dataset name (where models are trained)
+    )
+    translation_max_distance: float = (
+        20.0  # Max distance threshold for quality filtering (meters)
+    )
+    translation_mapping_file: Optional[Path] = None  # Path to mapping file
+    translation_distance_file: Optional[Path] = (
+        None  # Path to distance file (deprecated, distances now in mapping)
+    )
+
     # Additional config values stored as dict
     _raw_config: Dict[str, Any] = field(default_factory=dict)
 
@@ -65,6 +80,40 @@ class EvaluationConfig:
     def get(self, key: str, default: Any = None) -> Any:
         """Get a config value from raw config"""
         return self._raw_config.get(key, default)
+
+    def get_translation_mapping_file(self) -> Optional[Path]:
+        """Auto-detect translation mapping file path based on source/target datasets
+
+        Returns:
+            Path to mapping file if it can be determined, None otherwise
+        """
+        if self.translation_mapping_file:
+            return self.translation_mapping_file
+
+        # Auto-detect from source and target datasets
+        if self.source_dataset and self.target_dataset:
+            mapping_filename = (
+                f"road_mapping_{self.source_dataset}_to_{self.target_dataset}.json"
+            )
+            return self.eval_dir / mapping_filename
+
+        return None
+
+    def get_translation_distance_file(self) -> Optional[Path]:
+        """Auto-detect translation distance file path (deprecated, distances now in mapping)
+
+        Returns:
+            Path to distance file if specified, None otherwise
+        """
+        if self.translation_distance_file:
+            return self.translation_distance_file
+
+        # Auto-detect from source and target datasets
+        if self.source_dataset and self.target_dataset:
+            distance_filename = f"road_mapping_{self.source_dataset}_to_{self.target_dataset}_distances.json"
+            return self.eval_dir / distance_filename
+
+        return None
 
 
 def load_evaluation_config(
@@ -128,6 +177,30 @@ def load_evaluation_config(
     if data_dir:
         data_dir = Path(data_dir)
 
+    # Extract translation fields
+    source_dataset = raw_config.get("source_dataset") or raw_config.get(
+        "cross_dataset_name"
+    )  # Support legacy cross_dataset_name
+    target_dataset = (
+        raw_config.get("target_dataset") or dataset
+    )  # Default to main dataset
+    translation_max_distance = raw_config.get("translation_max_distance", 20.0)
+    translation_mapping_file = raw_config.get("translation_mapping_file")
+    translation_distance_file = raw_config.get(
+        "translation_distance_file"
+    )  # Deprecated field
+
+    # Handle translation file paths
+    if translation_mapping_file:
+        translation_mapping_file = Path(translation_mapping_file)
+        if not translation_mapping_file.is_absolute():
+            translation_mapping_file = eval_dir / translation_mapping_file
+
+    if translation_distance_file:
+        translation_distance_file = Path(translation_distance_file)
+        if not translation_distance_file.is_absolute():
+            translation_distance_file = eval_dir / translation_distance_file
+
     # Create config object
     config = EvaluationConfig(
         eval_dir=eval_dir,
@@ -140,6 +213,12 @@ def load_evaluation_config(
         beam_search=beam_search,
         grid_size=grid_size,
         edr_eps=edr_eps,
+        # Translation configuration
+        source_dataset=source_dataset,
+        target_dataset=target_dataset,
+        translation_max_distance=translation_max_distance,
+        translation_mapping_file=translation_mapping_file,
+        translation_distance_file=translation_distance_file,
         _raw_config=raw_config,
     )
 
