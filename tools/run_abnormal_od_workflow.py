@@ -13,25 +13,32 @@ The workflow includes:
 - Analysis: Aggregate and visualize results
 
 Usage (Programmatic):
+    from pathlib import Path
     from tools.run_abnormal_od_workflow import run_abnormal_od_workflow
     
-    run_abnormal_od_workflow(
+    analysis_dir = run_abnormal_od_workflow(
         eval_dir=Path("hoser-distill-optuna-porto-eval-xyz"),
         dataset="porto_hoser",
         real_data_dir=Path("data/porto_hoser"),
         num_trajectories=50,
         max_pairs_per_category=20,
-        seed=42
+        seed=42,
+        skip_detection=True
     )
 
 Usage (CLI):
-    uv run python tools/run_abnormal_od_workflow.py \
-        --eval-dir hoser-distill-optuna-porto-eval-xyz \
-        --dataset porto_hoser \
-        --real-data-dir data/porto_hoser \
-        --num-traj 50 \
-        --max-pairs 20 \
+    uv run python tools/run_abnormal_od_workflow.py \\
+        --eval-dir hoser-distill-optuna-porto-eval-xyz \\
+        --dataset porto_hoser \\
+        --real-data-dir data/porto_hoser \\
+        --skip-detection \\
+        --num-traj 50 \\
+        --max-pairs 20 \\
         --seed 42
+
+Documentation:
+    See docs/ABNORMAL_OD_WORKFLOW_GUIDE.md for comprehensive guide
+    See tools/TOOLS_README.md for programmatic interface documentation
 """
 
 import argparse
