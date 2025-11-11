@@ -419,7 +419,7 @@ class AbnormalODWorkflowRunner:
         target_roadmap = Path(self.config.data_dir) / "roadmap.geo"
         output_file = (
             self.eval_dir
-            / f"road_mapping_{source_dataset.lower()}_to_{target_dataset.lower()}.json"
+            / f"road_mapping_{self.config.source_dataset}_to_{self.config.target_dataset}.json"
         )
 
         # Use default max distance from config or 50m if not specified
