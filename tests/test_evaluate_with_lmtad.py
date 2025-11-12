@@ -104,10 +104,20 @@ def test_collate_sequences():
 
 
 @patch("tools.evaluate_with_lmtad.LMTADTeacher")
-def test_load_lmtad_evaluator(mock_lmtad_teacher):
+@patch("pathlib.Path.exists")
+@patch("pathlib.Path.is_file")
+@patch("pathlib.Path.is_dir")
+def test_load_lmtad_evaluator(
+    mock_is_dir, mock_is_file, mock_exists, mock_lmtad_teacher
+):
     """Test loading LM-TAD evaluator"""
     mock_model = Mock()
     mock_lmtad_teacher.return_value = mock_model
+
+    # Configure path mocks
+    mock_exists.return_value = True
+    mock_is_file.return_value = True
+    mock_is_dir.return_value = True
 
     checkpoint = Path("/fake/checkpoint.pt")
     repo_path = Path("/fake/repo")
@@ -144,9 +154,13 @@ def test_create_lmtad_dataloader(sample_trajectory_data, tmp_path):
     assert dataloader.batch_size == 2
     assert len(dataloader.dataset) == 5
 
-    # Test missing file raises RuntimeError
-    with pytest.raises(RuntimeError, match="Failed to create LM-TAD dataloader"):
+    # Test missing file raises FileNotFoundError
+    with pytest.raises(FileNotFoundError, match="Trajectory file not found"):
         create_lmtad_dataloader(tmp_path / "nonexistent.csv")
+
+    # Test invalid batch size
+    with pytest.raises(ValueError, match="batch_size must be positive"):
+        create_lmtad_dataloader(csv_file, batch_size=0)
 
 
 def test_compute_perplexities(sample_trajectory_data, tmp_path):
@@ -275,12 +289,21 @@ def test_evaluate_with_lmtad(
         2.5,
     )
 
-    # Test files
+    # Create test files and directories
     trajectory_file = tmp_path / "trajectories.csv"
     vocab_file = tmp_path / "vocab.json"
     checkpoint = tmp_path / "checkpoint.pt"
     repo_path = tmp_path / "lmtad_repo"
     output_dir = tmp_path / "results"
+
+    # Create necessary files and directories
+    pd.DataFrame({"trajectory_tokens": ["0 1 2 3 1", "0 2 3 4 1"]}).to_csv(
+        trajectory_file, index=False
+    )
+    vocab_file.write_text("{}")  # Empty vocab for testing
+    checkpoint.write_bytes(b"mock checkpoint")  # Mock checkpoint file
+    repo_path.mkdir(parents=True)
+    output_dir.mkdir(parents=True)
 
     # Test successful evaluation
     results_df = evaluate_with_lmtad(
@@ -323,11 +346,21 @@ def test_evaluate_with_lmtad(
 
 def test_evaluate_with_lmtad_custom_params(sample_perplexities, tmp_path):
     """Test evaluation with custom parameters"""
-    # Create a temporary test file
+    # Create test files
     trajectory_file = tmp_path / "trajectories.csv"
+    vocab_file = tmp_path / "vocab.json"
+    checkpoint = tmp_path / "checkpoint.pt"
+    repo_path = tmp_path / "lmtad_repo"
+    output_dir = tmp_path / "results"
+
+    # Create necessary files and directories
     pd.DataFrame({"trajectory_tokens": ["0 1 2 3 1", "0 2 3 4 1"]}).to_csv(
         trajectory_file, index=False
     )
+    vocab_file.write_text("{}")  # Empty vocab for testing
+    checkpoint.write_bytes(b"mock checkpoint")  # Mock checkpoint file
+    repo_path.mkdir(parents=True)
+    output_dir.mkdir(parents=True)
 
     with (
         patch("tools.evaluate_with_lmtad.load_lmtad_evaluator") as mock_load,
