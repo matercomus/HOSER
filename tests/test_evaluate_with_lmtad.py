@@ -149,29 +149,42 @@ def test_create_lmtad_dataloader(sample_trajectory_data, tmp_path):
         create_lmtad_dataloader(tmp_path / "nonexistent.csv")
 
 
-@patch("tools.evaluate_with_lmtad.torch")
-def test_compute_perplexities(mock_torch, sample_trajectory_data, tmp_path):
+def test_compute_perplexities(sample_trajectory_data, tmp_path):
     """Test computation of perplexity scores"""
-    # Mock the model forward pass and tensor operations
-    mock_logits = torch.randn(2, 4, 100)  # (batch_size, seq_len, vocab_size)
-    mock_model = Mock()
-    mock_model.model.return_value = (mock_logits, None)
-
-    # Create a simple dataloader
+    # Create test file
     csv_file = tmp_path / "trajectories.csv"
     sample_trajectory_data.head(2).to_csv(csv_file, index=False)
-    dataloader = create_lmtad_dataloader(csv_file, batch_size=2)
 
-    # Mock torch operations in compute_perplexities
-    mock_torch.log_softmax.return_value = torch.log_softmax(mock_logits, dim=-1)
-    mock_torch.gather.return_value = torch.randn(2, 3, 1)  # (batch_size, seq_len-1, 1)
-    mock_torch.stack.return_value = torch.randn(2)
+    # Create a simple mock model that returns reasonable outputs
+    mock_model = Mock()
 
-    # Test perplexity computation
-    perplexities = compute_perplexities(mock_model, dataloader, "cuda:0")
+    def mock_forward(batch):
+        # batch shape: (B, T) where B=batch_size, T=seq_len
+        B, T = batch.shape
+        V = 100  # vocab size
+        # Return logits of shape (B, T, V)
+        logits = torch.randn(B, T, V)
+        return logits, None
+
+    mock_model.model = mock_forward
+
+    # Create dataloader with single worker
+    dataloader = DataLoader(
+        LMTADDataset(csv_file),
+        batch_size=2,
+        shuffle=False,
+        collate_fn=collate_sequences,
+        num_workers=0,  # Run in main process for testing
+    )
+
+    # Test perplexity computation with CPU device to avoid GPU requirements
+    perplexities = compute_perplexities(mock_model, dataloader, "cpu")
 
     assert isinstance(perplexities, torch.Tensor)
     assert len(perplexities) == 2  # Two trajectories
+    # Verify perplexities are reasonable (not NaN or Inf)
+    assert not torch.isnan(perplexities).any()
+    assert not torch.isinf(perplexities).any()
 
 
 def test_classify_outliers_auto_threshold(sample_perplexities):
@@ -310,27 +323,36 @@ def test_evaluate_with_lmtad(
 
 def test_evaluate_with_lmtad_custom_params(sample_perplexities, tmp_path):
     """Test evaluation with custom parameters"""
+    # Create a temporary test file
+    trajectory_file = tmp_path / "trajectories.csv"
+    pd.DataFrame({"trajectory_tokens": ["0 1 2 3 1", "0 2 3 4 1"]}).to_csv(
+        trajectory_file, index=False
+    )
+
     with (
         patch("tools.evaluate_with_lmtad.load_lmtad_evaluator") as mock_load,
-        patch("tools.evaluate_with_lmtad.create_lmtad_dataloader") as mock_create,
         patch("tools.evaluate_with_lmtad.compute_perplexities") as mock_compute,
         patch("tools.evaluate_with_lmtad.classify_outliers") as mock_classify,
         patch("tools.evaluate_with_lmtad.save_evaluation_results"),
     ):
-        # Set up mocks
-        mock_load.return_value = Mock()
-        mock_create.return_value = Mock()
-        mock_compute.return_value = sample_perplexities
-        mock_classify.return_value = (torch.tensor([True, False]), 3.0)
+        # Set up mocks with consistent lengths
+        mock_perplexities = torch.tensor(
+            [1.5, 2.5]
+        )  # Match number of test trajectories
+        mock_outlier_flags = torch.tensor([False, True])
 
-        trajectory_file = tmp_path / "trajectories.csv"
+        # Configure mocks
+        mock_load.return_value = Mock()
+        mock_compute.return_value = mock_perplexities
+        mock_classify.return_value = (mock_outlier_flags, 3.0)
+
         vocab_file = tmp_path / "vocab.json"
         checkpoint = tmp_path / "checkpoint.pt"
         repo_path = tmp_path / "lmtad_repo"
         output_dir = tmp_path / "results"
 
         # Test with custom parameters
-        evaluate_with_lmtad(
+        result_df = evaluate_with_lmtad(
             trajectory_file=trajectory_file,
             vocab_file=vocab_file,
             lmtad_checkpoint=checkpoint,
@@ -342,10 +364,18 @@ def test_evaluate_with_lmtad_custom_params(sample_perplexities, tmp_path):
             batch_size=64,
         )
 
-        # Verify custom parameters were used
+        # Verify results
+        assert isinstance(result_df, pd.DataFrame)
+        assert len(result_df) == 2
+        assert "perplexity" in result_df.columns
+        assert "is_outlier" in result_df.columns
+        assert result_df["perplexity"].tolist() == mock_perplexities.tolist()
+        assert result_df["is_outlier"].tolist() == mock_outlier_flags.tolist()
+
+        # Verify mock calls
         mock_compute.assert_called_once()
         mock_classify.assert_called_once_with(
-            perplexities=sample_perplexities, threshold=3.0
+            perplexities=mock_perplexities, threshold=3.0
         )
 
 

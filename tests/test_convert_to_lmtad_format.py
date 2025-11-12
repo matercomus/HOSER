@@ -1,301 +1,223 @@
-"""
-Tests for LM-TAD Trajectory Format Conversion Module
+"""Tests for trajectory format conversion."""
 
-This module tests the conversion functionality from HOSER-format trajectories
-(road IDs) to LM-TAD grid token format for teacher model evaluation.
-"""
-
-from unittest.mock import Mock, patch
+import json
+from pprint import pprint
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from tools.convert_to_lmtad_format import (
+    DATASET_CONFIGS,
     convert_hoser_to_lmtad_format,
-    convert_trajectory_batch,
     create_grid_mapper,
     extract_road_centroids,
-    save_lmtad_format,
 )
 
 
 @pytest.fixture
-def sample_geo_data():
-    """Create sample roadmap.geo data for testing"""
-    return pd.DataFrame(
+def mock_roadmap_file(tmp_path, monkeypatch):
+    """Create a mock roadmap.geo file."""
+    # Create coordinates for a 2x2 grid with 0.02 degree spacing
+    # Each cell is 0.01 degrees, so total span is 0.02
+    roadmap_data = pd.DataFrame(
         {
-            "road_id": [0, 1, 2, 3],
             "coordinates": [
-                "[[116.397, 39.908], [116.398, 39.909]]",  # Beijing coordinates
-                "[[116.400, 39.910], [116.401, 39.911]]",
-                "[[116.402, 39.912], [116.403, 39.913]]",
-                "[[116.404, 39.914], [116.405, 39.915]]",
+                # Bottom row (y=0)
+                "[[8.65000, 41.15000], [8.65050, 41.15050]]",  # Cell (0,0)
+                "[[8.66000, 41.15000], [8.66050, 41.15050]]",  # Cell (0,1)
+                # Top row (y=1)
+                "[[8.65000, 41.16000], [8.65050, 41.16050]]",  # Cell (1,0)
+                "[[8.66000, 41.16000], [8.66050, 41.16050]]",  # Cell (1,1)
             ],
+            "geo_id": [0, 1, 2, 3],  # Use 0-based indices for road IDs
+            "lanes": ['["2"]', '["1"]', '["2"]', '["1"]'],
+            "oneway": ["[false]", "[true]", "[false]", "[true]"],
+            "name": ["Street A", "Street B", "Street C", "Street D"],
         }
     )
+    roadmap_file = tmp_path / "roadmap.geo"
+    roadmap_data.to_csv(roadmap_file, index=False)
+
+    # Force grid size to be 0.01 for test data (creates 2x2 grid)
+    monkeypatch.setitem(DATASET_CONFIGS["porto_hoser"], "grid_size", 0.01)
+
+    return roadmap_file
 
 
 @pytest.fixture
-def sample_trajectory_data():
-    """Create sample HOSER trajectory data for testing"""
-    return pd.DataFrame(
-        {
-            "mm_id": [1, 2, 3],
-            "entity_id": [100, 101, 102],
-            "traj_id": [1000, 1001, 1002],
-            "rid_list": ["0,1,2", "1,2,3", "0,3"],
-            "time_list": [
-                "2015-11-05T13:14:32Z,2015-11-05T13:15:16Z,2015-11-05T13:16:20Z",
-                "2015-11-05T14:20:00Z,2015-11-05T14:21:30Z,2015-11-05T14:22:45Z",
-                "2015-11-05T15:30:00Z,2015-11-05T15:32:15Z",
-            ],
-        }
-    )
-
-
-@pytest.fixture
-def sample_road_centroids():
-    """Create sample road centroids for testing"""
-    # (lat, lng) coordinates matching the sample geo data
-    return np.array(
-        [
-            [39.9085, 116.3975],  # Road 0 centroid
-            [39.9105, 116.4005],  # Road 1 centroid
-            [39.9125, 116.4025],  # Road 2 centroid
-            [39.9145, 116.4045],  # Road 3 centroid
-        ],
-        dtype=np.float32,
-    )
-
-
-def test_extract_road_centroids(sample_geo_data, tmp_path):
-    """Test extraction of road centroids from roadmap.geo"""
-    # Create temporary geo file
-    geo_file = tmp_path / "roadmap.geo"
-    sample_geo_data.to_csv(geo_file, index=False)
-
-    # Test successful extraction
-    road_centroids, geo_df = extract_road_centroids(geo_file)
-
-    assert isinstance(road_centroids, np.ndarray)
-    assert road_centroids.shape == (4, 2)  # 4 roads, 2 coordinates each
-    assert road_centroids.dtype == np.float32
-    assert len(geo_df) == 4
-
-    # Test that centroids are computed correctly (mean of coordinates)
-    # Road 0: [[116.397, 39.908], [116.398, 39.909]] -> [39.9085, 116.3975]
-    np.testing.assert_array_almost_equal(
-        road_centroids[0], [39.9085, 116.3975], decimal=4
-    )
-
-    # Test missing file raises FileNotFoundError
-    with pytest.raises(FileNotFoundError):
-        extract_road_centroids(tmp_path / "nonexistent.geo")
-
-
-def test_create_grid_mapper(sample_geo_data, sample_road_centroids):
-    """Test creation of grid mapper and road-to-token mapping"""
-    with patch("tools.convert_to_lmtad_format.GridMapper") as mock_mapper_class:
-        mock_mapper = Mock()
-        mock_mapper.grid_h = 100
-        mock_mapper.grid_w = 100
-        mock_mapper.map_all.return_value = np.array([10, 20, 30, 40])
-        mock_mapper_class.return_value = mock_mapper
-
-        mapper, road_to_token = create_grid_mapper(
-            geo_df=sample_geo_data,
-            road_centroids=sample_road_centroids,
-            grid_size=0.001,
-            downsample_factor=1,
-        )
-
-        # Verify the mapper was created with correct parameters
-        assert mock_mapper_class.called
-        assert isinstance(road_to_token, np.ndarray)
-        assert road_to_token.dtype == np.int64
-        assert len(road_to_token) == 4
-        np.testing.assert_array_equal(road_to_token, [10, 20, 30, 40])
-
-
-def test_convert_trajectory_batch(sample_trajectory_data, tmp_path):
-    """Test conversion of trajectory batch from road IDs to grid tokens"""
-    # Create road-to-token mapping
-    road_to_token = np.array([100, 101, 102, 103])  # Map road IDs 0,1,2,3 to tokens
-
-    # Convert trajectories
-    converted_df = convert_trajectory_batch(sample_trajectory_data, road_to_token)
-
-    # Verify output structure
-    assert len(converted_df) == 3
-    assert set(converted_df.columns) == {
-        "mm_id",
-        "entity_id",
-        "traj_id",
-        "grid_token_list",
-        "time_list",
-    }
-
-    # Verify grid token conversion
-    assert converted_df.iloc[0]["grid_token_list"] == "100,101,102"  # Roads 0,1,2
-    assert converted_df.iloc[1]["grid_token_list"] == "101,102,103"  # Roads 1,2,3
-    assert converted_df.iloc[2]["grid_token_list"] == "100,103"  # Roads 0,3
-
-    # Verify metadata preservation
-    assert converted_df.iloc[0]["mm_id"] == 1
-    assert converted_df.iloc[0]["entity_id"] == 100
-    assert converted_df.iloc[0]["traj_id"] == 1000
-    assert (
-        converted_df.iloc[0]["time_list"] == sample_trajectory_data.iloc[0]["time_list"]
-    )
-
-
-def test_convert_trajectory_batch_invalid_road_ids(sample_trajectory_data):
-    """Test handling of invalid road IDs in trajectory conversion"""
-    # Create road-to-token mapping with fewer entries than needed
-    road_to_token = np.array([100, 101, 102])  # Only 3 entries, but need 4
-
-    # Convert trajectories - should skip trajectories with invalid road IDs
-    converted_df = convert_trajectory_batch(sample_trajectory_data, road_to_token)
-
-    # Should have fewer trajectories due to skipping
-    assert len(converted_df) < len(sample_trajectory_data)
-
-
-def test_save_lmtad_format(tmp_path):
-    """Test saving converted trajectories to LM-TAD format"""
-    # Create sample converted data
-    converted_df = pd.DataFrame(
+def mock_trajectory_file(tmp_path):
+    """Create a mock trajectory file."""
+    trajectory_data = pd.DataFrame(
         {
             "mm_id": [1, 2],
-            "entity_id": [100, 101],
-            "traj_id": [1000, 1001],
-            "grid_token_list": ["100,101,102", "101,102,103"],
-            "time_list": ["t1,t2,t3", "t4,t5,t6"],
+            "entity_id": [100, 200],
+            "traj_id": [1001, 1002],
+            "rid_list": [
+                "[0, 1, 2]",  # Valid road IDs (0, 1, 2)
+                "[1, 2, 0]",  # Valid road IDs reversed
+            ],
+            "time_list": [
+                "2024-01-01T00:00:00Z,2024-01-01T00:01:00Z,2024-01-01T00:02:00Z",
+                "2024-01-01T01:00:00Z,2024-01-01T01:01:00Z,2024-01-01T01:02:00Z",
+            ],
         }
     )
-
-    output_file = tmp_path / "converted_trajectories.csv"
-    save_lmtad_format(converted_df, output_file)
-
-    # Verify file was created
-    assert output_file.exists()
-
-    # Verify content
-    loaded_df = pd.read_csv(output_file)
-    pd.testing.assert_frame_equal(loaded_df, converted_df)
+    trajectory_file = tmp_path / "trajectories.csv"
+    trajectory_data.to_csv(trajectory_file, index=False)
+    return trajectory_file
 
 
-@patch("tools.convert_to_lmtad_format.extract_road_centroids")
-@patch("tools.convert_to_lmtad_format.create_grid_mapper")
-@patch("tools.convert_to_lmtad_format.pd.read_csv")
-@patch("tools.convert_to_lmtad_format.convert_trajectory_batch")
-@patch("tools.convert_to_lmtad_format.save_lmtad_format")
+def test_extract_road_centroids(mock_roadmap_file):
+    """Test extraction of road centroids."""
+    road_centroids, boundary = extract_road_centroids(mock_roadmap_file)
+
+    # Check centroid shape
+    assert road_centroids.shape == (4, 2)  # 4 roads, 2 coordinates each
+    assert road_centroids.dtype == np.float64
+
+    # Check boundary values
+    assert boundary["min_lat"] == pytest.approx(41.15000)
+    assert boundary["max_lat"] == pytest.approx(41.16050)
+    assert boundary["min_lng"] == pytest.approx(8.65000)
+    assert boundary["max_lng"] == pytest.approx(8.66050)
+
+    print("\nExtracting road centroids:")
+    print(f"  Centroids shape: {road_centroids.shape}")
+    print("  Centroids:")
+    print(road_centroids)
+    print("\n  Boundaries:")
+    pprint(boundary)
+
+
+def test_create_grid_mapper(mock_roadmap_file):
+    """Test grid mapper creation."""
+    # Extract centroids first
+    road_centroids, boundary = extract_road_centroids(mock_roadmap_file)
+
+    # Create mapper with debug output
+    config = DATASET_CONFIGS["porto_hoser"]
+    print("\nCreating grid mapper with:")
+    print(f"  Grid size: {config['grid_size']}")
+    print(f"  Boundary: {boundary}")
+    lat_span = boundary["max_lat"] - boundary["min_lat"]
+    lng_span = boundary["max_lng"] - boundary["min_lng"]
+    print(f"  Spans: lat={lat_span:.6f}, lng={lng_span:.6f}")
+    grid_h = int(lat_span / config["grid_size"]) + 1
+    grid_w = int(lng_span / config["grid_size"]) + 1
+    print(f"  Raw grid dimensions: h={grid_h}, w={grid_w}")
+
+    mapper, vocab = create_grid_mapper("porto_hoser", road_centroids, boundary)
+
+    print("\nMapper properties:")
+    print(f"  grid_h: {mapper.grid_h}")
+    print(f"  grid_w: {mapper.grid_w}")
+    print("  Vocabulary:")
+    pprint(vocab)
+
+    # Check mapper properties (should be 2x2 grid for test data)
+    assert mapper.grid_h == 2  # 2x2 grid with grid_size=0.01
+    assert mapper.grid_w == 2
+    assert mapper.grid_h * mapper.grid_w == 4  # 2x2 grid for test data
+
+    # Check vocabulary
+    assert "PAD" in vocab
+    assert "EOT" in vocab
+    assert "SOT" in vocab
+    assert all(str(i) in vocab for i in range(4))  # Grid tokens 0-3
+    assert vocab["PAD"] == 4
+    assert vocab["EOT"] == 5
+    assert vocab["SOT"] == 6
+
+
 def test_convert_hoser_to_lmtad_format(
-    mock_save,
-    mock_convert,
-    mock_read_csv,
-    mock_create_mapper,
-    mock_extract_centroids,
-    sample_trajectory_data,
-    sample_road_centroids,
-    sample_geo_data,
-    tmp_path,
+    tmp_path, mock_roadmap_file, mock_trajectory_file
 ):
-    """Test the main conversion function"""
-    # Set up mocks
-    mock_extract_centroids.return_value = (sample_road_centroids, sample_geo_data)
-    mock_create_mapper.return_value = (Mock(), np.array([100, 101, 102, 103]))
-    mock_read_csv.return_value = sample_trajectory_data
-    mock_convert.return_value = sample_trajectory_data.copy()
-    mock_convert.return_value["grid_token_list"] = [
-        "100,101,102",
-        "101,102,103",
-        "100,103",
-    ]
+    """Test end-to-end conversion."""
+    # Setup output paths
+    output_file = tmp_path / "converted.csv"
+    vocab_file = tmp_path / "vocab.json"
 
-    input_file = tmp_path / "input.csv"
-    output_file = tmp_path / "output.csv"
-    data_dir = tmp_path / "data"
+    print("\nStarting HOSER to LM-TAD conversion:")
+    print(f"  Input: {mock_trajectory_file}")
+    print(f"  Roadmap: {mock_roadmap_file}")
 
-    # Create data directory and files
-    data_dir.mkdir()
-    geo_file = data_dir / "roadmap.geo"
-    sample_geo_data.to_csv(geo_file, index=False)
-
-    # Test successful conversion
-    convert_hoser_to_lmtad_format(
-        input_csv=input_file,
-        output_csv=output_file,
-        dataset="Beijing",
-        data_dir=data_dir,
+    # Run conversion
+    result = convert_hoser_to_lmtad_format(
+        trajectory_file=mock_trajectory_file,
+        roadmap_file=mock_roadmap_file,
+        output_file=output_file,
+        vocab_file=vocab_file,
+        dataset="porto_hoser",
     )
 
-    # Verify all steps were called
-    mock_extract_centroids.assert_called_once()
-    mock_create_mapper.assert_called_once()
-    mock_read_csv.assert_called_once_with(input_file)
-    mock_convert.assert_called_once()
-    mock_save.assert_called_once()
+    print("\nConversion complete:")
+    # Read input
+    with open(mock_trajectory_file) as f:
+        print("\nInput trajectories:")
+        print(f.read())
 
-    # Test missing input file raises FileNotFoundError
-    with pytest.raises(FileNotFoundError):
+    # Read output
+    with open(output_file) as f:
+        print("\nConverted trajectories:")
+        print(f.read())
+
+    with open(vocab_file) as f:
+        print("\nVocabulary:")
+        print(f.read())
+
+    # Check outputs exist
+    assert output_file.exists()
+    assert vocab_file.exists()
+
+    # Check vocabulary format
+    with open(vocab_file) as f:
+        vocab = json.loads(f.read())  # Use json.loads for safety
+        assert "PAD" in vocab
+        assert "EOT" in vocab
+        assert "SOT" in vocab
+        max_token = max(int(k) for k in vocab.keys() if k.isdigit())
+        assert max_token == 3  # 2x2 grid = 4 cells (0-3)
+        assert vocab["PAD"] == 4
+        assert vocab["EOT"] == 5
+        assert vocab["SOT"] == 6
+
+    # Check trajectory format
+    with open(output_file) as f:
+        lines = f.readlines()
+        assert len(lines) == 2  # Two trajectories
+        # Each line should be a list of grid tokens
+        grid_tokens = [eval(line.strip()) for line in lines]
+        assert all(isinstance(tokens, list) for tokens in grid_tokens)
+        assert all(len(tokens) == 3 for tokens in grid_tokens)  # Each has 3 points
+        assert all(isinstance(t, int) for tokens in grid_tokens for t in tokens)
+        assert all(0 <= t < 4 for tokens in grid_tokens for t in tokens)
+        # Verify tokens are in the correct range (0-3 for 2x2 grid)
+        for tokens in grid_tokens:
+            for t in tokens:
+                assert 0 <= t <= 3, f"Token {t} out of range (0-3)"
+
+    # Return path matches
+    assert result == output_file
+
+
+def test_invalid_dataset():
+    """Test error handling for invalid dataset."""
+    with pytest.raises(ValueError, match=r"Unknown dataset"):
+        create_grid_mapper(
+            "invalid_dataset",
+            np.array([[0, 0]]),
+            {"min_lat": 0, "max_lat": 1, "min_lng": 0, "max_lng": 1},
+        )
+
+
+def test_missing_files(tmp_path):
+    """Test error handling for missing files."""
+    with pytest.raises(FileNotFoundError, match=r"Roadmap file not found"):
         convert_hoser_to_lmtad_format(
-            input_csv=tmp_path / "nonexistent.csv",
-            output_csv=output_file,
-            dataset="Beijing",
+            trajectory_file=tmp_path / "trajectories.csv",
+            roadmap_file=tmp_path / "nonexistent.geo",
+            output_file=tmp_path / "out.csv",
+            vocab_file=tmp_path / "vocab.json",
+            dataset="porto_hoser",
         )
-
-
-def test_convert_hoser_to_lmtad_format_with_config(sample_trajectory_data, tmp_path):
-    """Test conversion with custom configuration"""
-    with (
-        patch("tools.convert_to_lmtad_format.extract_road_centroids") as mock_extract,
-        patch("tools.convert_to_lmtad_format.create_grid_mapper") as mock_create,
-        patch("tools.convert_to_lmtad_format.pd.read_csv") as mock_read,
-        patch("tools.convert_to_lmtad_format.convert_trajectory_batch") as mock_convert,
-        patch("tools.convert_to_lmtad_format.save_lmtad_format"),
-    ):
-        # Set up mocks
-        mock_extract.return_value = (
-            np.array([[39.9, 116.4], [39.91, 116.41]], dtype=np.float32),
-            pd.DataFrame(
-                {
-                    "road_id": [0, 1],
-                    "coordinates": ["[[116.4, 39.9]]", "[[116.41, 39.91]]"],
-                }
-            ),
-        )
-        mock_create.return_value = (Mock(), np.array([200, 201]))
-        mock_read.return_value = sample_trajectory_data
-        mock_convert.return_value = pd.DataFrame(
-            {
-                "mm_id": [1],
-                "entity_id": [100],
-                "traj_id": [1000],
-                "grid_token_list": ["200,201"],
-                "time_list": ["t1,t2"],
-            }
-        )
-
-        input_file = tmp_path / "input.csv"
-        output_file = tmp_path / "output.csv"
-
-        # Test with custom config
-        config = {"distill": {"grid_size": 0.002, "downsample": 2}}
-
-        convert_hoser_to_lmtad_format(
-            input_csv=input_file,
-            output_csv=output_file,
-            dataset="Beijing",
-            config=config,
-        )
-
-        # Verify config was used
-        mock_create.assert_called_once()
-        args, kwargs = mock_create.call_args
-        # The grid_size and downsample_factor should be passed to create_grid_mapper
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
