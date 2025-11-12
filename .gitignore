@@ -71,6 +71,13 @@ backup_*.tar.gz
 hoser-distill-optuna-6/figures/scenarios/
 */figures/scenarios/
 
+# LM-TAD evaluation outputs and temporary files
+*/lmtad_evaluation/
+*/eval_lmtad_sample/
+*/figures/lmtad_example/
+test_lmtad_evaluation.py
+IMPLEMENTATION_SUMMARY.md
+
 # Porto evaluation directory (entire directory and its backups)
 hoser-distill-optuna-porto-eval-*/
 hoser-distill-optuna-porto-eval-*-backup-*.tar.gz
