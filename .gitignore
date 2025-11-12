@@ -102,3 +102,6 @@ baselines_*.log
 wang_results_aggregated.json
 *.backup*
 vocab_validation_*.json
+
+# Coverage
+.coverage
