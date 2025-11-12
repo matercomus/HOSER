@@ -279,10 +279,14 @@ def save_evaluation_results(
     - evaluation_results.tsv: Per-trajectory perplexity and classification
     - outlier_stats.json: Summary statistics and threshold
     """
-    # Create results directory
-    output_dir.mkdir(parents=True, exist_ok=True)
+    import tempfile
+    import os
+    import shutil
 
-    # Save per-trajectory results
+    # Create results directory safely
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save per-trajectory results atomically
     results_df = pd.DataFrame(
         {
             "perplexity": perplexities.numpy(),
@@ -290,10 +294,14 @@ def save_evaluation_results(
         }
     )
     results_path = output_dir / "evaluation_results.tsv"
-    results_df.to_csv(results_path, sep="\t", index=True)
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, dir=output_dir) as tmp:
+        results_df.to_csv(tmp.name, sep="\t", index=True)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    shutil.move(tmp.name, results_path)
     logger.info(f"Saved per-trajectory results to {results_path}")
 
-    # Save summary statistics
+    # Save summary statistics atomically
     stats = {
         "num_trajectories": len(perplexities),
         "perplexity_threshold": float(threshold),
@@ -307,8 +315,11 @@ def save_evaluation_results(
         "num_outliers": int(outlier_flags.sum()),
     }
     stats_path = output_dir / "outlier_stats.json"
-    with open(stats_path, "w") as f:
-        json.dump(stats, f, indent=2)
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, dir=output_dir) as tmp:
+        json.dump(stats, tmp, indent=2)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    shutil.move(tmp.name, stats_path)
     logger.info(f"Saved summary statistics to {stats_path}")
 
 

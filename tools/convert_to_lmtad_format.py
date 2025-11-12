@@ -311,18 +311,32 @@ def save_lmtad_format(
     vocab : Dict[str, int]
         Grid token vocabulary mapping
     """
-    # Create output directories
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    vocab_file.parent.mkdir(parents=True, exist_ok=True)
+    import tempfile
+    import os
+    import shutil
 
-    # Save trajectories (one list per line)
-    with open(output_file, "w") as f:
+    # Create output directories safely
+    os.makedirs(output_file.parent, exist_ok=True)
+    os.makedirs(vocab_file.parent, exist_ok=True)
+
+    # Save trajectories atomically using a temporary file
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, dir=output_file.parent
+    ) as tmp:
         for tokens in df["trajectory_tokens"]:
-            f.write(f"{tokens}\n")
+            tmp.write(f"{tokens}\n")
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    shutil.move(tmp.name, output_file)
 
-    # Save vocabulary
-    with open(vocab_file, "w") as f:
-        json.dump(vocab, f)
+    # Save vocabulary atomically using a temporary file
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, dir=vocab_file.parent
+    ) as tmp:
+        json.dump(vocab, tmp)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    shutil.move(tmp.name, vocab_file)
 
     logger.info(f"Saved {len(df)} trajectories to {output_file}")
     logger.info(f"Saved vocabulary ({len(vocab)} tokens) to {vocab_file}")
