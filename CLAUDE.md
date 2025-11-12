@@ -91,8 +91,16 @@ Run code quality checks before:
    - Travel time prediction MAPE
    - Three-way dataset split (train/val/test)
    - Comprehensive logging and analysis
+   - Teacher model baseline evaluation
 
-3. Data Processing:
+3. LM-TAD Teacher Evaluation (Phase 6):
+   - Trajectory format conversion (HOSER → LM-TAD)
+   - Teacher model perplexity scoring
+   - Outlier detection and classification
+   - Student-teacher performance comparison
+   - Result visualization and analysis
+
+4. Data Processing:
    - Road network graph construction
    - Trajectory to road sequence conversion
    - Spatio-temporal feature computation
@@ -107,6 +115,12 @@ Dependencies are managed through pyproject.toml with key requirements:
 - Visualization: matplotlib, plotly, seaborn
 - Monitoring: wandb, tensorboard
 
+External dependencies (separate repositories):
+- LM-TAD: Teacher model for knowledge distillation and evaluation
+  - Location: `/home/matt/Dev/LMTAD/code/`
+  - Components: Teacher model, evaluation scripts
+  - Data: Pre-converted datasets in grid format
+
 ## Long-Running Jobs
 
 The project involves several types of long-running tasks (>5 minutes):
@@ -114,6 +128,8 @@ The project involves several types of long-running tasks (>5 minutes):
 - Hyperparameter optimization (Optuna)
 - Large dataset processing
 - Batch inference
+- Teacher model evaluation (LM-TAD)
+- Abnormal OD workflow (Phases 0-6)
 
 For these tasks:
 1. Always run in a tmux/screen session
@@ -137,3 +153,7 @@ Key documentation in `docs/`:
 - Architecture specifications
 - Model checkpointing strategy
 - Evaluation and analysis guides
+- LM-TAD evaluation:
+  - ABNORMAL_OD_WORKFLOW_GUIDE.md
+  - results/TEACHER_BASELINE_COMPARISON.md
+  - results/ABNORMAL_OD_TEACHER_STUDENT_BRIDGE.md
