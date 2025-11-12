@@ -139,8 +139,8 @@ def load_lmtad_evaluator(
         raise ValueError("Device must be a non-empty string")
 
     # Validate device format
-    if not (device == "cpu" or (device.startswith("cuda") and ":" in device)):
-        raise ValueError(f'Device must be "cpu" or "cuda:N" format, got: {device}')
+    if not (device == "cpu" or device.startswith("cuda")):
+        raise ValueError(f'Device must be "cpu" or start with "cuda", got: {device}')
 
     logger.info(f"Loading LM-TAD model from {checkpoint}...")
     try:
@@ -550,8 +550,8 @@ def evaluate_with_lmtad(
     # Validate device
     if not isinstance(device, str) or not device.strip():
         raise ValueError("Device must be a non-empty string")
-    if not (device == "cpu" or (device.startswith("cuda") and ":" in device)):
-        raise ValueError(f'Device must be "cpu" or "cuda:N" format, got: {device}')
+    if not (device == "cpu" or device.startswith("cuda")):
+        raise ValueError(f'Device must be "cpu" or start with "cuda", got: {device}')
 
     # Validate batch size
     if not isinstance(batch_size, int):
