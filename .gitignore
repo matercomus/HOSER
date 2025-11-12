@@ -72,11 +72,15 @@ hoser-distill-optuna-6/figures/scenarios/
 */figures/scenarios/
 
 # LM-TAD evaluation outputs and temporary files
-*/lmtad_evaluation/
-*/eval_lmtad_sample/
-*/figures/lmtad_example/
-test_lmtad_evaluation.py
-IMPLEMENTATION_SUMMARY.md
+*/lmtad_evaluation/        # Evaluation results directory
+eval_lmtad_sample/        # Sample evaluation outputs
+*/eval_lmtad_*/           # Any evaluation sample directories
+test_lmtad_evaluation.py  # Standalone test script
+IMPLEMENTATION_SUMMARY.md  # Temporary documentation
+
+# Keep example figures but ignore generated ones
+*/figures/lmtad_*/
+!figures/lmtad_example/   # Keep reference examples
 
 # Porto evaluation directory (entire directory and its backups)
 hoser-distill-optuna-porto-eval-*/
