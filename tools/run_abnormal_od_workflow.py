@@ -563,6 +563,357 @@ class AbnormalODWorkflowRunner:
 
         return self.eval_output_dir
 
+    def evaluate_with_lmtad(self) -> Optional[Path]:
+        """
+        Phase 6: Evaluate trajectories using LMTAD teacher model.
+
+        Evaluates both real baseline and generated trajectories, then compares results.
+
+        Returns:
+            Path to LMTAD evaluation results directory, or None if skipped
+        """
+        # Check if LMTAD evaluation is configured
+        if (
+            not hasattr(self.config, "lmtad_checkpoint")
+            or not self.config.lmtad_checkpoint
+        ):
+            logger.info(
+                "⏭️  Phase 6: Skipping LMTAD evaluation (no checkpoint configured)"
+            )
+            return None
+
+        lmtad_checkpoint = Path(self.config.lmtad_checkpoint)
+        if not lmtad_checkpoint.exists():
+            logger.warning(f"⚠️  LMTAD checkpoint not found: {lmtad_checkpoint}")
+            logger.info("⏭️  Phase 6: Skipping LMTAD evaluation")
+            return None
+
+        logger.info("=" * 80)
+        logger.info("🎓 Phase 6: Evaluating with LMTAD Teacher Model")
+        logger.info("=" * 80)
+        logger.info(f"LMTAD checkpoint: {lmtad_checkpoint}")
+
+        # Create LMTAD evaluation directory
+        lmtad_eval_dir = self.eval_dir / "eval_lmtad" / self.dataset
+        lmtad_eval_dir.mkdir(parents=True, exist_ok=True)
+
+        # Evaluate real baseline trajectories
+        logger.info("Evaluating real baseline trajectories with LMTAD...")
+        real_results = self._evaluate_lmtad_real_baseline(lmtad_eval_dir)
+
+        # Evaluate generated trajectories for each model
+        if not getattr(self.config, "skip_generation", False):
+            logger.info("Evaluating generated trajectories with LMTAD...")
+            generated_results = self._evaluate_lmtad_generated(lmtad_eval_dir)
+
+            # Compare results
+            logger.info("Comparing LMTAD evaluation results...")
+            self._compare_lmtad_results(real_results, generated_results, lmtad_eval_dir)
+
+            logger.info(
+                f"✅ Phase 6 complete: LMTAD evaluation results saved to {lmtad_eval_dir}"
+            )
+            logger.info(
+                f"   - Real baseline perplexity: {real_results.get('mean_perplexity', 'N/A'):.4f}"
+            )
+            logger.info(f"   - Models evaluated: {len(generated_results)}")
+        else:
+            logger.info("✅ Phase 6 complete: Real baseline LMTAD evaluation saved")
+            logger.info(
+                f"   - Real baseline perplexity: {real_results.get('mean_perplexity', 'N/A'):.4f}"
+            )
+
+        return lmtad_eval_dir
+
+    def _evaluate_lmtad_real_baseline(self, output_dir: Path) -> dict:
+        """
+        Evaluate real abnormal trajectories with LMTAD teacher model.
+
+        Args:
+            output_dir: Directory to save LMTAD evaluation results
+
+        Returns:
+            Dictionary with evaluation metrics (perplexity, etc.)
+        """
+        from critics.lmtad_teacher import LMTADTeacher
+        import torch
+        import pandas as pd
+        import numpy as np
+
+        # Load LMTAD teacher
+        lmtad_repo_path = getattr(
+            self.config, "lmtad_repo_path", "/home/matt/Dev/LMTAD"
+        )
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+        teacher = LMTADTeacher(
+            repo_path=lmtad_repo_path,
+            ckpt_path=str(self.config.lmtad_checkpoint),
+            device=device,
+            dtype="float16",
+            window=64,
+        )
+
+        # Load abnormal OD pairs to filter real trajectories
+        with open(self.od_pairs_file, "r") as f:
+            od_data = json.load(f)
+
+        # Extract all abnormal OD pairs
+        abnormal_od_set = set()
+        for category, pairs in od_data.get("od_pairs_by_category", {}).items():
+            for pair in pairs:
+                abnormal_od_set.add((pair["origin"], pair["destination"]))
+
+        # Load real trajectories from train.csv
+        logger.info(f"Loading real trajectories from {self.train_csv}")
+        real_df = pd.read_csv(self.train_csv)
+
+        # Convert to LMTAD format and filter by abnormal ODs
+        lmtad_trajectories = []
+        matched_trajectories = 0
+
+        for idx, row in real_df.iterrows():
+            try:
+                # Parse trajectory
+                rid_list = [int(r) for r in str(row["rid_list"]).split(",")]
+                if len(rid_list) < 2:
+                    continue
+
+                origin = rid_list[0]
+                destination = rid_list[-1]
+
+                # Check if this trajectory matches an abnormal OD pair
+                if (origin, destination) in abnormal_od_set:
+                    # Convert to LMTAD grid tokens (if needed)
+                    lmtad_trajectories.append(rid_list)
+                    matched_trajectories += 1
+
+            except Exception:
+                continue
+
+        logger.info(
+            f"Found {matched_trajectories} real trajectories matching abnormal OD pairs"
+        )
+
+        # Evaluate perplexity for real trajectories
+        perplexities = []
+        for traj in lmtad_trajectories[:1000]:  # Limit for performance
+            try:
+                # Convert to tensor
+                tokens = torch.tensor(traj, dtype=torch.long)
+
+                # Calculate perplexity
+                total_log_prob = 0.0
+                for i in range(1, len(tokens)):
+                    history = tokens[:i]
+                    probs = teacher.predict_next_distribution(history)
+                    next_token = tokens[i].item()
+
+                    # Handle out-of-vocab tokens
+                    if next_token >= len(probs):
+                        continue
+
+                    prob = probs[next_token].item()
+                    if prob > 0:
+                        total_log_prob += np.log(prob)
+
+                # Calculate mean log probability
+                mean_log_prob = total_log_prob / (len(tokens) - 1)
+                perplexity = np.exp(-mean_log_prob)
+                perplexities.append(perplexity)
+
+            except Exception as e:
+                logger.debug(f"Error evaluating trajectory: {e}")
+                continue
+
+        # Aggregate results
+        results = {
+            "num_trajectories": len(perplexities),
+            "mean_perplexity": float(np.mean(perplexities)) if perplexities else 0.0,
+            "median_perplexity": float(np.median(perplexities))
+            if perplexities
+            else 0.0,
+            "std_perplexity": float(np.std(perplexities)) if perplexities else 0.0,
+            "min_perplexity": float(np.min(perplexities)) if perplexities else 0.0,
+            "max_perplexity": float(np.max(perplexities)) if perplexities else 0.0,
+        }
+
+        # Save results
+        results_file = output_dir / "lmtad_real_baseline.json"
+        with open(results_file, "w") as f:
+            json.dump(results, f, indent=2)
+
+        logger.info(f"✅ Real baseline LMTAD results saved: {results_file}")
+
+        return results
+
+    def _evaluate_lmtad_generated(self, output_dir: Path) -> dict:
+        """
+        Evaluate generated abnormal trajectories with LMTAD teacher model.
+
+        Args:
+            output_dir: Directory to save LMTAD evaluation results
+
+        Returns:
+            Dictionary mapping model names to evaluation metrics
+        """
+        from critics.lmtad_teacher import LMTADTeacher
+        import torch
+        import pandas as pd
+        import numpy as np
+
+        # Load LMTAD teacher
+        lmtad_repo_path = getattr(
+            self.config, "lmtad_repo_path", "/home/matt/Dev/LMTAD"
+        )
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+        teacher = LMTADTeacher(
+            repo_path=lmtad_repo_path,
+            ckpt_path=str(self.config.lmtad_checkpoint),
+            device=device,
+            dtype="float16",
+            window=64,
+        )
+
+        # Find all generated trajectory files
+        generated_files = list(self.gene_dir.glob("*_abnormal_od.csv"))
+        logger.info(f"Found {len(generated_files)} generated trajectory files")
+
+        model_results = {}
+
+        for gen_file in generated_files:
+            # Extract model name
+            model_name = gen_file.stem.replace("_abnormal_od", "")
+            logger.info(f"Evaluating {model_name}...")
+
+            # Load generated trajectories
+            gen_df = pd.read_csv(gen_file)
+
+            # Convert to LMTAD format
+            lmtad_trajectories = []
+            for idx, row in gen_df.iterrows():
+                try:
+                    # Parse trajectory
+                    rid_str = str(row["gene_trace_road_id"])
+                    rid_list = json.loads(rid_str)
+
+                    if len(rid_list) >= 2:
+                        lmtad_trajectories.append(rid_list)
+
+                except Exception:
+                    continue
+
+            # Evaluate perplexity
+            perplexities = []
+            for traj in lmtad_trajectories:
+                try:
+                    # Convert to tensor
+                    tokens = torch.tensor(traj, dtype=torch.long)
+
+                    # Calculate perplexity
+                    total_log_prob = 0.0
+                    for i in range(1, len(tokens)):
+                        history = tokens[:i]
+                        probs = teacher.predict_next_distribution(history)
+                        next_token = tokens[i].item()
+
+                        # Handle out-of-vocab tokens
+                        if next_token >= len(probs):
+                            continue
+
+                        prob = probs[next_token].item()
+                        if prob > 0:
+                            total_log_prob += np.log(prob)
+
+                    # Calculate mean log probability
+                    mean_log_prob = total_log_prob / (len(tokens) - 1)
+                    perplexity = np.exp(-mean_log_prob)
+                    perplexities.append(perplexity)
+
+                except Exception as e:
+                    logger.debug(f"Error evaluating trajectory: {e}")
+                    continue
+
+            # Aggregate results for this model
+            model_results[model_name] = {
+                "num_trajectories": len(perplexities),
+                "mean_perplexity": float(np.mean(perplexities))
+                if perplexities
+                else 0.0,
+                "median_perplexity": float(np.median(perplexities))
+                if perplexities
+                else 0.0,
+                "std_perplexity": float(np.std(perplexities)) if perplexities else 0.0,
+                "min_perplexity": float(np.min(perplexities)) if perplexities else 0.0,
+                "max_perplexity": float(np.max(perplexities)) if perplexities else 0.0,
+            }
+
+            logger.info(
+                f"  Mean perplexity: {model_results[model_name]['mean_perplexity']:.4f}"
+            )
+
+        # Save results
+        results_file = output_dir / "lmtad_generated_models.json"
+        with open(results_file, "w") as f:
+            json.dump(model_results, f, indent=2)
+
+        logger.info(f"✅ Generated models LMTAD results saved: {results_file}")
+
+        return model_results
+
+    def _compare_lmtad_results(
+        self, real_results: dict, generated_results: dict, output_dir: Path
+    ) -> dict:
+        """
+        Compare LMTAD evaluation results between real and generated trajectories.
+
+        Args:
+            real_results: Real baseline evaluation results
+            generated_results: Generated models evaluation results
+            output_dir: Directory to save comparison results
+
+        Returns:
+            Dictionary with comparison metrics
+        """
+        comparison = {
+            "real_baseline": real_results,
+            "models": {},
+        }
+
+        real_mean_perplexity = real_results.get("mean_perplexity", 0.0)
+
+        for model_name, model_results in generated_results.items():
+            model_mean_perplexity = model_results.get("mean_perplexity", 0.0)
+
+            # Calculate relative difference
+            if real_mean_perplexity > 0:
+                relative_diff = (
+                    model_mean_perplexity - real_mean_perplexity
+                ) / real_mean_perplexity
+            else:
+                relative_diff = 0.0
+
+            comparison["models"][model_name] = {
+                "metrics": model_results,
+                "vs_real_baseline": {
+                    "perplexity_diff": model_mean_perplexity - real_mean_perplexity,
+                    "perplexity_ratio": model_mean_perplexity / real_mean_perplexity
+                    if real_mean_perplexity > 0
+                    else 0.0,
+                    "relative_diff_pct": relative_diff * 100,
+                },
+            }
+
+        # Save comparison
+        comparison_file = output_dir / "lmtad_comparison.json"
+        with open(comparison_file, "w") as f:
+            json.dump(comparison, f, indent=2)
+
+        logger.info(f"✅ LMTAD comparison saved: {comparison_file}")
+
+        return comparison
+
     def run_analysis_and_visualization(self):
         """
         Analyze and visualize abnormal OD workflow results using programmatic interfaces.
@@ -667,6 +1018,9 @@ class AbnormalODWorkflowRunner:
                 "od_pairs": str(self.od_pairs_file),
                 "generated_trajectories": str(self.gene_dir),
                 "evaluation_results": str(self.eval_output_dir),
+                "lmtad_evaluation": str(self.eval_dir / "eval_lmtad" / self.dataset)
+                if hasattr(self.config, "lmtad_checkpoint")
+                else None,
                 "analysis": str(self.analysis_dir),
                 "figures": str(self.figures_dir),
             },
@@ -676,6 +1030,30 @@ class AbnormalODWorkflowRunner:
                     self.eval_dir / "figures" / "wang_abnormality" / self.dataset
                 ),
                 "abnormal_od_plots": str(self.figures_dir),
+                "lmtad_comparison": str(
+                    self.eval_dir
+                    / "eval_lmtad"
+                    / self.dataset
+                    / "lmtad_comparison.json"
+                )
+                if hasattr(self.config, "lmtad_checkpoint")
+                else None,
+                "lmtad_real_baseline": str(
+                    self.eval_dir
+                    / "eval_lmtad"
+                    / self.dataset
+                    / "lmtad_real_baseline.json"
+                )
+                if hasattr(self.config, "lmtad_checkpoint")
+                else None,
+                "lmtad_generated_models": str(
+                    self.eval_dir
+                    / "eval_lmtad"
+                    / self.dataset
+                    / "lmtad_generated_models.json"
+                )
+                if hasattr(self.config, "lmtad_checkpoint")
+                else None,
             },
             "plots_generated": [
                 "abnormality_reproduction_rates.png/svg",
@@ -749,6 +1127,9 @@ class AbnormalODWorkflowRunner:
 
                 # Phase 5: Evaluate
                 self.evaluate_trajectories()
+
+                # Phase 6: LMTAD Teacher Evaluation
+                self.evaluate_with_lmtad()
 
             # Analysis and visualization
             self.run_analysis_and_visualization()
