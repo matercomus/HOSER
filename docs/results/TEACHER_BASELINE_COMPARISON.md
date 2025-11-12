@@ -200,6 +200,300 @@ This document presents the performance of the LM-TAD teacher model on trajectory
 
 ---
 
+## Teacher Model Evaluation Approach
+
+### Overview
+
+The LM-TAD teacher model evaluation follows a distinct methodology from student models due to architectural differences. This section explains how to evaluate the teacher model and interpret results in the context of knowledge distillation.
+
+### Evaluation Process
+
+#### 1. Model Setup
+
+**Teacher Architecture (LM-TAD)**:
+- **Type**: GPT-based autoregressive transformer
+- **Parameters**: 85M (8 layers × 12 heads × 768d embedding)
+- **Vocabulary**: Grid-based spatial tokenization
+  - Beijing: 25×25 grid (625 spatial tokens)
+  - Porto: 46×134 grid (6,164 spatial tokens)
+- **Training**: Next-token prediction on normal trajectories
+- **Evaluation**: Log perplexity-based outlier detection
+
+**Loading Teacher Checkpoint:**
+```python
+from pathlib import Path
+from critics.lmtad_teacher import LMTADTeacher
+
+# Load pretrained teacher model
+teacher = LMTADTeacher(
+    repo_path=Path("/home/matt/Dev/LMTAD"),
+    checkpoint_path=Path("/path/to/weights_only.pt"),
+    grid_size=0.002,  # Beijing: 0.002, Porto: 0.001
+    device="cuda:0"
+)
+```
+
+#### 2. Dataset Preparation
+
+**HOSER-Compatible Format:**
+The teacher evaluates on the same HOSER dataset format as students, but requires grid tokenization:
+
+```python
+# Trajectory format (HOSER CSV)
+# traj_id,road_id_sequence,timestamp_sequence,...
+# 12345,"[100,101,102,103]","[t0,t1,t2,t3]",...
+
+# Convert to LM-TAD grid tokens
+from critics.grid_mapper import GridMapper
+
+mapper = GridMapper(grid_size=0.002)  # Beijing
+grid_tokens = mapper.road_ids_to_grid(road_id_sequence)
+```
+
+**Outlier Injection:**
+Same protocol as student evaluation:
+- **Ratio**: 5% outliers (detour) vs 95% non-outliers
+- **Level**: Detour complexity (1-3)
+- **Probability**: Route switch probability (0.1-0.3)
+
+#### 3. Evaluation Metrics
+
+**Primary Metric: Log Perplexity**
+```python
+import torch
+
+# Compute log perplexity for trajectory
+with torch.no_grad():
+    log_perplexity = teacher.compute_log_perplexity(grid_tokens)
+
+# Classification threshold (optimized via PR curve)
+is_abnormal = log_perplexity > threshold
+```
+
+**Threshold Optimization:**
+```python
+from sklearn.metrics import precision_recall_curve
+
+# Compute precision-recall curve
+precision, recall, thresholds = precision_recall_curve(
+    y_true=labels,  # Ground truth (0=normal, 1=abnormal)
+    probas_pred=log_perplexities
+)
+
+# Find optimal threshold (maximize F1)
+f1_scores = 2 * (precision * recall) / (precision + recall)
+optimal_idx = np.argmax(f1_scores)
+optimal_threshold = thresholds[optimal_idx]
+```
+
+**Classification Metrics:**
+- **Accuracy**: (TP + TN) / Total
+- **Precision**: TP / (TP + FP) - How many detected abnormals are correct
+- **Recall**: TP / (TP + FN) - How many real abnormals are detected
+- **F1 Score**: Harmonic mean of precision and recall
+- **PR-AUC**: Area under precision-recall curve
+
+#### 4. Abnormal OD Pair Evaluation
+
+**Specialized Evaluation on Abnormal Patterns:**
+
+To enable direct teacher-student comparison, evaluate teacher on the same abnormal OD pairs extracted from real data:
+
+```python
+from pathlib import Path
+from tools.evaluate_lmtad_abnormal_od import evaluate_lmtad_abnormal_od
+
+# Evaluate teacher on abnormal OD pairs
+results = evaluate_lmtad_abnormal_od(
+    od_pairs_file=Path("abnormal_od_pairs_Beijing.json"),
+    lmtad_repo=Path("/home/matt/Dev/LMTAD"),
+    lmtad_checkpoint=Path("/path/to/weights_only.pt"),
+    real_data_file=Path("data/Beijing/train.csv"),
+    output_dir=Path("eval_abnormal_teacher/Beijing"),
+    dataset="Beijing",
+    max_pairs_per_category=20,
+    grid_size=0.002
+)
+```
+
+**Output:**
+```json
+{
+  "model": "LM-TAD",
+  "parameters": 85000000,
+  "abnormal_od_evaluation": {
+    "total_trajectories": 1000,
+    "detected_abnormal": 850,
+    "detection_rate": 85.0,
+    "metrics": {
+      "accuracy": 0.9875,
+      "precision": 0.7459,
+      "recall": 0.9583,
+      "f1": 0.8389,
+      "pr_auc": 0.9654
+    }
+  }
+}
+```
+
+### Evaluation Script
+
+**Using Modified LM-TAD Evaluation:**
+
+```bash
+# Navigate to LM-TAD repository
+cd /home/matt/Dev/LMTAD/code
+
+# Activate LM-TAD environment
+conda activate lmtad  # or appropriate environment
+
+# Run evaluation on HOSER format data
+python eval_porto.py \
+  --data_dir /home/matt/Dev/HOSER/data/Beijing \
+  --checkpoint /path/to/weights_only.pt \
+  --grid_size 0.002 \
+  --outlier_ratio 0.05 \
+  --outlier_level 3 \
+  --outlier_prob 0.1 \
+  --output_dir /home/matt/Dev/HOSER/eval_abnormal_teacher/Beijing
+```
+
+**Script Modifications Required:**
+1. **Data Loading**: Adapt to read HOSER CSV format (road_id sequences)
+2. **Grid Tokenization**: Convert road IDs to grid tokens using GridMapper
+3. **Metrics**: Compute precision, recall, F1, PR-AUC
+4. **Output**: Save results in HOSER-compatible JSON format
+
+### Result Interpretation
+
+#### Log Perplexity Distribution
+
+**Normal Trajectories:**
+- **Beijing**: Mean 0.48 ± 0.16 (low perplexity = high confidence)
+- **Porto**: Mean 0.38 ± 0.14
+
+**Abnormal Trajectories:**
+- **Beijing Detours**: Mean 8.04 ± 3.50 (~17× higher than normal)
+- **Porto Detours**: Mean 8.41 ± 3.85 (~22× higher than normal)
+
+**Separation Quality:**
+Clear separation indicates teacher learned normal trajectory patterns well.
+
+#### Detection Performance
+
+**High Recall (95-100%):**
+- Teacher rarely misses true abnormalities
+- Conservative threshold optimized for recall
+- Few false negatives (missed abnormal patterns)
+
+**Moderate Precision (75-85%):**
+- Some false positives (normal flagged as abnormal)
+- Trade-off: better to flag uncertain cases than miss abnormalities
+- Acceptable for knowledge distillation (student learns decision boundary)
+
+#### Dataset Differences
+
+**Beijing vs Porto:**
+- **Porto**: Higher precision (83.66% vs 74.59%) - cleaner separation
+- **Porto**: Near-perfect recall (99.99% vs 95.83%)
+- **Porto**: Longer trajectories (44.9 vs 28.6 tokens) provide richer signal
+- **Porto**: More complex road network = better contextual learning
+
+### Configuration Examples
+
+#### Beijing Evaluation Config
+```yaml
+# config/lmtad_beijing_eval.yaml
+lmtad:
+  repo: /home/matt/Dev/LMTAD
+  checkpoint: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/.../final_model/weights_only.pt
+  grid_size: 0.002
+  device: cuda:0
+
+evaluation:
+  dataset: Beijing
+  data_dir: /home/matt/Dev/HOSER/data/Beijing
+  outlier_injection:
+    ratio: 0.05      # 5% detour outliers
+    level: 3         # Maximum detour complexity
+    prob: 0.1        # 10% route switch probability
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1
+    - pr_auc
+  threshold_strategy: optimal_f1  # Maximize F1 score
+```
+
+#### Porto Evaluation Config
+```yaml
+# config/lmtad_porto_eval.yaml
+lmtad:
+  repo: /home/matt/Dev/LMTAD
+  checkpoint: /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/.../ckpt_best/weights_only.pt
+  grid_size: 0.001  # Porto uses finer grid
+  device: cuda:0
+
+evaluation:
+  dataset: porto_hoser
+  data_dir: /home/matt/Dev/HOSER/data/porto_hoser
+  outlier_injection:
+    ratio: 0.05
+    level: 3
+    prob: 0.3        # Higher route switch for Porto
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1
+    - pr_auc
+  threshold_strategy: optimal_f1
+```
+
+### Workflow Integration
+
+**Complete Teacher Evaluation Workflow:**
+
+```python
+from pathlib import Path
+
+# 1. Extract abnormal OD pairs (shared with student evaluation)
+from tools.extract_abnormal_od_pairs import extract_and_save_abnormal_od_pairs
+
+od_pairs_file = extract_and_save_abnormal_od_pairs(
+    detection_results_files=[Path("abnormal/Beijing/train/real_data/detection_results.json")],
+    real_data_files=[Path("data/Beijing/train.csv")],
+    dataset_name="Beijing",
+    output_file=Path("abnormal_od_pairs_Beijing.json")
+)
+
+# 2. Evaluate teacher on abnormal OD pairs
+from tools.evaluate_lmtad_abnormal_od import evaluate_lmtad_abnormal_od
+
+teacher_results = evaluate_lmtad_abnormal_od(
+    od_pairs_file=od_pairs_file,
+    lmtad_repo=Path("/home/matt/Dev/LMTAD"),
+    lmtad_checkpoint=Path("/path/to/weights_only.pt"),
+    real_data_file=Path("data/Beijing/train.csv"),
+    output_dir=Path("eval_abnormal_teacher/Beijing"),
+    dataset="Beijing",
+    max_pairs_per_category=20,
+    grid_size=0.002
+)
+
+# 3. Compare with student evaluation results
+from tools.compare_teacher_student import compare_abnormal_od_performance
+
+comparison = compare_abnormal_od_performance(
+    teacher_results=teacher_results,
+    student_results_dir=Path("eval_abnormal/Beijing"),
+    output_dir=Path("analysis_abnormal/Beijing")
+)
+```
+
+---
+
 ## Evaluation Methodology
 
 ### Teacher Evaluation Process

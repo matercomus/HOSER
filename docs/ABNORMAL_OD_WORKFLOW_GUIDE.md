@@ -225,6 +225,83 @@ eval_abnormal/Beijing/
 - **Similarity Metrics**: EDR, DTW, Hausdorff distance vs real abnormal trajectories
 - **Category Distribution**: Breakdown by abnormality type
 
+### Phase 6: LM-TAD Teacher Evaluation (Optional)
+
+Evaluate the LM-TAD teacher model on the same abnormal OD pairs for direct comparison with student models.
+
+**When to run:**
+- Establishing teacher baseline performance
+- Direct teacher-student comparison on abnormal patterns
+- Validating compression-performance tradeoff
+
+**Programmatic:**
+```python
+from pathlib import Path
+from tools.evaluate_lmtad_abnormal_od import evaluate_lmtad_abnormal_od
+
+# Evaluate LM-TAD teacher on abnormal OD pairs
+evaluate_lmtad_abnormal_od(
+    od_pairs_file=Path("abnormal_od_pairs_Beijing.json"),
+    lmtad_repo=Path("/home/matt/Dev/LMTAD"),
+    lmtad_checkpoint=Path("/home/matt/Dev/LMTAD/code/results/.../weights_only.pt"),
+    real_data_file=Path("data/Beijing/train.csv"),
+    output_dir=Path("eval_abnormal_teacher/Beijing"),
+    dataset="Beijing",
+    max_pairs_per_category=20,
+    grid_size=0.002  # Beijing grid size from LM-TAD config
+)
+```
+
+**CLI:**
+```bash
+uv run python tools/evaluate_lmtad_abnormal_od.py \
+  --od-pairs abnormal_od_pairs_Beijing.json \
+  --lmtad-repo /home/matt/Dev/LMTAD \
+  --lmtad-checkpoint /path/to/weights_only.pt \
+  --real-data data/Beijing/train.csv \
+  --output-dir eval_abnormal_teacher/Beijing \
+  --dataset Beijing \
+  --max-pairs 20 \
+  --grid-size 0.002
+```
+
+**Configuration Example:**
+```yaml
+# config/lmtad_evaluation.yaml
+lmtad:
+  repo: /home/matt/Dev/LMTAD
+  checkpoint: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/.../weights_only.pt
+  grid_size: 0.002  # Beijing: 0.002, Porto: 0.001
+  device: cuda:0
+
+evaluation:
+  max_pairs_per_category: 20
+  num_trajectories_per_od: 1  # LM-TAD evaluates real trajectories, not generated
+  detection_threshold: auto  # Auto-detect from precision-recall curve
+```
+
+**Output:**
+```
+eval_abnormal_teacher/Beijing/
+├── lmtad_abnormal_od_evaluation.json  # Detection results
+├── metrics_summary.json                # F1, precision, recall, PR-AUC
+└── comparison_with_students.json       # Teacher vs student comparison
+```
+
+**Metrics Evaluated:**
+- **Detection Accuracy**: F1 score on abnormal OD trajectories
+- **Precision**: How many detected abnormals are truly abnormal
+- **Recall**: How many real abnormals are detected
+- **PR-AUC**: Precision-recall area under curve
+
+**Integration with Student Evaluation:**
+The teacher evaluation results are used in the dual evaluation framework to compare:
+- **Teacher**: Detection accuracy on real abnormal trajectories (classification task)
+- **Student**: Abnormality reproduction rate in generated trajectories (generation task)
+- **Comparison**: Performance retention = (Student Rate / Teacher Detection Rate)
+
+See `docs/results/ABNORMAL_OD_TEACHER_STUDENT_BRIDGE.md` for the unified framework.
+
 ### Analysis & Visualization
 
 Aggregates results and generates publication-quality visualizations.
