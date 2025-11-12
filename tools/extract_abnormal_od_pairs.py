@@ -17,7 +17,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Set, Optional
 import polars as pl
 
 logging.basicConfig(
@@ -49,7 +49,7 @@ def extract_od_pairs_from_trajectories(
     logger.info(f"📂 Loading real data from {real_data_file}")
 
     # First, read a sample to detect the format
-    sample_df = pl.read_csv(real_data_file, n_rows=1)
+    sample_df = pl.read_csv(real_data_file, n_rows=1, truncate_ragged_lines=True)
 
     # Detect format: road_id (point-based) vs rid_list (trajectory-based)
     if "road_id" in sample_df.columns:
@@ -57,6 +57,7 @@ def extract_od_pairs_from_trajectories(
         df = pl.read_csv(
             real_data_file,
             columns=["traj_id", "road_id"],
+            truncate_ragged_lines=True,
         )
 
         logger.info(f"✅ Loaded {len(df)} trajectory points (road_id format)")
@@ -86,6 +87,7 @@ def extract_od_pairs_from_trajectories(
         df = pl.read_csv(
             real_data_file,
             columns=["traj_id", "rid_list"],
+            truncate_ragged_lines=True,
         )
 
         logger.info(f"✅ Loaded {len(df)} trajectories (rid_list format)")
@@ -130,6 +132,71 @@ def extract_od_pairs_from_trajectories(
     logger.info(f"🔍 Extracted {len(od_list)} OD pairs ({len(od_set)} unique)")
 
     return list(od_set)
+
+
+def extract_normal_od_pairs(
+    real_data_file: Path,
+    abnormal_traj_ids: Set[int],
+    max_trajectories: Optional[int] = None,
+) -> List[Tuple[int, int]]:
+    """Extract OD pairs from normal (non-abnormal) trajectories
+
+    Args:
+        real_data_file: Path to real trajectory CSV file
+        abnormal_traj_ids: Set of trajectory IDs marked as abnormal (to exclude)
+        max_trajectories: Optional limit on number of trajectories to process
+
+    Returns:
+        List of (origin, destination) tuples from normal trajectories
+    """
+    assert real_data_file.exists(), f"Real data file not found: {real_data_file}"
+
+    logger.info(f"📂 Loading real data from {real_data_file}")
+    logger.info(f"   Excluding {len(abnormal_traj_ids)} abnormal trajectories")
+
+    # First, read a sample to detect the format
+    sample_df = pl.read_csv(real_data_file, n_rows=1, truncate_ragged_lines=True)
+
+    # Get all trajectory IDs first
+    if "road_id" in sample_df.columns:
+        # Point-based format
+        df = pl.read_csv(
+            real_data_file, columns=["traj_id", "road_id"], truncate_ragged_lines=True
+        )
+        all_traj_ids = set(df["traj_id"].unique().to_list())
+    elif "rid_list" in sample_df.columns:
+        # Trajectory-based format
+        df = pl.read_csv(
+            real_data_file, columns=["traj_id", "rid_list"], truncate_ragged_lines=True
+        )
+        all_traj_ids = set(df["traj_id"].unique().to_list())
+    else:
+        raise ValueError(
+            f"Unknown data format: expected 'road_id' or 'rid_list' column. "
+            f"Found columns: {sample_df.columns}"
+        )
+
+    # Filter to normal trajectories (not in abnormal set)
+    normal_traj_ids = list(all_traj_ids - abnormal_traj_ids)
+
+    # Apply max_trajectories limit if specified
+    if max_trajectories is not None and max_trajectories > 0:
+        import random
+
+        random.seed(42)  # For reproducibility
+        normal_traj_ids = random.sample(
+            normal_traj_ids, min(max_trajectories, len(normal_traj_ids))
+        )
+        logger.info(f"   Sampling {len(normal_traj_ids)} normal trajectories")
+
+    logger.info(f"   Processing {len(normal_traj_ids)} normal trajectories")
+
+    # Use existing extraction function with normal trajectory IDs
+    od_pairs = extract_od_pairs_from_trajectories(real_data_file, normal_traj_ids)
+
+    logger.info(f"✅ Extracted {len(od_pairs)} normal OD pairs")
+
+    return od_pairs
 
 
 def extract_abnormal_od_pairs(

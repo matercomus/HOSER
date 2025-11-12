@@ -147,6 +147,92 @@ uv run python tools/evaluate_abnormal_od.py \
   --output-dir eval_abnormal/Beijing
 ```
 
+#### `plot_abnormal_evaluation.py` - Evaluation Plots
+
+Generate plots for model evaluation on generated abnormal trajectories.
+
+**Programmatic:**
+```python
+from pathlib import Path
+from tools.plot_abnormal_evaluation import plot_evaluation_from_files
+
+plot_files = plot_evaluation_from_files(
+    comparison_report_file=Path("eval_abnormal/Beijing/comparison_report.json"),
+    output_dir=Path("figures/abnormal_od/Beijing"),
+    dataset="Beijing"
+)
+```
+
+**CLI:**
+```bash
+uv run python tools/plot_abnormal_evaluation.py \
+  --comparison-report eval_abnormal/Beijing/comparison_report.json \
+  --output-dir figures/abnormal_od/Beijing \
+  --dataset Beijing
+```
+
+**Generated Plots:**
+- `abnormality_reproduction_rates.png`: Bar chart showing how well each model reproduces abnormal patterns
+- `similarity_metrics_comparison.png`: Grouped bar chart comparing EDR, DTW, and Hausdorff distances
+- `abnormality_by_category.png`: Stacked bar chart showing abnormal pattern distribution by category
+- `metrics_heatmap.png`: Heatmap comparing all metrics across models
+
+#### `plot_abnormal_analysis.py` - Analysis Plots
+
+Generate plots for real abnormal trajectory analysis (when generation is skipped).
+
+**Programmatic:**
+```python
+from pathlib import Path
+from tools.plot_abnormal_analysis import plot_analysis_from_files
+
+plot_files = plot_analysis_from_files(
+    abnormal_od_pairs_file=Path("abnormal_od_pairs_Beijing.json"),
+    real_data_files=[Path("data/Beijing/train.csv"), Path("data/Beijing/test.csv")],
+    detection_results_files=[
+        Path("abnormal/Beijing/train/real_data/detection_results.json"),
+        Path("abnormal/Beijing/test/real_data/detection_results.json")
+    ],
+    samples_dir=Path("abnormal/Beijing"),
+    output_dir=Path("figures/abnormal_od/Beijing"),
+    dataset="Beijing",
+    include_normal=True  # Also generate normal OD heatmap and comparison
+)
+```
+
+**CLI:**
+```bash
+uv run python tools/plot_abnormal_analysis.py \
+  --abnormal-od-pairs abnormal_od_pairs_Beijing.json \
+  --real-data-dir data/Beijing \
+  --detection-results-dir abnormal/Beijing \
+  --samples-dir abnormal/Beijing \
+  --output-dir figures/abnormal_od/Beijing \
+  --dataset Beijing \
+  --include-normal
+```
+
+**Generated Plots:**
+- `abnormal_od_distribution.png`: Top origins and destinations in abnormal trajectories
+- `abnormal_categories_summary.png`: Pie chart of abnormal pattern categories
+- `temporal_delay_analysis.png`: Analysis of temporal and spatial deviations
+- `abnormal_od_heatmap.png`: Heatmap of most frequent abnormal OD pairs
+- `normal_od_heatmap.png`: Heatmap of normal OD pairs (if `--include-normal`)
+- `od_heatmap_comparison.png`: Side-by-side comparison of abnormal vs normal OD patterns (if `--include-normal`)
+
+**Normal OD Heatmap Explanation:**
+
+The normal OD heatmap shows the most frequent origin-destination pairs in normal (non-abnormal) trajectories. When used with `--include-normal`, it:
+1. Extracts all normal trajectories (excluding those marked as abnormal)
+2. Computes OD pair frequencies
+3. Uses the same top N origins/destinations as the abnormal heatmap for direct comparison
+4. Generates a side-by-side comparison plot showing differences between abnormal and normal patterns
+
+This comparison helps identify:
+- Which OD pairs are over-represented in abnormal trajectories
+- Which OD pairs are common in both normal and abnormal trajectories
+- Spatial patterns that distinguish abnormal from normal behavior
+
 ### Wang Analysis Tools
 
 #### `analyze_wang_results.py` - Aggregate Results

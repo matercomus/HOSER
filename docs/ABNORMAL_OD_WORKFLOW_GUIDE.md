@@ -327,6 +327,66 @@ Complete workflow generates:
 - Color-coded by effect size
 - Cohen's h annotated on bars
 
+## Standalone Plotting
+
+The plotting functionality has been decoupled from the workflow orchestrator and can be run independently on existing data.
+
+### Evaluation Plots (Generated Trajectories)
+
+Generate plots for model evaluation results without running the full workflow:
+
+```bash
+uv run python tools/plot_abnormal_evaluation.py \
+  --comparison-report eval_abnormal/Beijing/comparison_report.json \
+  --output-dir figures/abnormal_od/Beijing \
+  --dataset Beijing
+```
+
+**Use Cases:**
+- Regenerating plots after modifying visualization code
+- Creating plots for evaluation results from previous runs
+- Comparing results across different evaluation directories
+
+### Analysis Plots (Real Abnormal Data)
+
+Generate analysis plots for real abnormal trajectories without trajectory generation:
+
+```bash
+uv run python tools/plot_abnormal_analysis.py \
+  --abnormal-od-pairs abnormal_od_pairs_Beijing.json \
+  --real-data-dir data/Beijing \
+  --detection-results-dir abnormal/Beijing \
+  --samples-dir abnormal/Beijing \
+  --output-dir figures/abnormal_od/Beijing \
+  --dataset Beijing \
+  --include-normal
+```
+
+**Use Cases:**
+- Analyzing real abnormal patterns without generating trajectories
+- Comparing abnormal vs normal OD patterns
+- Creating publication-ready visualizations from existing detection results
+
+### Normal OD Heatmap
+
+The `--include-normal` flag enables generation of normal OD heatmaps for comparison:
+
+**What it does:**
+1. Extracts all normal trajectories (excluding those marked as abnormal)
+2. Computes OD pair frequencies from normal trajectories
+3. Uses the same top N origins/destinations as the abnormal heatmap for direct comparison
+4. Generates side-by-side comparison plots
+
+**Interpretation:**
+- **Red areas in abnormal heatmap, blue in normal**: OD pairs over-represented in abnormal trajectories
+- **Red in both**: Common OD pairs that can appear in both normal and abnormal contexts
+- **Blue in normal only**: OD pairs that are common in normal trajectories but rare in abnormal ones
+
+This comparison helps identify:
+- Spatial patterns that distinguish abnormal from normal behavior
+- Which OD pairs are most indicative of abnormal patterns
+- Whether certain road segments are more prone to abnormal trajectories
+
 ## Use Cases
 
 ### Within-Dataset Analysis

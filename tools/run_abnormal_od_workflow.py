@@ -47,10 +47,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
-
-import matplotlib.pyplot as plt
-import numpy as np
+from typing import Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -69,25 +66,13 @@ from tools.translate_od_pairs import (
     filter_od_pairs_by_quality,
     save_translated_od_pairs,
 )
+from tools.plot_abnormal_evaluation import plot_evaluation_from_files
+from tools.plot_abnormal_analysis import plot_analysis_from_files
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-# Set publication-quality plot defaults
-plt.rcParams.update(
-    {
-        "font.size": 11,
-        "axes.labelsize": 12,
-        "axes.titlesize": 14,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "legend.fontsize": 10,
-        "figure.titlesize": 16,
-        "font.family": "sans-serif",
-    }
-)
 
 
 class AbnormalODWorkflowRunner:
@@ -622,609 +607,48 @@ class AbnormalODWorkflowRunner:
 
     def _generate_abnormal_od_plots(self):
         """Generate plots for abnormal OD evaluation results"""
-        # Create figures directory
-        self.figures_dir.mkdir(parents=True, exist_ok=True)
-
-        # Load comparison report
         comparison_file = self.eval_output_dir / "comparison_report.json"
-        if not comparison_file.exists():
-            logger.warning(f"Comparison report not found: {comparison_file}")
-            return
 
-        with open(comparison_file, "r") as f:
-            comparison_data = json.load(f)
-
-        model_results = comparison_data.get("model_results", {})
-        if not model_results:
-            logger.warning("No model results found in comparison report")
-            return
-
-        # Generate various plots
-        self._plot_abnormality_reproduction_rates(model_results)
-        self._plot_similarity_metrics(model_results)
-        self._plot_abnormality_by_category(model_results)
-        self._plot_metrics_comparison_heatmap(model_results)
-
-        logger.info(f"   Generated 4 plot types in {self.figures_dir}")
-
-    def _plot_abnormality_reproduction_rates(self, model_results: Dict[str, Any]):
-        """Plot abnormality reproduction rates across models"""
-        models = []
-        rates = []
-        counts = []
-
-        for model_name, results in sorted(model_results.items()):
-            total_abnormal = sum(
-                cat_data["count"]
-                for cat_data in results["abnormality_detection"].values()
-            )
-            total_traj = results["total_trajectories"]
-            rate = (total_abnormal / total_traj * 100) if total_traj > 0 else 0
-
-            models.append(model_name)
-            rates.append(rate)
-            counts.append(total_abnormal)
-
-        # Create plot
-        fig, ax = plt.subplots(figsize=(12, 6))
-
-        # Bar colors - blue for distilled, red for vanilla
-        colors = ["#3498db" if "distill" in m.lower() else "#e74c3c" for m in models]
-
-        bars = ax.barh(models, rates, color=colors, alpha=0.8)
-
-        # Add value labels
-        for i, (bar, rate, count, total) in enumerate(
-            zip(
-                bars,
-                rates,
-                counts,
-                [model_results[m]["total_trajectories"] for m in models],
-            )
-        ):
-            width = bar.get_width()
-            ax.text(
-                width + 0.5,
-                bar.get_y() + bar.get_height() / 2,
-                f"{rate:.1f}% ({count}/{total})",
-                ha="left",
-                va="center",
-                fontsize=9,
-                fontweight="bold",
-            )
-
-        ax.set_xlabel("Abnormality Reproduction Rate (%)", fontsize=12)
-        ax.set_ylabel("Model", fontsize=12)
-        ax.set_title(
-            f"Abnormality Reproduction Rates - {self.dataset}\n"
-            f"(Generated trajectories reproducing abnormal patterns)",
-            fontsize=14,
-            fontweight="bold",
-        )
-        ax.grid(axis="x", alpha=0.3)
-
-        # Add legend
-        from matplotlib.patches import Patch
-
-        legend_elements = [
-            Patch(facecolor="#3498db", alpha=0.8, label="Distilled Models"),
-            Patch(facecolor="#e74c3c", alpha=0.8, label="Vanilla Models"),
-        ]
-        ax.legend(handles=legend_elements, loc="best")
-
-        plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "abnormality_reproduction_rates.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.savefig(
-            self.figures_dir / "abnormality_reproduction_rates.svg", bbox_inches="tight"
-        )
-        plt.close()
-
-    def _plot_similarity_metrics(self, model_results: Dict[str, Any]):
-        """Plot similarity metrics comparison across models"""
-        models = list(sorted(model_results.keys()))
-
-        edr_scores = []
-        dtw_scores = []
-        hausdorff_scores = []
-
-        for model_name in models:
-            metrics = model_results[model_name]["similarity_metrics"]
-            edr_scores.append(metrics.get("edr", 0))
-            dtw_scores.append(metrics.get("dtw", 0))
-            hausdorff_scores.append(metrics.get("hausdorff", 0))
-
-        # Create grouped bar plot
-        x = np.arange(len(models))
-        width = 0.25
-
-        fig, ax = plt.subplots(figsize=(14, 6))
-
-        bars1 = ax.bar(
-            x - width, edr_scores, width, label="EDR", color="#2ecc71", alpha=0.8
-        )
-        bars2 = ax.bar(x, dtw_scores, width, label="DTW", color="#3498db", alpha=0.8)
-        bars3 = ax.bar(
-            x + width,
-            hausdorff_scores,
-            width,
-            label="Hausdorff",
-            color="#e74c3c",
-            alpha=0.8,
+        assert comparison_file.exists(), (
+            f"Comparison report not found: {comparison_file}. "
+            f"Run evaluation step first."
         )
 
-        # Add value labels
-        for bars in [bars1, bars2, bars3]:
-            for bar in bars:
-                height = bar.get_height()
-                if height > 0:
-                    ax.text(
-                        bar.get_x() + bar.get_width() / 2,
-                        height + 0.01,
-                        f"{height:.3f}",
-                        ha="center",
-                        va="bottom",
-                        fontsize=8,
-                        rotation=90,
-                    )
-
-        ax.set_ylabel("Similarity Score", fontsize=12)
-        ax.set_xlabel("Model", fontsize=12)
-        ax.set_title(
-            f"Trajectory Similarity Metrics - {self.dataset}\n"
-            f"(Lower is better - distance from real abnormal trajectories)",
-            fontsize=14,
-            fontweight="bold",
-        )
-        ax.set_xticks(x)
-        ax.set_xticklabels(models, rotation=45, ha="right")
-        ax.legend()
-        ax.grid(axis="y", alpha=0.3)
-
-        plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "similarity_metrics_comparison.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.savefig(
-            self.figures_dir / "similarity_metrics_comparison.svg", bbox_inches="tight"
-        )
-        plt.close()
-
-    def _plot_abnormality_by_category(self, model_results: Dict[str, Any]):
-        """Plot abnormality detection by category across models"""
-        # Collect all categories
-        all_categories = set()
-        for results in model_results.values():
-            all_categories.update(results["abnormality_detection"].keys())
-
-        categories = sorted(all_categories)
-        models = list(sorted(model_results.keys()))
-
-        # Create stacked bar chart
-        fig, ax = plt.subplots(figsize=(14, 6))
-
-        # Prepare data
-        category_data = {cat: [] for cat in categories}
-        for model_name in models:
-            abnormal_by_cat = model_results[model_name]["abnormality_detection"]
-            for cat in categories:
-                count = abnormal_by_cat.get(cat, {}).get("count", 0)
-                category_data[cat].append(count)
-
-        # Color scheme for categories
-        colors = plt.cm.Set3(np.linspace(0, 1, len(categories)))
-
-        # Create stacked bars
-        bottom = np.zeros(len(models))
-        for i, cat in enumerate(categories):
-            ax.bar(
-                models,
-                category_data[cat],
-                bottom=bottom,
-                label=cat,
-                color=colors[i],
-                alpha=0.8,
-            )
-            bottom += np.array(category_data[cat])
-
-        ax.set_ylabel("Abnormal Trajectory Count", fontsize=12)
-        ax.set_xlabel("Model", fontsize=12)
-        ax.set_title(
-            f"Abnormality Detection by Category - {self.dataset}\n"
-            f"(Distribution of abnormal patterns in generated trajectories)",
-            fontsize=14,
-            fontweight="bold",
-        )
-        ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
-        ax.grid(axis="y", alpha=0.3)
-        plt.xticks(rotation=45, ha="right")
-
-        plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "abnormality_by_category.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.savefig(
-            self.figures_dir / "abnormality_by_category.svg", bbox_inches="tight"
-        )
-        plt.close()
-
-    def _plot_metrics_comparison_heatmap(self, model_results: Dict[str, Any]):
-        """Create heatmap comparing all metrics across models"""
-        models = list(sorted(model_results.keys()))
-
-        # Collect metrics
-        metrics_data = []
-        metric_names = ["EDR", "DTW", "Hausdorff", "Abnormality Rate (%)"]
-
-        for model_name in models:
-            results = model_results[model_name]
-            metrics = results["similarity_metrics"]
-
-            total_abnormal = sum(
-                cat_data["count"]
-                for cat_data in results["abnormality_detection"].values()
-            )
-            total_traj = results["total_trajectories"]
-            abnormal_rate = (total_abnormal / total_traj * 100) if total_traj > 0 else 0
-
-            metrics_data.append(
-                [
-                    metrics.get("edr", 0),
-                    metrics.get("dtw", 0),
-                    metrics.get("hausdorff", 0),
-                    abnormal_rate,
-                ]
-            )
-
-        # Create heatmap
-        fig, ax = plt.subplots(figsize=(10, len(models) * 0.5 + 2))
-
-        # Normalize each column separately for better visualization
-        metrics_array = np.array(metrics_data)
-        normalized_data = np.zeros_like(metrics_array)
-        for i in range(metrics_array.shape[1]):
-            col = metrics_array[:, i]
-            if col.max() > 0:
-                normalized_data[:, i] = col / col.max()
-
-        im = ax.imshow(normalized_data, cmap="RdYlGn_r", aspect="auto", vmin=0, vmax=1)
-
-        # Set ticks
-        ax.set_xticks(np.arange(len(metric_names)))
-        ax.set_yticks(np.arange(len(models)))
-        ax.set_xticklabels(metric_names)
-        ax.set_yticklabels(models)
-
-        # Rotate x labels
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
-
-        # Add values in cells
-        for i in range(len(models)):
-            for j in range(len(metric_names)):
-                ax.text(
-                    j,
-                    i,
-                    f"{metrics_array[i, j]:.2f}",
-                    ha="center",
-                    va="center",
-                    color="black",
-                    fontsize=9,
-                )
-
-        ax.set_title(
-            f"Metrics Comparison Heatmap - {self.dataset}\n"
-            f"(Normalized by column, darker = worse)",
-            fontsize=14,
-            fontweight="bold",
+        # Use plotting module
+        plot_evaluation_from_files(
+            comparison_report_file=comparison_file,
+            output_dir=self.figures_dir,
+            dataset=self.dataset,
         )
 
-        # Add colorbar
-        cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label("Normalized Score (0=best, 1=worst)", rotation=270, labelpad=20)
-
-        plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "metrics_heatmap.png", dpi=300, bbox_inches="tight"
-        )
-        plt.savefig(self.figures_dir / "metrics_heatmap.svg", bbox_inches="tight")
-        plt.close()
+        logger.info(f"✅ Generated evaluation plots in {self.figures_dir}")
 
     def _generate_real_abnormal_analysis(self):
         """Generate analysis plots for real abnormal data (no generation)"""
-        # Create figures directory
-        self.figures_dir.mkdir(parents=True, exist_ok=True)
+        assert self.od_pairs_file.exists(), (
+            f"OD pairs file not found: {self.od_pairs_file}. Run extraction step first."
+        )
 
         logger.info("Analyzing real abnormal trajectory data...")
 
-        # Load OD pairs data
-        with open(self.od_pairs_file, "r") as f:
-            od_data = json.load(f)
-
-        # Generate various analysis plots
-        self._plot_abnormal_od_distribution(od_data)
-        self._plot_abnormal_categories_summary(od_data)
-        self._plot_temporal_delay_analysis()
-        self._plot_abnormal_od_heatmap(od_data)
-
-        logger.info(f"   Generated 4 analysis plot types in {self.figures_dir}")
-
-    def _plot_abnormal_od_distribution(self, od_data: Dict[str, Any]):
-        """Plot distribution of abnormal OD pairs"""
-        # Count frequency of each origin and destination
-        origin_counts = {}
-        dest_counts = {}
-
-        for category, pairs in od_data.get("od_pairs_by_category", {}).items():
-            for origin, dest in pairs:
-                origin_counts[origin] = origin_counts.get(origin, 0) + 1
-                dest_counts[dest] = dest_counts.get(dest, 0) + 1
-
-        # Get top 20 most frequent origins and destinations
-        top_origins = sorted(origin_counts.items(), key=lambda x: x[1], reverse=True)[
-            :20
-        ]
-        top_dests = sorted(dest_counts.items(), key=lambda x: x[1], reverse=True)[:20]
-
-        # Create subplot
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-
-        # Plot origins
-        origins, origin_freqs = zip(*top_origins)
-        bars1 = ax1.barh(range(len(origins)), origin_freqs, color="#3498db", alpha=0.8)
-        ax1.set_yticks(range(len(origins)))
-        ax1.set_yticklabels([f"Road {o}" for o in origins])
-        ax1.set_xlabel("Frequency in Abnormal Trajectories")
-        ax1.set_title("Top 20 Abnormal Origins", fontweight="bold")
-        ax1.grid(axis="x", alpha=0.3)
-
-        # Add frequency labels
-        for i, (bar, freq) in enumerate(zip(bars1, origin_freqs)):
-            width = bar.get_width()
-            ax1.text(
-                width + 0.1,
-                bar.get_y() + bar.get_height() / 2,
-                f"{freq}",
-                ha="left",
-                va="center",
-                fontsize=9,
-            )
-
-        # Plot destinations
-        dests, dest_freqs = zip(*top_dests)
-        bars2 = ax2.barh(range(len(dests)), dest_freqs, color="#e74c3c", alpha=0.8)
-        ax2.set_yticks(range(len(dests)))
-        ax2.set_yticklabels([f"Road {d}" for d in dests])
-        ax2.set_xlabel("Frequency in Abnormal Trajectories")
-        ax2.set_title("Top 20 Abnormal Destinations", fontweight="bold")
-        ax2.grid(axis="x", alpha=0.3)
-
-        # Add frequency labels
-        for i, (bar, freq) in enumerate(zip(bars2, dest_freqs)):
-            width = bar.get_width()
-            ax2.text(
-                width + 0.1,
-                bar.get_y() + bar.get_height() / 2,
-                f"{freq}",
-                ha="left",
-                va="center",
-                fontsize=9,
-            )
-
-        plt.suptitle(
-            f"Abnormal OD Distribution - {self.dataset}", fontsize=16, fontweight="bold"
-        )
-        plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "abnormal_od_distribution.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.savefig(
-            self.figures_dir / "abnormal_od_distribution.svg", bbox_inches="tight"
-        )
-        plt.close()
-
-    def _plot_abnormal_categories_summary(self, od_data: Dict[str, Any]):
-        """Plot summary of abnormal categories"""
-        categories = list(od_data.get("od_pairs_by_category", {}).keys())
-        counts = [
-            len(pairs) for pairs in od_data.get("od_pairs_by_category", {}).values()
+        # Prepare detection results files
+        detection_results_files = [
+            self.abnormal_dir / "train" / "real_data" / "detection_results.json",
+            self.abnormal_dir / "test" / "real_data" / "detection_results.json",
         ]
 
-        if not categories:
-            logger.warning("No abnormal categories found")
-            return
-
-        # Create pie chart
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        colors = plt.cm.Set3(np.linspace(0, 1, len(categories)))
-        wedges, texts, autotexts = ax.pie(
-            counts, labels=categories, colors=colors, autopct="%1.1f%%", startangle=90
+        # Use plotting module
+        plot_analysis_from_files(
+            abnormal_od_pairs_file=self.od_pairs_file,
+            real_data_files=[self.train_csv, self.test_csv],
+            detection_results_files=detection_results_files,
+            samples_dir=self.abnormal_dir,
+            output_dir=self.figures_dir,
+            dataset=self.dataset,
+            include_normal=False,  # Can be made configurable later
         )
 
-        # Enhance appearance
-        for autotext in autotexts:
-            autotext.set_color("white")
-            autotext.set_fontweight("bold")
-
-        ax.set_title(
-            f"Abnormal Categories Distribution - {self.dataset}\n"
-            f"Total: {sum(counts):,} unique OD pairs",
-            fontsize=14,
-            fontweight="bold",
-        )
-
-        plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "abnormal_categories_summary.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.savefig(
-            self.figures_dir / "abnormal_categories_summary.svg", bbox_inches="tight"
-        )
-        plt.close()
-
-    def _plot_temporal_delay_analysis(self):
-        """Plot analysis of temporal delays from Wang samples"""
-        # Load Wang samples
-        train_samples_file = (
-            self.abnormal_dir
-            / "train"
-            / "real_data"
-            / "samples"
-            / "wang_temporal_delay_samples.json"
-        )
-        test_samples_file = (
-            self.abnormal_dir
-            / "test"
-            / "real_data"
-            / "samples"
-            / "wang_temporal_delay_samples.json"
-        )
-
-        all_samples = []
-        for samples_file in [train_samples_file, test_samples_file]:
-            if samples_file.exists():
-                with open(samples_file, "r") as f:
-                    samples = json.load(f)
-                    all_samples.extend(samples)
-
-        if not all_samples:
-            logger.warning("No temporal delay samples found for analysis")
-            return
-
-        # Extract time deviations
-        time_deviations = []
-        length_deviations = []
-        baseline_types = []
-
-        for sample in all_samples:
-            details = sample.get("details", {})
-            time_deviations.append(details.get("time_deviation_sec", 0))
-            length_deviations.append(details.get("length_deviation_m", 0))
-            baseline_types.append(details.get("baseline_type", "unknown"))
-
-        # Create analysis plots
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-
-        # Time deviation histogram
-        ax1.hist(
-            time_deviations, bins=30, color="#3498db", alpha=0.7, edgecolor="black"
-        )
-        ax1.set_xlabel("Time Deviation (seconds)")
-        ax1.set_ylabel("Frequency")
-        ax1.set_title("Distribution of Time Deviations")
-        ax1.grid(alpha=0.3)
-
-        # Length deviation histogram
-        ax2.hist(
-            length_deviations, bins=30, color="#e74c3c", alpha=0.7, edgecolor="black"
-        )
-        ax2.set_xlabel("Length Deviation (meters)")
-        ax2.set_ylabel("Frequency")
-        ax2.set_title("Distribution of Length Deviations")
-        ax2.grid(alpha=0.3)
-
-        # Baseline types distribution
-        baseline_counts = {}
-        for bt in baseline_types:
-            baseline_counts[bt] = baseline_counts.get(bt, 0) + 1
-
-        ax3.bar(
-            baseline_counts.keys(), baseline_counts.values(), color="#2ecc71", alpha=0.8
-        )
-        ax3.set_xlabel("Baseline Type")
-        ax3.set_ylabel("Count")
-        ax3.set_title("Baseline Types in Abnormal Detection")
-        ax3.tick_params(axis="x", rotation=45)
-
-        # Time vs Length deviation scatter
-        ax4.scatter(length_deviations, time_deviations, alpha=0.6, color="#9b59b6")
-        ax4.set_xlabel("Length Deviation (meters)")
-        ax4.set_ylabel("Time Deviation (seconds)")
-        ax4.set_title("Time vs Length Deviations")
-        ax4.grid(alpha=0.3)
-
-        plt.suptitle(
-            f"Temporal Delay Analysis - {self.dataset}", fontsize=16, fontweight="bold"
-        )
-        plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "temporal_delay_analysis.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.savefig(
-            self.figures_dir / "temporal_delay_analysis.svg", bbox_inches="tight"
-        )
-        plt.close()
-
-    def _plot_abnormal_od_heatmap(self, od_data: Dict[str, Any]):
-        """Create heatmap of most frequent abnormal OD pairs"""
-        # Count frequency of each OD pair
-        od_counts = {}
-        for category, pairs in od_data.get("od_pairs_by_category", {}).items():
-            for origin, dest in pairs:
-                od_key = (origin, dest)
-                od_counts[od_key] = od_counts.get(od_key, 0) + 1
-
-        # Get top OD pairs for visualization
-        top_ods = sorted(od_counts.items(), key=lambda x: x[1], reverse=True)[:50]
-
-        if not top_ods:
-            logger.warning("No OD pairs found for heatmap")
-            return
-
-        # Create matrix for heatmap (simplified - show top origins vs top destinations)
-        top_origins = list(set([od[0] for od, count in top_ods[:20]]))
-        top_dests = list(set([od[1] for od, count in top_ods[:20]]))
-
-        # Create adjacency matrix
-        matrix = np.zeros((len(top_origins), len(top_dests)))
-        for i, origin in enumerate(top_origins):
-            for j, dest in enumerate(top_dests):
-                count = od_counts.get((origin, dest), 0)
-                matrix[i, j] = count
-
-        # Create heatmap
-        fig, ax = plt.subplots(figsize=(12, 8))
-
-        im = ax.imshow(matrix, cmap="Reds", aspect="auto")
-
-        # Set ticks
-        ax.set_xticks(np.arange(len(top_dests)))
-        ax.set_yticks(np.arange(len(top_origins)))
-        ax.set_xticklabels([f"R{d}" for d in top_dests], rotation=45, ha="right")
-        ax.set_yticklabels([f"R{o}" for o in top_origins])
-
-        # Add colorbar
-        cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label("Frequency in Abnormal Trajectories", rotation=270, labelpad=20)
-
-        ax.set_title(
-            f"Top Abnormal OD Pairs Heatmap - {self.dataset}\n"
-            f"(Top {len(top_origins)} origins × {len(top_dests)} destinations)",
-            fontsize=14,
-            fontweight="bold",
-        )
-        ax.set_xlabel("Destination Roads")
-        ax.set_ylabel("Origin Roads")
-
-        plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "abnormal_od_heatmap.png", dpi=300, bbox_inches="tight"
-        )
-        plt.savefig(self.figures_dir / "abnormal_od_heatmap.svg", bbox_inches="tight")
-        plt.close()
+        logger.info(f"✅ Generated analysis plots in {self.figures_dir}")
 
     def _create_summary_report(self):
         """Create a summary report of the workflow execution"""
