@@ -74,8 +74,18 @@ def extract_road_centroids(roadmap_file: Path) -> Tuple[np.ndarray, Dict[str, fl
     Centroids are computed as the mean of all coordinate points for each road,
     matching the LM-TAD preprocessing approach.
     """
+    # Validate input file
+    if not isinstance(roadmap_file, Path):
+        roadmap_file = Path(roadmap_file)
+
     if not roadmap_file.exists():
         raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
+
+    if not roadmap_file.is_file():
+        raise ValueError(f"Roadmap path is not a file: {roadmap_file}")
+
+    if roadmap_file.stat().st_size == 0:
+        raise ValueError(f"Roadmap file is empty: {roadmap_file}")
 
     logger.info("Loading road network geometry...")
 
@@ -95,17 +105,62 @@ def extract_road_centroids(roadmap_file: Path) -> Tuple[np.ndarray, Dict[str, fl
         "bridge": str,
     }
 
-    roadmap = pd.read_csv(roadmap_file, dtype=schema_overrides)
+    try:
+        roadmap = pd.read_csv(roadmap_file, dtype=schema_overrides)
+    except Exception as e:
+        raise ValueError(f"Failed to read roadmap CSV: {e}") from e
+
+    # Validate required column exists
+    if "coordinates" not in roadmap.columns:
+        raise ValueError(
+            f"Required column 'coordinates' not found in {roadmap_file}. "
+            f"Available columns: {roadmap.columns.tolist()}"
+        )
+
+    if len(roadmap) == 0:
+        raise ValueError(f"Roadmap file contains no data: {roadmap_file}")
+
     centroids = []
     min_lat, max_lat = float("inf"), float("-inf")
     min_lng, max_lng = float("inf"), float("-inf")
 
-    for coords_str in tqdm(roadmap["coordinates"], desc="Processing roads"):
-        coords = json.loads(coords_str)
+    for idx, coords_str in enumerate(
+        tqdm(roadmap["coordinates"], desc="Processing roads")
+    ):
+        # Validate coordinate string
+        if not isinstance(coords_str, str) or not coords_str.strip():
+            logger.warning(f"Road {idx}: Empty or invalid coordinates string, skipping")
+            continue
+
+        try:
+            coords = json.loads(coords_str)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Road {idx}: Invalid JSON in coordinates: {e}, skipping")
+            continue
+
+        # Validate coordinates structure
+        if not isinstance(coords, list) or len(coords) == 0:
+            logger.warning(f"Road {idx}: Empty coordinates list, skipping")
+            continue
+
+        # Validate coordinate format
+        try:
+            lats = [coord[1] for coord in coords]
+            lngs = [coord[0] for coord in coords]
+        except (IndexError, TypeError) as e:
+            logger.warning(f"Road {idx}: Invalid coordinate format: {e}, skipping")
+            continue
+
+        # Validate coordinate values (reasonable lat/lng ranges)
+        if any(lat < -90 or lat > 90 for lat in lats):
+            logger.warning(f"Road {idx}: Latitude out of range [-90, 90], skipping")
+            continue
+
+        if any(lng < -180 or lng > 180 for lng in lngs):
+            logger.warning(f"Road {idx}: Longitude out of range [-180, 180], skipping")
+            continue
 
         # Calculate centroid
-        lats = [coord[1] for coord in coords]
-        lngs = [coord[0] for coord in coords]
         centroid_lat = sum(lats) / len(lats)
         centroid_lng = sum(lngs) / len(lngs)
 
@@ -117,7 +172,21 @@ def extract_road_centroids(roadmap_file: Path) -> Tuple[np.ndarray, Dict[str, fl
         min_lng = min(min_lng, min(lngs))
         max_lng = max(max_lng, max(lngs))
 
+    if len(centroids) == 0:
+        raise ValueError("No valid road centroids could be extracted from roadmap")
+
     road_centroids = np.array(centroids, dtype=np.float64)
+
+    # Validate boundary consistency
+    if min_lat >= max_lat:
+        raise ValueError(
+            f"Invalid latitude boundaries: min_lat ({min_lat}) >= max_lat ({max_lat})"
+        )
+
+    if min_lng >= max_lng:
+        raise ValueError(
+            f"Invalid longitude boundaries: min_lng ({min_lng}) >= max_lng ({max_lng})"
+        )
 
     boundary = {
         "min_lat": min_lat,
@@ -126,6 +195,7 @@ def extract_road_centroids(roadmap_file: Path) -> Tuple[np.ndarray, Dict[str, fl
         "max_lng": max_lng,
     }
 
+    logger.info(f"Successfully extracted {len(road_centroids)} valid road centroids")
     return road_centroids, boundary
 
 
@@ -157,10 +227,42 @@ def create_grid_mapper(
     Uses the same grid configuration as pre-converted LM-TAD datasets
     to ensure token consistency between HOSER and LM-TAD trajectories.
     """
+    # Validate dataset name
+    if not isinstance(dataset, str) or not dataset.strip():
+        raise ValueError("Dataset name must be a non-empty string")
+
     if dataset not in DATASET_CONFIGS:
         raise ValueError(
             f"Unknown dataset: {dataset}. Supported: {list(DATASET_CONFIGS.keys())}"
         )
+
+    # Validate road centroids
+    if not isinstance(road_centroids, np.ndarray):
+        raise TypeError("road_centroids must be a numpy array")
+
+    if road_centroids.ndim != 2 or road_centroids.shape[1] != 2:
+        raise ValueError(
+            f"road_centroids must have shape (N, 2), got {road_centroids.shape}"
+        )
+
+    if len(road_centroids) == 0:
+        raise ValueError("road_centroids cannot be empty")
+
+    # Validate boundary
+    if not isinstance(boundary, dict):
+        raise TypeError("boundary must be a dictionary")
+
+    required_keys = {"min_lat", "max_lat", "min_lng", "max_lng"}
+    missing_keys = required_keys - set(boundary.keys())
+    if missing_keys:
+        raise ValueError(f"boundary missing required keys: {missing_keys}")
+
+    # Validate boundary values
+    for key in required_keys:
+        if not isinstance(boundary[key], (int, float)):
+            raise TypeError(f"boundary['{key}'] must be numeric")
+        if not np.isfinite(boundary[key]):
+            raise ValueError(f"boundary['{key}'] must be finite")
 
     config = DATASET_CONFIGS[dataset]
 
@@ -237,7 +339,23 @@ def convert_trajectory_batch(
     Supports both string list "[123, 456]" and comma-separated "123,456" formats
     for rid_list column. Uses vectorized road-to-token mapping for efficiency.
     """
-    df = pd.read_csv(trajectory_file)
+    # Validate inputs
+    if not isinstance(trajectory_file, Path):
+        trajectory_file = Path(trajectory_file)
+
+    if not trajectory_file.exists():
+        raise FileNotFoundError(f"Trajectory file not found: {trajectory_file}")
+
+    if not trajectory_file.is_file():
+        raise ValueError(f"Trajectory path is not a file: {trajectory_file}")
+
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
+
+    try:
+        df = pd.read_csv(trajectory_file)
+    except Exception as e:
+        raise ValueError(f"Failed to read trajectory CSV: {e}") from e
 
     if "rid_list" not in df.columns:
         raise ValueError(
@@ -245,8 +363,12 @@ def convert_trajectory_batch(
             f"Found: {df.columns.tolist()}"
         )
 
+    if len(df) == 0:
+        raise ValueError(f"Trajectory file contains no data: {trajectory_file}")
+
     # Get road-to-grid mapping
     road_to_grid = mapper.map_all()
+    max_road_id = len(road_to_grid) - 1
 
     # Convert trajectories
     converted = []
@@ -258,14 +380,48 @@ def convert_trajectory_batch(
         try:
             # Parse rid_list (handle both "[123,456]" and "123,456" formats)
             rid_list_str = row["rid_list"]
-            if isinstance(rid_list_str, str):
-                rid_list_str = rid_list_str.strip()
-                if rid_list_str.startswith("["):
-                    # List string format: "[123, 456]"
-                    rid_list = eval(rid_list_str)
-                else:
-                    # Comma-separated format: "123,456"
+
+            if not isinstance(rid_list_str, str) or not rid_list_str.strip():
+                logger.warning(f"Trajectory {idx}: Empty or invalid rid_list, skipping")
+                skipped += 1
+                continue
+
+            rid_list_str = rid_list_str.strip()
+
+            if rid_list_str.startswith("["):
+                # List string format: "[123, 456]" - use safe JSON parsing
+                try:
+                    rid_list = json.loads(rid_list_str)
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"Trajectory {idx}: Invalid JSON format for rid_list, skipping"
+                    )
+                    skipped += 1
+                    continue
+            else:
+                # Comma-separated format: "123,456"
+                try:
                     rid_list = [int(rid.strip()) for rid in rid_list_str.split(",")]
+                except ValueError as e:
+                    logger.warning(
+                        f"Trajectory {idx}: Failed to parse rid_list: {e}, skipping"
+                    )
+                    skipped += 1
+                    continue
+
+            # Validate rid_list
+            if not isinstance(rid_list, list) or len(rid_list) == 0:
+                logger.warning(f"Trajectory {idx}: Empty trajectory, skipping")
+                skipped += 1
+                continue
+
+            # Validate road IDs are in range
+            if any(rid < 0 or rid > max_road_id for rid in rid_list):
+                logger.warning(
+                    f"Trajectory {idx}: Road ID out of range [0, {max_road_id}], skipping"
+                )
+                skipped += 1
+                continue
 
             # Convert to numpy array for vectorized mapping
             road_ids = np.array(rid_list, dtype=np.int64)
@@ -277,12 +433,15 @@ def convert_trajectory_batch(
             converted.append(grid_tokens)
 
         except Exception as e:
-            logger.warning(f"Failed to convert trajectory {idx}: {e}")
+            logger.warning(f"Trajectory {idx}: Unexpected error during conversion: {e}")
             skipped += 1
             continue
 
     if skipped > 0:
-        logger.warning(f"Skipped {skipped} trajectories due to errors")
+        logger.warning(f"Skipped {skipped}/{len(df)} trajectories due to errors")
+
+    if len(converted) == 0:
+        raise ValueError("No valid trajectories could be converted")
 
     converted_df = pd.DataFrame({"trajectory_tokens": converted})
 
@@ -315,9 +474,34 @@ def save_lmtad_format(
     import os
     import shutil
 
+    # Validate inputs
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("df must be a pandas DataFrame")
+
+    if "trajectory_tokens" not in df.columns:
+        raise ValueError("DataFrame must have 'trajectory_tokens' column")
+
+    if len(df) == 0:
+        raise ValueError("DataFrame is empty")
+
+    if not isinstance(output_file, Path):
+        output_file = Path(output_file)
+
+    if not isinstance(vocab_file, Path):
+        vocab_file = Path(vocab_file)
+
+    if not isinstance(vocab, dict):
+        raise TypeError("vocab must be a dictionary")
+
+    if len(vocab) == 0:
+        raise ValueError("vocab cannot be empty")
+
     # Create output directories safely
-    os.makedirs(output_file.parent, exist_ok=True)
-    os.makedirs(vocab_file.parent, exist_ok=True)
+    try:
+        os.makedirs(output_file.parent, exist_ok=True)
+        os.makedirs(vocab_file.parent, exist_ok=True)
+    except OSError as e:
+        raise OSError(f"Failed to create output directories: {e}") from e
 
     # Save trajectories atomically using a temporary file
     with tempfile.NamedTemporaryFile(
