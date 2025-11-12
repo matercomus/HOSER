@@ -239,18 +239,18 @@ def classify_outliers(
     if threshold is None:
         mean = scores.mean()
         std = scores.std()
-        threshold = mean + 2.0 * std
+        threshold = float(mean + 2.0 * std)  # Convert to Python float
         logger.info(
             f"Auto-computed threshold {threshold:.4f} "
-            f"(mean={mean:.4f} + 2*std={2 * std:.4f})"
+            f"(mean={float(mean):.4f} + 2*std={float(2 * std):.4f})"
         )
 
     # Classify outliers
     outlier_flags = scores > threshold
     outlier_rate = outlier_flags.mean()
     logger.info(
-        f"Classified {outlier_flags.sum():,} outliers "
-        f"({outlier_rate:.2%}) using threshold {threshold:.4f}"
+        f"Classified {int(outlier_flags.sum())} outliers "
+        f"({float(outlier_rate):.2%}) using threshold {threshold:.4f}"
     )
 
     return torch.from_numpy(outlier_flags), threshold

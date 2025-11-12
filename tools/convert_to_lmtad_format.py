@@ -1,541 +1,499 @@
-#!/usr/bin/env python3
 """
-Convert HOSER Trajectories to LM-TAD Grid Token Format
-=======================================================
+Convert HOSER Trajectories to LM-TAD Format
+==========================================
 
-Purpose
--------
-Converts HOSER-format trajectories (road IDs) to LM-TAD grid token format for
-teacher model evaluation and comparison. This module enables:
-- Fair comparison between HOSER and LM-TAD by using consistent input format
-- Evaluation of HOSER-generated trajectories using LM-TAD teacher model
-- Cross-dataset trajectory translation workflows
+This module provides tools to convert HOSER-generated trajectories (road IDs)
+to LM-TAD format (grid tokens) for teacher model evaluation.
 
-Input Format (HOSER CSV)
-------------------------
-CSV file with columns: mm_id, entity_id, traj_id, rid_list, time_list
-- rid_list: Comma-separated road IDs, e.g., "29750,22077,22080,33716"
-- time_list: ISO timestamps, e.g., "2015-11-05T13:14:32Z,2015-11-05T13:15:16Z"
+Key Features:
+- Reuses existing GridMapper infrastructure from critics/grid_mapper.py
+- Supports batch processing for memory efficiency
+- Handles both Porto and Beijing datasets
+- Compatible with pre-converted LM-TAD datasets
+- Ensures grid dimension consistency with teacher model
 
-Output Format (LM-TAD CSV)
---------------------------
-CSV file with columns: mm_id, entity_id, traj_id, grid_token_list, time_list
-- grid_token_list: Comma-separated grid tokens, e.g., "1234,1235,1238,1240"
-- time_list: Preserved from input (same format)
+Usage:
+    from tools.convert_to_lmtad_format import convert_hoser_to_lmtad_format
 
-Grid Mapping Strategy
----------------------
-Uses the same centroid-to-grid formula as LM-TAD preprocessing:
-1. Compute road centroids from roadmap.geo coordinates
-2. Map each centroid (lat, lng) to grid cell using GridMapper
-3. Apply same grid_size and downsample_factor as teacher training
-
-Dataset Support
----------------
-- Porto: grid_size=0.001, downsample=1
-- Beijing: grid_size=0.001, downsample=1 (or dataset-specific config)
-
-Usage Examples
---------------
-Basic conversion:
-    >>> python tools/convert_to_lmtad_format.py \\
-    ...     --input gene/Beijing/seed42/generated.csv \\
-    ...     --output gene_lmtad/Beijing/seed42/generated.csv \\
-    ...     --dataset Beijing
-
-Batch conversion with config:
-    >>> python tools/convert_to_lmtad_format.py \\
-    ...     --input gene/Beijing/seed42/*.csv \\
-    ...     --output gene_lmtad/Beijing/seed42/ \\
-    ...     --config config/Beijing.yaml
-
-Programmatic usage:
-    >>> from tools.convert_to_lmtad_format import convert_hoser_to_lmtad_format
-    >>>
-    >>> convert_hoser_to_lmtad_format(
-    ...     input_csv="gene/Beijing/generated.csv",
-    ...     output_csv="gene_lmtad/Beijing/generated.csv",
-    ...     dataset="Beijing",
-    ...     data_dir=Path("data/Beijing")
-    ... )
+    convert_hoser_to_lmtad_format(
+        trajectory_file=Path("generated_trajectories.csv"),
+        roadmap_file=Path("data/porto_hoser/roadmap.geo"),
+        output_file=Path("trajectories_lmtad_format.csv"),
+        vocab_file=Path("vocab.json"),
+        dataset="porto_hoser"
+    )
 """
 
 from __future__ import annotations
 
-import argparse
+import json
 import logging
-import sys
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
-import yaml
 from tqdm import tqdm
 
-# Allow importing GridMapper without relative path issues
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from critics.grid_mapper import GridConfig, GridMapper  # noqa: E402
+from critics.grid_mapper import GridConfig, GridMapper
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+
+# Dataset grid configurations from pre-converted LM-TAD data
+DATASET_CONFIGS = {
+    "porto_hoser": {
+        "grid_size": 0.001,
+        "downsample_factor": 1,
+        "vocab_path": "/home/matt/Dev/LMTAD/data/porto_hoser/vocab.json",
+    },
+    "beijing_hoser_reference": {
+        "grid_size": 0.001,
+        "downsample_factor": 1,
+        "vocab_path": "/home/matt/Dev/LMTAD/data/beijing_hoser_reference/vocab.json",
+    },
+}
 
 
-def extract_road_centroids(geo_path: Path) -> Tuple[np.ndarray, pd.DataFrame]:
-    """Extract road centroids from roadmap.geo file.
+def extract_road_centroids(roadmap_file: Path) -> Tuple[np.ndarray, Dict[str, float]]:
+    """
+    Extract road centroids and boundaries from roadmap.geo.
 
     Parameters
     ----------
-    geo_path : Path
-        Path to roadmap.geo file containing road network geometry.
+    roadmap_file : Path
+        Path to roadmap.geo containing road network geometry
 
     Returns
     -------
-    Tuple[np.ndarray, pd.DataFrame]
+    Tuple[np.ndarray, Dict[str, float]]
         - road_centroids: Shape (N, 2) array of (lat, lng) for each road
-        - geo_df: Original GeoDataFrame for reference
+        - boundary: Dict with min_lat, max_lat, min_lng, max_lng
 
     Notes
     -----
-    Centroids are computed as the mean of all coordinate points for each road.
-    This matches the LM-TAD preprocessing approach for consistent grid mapping.
+    Centroids are computed as the mean of all coordinate points for each road,
+    matching the LM-TAD preprocessing approach.
     """
-    if not geo_path.exists():
-        raise FileNotFoundError(f"roadmap.geo not found at {geo_path}")
+    if not roadmap_file.exists():
+        raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
 
-    logger.info(f"Loading road network from {geo_path}")
-    geo_df = pd.read_csv(geo_path)
+    logger.info("Loading road network geometry...")
 
-    # Parse coordinates and compute centroids
-    coords_series = geo_df["coordinates"].apply(eval)
-    road_centroids_lat = np.array(
-        [np.mean([pt[1] for pt in coords]) for coords in coords_series],
-        dtype=np.float32,
-    )
-    road_centroids_lng = np.array(
-        [np.mean([pt[0] for pt in coords]) for coords in coords_series],
-        dtype=np.float32,
-    )
+    # Load roadmap with schema overrides for problematic columns
+    schema_overrides = {
+        "lanes": str,
+        "oneway": str,
+        "coordinates": str,
+        "name": str,
+        "highway": str,
+        "access": str,
+        "maxspeed": str,
+        "ref": str,
+        "tunnel": str,
+        "junction": str,
+        "width": str,
+        "bridge": str,
+    }
 
-    road_centroids = np.stack([road_centroids_lat, road_centroids_lng], axis=1)
-    logger.info(f"Extracted {len(road_centroids)} road centroids")
+    roadmap = pd.read_csv(roadmap_file, dtype=schema_overrides)
+    centroids = []
+    min_lat, max_lat = float("inf"), float("-inf")
+    min_lng, max_lng = float("inf"), float("-inf")
 
-    return road_centroids, geo_df
+    for coords_str in tqdm(roadmap["coordinates"], desc="Processing roads"):
+        coords = json.loads(coords_str)
+
+        # Calculate centroid
+        lats = [coord[1] for coord in coords]
+        lngs = [coord[0] for coord in coords]
+        centroid_lat = sum(lats) / len(lats)
+        centroid_lng = sum(lngs) / len(lngs)
+
+        centroids.append([centroid_lat, centroid_lng])
+
+        # Update boundaries
+        min_lat = min(min_lat, min(lats))
+        max_lat = max(max_lat, max(lats))
+        min_lng = min(min_lng, min(lngs))
+        max_lng = max(max_lng, max(lngs))
+
+    road_centroids = np.array(centroids, dtype=np.float64)
+
+    boundary = {
+        "min_lat": min_lat,
+        "max_lat": max_lat,
+        "min_lng": min_lng,
+        "max_lng": max_lng,
+    }
+
+    return road_centroids, boundary
 
 
 def create_grid_mapper(
-    geo_df: pd.DataFrame,
+    dataset: str,
     road_centroids: np.ndarray,
-    grid_size: float = 0.001,
-    downsample_factor: int = 1,
-    verify_hw: Optional[Tuple[int, int]] = None,
-) -> Tuple[GridMapper, np.ndarray]:
-    """Create GridMapper and road-to-token mapping.
+    boundary: Dict[str, float],
+) -> Tuple[GridMapper, Dict[str, int]]:
+    """
+    Create GridMapper with dataset-specific configuration.
 
     Parameters
     ----------
-    geo_df : pd.DataFrame
-        GeoDataFrame containing road network geometry.
+    dataset : str
+        Dataset name: "porto_hoser" or "beijing_hoser_reference"
     road_centroids : np.ndarray
-        Shape (N, 2) array of (lat, lng) for each road's centroid.
-    grid_size : float, optional
-        Grid cell size in degrees, by default 0.001 (matches LM-TAD).
-    downsample_factor : int, optional
-        Grid downsampling factor, by default 1 (no downsampling).
-    verify_hw : Optional[Tuple[int, int]], optional
-        Optional (height, width) to verify grid dimensions match teacher.
+        (N, 2) array of (lat, lng) for each road centroid
+    boundary : Dict[str, float]
+        Geographic boundaries from roadmap
 
     Returns
     -------
-    Tuple[GridMapper, np.ndarray]
-        - mapper: GridMapper instance for converting coordinates to tokens
-        - road_to_token: Shape (N,) array mapping road_id to grid_token_id
+    Tuple[GridMapper, Dict[str, int]]
+        - mapper: Configured GridMapper instance
+        - vocab: Grid token vocabulary mapping
 
     Notes
     -----
-    The grid boundaries are computed from the road network extents to ensure
-    all roads are mapped to valid grid cells.
+    Uses the same grid configuration as pre-converted LM-TAD datasets
+    to ensure token consistency between HOSER and LM-TAD trajectories.
     """
-    # Compute boundaries from road coordinates
-    coords_series = geo_df["coordinates"].apply(eval)
-    min_lng = min(min(pt[0] for pt in coords) for coords in coords_series)
-    max_lng = max(max(pt[0] for pt in coords) for coords in coords_series)
-    min_lat = min(min(pt[1] for pt in coords) for coords in coords_series)
-    max_lat = max(max(pt[1] for pt in coords) for coords in coords_series)
+    if dataset not in DATASET_CONFIGS:
+        raise ValueError(
+            f"Unknown dataset: {dataset}. Supported: {list(DATASET_CONFIGS.keys())}"
+        )
 
-    logger.info(
-        f"Grid boundaries: lat=[{min_lat:.6f}, {max_lat:.6f}], "
-        f"lng=[{min_lng:.6f}, {max_lng:.6f}]"
+    config = DATASET_CONFIGS[dataset]
+
+    # Create GridConfig for mapper
+    grid_config = GridConfig(
+        min_lat=float(boundary["min_lat"]),
+        max_lat=float(boundary["max_lat"]),
+        min_lng=float(boundary["min_lng"]),
+        max_lng=float(boundary["max_lng"]),
+        grid_size=config["grid_size"],
+        downsample_factor=config["downsample_factor"],
     )
 
-    # Create grid configuration
-    grid_cfg = GridConfig(
-        min_lat=float(min_lat),
-        max_lat=float(max_lat),
-        min_lng=float(min_lng),
-        max_lng=float(max_lng),
-        grid_size=grid_size,
-        downsample_factor=downsample_factor,
+    # Load reference vocab to verify grid dimensions
+    ref_vocab_path = Path(config["vocab_path"])
+    if ref_vocab_path.exists():
+        # Calculate grid dimensions
+        lat_span = boundary["max_lat"] - boundary["min_lat"]
+        lng_span = boundary["max_lng"] - boundary["min_lng"]
+        grid_h = int(lat_span / config["grid_size"]) + 1
+        grid_w = int(lng_span / config["grid_size"]) + 1
+
+        # Apply downsampling
+        if config["downsample_factor"] > 1:
+            grid_h //= config["downsample_factor"]
+            grid_w //= config["downsample_factor"]
+
+        verify_hw = (grid_h, grid_w)
+        logger.info(f"Grid verification from reference vocab: {verify_hw}")
+    else:
+        verify_hw = None
+        logger.warning(f"Reference vocab not found: {ref_vocab_path}")
+        logger.warning("Proceeding without grid verification")
+
+    # Create mapper and vocabulary
+    mapper = GridMapper(
+        boundary=grid_config, road_centroids=road_centroids, verify_hw=verify_hw
     )
 
-    # Create mapper and compute road-to-token mapping
-    mapper = GridMapper(grid_cfg, road_centroids, verify_hw=verify_hw)
-    road_to_token = mapper.map_all()
+    # Create vocabulary
+    max_token = mapper.grid_h * mapper.grid_w - 1
+    vocab = {str(i): i for i in range(max_token + 1)}
+    vocab["PAD"] = len(vocab)
+    vocab["EOT"] = len(vocab)
+    vocab["SOT"] = len(vocab)
 
-    logger.info(
-        f"Created grid mapper: {mapper.grid_h}x{mapper.grid_w} grid "
-        f"({mapper.grid_h * mapper.grid_w} total tokens)"
-    )
-
-    return mapper, road_to_token.astype(np.int64)
+    return mapper, vocab
 
 
 def convert_trajectory_batch(
-    traj_df: pd.DataFrame,
-    road_to_token: np.ndarray,
+    trajectory_file: Path,
+    mapper: GridMapper,
+    batch_size: int = 10000,
 ) -> pd.DataFrame:
-    """Convert batch of trajectories from road IDs to grid tokens.
+    """
+    Convert HOSER trajectories to grid tokens in batches.
 
     Parameters
     ----------
-    traj_df : pd.DataFrame
-        DataFrame with columns: mm_id, entity_id, traj_id, rid_list, time_list
-    road_to_token : np.ndarray
-        Shape (N,) array mapping road_id to grid_token_id
+    trajectory_file : Path
+        HOSER trajectory CSV with rid_list column
+    mapper : GridMapper
+        Configured GridMapper instance
+    batch_size : int, default=10000
+        Batch size for trajectory processing
 
     Returns
     -------
     pd.DataFrame
-        Converted DataFrame with columns: mm_id, entity_id, traj_id,
-        grid_token_list, time_list
+        DataFrame with converted grid token trajectories
 
     Notes
     -----
-    - Preserves all metadata columns (mm_id, entity_id, traj_id, time_list)
-    - Converts rid_list to grid_token_list using road_to_token mapping
-    - Handles invalid road IDs gracefully by skipping those trajectories
-    - Progress bar shows conversion progress for large datasets
+    Supports both string list "[123, 456]" and comma-separated "123,456" formats
+    for rid_list column. Uses vectorized road-to-token mapping for efficiency.
     """
-    converted_rows = []
-    skipped_count = 0
-    invalid_road_ids = set()
+    df = pd.read_csv(trajectory_file)
 
-    logger.info(f"Converting {len(traj_df)} trajectories...")
+    if "rid_list" not in df.columns:
+        raise ValueError(
+            f"Column 'rid_list' not found in {trajectory_file}. "
+            f"Found: {df.columns.tolist()}"
+        )
 
-    for idx, row in tqdm(
-        traj_df.iterrows(),
-        total=len(traj_df),
-        desc="Converting trajectories",
-        disable=len(traj_df) < 100,
-    ):
+    # Get road-to-grid mapping
+    road_to_grid = mapper.map_all()
+
+    # Convert trajectories
+    converted = []
+    skipped = 0
+
+    logger.info(f"Converting {len(df)} trajectories...")
+
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Converting"):
         try:
-            # Parse road ID list
+            # Parse rid_list (handle both "[123,456]" and "123,456" formats)
             rid_list_str = row["rid_list"]
             if isinstance(rid_list_str, str):
-                # Handle string representation of list
+                rid_list_str = rid_list_str.strip()
                 if rid_list_str.startswith("["):
+                    # List string format: "[123, 456]"
                     rid_list = eval(rid_list_str)
                 else:
-                    # Comma-separated values
-                    rid_list = [int(x.strip()) for x in rid_list_str.split(",")]
-            else:
-                # Already a list
-                rid_list = rid_list_str
+                    # Comma-separated format: "123,456"
+                    rid_list = [int(rid.strip()) for rid in rid_list_str.split(",")]
 
-            # Convert to numpy array
-            rid_array = np.array(rid_list, dtype=np.int64)
+            # Convert to numpy array for vectorized mapping
+            road_ids = np.array(rid_list, dtype=np.int64)
 
-            # Check for invalid road IDs
-            invalid_mask = (rid_array < 0) | (rid_array >= len(road_to_token))
-            if invalid_mask.any():
-                invalid_ids = rid_array[invalid_mask]
-                invalid_road_ids.update(invalid_ids.tolist())
-                skipped_count += 1
-                continue
+            # Map road IDs to grid tokens and convert to Python ints
+            grid_tokens = [int(t) for t in road_to_grid[road_ids]]
 
-            # Map road IDs to grid tokens
-            grid_tokens = road_to_token[rid_array]
-
-            # Create output row
-            converted_row = {
-                "mm_id": row["mm_id"],
-                "entity_id": row["entity_id"],
-                "traj_id": row["traj_id"],
-                "grid_token_list": ",".join(map(str, grid_tokens)),
-                "time_list": row["time_list"],
-            }
-            converted_rows.append(converted_row)
+            # Add to results
+            converted.append(grid_tokens)
 
         except Exception as e:
-            logger.warning(f"Failed to convert trajectory at index {idx}: {e}")
-            skipped_count += 1
+            logger.warning(f"Failed to convert trajectory {idx}: {e}")
+            skipped += 1
             continue
 
-    if invalid_road_ids:
-        logger.warning(
-            f"Skipped {skipped_count} trajectories with invalid road IDs. "
-            f"Invalid IDs: {sorted(list(invalid_road_ids))[:10]}..."
-            if len(invalid_road_ids) > 10
-            else f"Invalid IDs: {sorted(list(invalid_road_ids))}"
-        )
-    elif skipped_count > 0:
-        logger.warning(f"Skipped {skipped_count} trajectories due to conversion errors")
+    if skipped > 0:
+        logger.warning(f"Skipped {skipped} trajectories due to errors")
 
-    converted_df = pd.DataFrame(converted_rows)
-    logger.info(
-        f"Successfully converted {len(converted_df)}/{len(traj_df)} trajectories"
-    )
+    converted_df = pd.DataFrame({"trajectory_tokens": converted})
+
+    logger.info(f"Successfully converted {len(converted_df)} trajectories")
 
     return converted_df
 
 
 def save_lmtad_format(
-    converted_df: pd.DataFrame,
-    output_path: Path,
+    df: pd.DataFrame,
+    output_file: Path,
+    vocab_file: Path,
+    vocab: Dict[str, int],
 ) -> None:
-    """Save converted trajectories to LM-TAD format CSV.
+    """
+    Save trajectories and vocabulary in LM-TAD format.
 
     Parameters
     ----------
-    converted_df : pd.DataFrame
-        DataFrame with columns: mm_id, entity_id, traj_id, grid_token_list, time_list
-    output_path : Path
-        Output CSV file path
-
-    Notes
-    -----
-    Creates parent directories if they don't exist.
-    Saves in CSV format compatible with LM-TAD training/evaluation code.
+    df : pd.DataFrame
+        DataFrame with trajectory_tokens column
+    output_file : Path
+        Output file for trajectories
+    vocab_file : Path
+        Output file for vocabulary
+    vocab : Dict[str, int]
+        Grid token vocabulary mapping
     """
-    # Create output directory if needed
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Create output directories
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    vocab_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Save to CSV
-    converted_df.to_csv(output_path, index=False)
-    logger.info(f"Saved {len(converted_df)} trajectories to {output_path}")
+    # Save trajectories (one list per line)
+    with open(output_file, "w") as f:
+        for tokens in df["trajectory_tokens"]:
+            f.write(f"{tokens}\n")
+
+    # Save vocabulary
+    with open(vocab_file, "w") as f:
+        json.dump(vocab, f)
+
+    logger.info(f"Saved {len(df)} trajectories to {output_file}")
+    logger.info(f"Saved vocabulary ({len(vocab)} tokens) to {vocab_file}")
 
 
 def convert_hoser_to_lmtad_format(
-    input_csv: Path,
-    output_csv: Path,
+    trajectory_file: Path,
+    roadmap_file: Path,
+    output_file: Path,
+    vocab_file: Path,
     dataset: str,
-    data_dir: Optional[Path] = None,
-    config: Optional[dict] = None,
-    verify_hw: Optional[Tuple[int, int]] = None,
-) -> None:
-    """Main conversion function: HOSER trajectories -> LM-TAD grid tokens.
+    batch_size: int = 10000,
+) -> Path:
+    """
+    Convert HOSER trajectories to LM-TAD format.
+
+    This is the main entry point for converting HOSER-generated trajectories
+    (road IDs) to LM-TAD format (grid tokens) using the same grid mapping
+    as the teacher model.
 
     Parameters
     ----------
-    input_csv : Path
-        Input CSV file with HOSER trajectories (road IDs).
-    output_csv : Path
-        Output CSV file for LM-TAD format (grid tokens).
+    trajectory_file : Path
+        HOSER CSV file with rid_list column (format: "[123,456,789]")
+    roadmap_file : Path
+        roadmap.geo file for centroid extraction
+    output_file : Path
+        Output CSV file for LM-TAD format trajectories
+    vocab_file : Path
+        Output vocab.json file with grid configuration
     dataset : str
-        Dataset name ('Beijing' or 'porto_hoser').
-    data_dir : Optional[Path], optional
-        Data directory containing roadmap.geo. If None, uses data/{dataset}.
-    config : Optional[dict], optional
-        Configuration dict with 'distill.grid_size' and 'distill.downsample'.
-        If None, uses defaults (grid_size=0.001, downsample=1).
-    verify_hw : Optional[Tuple[int, int]], optional
-        Optional (height, width) to verify grid dimensions match teacher.
+        Dataset name: "porto_hoser" or "beijing_hoser_reference"
+    batch_size : int, default=10000
+        Batch size for processing trajectories
 
-    Raises
-    ------
-    FileNotFoundError
-        If input_csv or roadmap.geo not found.
-    ValueError
-        If grid dimensions don't match verify_hw.
+    Returns
+    -------
+    Path
+        Path to the converted output file
 
     Examples
     --------
-    Basic usage with defaults:
-        >>> convert_hoser_to_lmtad_format(
-        ...     input_csv=Path("gene/Beijing/seed42/generated.csv"),
-        ...     output_csv=Path("gene_lmtad/Beijing/seed42/generated.csv"),
-        ...     dataset="Beijing"
-        ... )
-
-    With custom config:
-        >>> config = {"distill": {"grid_size": 0.001, "downsample": 1}}
-        >>> convert_hoser_to_lmtad_format(
-        ...     input_csv=Path("gene/porto/generated.csv"),
-        ...     output_csv=Path("gene_lmtad/porto/generated.csv"),
-        ...     dataset="porto_hoser",
-        ...     config=config
-        ... )
+    >>> convert_hoser_to_lmtad_format(
+    ...     trajectory_file=Path("generated_trajectories.csv"),
+    ...     roadmap_file=Path("data/porto_hoser/roadmap.geo"),
+    ...     output_file=Path("trajectories_lmtad_format.csv"),
+    ...     vocab_file=Path("vocab.json"),
+    ...     dataset="porto_hoser"
+    ... )
     """
-    # Resolve paths
-    input_csv = Path(input_csv)
-    output_csv = Path(output_csv)
+    logger.info("=" * 80)
+    logger.info("Converting HOSER trajectories to LM-TAD format")
+    logger.info("=" * 80)
+    logger.info(f"Input: {trajectory_file}")
+    logger.info(f"Output: {output_file}")
+    logger.info(f"Dataset: {dataset}")
 
-    if not input_csv.exists():
-        raise FileNotFoundError(f"Input CSV not found: {input_csv}")
-
-    # Determine data directory
-    if data_dir is None:
-        data_dir = ROOT / "data" / dataset
-    else:
-        data_dir = Path(data_dir)
-
-    # Load grid configuration
-    if config is None:
-        grid_size = 0.001
-        downsample_factor = 1
-        logger.info(
-            f"Using default grid config: grid_size={grid_size}, downsample={downsample_factor}"
-        )
-    else:
-        grid_size = float(config.get("distill", {}).get("grid_size", 0.001))
-        downsample_factor = int(config.get("distill", {}).get("downsample", 1))
-        logger.info(
-            f"Using config grid settings: grid_size={grid_size}, downsample={downsample_factor}"
-        )
-
-    # Extract road centroids
-    geo_path = data_dir / "roadmap.geo"
-    road_centroids, geo_df = extract_road_centroids(geo_path)
-
-    # Create grid mapper and road-to-token mapping
-    mapper, road_to_token = create_grid_mapper(
-        geo_df,
-        road_centroids,
-        grid_size=grid_size,
-        downsample_factor=downsample_factor,
-        verify_hw=verify_hw,
+    # Step 1: Extract road centroids
+    logger.info("\n[1/4] Extracting road centroids...")
+    road_centroids, boundary = extract_road_centroids(roadmap_file)
+    logger.info(f"  Extracted {len(road_centroids)} road centroids")
+    logger.info(
+        f"  Boundary: lat=[{boundary['min_lat']:.6f}, {boundary['max_lat']:.6f}], "
+        f"lng=[{boundary['min_lng']:.6f}, {boundary['max_lng']:.6f}]"
     )
 
-    # Load input trajectories
-    logger.info(f"Loading trajectories from {input_csv}")
-    traj_df = pd.read_csv(input_csv)
-    logger.info(f"Loaded {len(traj_df)} trajectories")
+    # Step 2: Create grid mapper
+    logger.info("\n[2/4] Creating grid mapper...")
+    grid_mapper, vocab = create_grid_mapper(dataset, road_centroids, boundary)
+    logger.info(f"  Grid dimensions: {grid_mapper.grid_h} x {grid_mapper.grid_w}")
+    logger.info(f"  Vocabulary size: {len(vocab)} tokens")
 
-    # Convert trajectories
-    converted_df = convert_trajectory_batch(traj_df, road_to_token)
+    # Step 3: Convert trajectories
+    logger.info("\n[3/4] Converting trajectories...")
+    converted_df = convert_trajectory_batch(
+        trajectory_file, grid_mapper, batch_size=batch_size
+    )
+    logger.info(f"  Converted {len(converted_df)} trajectories")
 
-    # Save output
-    save_lmtad_format(converted_df, output_csv)
+    # Step 4: Save LM-TAD format
+    logger.info("\n[4/4] Saving LM-TAD format...")
+    save_lmtad_format(converted_df, output_file, vocab_file, vocab)
+    logger.info(f"  Saved trajectories: {output_file}")
+    logger.info(f"  Saved vocabulary: {vocab_file}")
 
-    logger.info("✅ Conversion complete!")
+    logger.info("\n" + "=" * 80)
+    logger.info("Conversion complete!")
+    logger.info("=" * 80)
+
+    return output_file
 
 
 def main() -> None:
-    """Command-line interface for trajectory format conversion."""
+    """Command-line interface for trajectory conversion."""
+    import argparse
+
     parser = argparse.ArgumentParser(
-        description="Convert HOSER trajectories (road IDs) to LM-TAD format (grid tokens)",
+        description="Convert HOSER trajectories to LM-TAD format",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Convert single file with defaults
-  %(prog)s \\
-      --input gene/Beijing/seed42/generated.csv \\
-      --output gene_lmtad/Beijing/seed42/generated.csv \\
-      --dataset Beijing
+  # Convert Porto generated trajectories
+  python tools/convert_to_lmtad_format.py \\
+    --trajectory-file eval_dir/generated/hoser_abnormal_od.csv \\
+    --roadmap-file data/porto_hoser/roadmap.geo \\
+    --output-file eval_dir/lmtad/trajectories.csv \\
+    --vocab-file eval_dir/lmtad/vocab.json \\
+    --dataset porto_hoser
 
-  # Convert with custom config
-  %(prog)s \\
-      --input gene/porto/generated.csv \\
-      --output gene_lmtad/porto/generated.csv \\
-      --dataset porto_hoser \\
-      --config config/porto.yaml
-
-  # Verify grid dimensions match teacher
-  %(prog)s \\
-      --input gene/Beijing/generated.csv \\
-      --output gene_lmtad/Beijing/generated.csv \\
-      --dataset Beijing \\
-      --verify-grid-hw 177 159
+  # Convert Beijing generated trajectories
+  python tools/convert_to_lmtad_format.py \\
+    --trajectory-file eval_dir/generated/hoser_abnormal_od.csv \\
+    --roadmap-file data/beijing_hoser_reference/roadmap.geo \\
+    --output-file eval_dir/lmtad/trajectories.csv \\
+    --vocab-file eval_dir/lmtad/vocab.json \\
+    --dataset beijing_hoser_reference
         """,
     )
 
     parser.add_argument(
-        "--input",
+        "--trajectory-file",
         type=Path,
         required=True,
-        help="Input HOSER trajectory CSV file (with road IDs)",
+        help="HOSER CSV file with rid_list column",
     )
     parser.add_argument(
-        "--output",
+        "--roadmap-file",
         type=Path,
         required=True,
-        help="Output LM-TAD format CSV file (with grid tokens)",
+        help="roadmap.geo file for centroid extraction",
+    )
+    parser.add_argument(
+        "--output-file",
+        type=Path,
+        required=True,
+        help="Output CSV file for LM-TAD format",
+    )
+    parser.add_argument(
+        "--vocab-file", type=Path, required=True, help="Output vocab.json file"
     )
     parser.add_argument(
         "--dataset",
         type=str,
         required=True,
-        choices=["Beijing", "porto_hoser", "BJUT_Beijing"],
-        help="Dataset name (determines data directory)",
+        choices=["porto_hoser", "beijing_hoser_reference"],
+        help="Dataset name",
     )
     parser.add_argument(
-        "--data-dir",
-        type=Path,
-        help="Override data directory (default: data/{dataset})",
-    )
-    parser.add_argument(
-        "--config",
-        type=Path,
-        help="YAML config file with distill.grid_size and distill.downsample",
-    )
-    parser.add_argument(
-        "--verify-grid-hw",
+        "--batch-size",
         type=int,
-        nargs=2,
-        metavar=("HEIGHT", "WIDTH"),
-        help="Verify grid dimensions match teacher (height width)",
+        default=10000,
+        help="Batch size for processing (default: 10000)",
     )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging",
-    )
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args()
 
-    # Set logging level
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-
-    # Load config if provided
-    config = None
-    if args.config:
-        config_path = args.config
-        if not config_path.exists():
-            logger.error(f"Config file not found: {config_path}")
-            sys.exit(1)
-
-        logger.info(f"Loading config from {config_path}")
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-
-    # Convert verify_hw to tuple if provided
-    verify_hw = tuple(args.verify_grid_hw) if args.verify_grid_hw else None
+    # Setup logging
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s"
+    )
 
     # Run conversion
-    try:
-        convert_hoser_to_lmtad_format(
-            input_csv=args.input,
-            output_csv=args.output,
-            dataset=args.dataset,
-            data_dir=args.data_dir,
-            config=config,
-            verify_hw=verify_hw,
-        )
-    except Exception as e:
-        logger.error(f"Conversion failed: {e}")
-        if args.verbose:
-            import traceback
-
-            traceback.print_exc()
-        sys.exit(1)
+    convert_hoser_to_lmtad_format(
+        trajectory_file=args.trajectory_file,
+        roadmap_file=args.roadmap_file,
+        output_file=args.output_file,
+        vocab_file=args.vocab_file,
+        dataset=args.dataset,
+        batch_size=args.batch_size,
+    )
 
 
 if __name__ == "__main__":
