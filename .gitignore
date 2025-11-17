@@ -121,3 +121,17 @@ vocab_validation_*.json
 
 # Coverage
 .coverage
+
+# Model binaries (large files, should not be committed)
+*.pth
+*.pt
+*.ckpt
+
+# Log files
+*.log
+scripts/*.log
+**/*.log
+
+# Other evaluation directory outputs (keep only hoser-distill-beijing)
+hoser-distill-optuna-6/figures/*.pdf
+hoser-distill-optuna-6/models/*.pth
