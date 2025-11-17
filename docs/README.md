@@ -111,7 +111,6 @@ Complete guide for evaluating spatial abnormalities (route switches and detours)
 - Aggregate results with statistical comparisons
 - Generate visualizations and combined reports
 - Integration with main pipeline
-- Quality filtering and interpretation
 
 ### Abnormal OD Pair Workflow
 
