@@ -91,6 +91,18 @@ IMPLEMENTATION_SUMMARY.md               # Implementation notes
 hoser-distill-optuna-porto-eval-*/
 hoser-distill-optuna-porto-eval-*-backup-*.tar.gz
 
+# Beijing evaluation directory - exclude large generated files
+hoser-distill-beijing/gene/
+hoser-distill-beijing/eval/
+hoser-distill-beijing/wandb/
+hoser-distill-beijing/cross_dataset_eval/
+hoser-distill-beijing/models/*.pth
+hoser-distill-beijing/*.log
+hoser-distill-beijing/paired_analysis/
+hoser-distill-beijing/road_mapping_*.json
+hoser-distill-beijing/data/
+hoser-distill-beijing/pipeline.log
+
 # Root level pipeline logs
 pipeline.log
 logs/
