@@ -1,7 +1,10 @@
 """Tests for LM-TAD spatial abnormality evaluation tools."""
 
 import json
+import subprocess
+import sys
 import pytest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Import the modules to test
@@ -310,8 +313,8 @@ class TestVisualizeLMTADSpatialResults:
 
         # Check that subplots was called
         assert mock_subplots.called
-        # Check that savefig was called
-        assert mock_fig.savefig.called
+        # Check that savefig was called (may be called on fig or plt)
+        assert mock_fig.savefig.called or mock_plt.savefig.called
 
 
 class TestLMTADSpatialPipelineIntegration:
@@ -463,6 +466,125 @@ class TestCombinedReport:
         assert "Temporal Abnormality Analysis" in content
         assert "Spatial Abnormality Analysis" in content
         assert "Combined Model Rankings" in content
+
+
+class TestLMTADSpatialCLI:
+    """Tests for CLI interfaces of LM-TAD spatial tools."""
+
+    def test_extract_od_cli_help(self):
+        """Test extract_lmtad_spatial_abnormal_od CLI help."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tools.extract_lmtad_spatial_abnormal_od",
+                "--help",
+            ],
+            cwd=Path(__file__).parent.parent,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "--tsv-file" in result.stdout
+        assert "--dataset" in result.stdout
+        assert "--output" in result.stdout
+
+    def test_analyze_results_cli_help(self):
+        """Test analyze_lmtad_spatial_results CLI help."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tools.analyze_lmtad_spatial_results",
+                "--help",
+            ],
+            cwd=Path(__file__).parent.parent,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "--eval-dir" in result.stdout
+        assert "--dataset" in result.stdout
+        assert "--output" in result.stdout
+
+    def test_visualize_results_cli_help(self):
+        """Test visualize_lmtad_spatial_results CLI help."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tools.visualize_lmtad_spatial_results",
+                "--help",
+            ],
+            cwd=Path(__file__).parent.parent,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "--input" in result.stdout
+        assert "--output-dir" in result.stdout
+        assert "--dataset" in result.stdout
+
+    def test_pipeline_cli_help(self):
+        """Test run_lmtad_spatial_pipeline CLI help."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tools.run_lmtad_spatial_pipeline",
+                "--help",
+            ],
+            cwd=Path(__file__).parent.parent,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "--eval-dir" in result.stdout
+        assert "--dataset" in result.stdout
+        assert "--lmtad-source-eval-dir" in result.stdout
+
+    def test_combined_report_cli_help(self):
+        """Test create_combined_abnormal_report CLI help."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tools.create_combined_abnormal_report",
+                "--help",
+            ],
+            cwd=Path(__file__).parent.parent,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "--output" in result.stdout
+        assert "--dataset" in result.stdout
+
+
+class TestLMTADSpatialFunctionSignatures:
+    """Test function signatures and docstrings for programmatic interfaces."""
+
+    def test_extract_functions_have_docstrings(self):
+        """Test that extraction functions have docstrings."""
+        assert extract_spatial_abnormal_od_pairs.__doc__ is not None
+        assert parse_trajectory_from_tsv.__doc__ is not None
+        assert extract_od_from_trajectory.__doc__ is not None
+
+    def test_analyze_functions_have_docstrings(self):
+        """Test that analysis functions have docstrings."""
+        assert aggregate_lmtad_spatial_results.__doc__ is not None
+        assert load_source_real_rates.__doc__ is not None
+        assert compute_statistical_test.__doc__ is not None
+
+    def test_visualize_functions_have_docstrings(self):
+        """Test that visualization functions have docstrings."""
+        assert load_aggregated_results.__doc__ is not None
+        assert plot_spatial_abnormality_rates_comparison.__doc__ is not None
 
 
 if __name__ == "__main__":
