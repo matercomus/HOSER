@@ -153,4 +153,72 @@ Generated plots include:
 
 See `docs/results/ABNORMAL_OD_TEACHER_STUDENT_BRIDGE.md` for interpretation guidelines.
 
+### Phase 7: LM-TAD Spatial Abnormality Evaluation (Optional)
+
+Evaluate how well HOSER models reproduce spatial abnormalities (route switches and detours) identified by the LM-TAD teacher model. This complements the Wang temporal abnormality detection by focusing on spatial route deviations.
+
+**When to run:**
+- Evaluating spatial pattern reproduction
+- Comparing models on route switch vs detour generation
+- Comprehensive abnormal trajectory analysis (temporal + spatial)
+- Validating distillation impact on spatial behavior
+
+**Prerequisites:**
+- LM-TAD source evaluation completed
+- LM-TAD checkpoint available
+- Phase 6 (LM-TAD evaluation) optional but recommended
+
+**Configuration:**
+```yaml
+# config/evaluation.yaml
+run_lmtad_spatial_detection: true  # Enable LM-TAD spatial evaluation
+lmtad_spatial_config: null  # Optional: path to config file
+lmtad_source_eval_dir: null  # Optional: auto-detect from LMTAD repo
+```
+
+**CLI:**
+```bash
+# Integrated in main pipeline
+uv run python python_pipeline.py \
+  --eval-dir eval_dir \
+  --only lmtad_spatial_abnormality \
+  --run-lmtad-spatial
+
+# Or standalone pipeline
+uv run python tools/run_lmtad_spatial_pipeline.py \
+  --eval-dir eval_dir \
+  --dataset porto_hoser \
+  --lmtad-source-eval-dir /path/to/lmtad/eval \
+  --lmtad-checkpoint /path/to/ckpt_best.pt
+```
+
+**Output Structure:**
+```
+{eval_dir}/
+├── abnormal_od_pairs_lmtad_spatial_{dataset}.json
+├── gene_abnormal_lmtad_spatial/{dataset}/seed{seed}/
+│   └── {model}_spatial_abnormal.csv
+├── eval_lmtad_spatial/{dataset}/
+│   └── {model}_spatial_evaluation.json
+├── analysis_abnormal/{dataset}/
+│   ├── lmtad_spatial_results_aggregated.json
+│   └── COMBINED_ABNORMAL_TRAJECTORY_ANALYSIS_REPORT.md
+└── figures/lmtad_spatial_abnormality/{dataset}/
+    └── [5 visualization plots]
+```
+
+**Metrics Evaluated:**
+1. **Spatial Abnormality Rates**: Route switch, detour, and overall rates
+2. **Statistical Comparisons**: Chi-square tests, effect sizes, confidence intervals
+3. **Model Rankings**: Ranked by deviation from real spatial abnormality rate
+
+**Integration with Previous Phases:**
+1. Extracts spatial abnormal OD pairs from LM-TAD source evaluation
+2. Generates trajectories similar to Phase 4
+3. Evaluates with LM-TAD similar to Phase 6
+4. Complements Wang temporal analysis from Phase 5
+5. Can combine results with Wang for comprehensive analysis
+
+See `docs/guides/RUN_LMTAD_SPATIAL_ABNORMALITY_ANALYSIS.md` for detailed execution guide.
+
 [Rest of the document remains unchanged]
