@@ -66,6 +66,7 @@ map_manager.py
 *heatmap*.ipynb
 
 # Backup files
+backups/
 backup_*.tar.gz
 *-backup-*.tar.gz
 
