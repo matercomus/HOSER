@@ -87,9 +87,13 @@ IMPLEMENTATION_SUMMARY.md               # Implementation notes
 *_SUMMARY.md                           # Any temporary summary docs
 *_NOTES.md                            # Any temporary notes
 
+# Root-level figures and examples directories (moved/removed)
+figures/
+examples/
+
 # Keep example figures but ignore generated ones
 */figures/lmtad_*/
-!figures/lmtad_example/   # Keep reference examples
+# Note: figures/lmtad_example/ and figures/wang_abnormality/ have been moved/removed
 
 # Porto evaluation directory (entire directory and its backups)
 hoser-distill-optuna-porto-eval-*/
