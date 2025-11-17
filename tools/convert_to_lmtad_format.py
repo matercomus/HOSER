@@ -357,9 +357,14 @@ def convert_trajectory_batch(
     except Exception as e:
         raise ValueError(f"Failed to read trajectory CSV: {e}") from e
 
-    if "rid_list" not in df.columns:
+    # Support both column names: rid_list (old) and gene_trace_road_id (new)
+    if "rid_list" in df.columns:
+        rid_column = "rid_list"
+    elif "gene_trace_road_id" in df.columns:
+        rid_column = "gene_trace_road_id"
+    else:
         raise ValueError(
-            f"Column 'rid_list' not found in {trajectory_file}. "
+            f"Neither 'rid_list' nor 'gene_trace_road_id' found in {trajectory_file}. "
             f"Found: {df.columns.tolist()}"
         )
 
@@ -379,7 +384,7 @@ def convert_trajectory_batch(
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="Converting"):
         try:
             # Parse rid_list (handle both "[123,456]" and "123,456" formats)
-            rid_list_str = row["rid_list"]
+            rid_list_str = row[rid_column]
 
             if not isinstance(rid_list_str, str) or not rid_list_str.strip():
                 logger.warning(f"Trajectory {idx}: Empty or invalid rid_list, skipping")
@@ -504,9 +509,13 @@ def save_lmtad_format(
         raise OSError(f"Failed to create output directories: {e}") from e
 
     # Save trajectories atomically using a temporary file
+    # Use pipe separator to avoid list parsing issues (commas in list representation)
     with tempfile.NamedTemporaryFile(
         mode="w", delete=False, dir=output_file.parent
     ) as tmp:
+        # Write CSV header
+        tmp.write("trajectory\n")
+        # Write each trajectory as list string using pipe separator
         for tokens in df["trajectory_tokens"]:
             tmp.write(f"{tokens}\n")
         tmp.flush()

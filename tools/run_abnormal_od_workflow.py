@@ -909,13 +909,23 @@ class AbnormalODWorkflowRunner:
 
             from tools.plot_lmtad_evaluation import plot_lmtad_evaluation_from_files
 
-            plot_lmtad_evaluation_from_files(
-                lmtad_eval_dir=lmtad_eval_dir,
-                output_dir=lmtad_figures_dir,
-                dataset=self.dataset,
-            )
+            # Find result files in the evaluation directory
+            real_results_file = lmtad_eval_dir / "real_data" / "evaluation_results.json"
+            generated_results_file = lmtad_eval_dir / "generated_data" / "evaluation_results.json"
 
-            logger.info(f"✅ LM-TAD visualizations generated: {lmtad_figures_dir}")
+            if real_results_file.exists() and generated_results_file.exists():
+                plot_lmtad_evaluation_from_files(
+                    real_results_file=real_results_file,
+                    generated_results_file=generated_results_file,
+                    output_dir=lmtad_figures_dir,
+                    dataset=self.dataset,
+                )
+                logger.info(f"✅ LM-TAD visualizations generated: {lmtad_figures_dir}")
+            elif real_results_file.exists():
+                logger.info("✅ Real baseline LMTAD evaluation completed")
+                logger.info("   Generated data evaluation not found (generation skipped)")
+            else:
+                logger.warning(f"LM-TAD result files not found in {lmtad_eval_dir}")
 
         # Generate abnormal OD analysis plots
         if getattr(self.config, "skip_generation", False):
