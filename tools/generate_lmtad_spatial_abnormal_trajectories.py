@@ -89,7 +89,7 @@ def generate_spatial_abnormal_trajectories(
     seed: int,
     num_traj_per_od: int = 50,
     cuda_device: int = 0,
-    beam_search: bool = True,
+    beam_search: bool = False,
     beam_width: int = 4,
 ) -> None:
     """Generate trajectories for spatial abnormal OD pairs
@@ -102,7 +102,7 @@ def generate_spatial_abnormal_trajectories(
         seed: Random seed
         num_traj_per_od: Number of trajectories to generate per OD pair
         cuda_device: CUDA device index
-        beam_search: Use beam search (True) or A* search (False)
+        beam_search: Use beam search (True) or A* search (False, default)
         beam_width: Beam width for beam search
     """
     # Load OD pairs
@@ -276,14 +276,14 @@ Examples:
     parser.add_argument(
         "--beam-search",
         action="store_true",
-        default=True,
-        help="Use beam search (default: True)",
+        default=False,
+        help="Use beam search (default: False, uses A* search)",
     )
     parser.add_argument(
         "--no-beam-search",
         dest="beam_search",
         action="store_false",
-        help="Use A* search instead of beam search",
+        help="Use A* search instead of beam search (default)",
     )
     parser.add_argument(
         "--beam-width",

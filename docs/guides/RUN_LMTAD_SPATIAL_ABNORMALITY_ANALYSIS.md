@@ -107,8 +107,8 @@ uv run python tools/generate_lmtad_spatial_abnormal_trajectories.py \
 **Options:**
 - `--models vanilla,distill_phase1`: Generate for specific models only
 - `--cuda-device 0`: Specify GPU device
-- `--beam-search`: Use beam search (default: True)
-- `--beam-width 4`: Beam width for search
+- `--beam-search`: Use beam search (default: False, uses A* search)
+- `--beam-width 4`: Beam width for beam search
 
 ## Step 3: Evaluate Generated Trajectories
 
