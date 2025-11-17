@@ -104,6 +104,7 @@ hoser-distill-beijing/models/*.pth
 hoser-distill-beijing/*.log
 hoser-distill-beijing/paired_analysis/
 hoser-distill-beijing/road_mapping_*.json
+hoser-distill-beijing/data
 hoser-distill-beijing/data/
 hoser-distill-beijing/pipeline.log
 
