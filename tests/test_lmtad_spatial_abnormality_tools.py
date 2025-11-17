@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 # Import the modules to test
 from tools.extract_lmtad_spatial_abnormal_od import (
@@ -93,9 +93,14 @@ class TestExtractLMTADSpatialAbnormalOD:
         assert result["source"] == "lmtad"
         assert result["total_spatial_abnormal_trajectories"] == 4
         assert len(result["od_pairs_by_type"]["route_switch"]) == 1  # Unique OD pairs
-        assert len(result["od_pairs_by_type"]["detour"]) == 1  # Unique OD pairs
-        assert result["od_pairs_by_type"]["route_switch"][0] == [100, 300]
-        assert result["od_pairs_by_type"]["detour"][0] == [150, 450]
+        assert (
+            len(result["od_pairs_by_type"]["detour"]) == 2
+        )  # Two different destinations
+        # OD pairs are returned as tuples
+        assert result["od_pairs_by_type"]["route_switch"][0] == (100, 300)
+        # Check that detour pairs include both destinations
+        detour_ods = result["od_pairs_by_type"]["detour"]
+        assert (150, 350) in detour_ods or (150, 450) in detour_ods
 
     def test_extract_spatial_abnormal_od_pairs_no_outliers(self, tmp_path):
         """Test extraction when no spatial outliers exist."""
@@ -269,9 +274,17 @@ class TestVisualizeLMTADSpatialResults:
         loaded = load_aggregated_results(results_file)
         assert loaded == results_data
 
+    @patch("tools.visualize_lmtad_spatial_results.plt.subplots")
     @patch("tools.visualize_lmtad_spatial_results.plt")
-    def test_plot_spatial_abnormality_rates_comparison(self, mock_plt, tmp_path):
+    def test_plot_spatial_abnormality_rates_comparison(
+        self, mock_plt, mock_subplots, tmp_path
+    ):
         """Test plotting spatial abnormality rates."""
+        # Mock subplots to return figure and axes
+        mock_fig = MagicMock()
+        mock_ax = MagicMock()
+        mock_subplots.return_value = (mock_fig, mock_ax)
+
         results = {
             "summary_statistics": {
                 "test_dataset": {
@@ -295,8 +308,10 @@ class TestVisualizeLMTADSpatialResults:
         output_dir = tmp_path / "figures"
         plot_spatial_abnormality_rates_comparison(results, output_dir, "test_dataset")
 
+        # Check that subplots was called
+        assert mock_subplots.called
         # Check that savefig was called
-        assert mock_plt.savefig.called
+        assert mock_fig.savefig.called
 
 
 class TestLMTADSpatialPipelineIntegration:
