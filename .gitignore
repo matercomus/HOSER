@@ -133,5 +133,5 @@ scripts/*.log
 **/*.log
 
 # Other evaluation directory outputs (keep only hoser-distill-beijing)
-hoser-distill-optuna-6/figures/*.pdf
+hoser-distill-optuna-6/figures/**/*.pdf
 hoser-distill-optuna-6/models/*.pth
