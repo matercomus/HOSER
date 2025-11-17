@@ -10,6 +10,10 @@ HOSER_paper.pdf
 HOSER_paper.txt
 EVAL_NOTES.md
 *.pdf
+# Allow PDF figures in evaluation directories (publication quality)
+!hoser-distill-*/figures/**/*.pdf
+!*/figures/analysis/*.pdf
+!*/figures/distributions/*.pdf
 # Weights & Biases
 wandb/
 *.wandb
