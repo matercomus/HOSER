@@ -41,8 +41,8 @@ from shapely.geometry import LineString
 PROJECT_ROOT = Path(__file__).parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from critics.lmtad_teacher import LMTADTeacher
-from critics.grid_mapper import GridMapper, GridConfig
+from critics.lmtad_teacher import LMTADTeacher  # noqa: E402
+from critics.grid_mapper import GridMapper, GridConfig  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -184,8 +184,7 @@ def evaluate_trajectories_direct(
 
     logger.info(f"Evaluating {len(trajectories)} trajectories...")
 
-    # Use teacher's window size for consistency
-    window = model.window
+    # Note: teacher's window size is used internally by the model
     sot_token = model.sot_token()
 
     for traj_idx, road_ids in enumerate(trajectories):
@@ -203,7 +202,7 @@ def evaluate_trajectories_direct(
 
             if len(tokens) < 2:
                 # Too short to evaluate
-                all_perplexities.append(float('inf'))
+                all_perplexities.append(float("inf"))
                 all_outlier_scores.append(1.0)  # Mark as outlier
                 continue
 
@@ -224,26 +223,28 @@ def evaluate_trajectories_direct(
                 log_prob = torch.log(pred_dist[target_token] + 1e-10)
                 log_probs.append(log_prob.item())
 
-            # Compute perplexity = exp(-average log prob)
+            # Compute log perplexity = -average log prob (matches source dataset format)
             avg_log_prob = np.mean(log_probs)
-            perplexity = float(np.exp(-avg_log_prob))
-            all_perplexities.append(perplexity)
+            log_perplexity = float(-avg_log_prob)
+            all_perplexities.append(log_perplexity)
 
-            # Simple outlier detection: high perplexity = outlier
+            # Simple outlier detection: high log perplexity = outlier
             # Use threshold based on distribution (can be tuned)
-            all_outlier_scores.append(perplexity)
+            all_outlier_scores.append(log_perplexity)
 
         except Exception as e:
             logger.error(f"  Trajectory {traj_idx}: Evaluation failed: {e}")
             # Mark as failed/outlier
-            all_perplexities.append(float('inf'))
-            all_outlier_scores.append(float('inf'))
+            all_perplexities.append(float("inf"))
+            all_outlier_scores.append(float("inf"))
 
     # Convert outlier scores to binary labels using threshold
     # Use 95th percentile as threshold (adjustable)
     if len(all_outlier_scores) > 0:
         threshold = np.percentile(all_outlier_scores, 95)
-        outliers = np.array([1 if score > threshold else 0 for score in all_outlier_scores])
+        outliers = np.array(
+            [1 if score > threshold else 0 for score in all_outlier_scores]
+        )
     else:
         outliers = np.array([])
 
@@ -269,7 +270,10 @@ def main():
         "--lmtad-checkpoint", type=Path, required=True, help="LM-TAD checkpoint path"
     )
     parser.add_argument(
-        "--lmtad-repo", type=Path, default=Path("/home/matt/Dev/LMTAD"), help="LM-TAD repo path"
+        "--lmtad-repo",
+        type=Path,
+        default=Path("/home/matt/Dev/LMTAD"),
+        help="LM-TAD repo path",
     )
     parser.add_argument("--device", type=str, default="cuda:0", help="CUDA device")
     parser.add_argument(
@@ -335,8 +339,12 @@ def main():
     # Setup grid mapper (same as distillation)
     road_centroids = load_road_centroids(roadmap_file)
     logger.info(f"Loaded road centroids: {road_centroids.shape}")
-    logger.info(f"Lat range: {road_centroids[:, 1].min():.6f} to {road_centroids[:, 1].max():.6f}")
-    logger.info(f"Lng range: {road_centroids[:, 0].min():.6f} to {road_centroids[:, 0].max():.6f}")
+    logger.info(
+        f"Lat range: {road_centroids[:, 1].min():.6f} to {road_centroids[:, 1].max():.6f}"
+    )
+    logger.info(
+        f"Lng range: {road_centroids[:, 0].min():.6f} to {road_centroids[:, 0].max():.6f}"
+    )
 
     grid_config = GridConfig(
         min_lat=road_centroids[:, 1].min(),
@@ -356,7 +364,9 @@ def main():
 
         road_to_token = torch.from_numpy(mapper.map_all()).to(args.device)
         logger.info(f"Created grid mapper: {mapper.grid_h}x{mapper.grid_w} cells")
-        logger.info(f"Note: Grid dims may differ from teacher training dims - this is OK for evaluation")
+        logger.info(
+            "Note: Grid dims may differ from teacher training dims - this is OK for evaluation"
+        )
     except Exception as e:
         logger.error(f"Failed to create grid mapper: {e}", exc_info=True)
         raise
@@ -396,21 +406,21 @@ def main():
                     f"Mismatch: loaded {len(trajectories)} trajectories but got {len(perplexities)} perplexity scores"
                 )
 
-            # Store results
+            # Store results (using log perplexity to match source dataset format)
             file_key = csv_file.stem  # e.g., "2025-11-07_00-13-07_distill_phase1_train"
             all_results[file_key] = {
                 "num_trajectories": len(trajectories),
-                "mean_perplexity": float(perplexities.mean()),
-                "median_perplexity": float(np.median(perplexities)),
-                "std_perplexity": float(perplexities.std()),
-                "min_perplexity": float(perplexities.min()),
-                "max_perplexity": float(perplexities.max()),
+                "mean_log_perplexity": float(perplexities.mean()),
+                "median_log_perplexity": float(np.median(perplexities)),
+                "std_log_perplexity": float(perplexities.std()),
+                "min_log_perplexity": float(perplexities.min()),
+                "max_log_perplexity": float(perplexities.max()),
                 "outlier_rate": float(outliers.mean()),
-                "perplexity_values": perplexities.tolist(),
+                "log_perplexity_values": perplexities.tolist(),
                 "outlier_labels": outliers.tolist(),
             }
 
-            logger.info(f"  ✓ Mean perplexity: {perplexities.mean():.4f}")
+            logger.info(f"  ✓ Mean log perplexity: {perplexities.mean():.4f}")
             logger.info(f"  ✓ Outlier rate: {outliers.mean():.2%}")
 
         except Exception as e:
@@ -430,7 +440,9 @@ def main():
         # Format: YYYY-MM-DD_HH-MM-SS_{model}_{split} or YYYY-MM-DD_HH-MM-SS_{model}_{seed}_{split}
         parts = file_key.split("_")
         if len(parts) >= 5:
-            model_name = parts[2] if "seed" not in parts[3] else f"{parts[2]}_{parts[3]}"
+            model_name = (
+                parts[2] if "seed" not in parts[3] else f"{parts[2]}_{parts[3]}"
+            )
             split = parts[-1]
         else:
             model_name = file_key[:30]
@@ -442,11 +454,11 @@ def main():
                 "model": model_name,
                 "split": split,
                 "num_trajectories": results["num_trajectories"],
-                "mean_perplexity": results["mean_perplexity"],
-                "median_perplexity": results["median_perplexity"],
-                "std_perplexity": results["std_perplexity"],
-                "min_perplexity": results["min_perplexity"],
-                "max_perplexity": results["max_perplexity"],
+                "mean_log_perplexity": results["mean_log_perplexity"],
+                "median_log_perplexity": results["median_log_perplexity"],
+                "std_log_perplexity": results["std_log_perplexity"],
+                "min_log_perplexity": results["min_log_perplexity"],
+                "max_log_perplexity": results["max_log_perplexity"],
                 "outlier_rate": results["outlier_rate"],
             }
         )
@@ -460,11 +472,15 @@ def main():
     print("\n" + "=" * 100)
     print("LM-TAD EVALUATION SUMMARY")
     print("=" * 100)
-    print(f"{'File':<50} {'Perplexity':<15} {'Outlier Rate':<15} {'#Trajectories':<15}")
+    print(
+        f"{'File':<50} {'Log Perplexity':<15} {'Outlier Rate':<15} {'#Trajectories':<15}"
+    )
     print("-" * 100)
 
     for data in summary_data:
-        print(f"{data['file'][:48]:<50} {data['mean_perplexity']:<15.4f} {data['outlier_rate']:<15.2%} {data['num_trajectories']:<15}")
+        print(
+            f"{data['file'][:48]:<50} {data['mean_log_perplexity']:<15.4f} {data['outlier_rate']:<15.2%} {data['num_trajectories']:<15}"
+        )
 
     print("=" * 100)
     logger.info(f"✅ Evaluation complete! Total files evaluated: {len(all_results)}")

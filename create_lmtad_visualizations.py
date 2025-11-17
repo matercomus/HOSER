@@ -200,15 +200,15 @@ def create_model_comparison_plot(results: Dict, output_dir: Path):
             model_labels.append(get_display_name(model_key))
 
             if isinstance(train_data, dict):
-                train_perplexity.append(train_data.get("mean_perplexity", 0))
-                train_std.append(train_data.get("std_perplexity", 0))
+                train_perplexity.append(train_data.get("mean_log_perplexity", 0))
+                train_std.append(train_data.get("std_log_perplexity", 0))
             else:
                 train_perplexity.append(0)
                 train_std.append(0)
 
             if isinstance(test_data, dict):
-                test_perplexity.append(test_data.get("mean_perplexity", 0))
-                test_std.append(test_data.get("std_perplexity", 0))
+                test_perplexity.append(test_data.get("mean_log_perplexity", 0))
+                test_std.append(test_data.get("std_log_perplexity", 0))
             else:
                 test_perplexity.append(0)
                 test_std.append(0)
@@ -243,9 +243,9 @@ def create_model_comparison_plot(results: Dict, output_dir: Path):
     )
 
     ax1.set_xlabel("Model", fontsize=12, fontweight="bold")
-    ax1.set_ylabel("Perplexity", fontsize=12, fontweight="bold")
+    ax1.set_ylabel("Log Perplexity", fontsize=12, fontweight="bold")
     ax1.set_title(
-        "Model Comparison: Mean Perplexity (All Variants)",
+        "Model Comparison: Mean Log Perplexity (All Variants)",
         fontsize=16,
         fontweight="bold",
         pad=20,
@@ -291,10 +291,14 @@ def create_seed_stability_plot(results: Dict, output_dir: Path):
 
     for model_name, splits in organized.items():
         for split, data in splits.items():
-            if isinstance(data, dict) and "perplexity_values" in data:
-                for perplexity in data["perplexity_values"]:
+            if isinstance(data, dict) and "log_perplexity_values" in data:
+                for log_perplexity in data["log_perplexity_values"]:
                     perplexity_data.append(
-                        {"model": model_name, "split": split, "perplexity": perplexity}
+                        {
+                            "model": model_name,
+                            "split": split,
+                            "perplexity": log_perplexity,
+                        }
                     )
 
     if not perplexity_data:
@@ -331,13 +335,13 @@ def create_seed_stability_plot(results: Dict, output_dir: Path):
     )
 
     ax.set_title(
-        "Seed Stability Analysis: Perplexity Distribution Across All Models",
+        "Seed Stability Analysis: Log Perplexity Distribution Across All Models",
         fontsize=16,
         fontweight="bold",
         pad=20,
     )
     ax.set_xlabel("Model", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Perplexity", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Log Perplexity", fontsize=12, fontweight="bold")
     ax.tick_params(axis="x", rotation=45, labelsize=10)
 
     # Add mean markers
@@ -376,10 +380,14 @@ def create_perplexity_distribution_plot(results: Dict, output_dir: Path):
 
     for model_name, splits in organized.items():
         for split, data in splits.items():
-            if isinstance(data, dict) and "perplexity_values" in data:
-                for perplexity in data["perplexity_values"]:
+            if isinstance(data, dict) and "log_perplexity_values" in data:
+                for log_perplexity in data["log_perplexity_values"]:
                     perplexity_data.append(
-                        {"model": model_name, "split": split, "perplexity": perplexity}
+                        {
+                            "model": model_name,
+                            "split": split,
+                            "perplexity": log_perplexity,
+                        }
                     )
 
     if not perplexity_data:
@@ -450,11 +458,11 @@ def create_perplexity_distribution_plot(results: Dict, output_dir: Path):
             )
 
     ax.set_title(
-        "Perplexity Distribution Comparison (All Models)",
+        "Log Perplexity Distribution Comparison (All Models)",
         fontsize=16,
         fontweight="bold",
     )
-    ax.set_xlabel("Perplexity", fontweight="bold")
+    ax.set_xlabel("Log Perplexity", fontweight="bold")
     ax.set_ylabel("Density", fontweight="bold")
     ax.legend(fontsize=10, framealpha=0.95, loc="best", ncol=2)
     ax.grid(True, alpha=0.3, linestyle="--")
@@ -588,14 +596,14 @@ def create_distillation_progression_plot(results: Dict, output_dir: Path):
             if "train" in organized[variant]:
                 data = organized[variant]["train"]
                 if isinstance(data, dict):
-                    train_vals.append(data.get("mean_perplexity", 0))
-                    train_std_vals.append(data.get("std_perplexity", 0))
+                    train_vals.append(data.get("mean_log_perplexity", 0))
+                    train_std_vals.append(data.get("std_log_perplexity", 0))
 
             if "test" in organized[variant]:
                 data = organized[variant]["test"]
                 if isinstance(data, dict):
-                    test_vals.append(data.get("mean_perplexity", 0))
-                    test_std_vals.append(data.get("std_perplexity", 0))
+                    test_vals.append(data.get("mean_log_perplexity", 0))
+                    test_std_vals.append(data.get("std_log_perplexity", 0))
 
         train_values.append(np.mean(train_vals) if train_vals else 0)
         train_stds.append(np.mean(train_std_vals) if train_std_vals else 0)
@@ -635,9 +643,11 @@ def create_distillation_progression_plot(results: Dict, output_dir: Path):
         ax1.set_xticks(x)
         ax1.set_xticklabels(model_labels, rotation=0, ha="center")
         ax1.set_xlabel("Model", fontweight="bold", fontsize=12)
-        ax1.set_ylabel("Perplexity", fontweight="bold", fontsize=12)
+        ax1.set_ylabel("Log Perplexity", fontweight="bold", fontsize=12)
         ax1.set_title(
-            "Model Comparison: Train vs Test Perplexity", fontsize=14, fontweight="bold"
+            "Model Comparison: Train vs Test Log Perplexity",
+            fontsize=14,
+            fontweight="bold",
         )
         ax1.legend(fontsize=11)
         ax1.grid(True, alpha=0.3, axis="y")
@@ -685,8 +695,8 @@ def create_distillation_progression_plot(results: Dict, output_dir: Path):
         ax2.set_xticks(x)
         ax2.set_xticklabels(model_labels, rotation=0, ha="center")
         ax2.set_xlabel("Model", fontweight="bold", fontsize=12)
-        ax2.set_ylabel("Perplexity", fontweight="bold", fontsize=12)
-        ax2.set_title("Perplexity by Model", fontsize=14, fontweight="bold")
+        ax2.set_ylabel("Log Perplexity", fontweight="bold", fontsize=12)
+        ax2.set_title("Log Perplexity by Model", fontsize=14, fontweight="bold")
         ax2.legend(fontsize=11)
         ax2.grid(True, alpha=0.3, axis="y")
 
@@ -752,9 +762,9 @@ def create_summary_report(results: Dict, csv_df: pd.DataFrame, output_dir: Path)
         f.write("-" * 80 + "\n")
 
         plots = [
-            "model_comparison.png/svg - Mean perplexity comparison (all variants)",
-            "seed_stability.png/svg - Perplexity distribution across seeds",
-            "perplexity_distributions.png/svg - Overlaid histograms",
+            "model_comparison.png/svg - Mean log perplexity comparison (all variants)",
+            "seed_stability.png/svg - Log perplexity distribution across seeds",
+            "perplexity_distributions.png/svg - Log perplexity distribution KDE curves",
             "outlier_rates.png/svg - Outlier rate comparison",
         ]
 
@@ -771,10 +781,10 @@ def create_summary_report(results: Dict, csv_df: pd.DataFrame, output_dir: Path)
                 if isinstance(data, dict):
                     f.write(f"\n{model_key.upper().replace('_', ' ')}:\n")
                     f.write(
-                        f"  - Mean Perplexity: {data.get('mean_perplexity', 'N/A')}\n"
+                        f"  - Mean Log Perplexity: {data.get('mean_log_perplexity', 'N/A')}\n"
                     )
                     f.write(
-                        f"  - Std Perplexity: {data.get('std_perplexity', 'N/A')}\n"
+                        f"  - Std Log Perplexity: {data.get('std_log_perplexity', 'N/A')}\n"
                     )
                     f.write(f"  - Outlier Rate: {data.get('outlier_rate', 'N/A')}\n")
 
