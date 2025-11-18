@@ -172,11 +172,20 @@ def compute_statistical_test(
         logger.warning("Invalid contingency table (negative values)")
         return float("nan"), float("nan")
 
+    # Check for invalid contingency table before testing
+    if np.any(contingency_table.sum(axis=0) == 0) or np.any(
+        contingency_table.sum(axis=1) == 0
+    ):
+        logger.warning(
+            "Cannot perform statistical test: invalid contingency table (zero row/column sums)"
+        )
+        return float("nan"), float("nan")
+
     # Try chi-square test, fallback to Fisher's exact test if it fails
     try:
         chi2, p_value = stats.chi2_contingency(contingency_table)[:2]
         return float(chi2), float(p_value)
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         # Chi-square failed (likely due to zero expected frequencies)
         # Use Fisher's exact test as fallback
         logger.warning(
@@ -337,16 +346,34 @@ def aggregate_lmtad_spatial_results(
             }
         )
 
-    # Apply FDR correction
+    # Apply FDR correction (filter out NaN values)
     if statistical_tests:
         p_values = [test["p_value"] for test in statistical_tests]
-        _, p_values_corrected, _, _ = multipletests(
-            p_values, alpha=0.05, method="fdr_bh"
-        )
-
-        for i, test in enumerate(statistical_tests):
-            test["p_value_corrected"] = float(p_values_corrected[i])
-            test["significant"] = p_values_corrected[i] < 0.05
+        # Filter out NaN values for FDR correction
+        valid_indices = [i for i, p in enumerate(p_values) if not np.isnan(p)]
+        if valid_indices:
+            valid_p_values = [p_values[i] for i in valid_indices]
+            _, p_values_corrected, _, _ = multipletests(
+                valid_p_values, alpha=0.05, method="fdr_bh"
+            )
+            # Map corrected values back to original indices
+            corrected_map = {
+                valid_indices[i]: p_values_corrected[i]
+                for i in range(len(valid_indices))
+            }
+            for i, test in enumerate(statistical_tests):
+                if i in corrected_map:
+                    test["p_value_corrected"] = float(corrected_map[i])
+                    test["significant"] = corrected_map[i] < 0.05
+                else:
+                    # NaN p-value - mark as not significant
+                    test["p_value_corrected"] = float("nan")
+                    test["significant"] = False
+        else:
+            # All p-values are NaN
+            for test in statistical_tests:
+                test["p_value_corrected"] = float("nan")
+                test["significant"] = False
 
     # Build final result structure
     result = {
