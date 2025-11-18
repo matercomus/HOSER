@@ -113,7 +113,12 @@ def extract_spatial_abnormal_od_pairs(
     logger.info(f"✅ Loaded {len(df)} trajectories from TSV")
 
     # Filter for spatial abnormalities
-    spatial_outliers = df[df["outlier"].isin(["route switch", "detour"])].copy()
+    # Handle both formats: "route switch"/"detour" and "route switch outlier"/"detour outlier"
+    spatial_outliers = df[
+        df["outlier"].isin(
+            ["route switch", "detour", "route switch outlier", "detour outlier"]
+        )
+    ].copy()
 
     if len(spatial_outliers) == 0:
         logger.warning("No spatial outliers found in TSV file")
@@ -131,10 +136,14 @@ def extract_spatial_abnormal_od_pairs(
             },
         }
 
+    route_switch_mask = spatial_outliers["outlier"].isin(
+        ["route switch", "route switch outlier"]
+    )
+    detour_mask = spatial_outliers["outlier"].isin(["detour", "detour outlier"])
     logger.info(
         f"🔍 Found {len(spatial_outliers)} spatial abnormal trajectories "
-        f"(route switch: {len(spatial_outliers[spatial_outliers['outlier'] == 'route switch'])}, "
-        f"detour: {len(spatial_outliers[spatial_outliers['outlier'] == 'detour'])})"
+        f"(route switch: {len(spatial_outliers[route_switch_mask])}, "
+        f"detour: {len(spatial_outliers[detour_mask])})"
     )
 
     # Extract OD pairs by type
@@ -163,10 +172,11 @@ def extract_spatial_abnormal_od_pairs(
             od_pair = extract_od_from_trajectory(road_ids)
 
             # Add to appropriate category
-            if outlier_type == "route switch":
+            # Normalize outlier type (handle both "route switch" and "route switch outlier")
+            if outlier_type in ["route switch", "route switch outlier"]:
                 od_pairs_by_type["route_switch"].add(od_pair)
                 route_switch_count += 1
-            elif outlier_type == "detour":
+            elif outlier_type in ["detour", "detour outlier"]:
                 od_pairs_by_type["detour"].add(od_pair)
                 detour_count += 1
 
