@@ -280,3 +280,304 @@ class TestBoundsChecking:
         assert not np.isinf(log_perplexities[2])
         # Fourth should be Infinity (too short after filtering)
         assert np.isinf(log_perplexities[3])
+
+
+class TestVocabSizeTokenValidation:
+    """Tests for vocab_size-based token validation in trajectory evaluation."""
+
+    def test_out_of_bounds_tokens_filtered(self):
+        """Test that tokens exceeding vocab_size are filtered out."""
+        mock_model = MagicMock()
+        mock_model.sot_token.return_value = 6166
+
+        def mock_predict(context):
+            # Return uniform distribution over vocab_size tokens (0-99)
+            dist = torch.ones(100) / 100.0
+            return dist
+
+        mock_model.predict_next_distribution.side_effect = mock_predict
+
+        # Create road_to_token mapping that produces tokens 0-150
+        # But vocab_size is only 100, so tokens 100-150 are invalid
+        road_to_token = torch.zeros(101, dtype=torch.long)
+        road_to_token[:50] = torch.arange(50)  # Roads 0-49 map to tokens 0-49 (valid)
+        road_to_token[50:] = torch.arange(50, 101)  # Roads 50-100 map to tokens 50-100
+        # Make some roads map to tokens > vocab_size by extending the tensor
+        # We'll create a larger mapping for testing
+        road_to_token_large = torch.zeros(151, dtype=torch.long)
+        road_to_token_large[:50] = torch.arange(50)  # Valid tokens 0-49
+        road_to_token_large[50:] = torch.arange(
+            50, 151
+        )  # Tokens 50-150 (50-99 valid, 100-150 invalid)
+
+        trajectories = [
+            [10, 50, 20, 100, 30]
+        ]  # Road 50 and 100 will produce tokens 50 and 100
+        # Token 50 is valid, token 100 is invalid (>= vocab_size)
+
+        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=mock_model,
+            road_to_token=road_to_token_large,
+            device="cpu",
+            batch_size=128,
+            vocab_size=100,  # Vocab size is 100, so tokens >= 100 are invalid
+        )
+
+        # Should filter out invalid tokens and evaluate with valid ones
+        assert len(log_perplexities) == 1
+        # Should succeed if enough valid tokens remain (tokens 10, 20, 30, 50 are valid)
+        assert not np.isinf(log_perplexities[0])
+
+    def test_all_tokens_out_of_vocab_bounds(self):
+        """Test trajectory where all tokens exceed vocab_size."""
+        mock_model = MagicMock()
+        mock_model.sot_token.return_value = 6166
+
+        # All roads map to tokens >= vocab_size
+        road_to_token = torch.zeros(10, dtype=torch.long)
+        road_to_token[:] = torch.arange(100, 110)  # All tokens are 100-109
+
+        trajectories = [[0, 1, 2, 3, 4]]
+
+        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=mock_model,
+            road_to_token=road_to_token,
+            device="cpu",
+            batch_size=128,
+            vocab_size=100,  # All tokens 100-109 are invalid
+        )
+
+        # Should result in Infinity (all tokens invalid)
+        assert len(log_perplexities) == 1
+        assert np.isinf(log_perplexities[0])
+
+    def test_target_token_exceeds_vocab_size_during_computation(self):
+        """Test that target tokens exceeding vocab_size are caught during perplexity computation."""
+        mock_model = MagicMock()
+        # Use SOT token that's within vocab_size for this test
+        mock_model.sot_token.return_value = 99  # Valid SOT token
+
+        def mock_predict(context):
+            # Return distribution with vocab_size=100
+            dist = torch.ones(100) / 100.0
+            return dist
+
+        mock_model.predict_next_distribution.side_effect = mock_predict
+
+        # Create mapping where tokens are valid initially, but we'll manually create
+        # a scenario where a token exceeds vocab_size after SOT is added
+        # Actually, the validation happens before SOT is added, so let's test a different scenario:
+        # Create a case where the token validation passes, but during perplexity computation
+        # we encounter an issue (though this is less likely since we validate first)
+
+        # Instead, test that tokens are properly filtered before evaluation
+        road_to_token = torch.zeros(10, dtype=torch.long)
+        road_to_token[:5] = torch.arange(5)  # First 5 roads -> tokens 0-4 (valid)
+        road_to_token[5:] = torch.arange(
+            100, 105
+        )  # Next 5 roads -> tokens 100-104 (invalid)
+
+        trajectories = [
+            [0, 1, 2, 5, 3]
+        ]  # Roads: 0,1,2 -> tokens 0,1,2 (valid), 5 -> token 100 (invalid), 3 -> token 3 (valid)
+
+        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=mock_model,
+            road_to_token=road_to_token,
+            device="cpu",
+            batch_size=128,
+            vocab_size=100,
+        )
+
+        # Should filter out invalid token 100, leaving [0, 1, 2, 3] which is valid
+        assert len(log_perplexities) == 1
+        # After filtering, we have valid tokens, so it should succeed
+        assert not np.isinf(log_perplexities[0])
+
+    def test_target_token_exceeds_pred_dist_size(self):
+        """Test that target tokens exceeding prediction distribution size are caught."""
+        mock_model = MagicMock()
+        mock_model.sot_token.return_value = 0  # Valid SOT token
+
+        def mock_predict(context):
+            # Return distribution smaller than vocab_size (edge case)
+            # This simulates a model that returns a smaller distribution than expected
+            dist = torch.ones(50) / 50.0  # Only 50 tokens, but vocab_size is 100
+            return dist
+
+        mock_model.predict_next_distribution.side_effect = mock_predict
+
+        # Create tokens that pass vocab_size validation (0-99) but exceed pred_dist size (50)
+        road_to_token = torch.zeros(10, dtype=torch.long)
+        road_to_token[:5] = torch.arange(5)  # Tokens 0-4 (within pred_dist size 50)
+        road_to_token[5:] = torch.arange(
+            50, 55
+        )  # Tokens 50-54 (exceed pred_dist size 50)
+
+        trajectories = [
+            [0, 1, 2, 5, 3]
+        ]  # Tokens: 0,1,2 (valid), 50 (exceeds pred_dist), 3 (valid)
+
+        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=mock_model,
+            road_to_token=road_to_token,
+            device="cpu",
+            batch_size=128,
+            vocab_size=100,  # Tokens 0-99 are valid for vocab_size
+        )
+
+        # Should fail when target_token 50 exceeds pred_dist size (50)
+        # Note: token 50 is >= 50, so it exceeds pred_dist[50] which has size 50 (indices 0-49)
+        assert len(log_perplexities) == 1
+        assert np.isinf(log_perplexities[0])
+
+    def test_token_validation_with_vocab_size_none(self):
+        """Test that token validation is skipped when vocab_size is None."""
+        mock_model = MagicMock()
+        mock_model.sot_token.return_value = 6166
+
+        def mock_predict(context):
+            dist = torch.ones(200) / 200.0  # Large distribution
+            return dist
+
+        mock_model.predict_next_distribution.side_effect = mock_predict
+
+        # Create tokens that would be invalid if vocab_size=100
+        road_to_token = torch.zeros(10, dtype=torch.long)
+        road_to_token[:] = torch.arange(100, 110)  # Tokens 100-109
+
+        trajectories = [[0, 1, 2, 3, 4]]
+
+        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=mock_model,
+            road_to_token=road_to_token,
+            device="cpu",
+            batch_size=128,
+            vocab_size=None,  # No validation
+        )
+
+        # Should proceed without validation
+        assert len(log_perplexities) == 1
+        # Result depends on model mock, but should not fail due to vocab_size validation
+
+    def test_mixed_valid_and_invalid_tokens(self):
+        """Test trajectory with mix of valid and invalid tokens."""
+        mock_model = MagicMock()
+        mock_model.sot_token.return_value = 6166
+
+        def mock_predict(context):
+            dist = torch.ones(100) / 100.0
+            return dist
+
+        mock_model.predict_next_distribution.side_effect = mock_predict
+
+        # Mix of valid and invalid tokens
+        road_to_token = torch.zeros(10, dtype=torch.long)
+        road_to_token[:5] = torch.arange(5)  # Valid tokens 0-4
+        road_to_token[5:] = torch.arange(100, 105)  # Invalid tokens 100-104
+
+        trajectories = [[0, 5, 1, 6, 2]]  # Mix: valid, invalid, valid, invalid, valid
+
+        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=mock_model,
+            road_to_token=road_to_token,
+            device="cpu",
+            batch_size=128,
+            vocab_size=100,
+        )
+
+        # Should filter to [0, 1, 2] and evaluate
+        assert len(log_perplexities) == 1
+        assert not np.isinf(log_perplexities[0])
+
+    def test_edge_case_vocab_size_boundary(self):
+        """Test trajectory with tokens at vocab_size boundary."""
+        mock_model = MagicMock()
+        mock_model.sot_token.return_value = 6166
+
+        def mock_predict(context):
+            dist = torch.ones(100) / 100.0
+            return dist
+
+        mock_model.predict_next_distribution.side_effect = mock_predict
+
+        road_to_token = torch.zeros(10, dtype=torch.long)
+        road_to_token[:] = torch.arange(95, 105)  # Tokens 95-104
+
+        trajectories = [[0, 1, 2, 3, 4]]  # Tokens 95-99 are valid, 100-104 are invalid
+
+        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=mock_model,
+            road_to_token=road_to_token,
+            device="cpu",
+            batch_size=128,
+            vocab_size=100,  # Tokens 0-99 are valid, 100+ are invalid
+        )
+
+        # Should filter to tokens 95-99 (first 5 roads) and evaluate
+        assert len(log_perplexities) == 1
+        assert not np.isinf(log_perplexities[0])
+
+
+class TestLMTADTeacherVocabSize:
+    """Tests for vocab_size() method in LMTADTeacher."""
+
+    def test_vocab_size_from_model_config(self):
+        """Test that vocab_size() returns value from model config."""
+        from critics.lmtad_teacher import LMTADTeacher
+        from unittest.mock import MagicMock
+
+        # Create mock model with config
+        mock_model = MagicMock()
+        mock_config = MagicMock()
+        mock_config.vocab_size = 6167
+        mock_model.config = mock_config
+
+        teacher = LMTADTeacher.__new__(LMTADTeacher)
+        teacher.model = mock_model
+
+        vocab_size = teacher.vocab_size()
+        assert vocab_size == 6167
+
+    def test_vocab_size_from_embedding_weights(self):
+        """Test that vocab_size() infers from embedding weights when config unavailable."""
+        from critics.lmtad_teacher import LMTADTeacher
+        from unittest.mock import MagicMock
+
+        # Create mock model without config but with transformer.wte
+        mock_model = MagicMock()
+        mock_model.config = None
+        mock_transformer = MagicMock()
+        mock_wte = MagicMock()
+        mock_wte.weight.shape = (6167, 512)  # vocab_size=6167, embedding_dim=512
+        mock_transformer.wte = mock_wte
+        mock_model.transformer = mock_transformer
+
+        teacher = LMTADTeacher.__new__(LMTADTeacher)
+        teacher.model = mock_model
+
+        vocab_size = teacher.vocab_size()
+        assert vocab_size == 6167
+
+    def test_vocab_size_returns_none_when_unavailable(self):
+        """Test that vocab_size() returns None when cannot be determined."""
+        from critics.lmtad_teacher import LMTADTeacher
+        from unittest.mock import MagicMock
+
+        # Create mock model without config or transformer
+        mock_model = MagicMock()
+        mock_model.config = None
+        mock_model.transformer = None
+
+        teacher = LMTADTeacher.__new__(LMTADTeacher)
+        teacher.model = mock_model
+
+        vocab_size = teacher.vocab_size()
+        assert vocab_size is None

@@ -88,6 +88,40 @@ def plot_spatial_abnormality_rates_comparison(
         ci_lower = test.get("ci_lower", rate)
         ci_upper = test.get("ci_upper", rate)
 
+        # Validate data types and ranges
+        assert isinstance(rate, (int, float)), (
+            f"Rate must be numeric for {model}, got {type(rate)}"
+        )
+        assert isinstance(ci_lower, (int, float)), (
+            f"ci_lower must be numeric for {model}, got {type(ci_lower)}"
+        )
+        assert isinstance(ci_upper, (int, float)), (
+            f"ci_upper must be numeric for {model}, got {type(ci_upper)}"
+        )
+        assert not np.isnan(rate), f"Rate cannot be NaN for {model}"
+        assert not np.isnan(ci_lower), f"ci_lower cannot be NaN for {model}"
+        assert not np.isnan(ci_upper), f"ci_upper cannot be NaN for {model}"
+        assert rate >= 0, f"Rate must be non-negative for {model}, got {rate}"
+        assert ci_lower >= 0, (
+            f"ci_lower must be non-negative for {model}, got {ci_lower}"
+        )
+        assert ci_upper >= 0, (
+            f"ci_upper must be non-negative for {model}, got {ci_upper}"
+        )
+        assert ci_lower <= ci_upper, (
+            f"Invalid CI bounds for {model}: ci_lower ({ci_lower:.4f}) > ci_upper ({ci_upper:.4f})"
+        )
+
+        # Warn if CI bounds are invalid relative to rate (will be clamped to 0 in visualization)
+        if ci_lower > rate:
+            logger.warning(
+                f"Invalid CI bounds for {model}: ci_lower ({ci_lower:.4f}) > rate ({rate:.4f})"
+            )
+        if ci_upper < rate:
+            logger.warning(
+                f"Invalid CI bounds for {model}: ci_upper ({ci_upper:.4f}) < rate ({rate:.4f})"
+            )
+
         model_data[model] = {
             "rate": rate,
             "error_lower": rate - ci_lower,
@@ -111,8 +145,13 @@ def plot_spatial_abnormality_rates_comparison(
     error_lowers = [m[1]["error_lower"] for m in sorted_models]
     error_uppers = [m[1]["error_upper"] for m in sorted_models]
 
-    # Create error bars
-    errors = np.array([error_lowers, error_uppers])
+    # Create error bars (ensure non-negative values)
+    errors = np.array(
+        [
+            np.maximum(0, error_lowers),  # Clamp to non-negative
+            np.maximum(0, error_uppers),  # Clamp to non-negative
+        ]
+    )
 
     # Get colors using model detection utility
     colors = [get_model_color(m) for m in models]
@@ -383,16 +422,38 @@ def plot_statistical_significance_spatial(
     ci_uppers = [t.get("ci_upper", rate) for t, rate in zip(sorted_tests, rates)]
     significant = [t.get("significant", False) for t in sorted_tests]
 
+    # Validate data before plotting
+    assert len(models) == len(rates) == len(ci_lowers) == len(ci_uppers), (
+        f"Mismatched array lengths: models={len(models)}, rates={len(rates)}, "
+        f"ci_lowers={len(ci_lowers)}, ci_uppers={len(ci_uppers)}"
+    )
+    rates_arr = np.array(rates)
+    ci_lowers_arr = np.array(ci_lowers)
+    ci_uppers_arr = np.array(ci_uppers)
+    assert np.all(~np.isnan(rates_arr)), "Rates cannot contain NaN values"
+    assert np.all(~np.isnan(ci_lowers_arr)), "ci_lowers cannot contain NaN values"
+    assert np.all(~np.isnan(ci_uppers_arr)), "ci_uppers cannot contain NaN values"
+    assert np.all(rates_arr >= 0), "Rates must be non-negative"
+    assert np.all(ci_lowers_arr >= 0), "ci_lowers must be non-negative"
+    assert np.all(ci_uppers_arr >= 0), "ci_uppers must be non-negative"
+    assert np.all(ci_lowers_arr <= ci_uppers_arr), (
+        "ci_lower values must be <= ci_upper values for all models"
+    )
+
     fig, ax = plt.subplots(figsize=(14, 8))
     x = np.arange(len(models))
     colors = [
         "#e74c3c" if sig else "#95a5a6" for sig in significant
     ]  # Red if significant, grey if not
 
-    # Error bars
-    errors = np.array(
-        [np.array(rates) - np.array(ci_lowers), np.array(ci_uppers) - np.array(rates)]
-    )
+    # Error bars (ensure non-negative values)
+    error_lowers = np.maximum(0, rates_arr - ci_lowers_arr)
+    error_uppers = np.maximum(0, ci_uppers_arr - rates_arr)
+    errors = np.array([error_lowers, error_uppers])
+
+    # Final validation: ensure error bars are non-negative
+    assert np.all(error_lowers >= 0), "Error lower bounds must be non-negative"
+    assert np.all(error_uppers >= 0), "Error upper bounds must be non-negative"
 
     bars = ax.barh(
         x,

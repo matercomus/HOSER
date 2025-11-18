@@ -257,23 +257,27 @@ def run_lmtad_spatial_pipeline(
             gene_dir = (
                 eval_dir / "gene_abnormal_lmtad_spatial" / dataset / f"seed{seed}"
             )
-            if (
-                gene_dir.exists()
-                and list(gene_dir.glob("*_spatial_abnormal.csv"))
-                and not force
-            ):
+            existing_files = (
+                list(gene_dir.glob("*_spatial_abnormal.csv"))
+                if gene_dir.exists()
+                else []
+            )
+
+            if existing_files and not force:
                 logger.info(
                     f"  ⏭️  Trajectories already generated in {gene_dir}, skipping"
                 )
-            elif force and gene_dir.exists():
-                logger.info(
-                    f"  🔄 Force flag set, regenerating trajectories in {gene_dir}"
-                )
-                # Remove existing trajectory files
-                for csv_file in gene_dir.glob("*_spatial_abnormal.csv"):
-                    csv_file.unlink()
-                    logger.debug(f"  Removed {csv_file.name}")
             else:
+                # Need to generate (either no files exist, or force is True)
+                if force and existing_files:
+                    logger.info(
+                        f"  🔄 Force flag set, regenerating trajectories in {gene_dir}"
+                    )
+                    # Remove existing trajectory files
+                    for csv_file in existing_files:
+                        csv_file.unlink()
+                        logger.debug(f"  Removed {csv_file.name}")
+
                 logger.info(f"{'=' * 70}")
                 logger.info("Step: Generate trajectories for spatial abnormal OD pairs")
                 logger.info(f"{'=' * 70}")

@@ -293,18 +293,37 @@ def evaluate_spatial_abnormal_trajectories(
     if not roadmap_file.exists():
         raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
 
+    # Get expected grid dimensions from teacher (matches training process)
+    teacher_hw = model.get_grid_size_hw()
+    if teacher_hw is not None:
+        logger.info(f"📐 Expected grid dimensions from teacher: {teacher_hw}")
+    else:
+        logger.warning(
+            "⚠️  Could not get grid dimensions from teacher, proceeding without verification"
+        )
+
+    # Get vocab_size from teacher for token validation
+    vocab_size = model.vocab_size()
+    if vocab_size is not None:
+        logger.info(f"📚 Vocab size from teacher: {vocab_size}")
+    else:
+        logger.warning("⚠️  Could not determine vocab_size from teacher")
+
     road_centroids = load_road_centroids(roadmap_file)
+    # Use same grid_size and downsample_factor as training (matches config files)
+    # Default: grid_size=0.001, downsample_factor=1 (no downsampling)
     grid_config = GridConfig(
         min_lat=road_centroids[:, 1].min(),
         max_lat=road_centroids[:, 1].max(),
         min_lng=road_centroids[:, 0].min(),
         max_lng=road_centroids[:, 0].max(),
-        grid_size=0.001,
+        grid_size=0.001,  # Matches config: grid_size: 0.001
+        downsample_factor=1,  # Matches config: downsample: 1 (no downsampling)
     )
     mapper = GridMapper(
         boundary=grid_config,
         road_centroids=road_centroids,
-        verify_hw=None,
+        verify_hw=teacher_hw,  # Ensure grid dimensions match training
     )
     road_to_token = torch.from_numpy(mapper.map_all()).to(device)
     logger.info("✅ Grid mapper created")
@@ -317,6 +336,7 @@ def evaluate_spatial_abnormal_trajectories(
         road_to_token=road_to_token,
         device=device,
         batch_size=batch_size,
+        vocab_size=vocab_size,  # Pass vocab_size for token validation
     )
 
     # Classify each trajectory

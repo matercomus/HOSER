@@ -724,6 +724,181 @@ class TestVisualizeLMTADSpatialResults:
         # Check that savefig was called (may be called on fig or plt)
         assert mock_fig.savefig.called or mock_plt.savefig.called
 
+    def test_plot_spatial_abnormality_rates_with_invalid_ci_bounds(self, tmp_path):
+        """Test that plotting fails fast with invalid CI bounds (ci_lower > ci_upper)."""
+        from tools.visualize_lmtad_spatial_results import (
+            plot_spatial_abnormality_rates_comparison,
+        )
+
+        results = {
+            "summary_statistics": {
+                "test_dataset": {
+                    "real_spatial_abnormality_rate": 6.54,
+                }
+            },
+            "statistical_analysis": {
+                "statistical_tests": [
+                    {
+                        "model": "model1",
+                        "generated_rate": 5.0,
+                        "ci_lower": 6.0,  # Invalid: ci_lower > rate (will warn)
+                        "ci_upper": 7.0,
+                    },
+                    {
+                        "model": "model2",
+                        "generated_rate": 5.0,
+                        "ci_lower": 4.0,
+                        "ci_upper": 3.0,  # Invalid: ci_lower > ci_upper (will fail)
+                    },
+                ]
+            },
+        }
+
+        output_dir = tmp_path / "figures"
+        # Should raise AssertionError for model2 (ci_lower > ci_upper)
+        with pytest.raises(AssertionError, match="ci_lower.*>.*ci_upper"):
+            plot_spatial_abnormality_rates_comparison(
+                results, output_dir, "test_dataset"
+            )
+
+    def test_plot_spatial_abnormality_rates_with_negative_values(self, tmp_path):
+        """Test that plotting fails fast with negative values."""
+        from tools.visualize_lmtad_spatial_results import (
+            plot_spatial_abnormality_rates_comparison,
+        )
+
+        results = {
+            "summary_statistics": {
+                "test_dataset": {
+                    "real_spatial_abnormality_rate": 6.54,
+                }
+            },
+            "statistical_analysis": {
+                "statistical_tests": [
+                    {
+                        "model": "model1",
+                        "generated_rate": -1.0,  # Invalid: negative rate
+                        "ci_lower": 4.0,
+                        "ci_upper": 6.0,
+                    }
+                ]
+            },
+        }
+
+        output_dir = tmp_path / "figures"
+        # Should raise AssertionError with clear message
+        with pytest.raises(AssertionError, match="Rate must be non-negative"):
+            plot_spatial_abnormality_rates_comparison(
+                results, output_dir, "test_dataset"
+            )
+
+    def test_plot_spatial_abnormality_rates_with_nan_values(self, tmp_path):
+        """Test that plotting fails fast with NaN values."""
+        from tools.visualize_lmtad_spatial_results import (
+            plot_spatial_abnormality_rates_comparison,
+        )
+        import numpy as np
+
+        results = {
+            "summary_statistics": {
+                "test_dataset": {
+                    "real_spatial_abnormality_rate": 6.54,
+                }
+            },
+            "statistical_analysis": {
+                "statistical_tests": [
+                    {
+                        "model": "model1",
+                        "generated_rate": np.nan,  # Invalid: NaN rate
+                        "ci_lower": 4.0,
+                        "ci_upper": 6.0,
+                    }
+                ]
+            },
+        }
+
+        output_dir = tmp_path / "figures"
+        # Should raise AssertionError with clear message
+        with pytest.raises(AssertionError, match="Rate cannot be NaN"):
+            plot_spatial_abnormality_rates_comparison(
+                results, output_dir, "test_dataset"
+            )
+
+    def test_plot_statistical_significance_with_invalid_data(self, tmp_path):
+        """Test that statistical significance plotting fails fast with invalid data."""
+        from tools.visualize_lmtad_spatial_results import (
+            plot_statistical_significance_spatial,
+        )
+        import numpy as np
+
+        results = {
+            "summary_statistics": {
+                "test_dataset": {
+                    "real_spatial_abnormality_rate": 6.54,
+                }
+            },
+            "statistical_analysis": {
+                "statistical_tests": [
+                    {
+                        "model": "model1",
+                        "generated_rate": 5.0,
+                        "ci_lower": 4.0,
+                        "ci_upper": 6.0,
+                        "significant": True,
+                    },
+                    {
+                        "model": "model2",
+                        "generated_rate": np.nan,  # Invalid: NaN
+                        "ci_lower": 3.0,
+                        "ci_upper": 5.0,
+                        "significant": False,
+                    },
+                ]
+            },
+        }
+
+        output_dir = tmp_path / "figures"
+        # Should raise AssertionError with clear message
+        with pytest.raises(AssertionError, match="Rates cannot contain NaN"):
+            plot_statistical_significance_spatial(results, output_dir, "test_dataset")
+
+    def test_plot_statistical_significance_with_valid_data(self, tmp_path):
+        """Test that statistical significance plotting works with valid data."""
+        from tools.visualize_lmtad_spatial_results import (
+            plot_statistical_significance_spatial,
+        )
+
+        results = {
+            "summary_statistics": {
+                "test_dataset": {
+                    "real_spatial_abnormality_rate": 6.54,
+                }
+            },
+            "statistical_analysis": {
+                "statistical_tests": [
+                    {
+                        "model": "model1",
+                        "generated_rate": 5.0,
+                        "ci_lower": 4.0,
+                        "ci_upper": 6.0,
+                        "significant": True,
+                    }
+                ]
+            },
+        }
+
+        output_dir = tmp_path / "figures"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        # Should work with valid data
+        with patch(
+            "tools.visualize_lmtad_spatial_results.plt.subplots"
+        ) as mock_subplots:
+            mock_fig = MagicMock()
+            mock_ax = MagicMock()
+            mock_subplots.return_value = (mock_fig, mock_ax)
+            plot_statistical_significance_spatial(results, output_dir, "test_dataset")
+            assert mock_subplots.called
+
 
 class TestLMTADSpatialPipelineIntegration:
     """Integration tests for the complete pipeline."""

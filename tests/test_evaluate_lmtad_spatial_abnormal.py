@@ -816,3 +816,259 @@ class TestFailedEvaluationsAndEdgeCases:
         assert classify_spatial_abnormality_type(6.4, custom_stats) == "route_switch"
         assert classify_spatial_abnormality_type(6.5, custom_stats) == "detour"
         assert classify_spatial_abnormality_type(6.6, custom_stats) == "detour"
+
+
+class TestGridMapperVerification:
+    """Tests for verify_hw parameter in GridMapper during evaluation."""
+
+    @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
+    def test_verify_hw_passed_to_gridmapper(
+        self,
+        mock_evaluate,
+        mock_grid_mapper,
+        mock_load_centroids,
+        mock_load_traj,
+        mock_load_stats,
+        mock_lmtad_teacher,
+        tmp_path,
+    ):
+        """Test that verify_hw is passed to GridMapper when teacher provides grid dimensions."""
+        import numpy as np
+
+        mock_trajectories = [[1, 2, 3]]
+        mock_load_traj.return_value = mock_trajectories
+        mock_load_stats.return_value = {
+            "route_switch_mean": 7.03,
+            "detour_mean": 8.41,
+        }
+        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+
+        mock_mapper = MagicMock()
+        mock_mapper.map_all.return_value = np.array([0, 1])
+        mock_grid_mapper.return_value = mock_mapper
+
+        # Mock teacher with get_grid_size_hw and vocab_size methods
+        mock_model = MagicMock()
+        mock_model.get_grid_size_hw.return_value = (64, 64)  # Expected grid dimensions
+        mock_model.vocab_size.return_value = 4099  # vocab_size = 64*64 + 3
+        mock_lmtad_teacher.return_value = mock_model
+
+        mock_evaluate.return_value = (
+            np.array([5.0]),
+            np.array([False]),
+        )
+
+        trajectory_file = tmp_path / "trajectories.csv"
+        trajectory_file.touch()
+        checkpoint = tmp_path / "ckpt_best.pt"
+        checkpoint.touch()
+        source_eval_dir = tmp_path / "eval"
+        source_eval_dir.mkdir()
+
+        data_dir = tmp_path / "data" / "test_dataset"
+        data_dir.mkdir(parents=True)
+        roadmap_file = data_dir / "roadmap.geo"
+        roadmap_file.write_text("coordinates\n[[0,0],[1,1]]")
+
+        with patch("tools.evaluate_lmtad_spatial_abnormal.Path") as mock_path_class:
+
+            def path_side_effect(path_arg):
+                if isinstance(path_arg, str):
+                    if path_arg.startswith("data/"):
+                        return tmp_path / path_arg
+                    return Path(path_arg)
+                return Path(path_arg)
+
+            mock_path_class.side_effect = path_side_effect
+
+            with patch(
+                "tools.evaluate_lmtad_spatial_abnormal.__file__",
+                str(tmp_path / "tools" / "evaluate_lmtad_spatial_abnormal.py"),
+            ):
+                evaluate_spatial_abnormal_trajectories(
+                    trajectory_file=trajectory_file,
+                    lmtad_checkpoint=checkpoint,
+                    source_eval_dir=source_eval_dir,
+                    dataset="test_dataset",
+                    lmtad_repo=tmp_path / "LMTAD",
+                    device="cpu",
+                )
+
+        # Verify GridMapper was called with verify_hw parameter
+        assert mock_grid_mapper.called
+        call_kwargs = mock_grid_mapper.call_args[1]
+        assert "verify_hw" in call_kwargs
+        assert call_kwargs["verify_hw"] == (64, 64)
+
+    @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
+    def test_verify_hw_none_when_teacher_returns_none(
+        self,
+        mock_evaluate,
+        mock_grid_mapper,
+        mock_load_centroids,
+        mock_load_traj,
+        mock_load_stats,
+        mock_lmtad_teacher,
+        tmp_path,
+    ):
+        """Test that verify_hw is None when teacher.get_grid_size_hw() returns None."""
+        import numpy as np
+
+        mock_trajectories = [[1, 2, 3]]
+        mock_load_traj.return_value = mock_trajectories
+        mock_load_stats.return_value = {
+            "route_switch_mean": 7.03,
+            "detour_mean": 8.41,
+        }
+        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+
+        mock_mapper = MagicMock()
+        mock_mapper.map_all.return_value = np.array([0, 1])
+        mock_grid_mapper.return_value = mock_mapper
+
+        # Mock teacher that returns None for grid dimensions
+        mock_model = MagicMock()
+        mock_model.get_grid_size_hw.return_value = None
+        mock_model.vocab_size.return_value = 4099
+        mock_lmtad_teacher.return_value = mock_model
+
+        mock_evaluate.return_value = (
+            np.array([5.0]),
+            np.array([False]),
+        )
+
+        trajectory_file = tmp_path / "trajectories.csv"
+        trajectory_file.touch()
+        checkpoint = tmp_path / "ckpt_best.pt"
+        checkpoint.touch()
+        source_eval_dir = tmp_path / "eval"
+        source_eval_dir.mkdir()
+
+        data_dir = tmp_path / "data" / "test_dataset"
+        data_dir.mkdir(parents=True)
+        roadmap_file = data_dir / "roadmap.geo"
+        roadmap_file.write_text("coordinates\n[[0,0],[1,1]]")
+
+        with patch("tools.evaluate_lmtad_spatial_abnormal.Path") as mock_path_class:
+
+            def path_side_effect(path_arg):
+                if isinstance(path_arg, str):
+                    if path_arg.startswith("data/"):
+                        return tmp_path / path_arg
+                    return Path(path_arg)
+                return Path(path_arg)
+
+            mock_path_class.side_effect = path_side_effect
+
+            with patch(
+                "tools.evaluate_lmtad_spatial_abnormal.__file__",
+                str(tmp_path / "tools" / "evaluate_lmtad_spatial_abnormal.py"),
+            ):
+                evaluate_spatial_abnormal_trajectories(
+                    trajectory_file=trajectory_file,
+                    lmtad_checkpoint=checkpoint,
+                    source_eval_dir=source_eval_dir,
+                    dataset="test_dataset",
+                    lmtad_repo=tmp_path / "LMTAD",
+                    device="cpu",
+                )
+
+        # Verify GridMapper was called with verify_hw=None
+        assert mock_grid_mapper.called
+        call_kwargs = mock_grid_mapper.call_args[1]
+        assert "verify_hw" in call_kwargs
+        assert call_kwargs["verify_hw"] is None
+
+    @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
+    def test_vocab_size_passed_to_evaluate_trajectories_direct(
+        self,
+        mock_evaluate,
+        mock_grid_mapper,
+        mock_load_centroids,
+        mock_load_traj,
+        mock_load_stats,
+        mock_lmtad_teacher,
+        tmp_path,
+    ):
+        """Test that vocab_size is passed to evaluate_trajectories_direct."""
+        import numpy as np
+
+        mock_trajectories = [[1, 2, 3]]
+        mock_load_traj.return_value = mock_trajectories
+        mock_load_stats.return_value = {
+            "route_switch_mean": 7.03,
+            "detour_mean": 8.41,
+        }
+        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+
+        mock_mapper = MagicMock()
+        mock_mapper.map_all.return_value = np.array([0, 1])
+        mock_grid_mapper.return_value = mock_mapper
+
+        # Mock teacher with vocab_size
+        mock_model = MagicMock()
+        mock_model.get_grid_size_hw.return_value = None
+        mock_model.vocab_size.return_value = 6167
+        mock_lmtad_teacher.return_value = mock_model
+
+        mock_evaluate.return_value = (
+            np.array([5.0]),
+            np.array([False]),
+        )
+
+        trajectory_file = tmp_path / "trajectories.csv"
+        trajectory_file.touch()
+        checkpoint = tmp_path / "ckpt_best.pt"
+        checkpoint.touch()
+        source_eval_dir = tmp_path / "eval"
+        source_eval_dir.mkdir()
+
+        data_dir = tmp_path / "data" / "test_dataset"
+        data_dir.mkdir(parents=True)
+        roadmap_file = data_dir / "roadmap.geo"
+        roadmap_file.write_text("coordinates\n[[0,0],[1,1]]")
+
+        with patch("tools.evaluate_lmtad_spatial_abnormal.Path") as mock_path_class:
+
+            def path_side_effect(path_arg):
+                if isinstance(path_arg, str):
+                    if path_arg.startswith("data/"):
+                        return tmp_path / path_arg
+                    return Path(path_arg)
+                return Path(path_arg)
+
+            mock_path_class.side_effect = path_side_effect
+
+            with patch(
+                "tools.evaluate_lmtad_spatial_abnormal.__file__",
+                str(tmp_path / "tools" / "evaluate_lmtad_spatial_abnormal.py"),
+            ):
+                evaluate_spatial_abnormal_trajectories(
+                    trajectory_file=trajectory_file,
+                    lmtad_checkpoint=checkpoint,
+                    source_eval_dir=source_eval_dir,
+                    dataset="test_dataset",
+                    lmtad_repo=tmp_path / "LMTAD",
+                    device="cpu",
+                )
+
+        # Verify evaluate_trajectories_direct was called with vocab_size
+        assert mock_evaluate.called
+        call_kwargs = mock_evaluate.call_args[1]
+        assert "vocab_size" in call_kwargs
+        assert call_kwargs["vocab_size"] == 6167

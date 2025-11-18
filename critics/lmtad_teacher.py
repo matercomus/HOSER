@@ -205,6 +205,27 @@ class LMTADTeacher:
             return int(h_w[0]), int(h_w[1])
         return None
 
+    def vocab_size(self) -> Optional[int]:
+        """Return vocabulary size from model.
+
+        Returns vocab_size from model config or infers from embedding weights.
+        Returns None if cannot be determined.
+        """
+        # Try to get from model config
+        if hasattr(self.model, "config") and hasattr(self.model.config, "vocab_size"):
+            return int(self.model.config.vocab_size)
+
+        # Fallback: infer from embedding weights
+        try:
+            if hasattr(self.model, "transformer") and hasattr(
+                self.model.transformer, "wte"
+            ):
+                return int(self.model.transformer.wte.weight.shape[0])
+        except Exception:
+            pass
+
+        return None
+
     def sot_token(self) -> Optional[int]:
         """Return SOT token id."""
         return self.sot_id

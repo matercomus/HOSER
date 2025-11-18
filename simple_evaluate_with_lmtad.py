@@ -30,7 +30,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -160,6 +160,7 @@ def evaluate_trajectories_direct(
     road_to_token: torch.Tensor,
     device: str,
     batch_size: int = 128,
+    vocab_size: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Evaluate trajectories using LM-TAD teacher by computing perplexity.
@@ -173,6 +174,7 @@ def evaluate_trajectories_direct(
         road_to_token: Mapping from road ID → grid token
         device: CUDA device
         batch_size: Batch size for evaluation
+        vocab_size: Vocabulary size for token validation (optional)
 
     Returns:
         perplexities: Array of perplexity values (lower is better)
@@ -214,6 +216,24 @@ def evaluate_trajectories_direct(
             road_tensor = torch.tensor(road_ids, device=device, dtype=torch.long)
             tokens = road_to_token[road_tensor].cpu().numpy().tolist()
 
+            # Validate tokens are within vocab bounds if vocab_size is provided
+            if vocab_size is not None:
+                invalid_tokens = [t for t in tokens if t < 0 or t >= vocab_size]
+                if invalid_tokens:
+                    logger.warning(
+                        f"  Trajectory {traj_idx}: Invalid grid tokens (out of bounds [0, {vocab_size - 1}]): "
+                        f"{invalid_tokens[:10]}{'...' if len(invalid_tokens) > 10 else ''}"
+                    )
+                    # Filter out invalid tokens
+                    tokens = [t for t in tokens if 0 <= t < vocab_size]
+                    if len(tokens) < 2:
+                        logger.warning(
+                            f"  Trajectory {traj_idx}: Too few valid tokens after filtering, skipping"
+                        )
+                        all_perplexities.append(float("inf"))
+                        all_outlier_scores.append(float("inf"))
+                        continue
+
             # Add SOT token if available
             if sot_token is not None:
                 tokens = [sot_token] + tokens
@@ -226,6 +246,7 @@ def evaluate_trajectories_direct(
 
             # Compute perplexity by evaluating each position
             log_probs = []
+            evaluation_failed = False
 
             # Iterate through the sequence, predicting each token
             for i in range(1, len(tokens)):
@@ -238,17 +259,40 @@ def evaluate_trajectories_direct(
 
                 # Get log probability of the actual next token
                 target_token = tokens[i]
+
+                # Validate target_token is within vocab bounds
+                if vocab_size is not None and target_token >= vocab_size:
+                    logger.warning(
+                        f"  Trajectory {traj_idx}, position {i}: Target token {target_token} "
+                        f"exceeds vocab_size {vocab_size}, skipping"
+                    )
+                    evaluation_failed = True
+                    break
+
+                # Validate target_token is within pred_dist bounds
+                if target_token >= len(pred_dist):
+                    logger.warning(
+                        f"  Trajectory {traj_idx}, position {i}: Target token {target_token} "
+                        f"exceeds prediction distribution size {len(pred_dist)}, skipping"
+                    )
+                    evaluation_failed = True
+                    break
+
                 log_prob = torch.log(pred_dist[target_token] + 1e-10)
                 log_probs.append(log_prob.item())
 
             # Compute log perplexity = -average log prob (matches source dataset format)
-            avg_log_prob = np.mean(log_probs)
-            log_perplexity = float(-avg_log_prob)
-            all_perplexities.append(log_perplexity)
-
-            # Simple outlier detection: high log perplexity = outlier
-            # Use threshold based on distribution (can be tuned)
-            all_outlier_scores.append(log_perplexity)
+            if evaluation_failed or len(log_probs) == 0:
+                # No valid log probabilities (all tokens were invalid or evaluation failed)
+                all_perplexities.append(float("inf"))
+                all_outlier_scores.append(float("inf"))
+            else:
+                avg_log_prob = np.mean(log_probs)
+                log_perplexity = float(-avg_log_prob)
+                all_perplexities.append(log_perplexity)
+                # Simple outlier detection: high log perplexity = outlier
+                # Use threshold based on distribution (can be tuned)
+                all_outlier_scores.append(log_perplexity)
 
         except Exception as e:
             logger.error(f"  Trajectory {traj_idx}: Evaluation failed: {e}")
