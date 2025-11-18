@@ -40,11 +40,13 @@ The LM-TAD spatial abnormality evaluation complements the Wang temporal abnormal
 
 ### Classification Method
 
-Spatial abnormality types are classified based on **log perplexity thresholds** derived from the LM-TAD source evaluation:
+Spatial abnormality types are classified using **known labels from the OD pairs source files**:
 
-- **Non-outlier**: log_perplexity < 6.0
-- **Route switch**: 6.0 ≤ log_perplexity < 8.0
-- **Detour**: log_perplexity ≥ 8.0
+- Each OD pair is extracted from LM-TAD source evaluation TSV files, which already contain the abnormality type label ("route switch" or "detour")
+- During evaluation, trajectories are matched to their source OD pairs (by extracting first and last road IDs)
+- The known label from the OD pairs file is used directly, ensuring accuracy and consistency with the source data
+
+**Fallback behavior**: If an OD pairs file is not provided or a trajectory cannot be matched to an OD pair, the system falls back to perplexity-based classification using thresholds derived from the LM-TAD source evaluation statistics.
 
 ## Step 1: Extract Spatial Abnormal OD Pairs
 

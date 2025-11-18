@@ -196,6 +196,7 @@ def evaluate_spatial_abnormal_trajectories(
     device: str = "cuda:0",
     batch_size: int = 128,
     lmtad_repo: Path | None = None,
+    od_pairs_file: Path | None = None,
 ) -> Dict:
     """Evaluate generated trajectories with LM-TAD and classify spatial abnormality types
 
@@ -207,6 +208,7 @@ def evaluate_spatial_abnormal_trajectories(
         device: CUDA device
         batch_size: Batch size for evaluation
         lmtad_repo: Path to LM-TAD repository root (auto-detected from checkpoint if None)
+        od_pairs_file: Path to OD pairs JSON file (optional, for using known labels)
 
     Returns:
         Dictionary with evaluation results and classifications
@@ -217,7 +219,28 @@ def evaluate_spatial_abnormal_trajectories(
     trajectories = load_hoser_trajectories(trajectory_file)
     logger.info(f"✅ Loaded {len(trajectories)} trajectories")
 
-    # Load source statistics
+    # Load OD pairs file to get known labels (if available)
+    od_pair_labels = {}  # Maps (origin, dest) -> "route_switch" or "detour"
+    if od_pairs_file is not None and od_pairs_file.exists():
+        logger.info(f"📂 Loading OD pairs labels from {od_pairs_file}")
+        with open(od_pairs_file, "r") as f:
+            od_pairs_data = json.load(f)
+        for od_type, pairs in od_pairs_data.get("od_pairs_by_type", {}).items():
+            for pair in pairs:
+                # Normalize pair to tuple
+                od_pair = tuple(pair) if isinstance(pair, list) else pair
+                od_pair_labels[od_pair] = od_type
+        logger.info(
+            f"✅ Loaded {len(od_pair_labels)} OD pair labels "
+            f"({sum(1 for v in od_pair_labels.values() if v == 'route_switch')} route_switch, "
+            f"{sum(1 for v in od_pair_labels.values() if v == 'detour')} detour)"
+        )
+    else:
+        logger.info(
+            "⚠️  OD pairs file not provided - will use perplexity thresholds for classification"
+        )
+
+    # Load source statistics (still needed for perplexity-based fallback)
     source_stats = load_source_statistics(source_eval_dir)
 
     # Determine LM-TAD repo path
@@ -309,19 +332,60 @@ def evaluate_spatial_abnormal_trajectories(
     else:
         logger.warning("⚠️  Could not determine vocab_size from teacher")
 
-    # Extract road centroids and boundaries using the same method as LM-TAD conversion
-    # This ensures boundaries match exactly what was used during training
-    logger.info("📂 Extracting road centroids and boundaries from roadmap...")
-    road_centroids, boundary = extract_road_centroids(roadmap_file)
-    logger.info(
-        f"✅ Extracted boundaries: lat=[{boundary['min_lat']:.6f}, {boundary['max_lat']:.6f}], "
-        f"lng=[{boundary['min_lng']:.6f}, {boundary['max_lng']:.6f}]"
-    )
+    # Extract road centroids (always needed for mapping)
+    logger.info("📂 Extracting road centroids from roadmap...")
+    road_centroids, boundary_from_roadmap = extract_road_centroids(roadmap_file)
 
     # Use same grid_size and downsample_factor as training (matches config files)
     # Default: grid_size=0.001, downsample_factor=1 (no downsampling)
     grid_size = 0.001
     downsample_factor = 1
+
+    # If we have expected grid dimensions from teacher, compute boundaries to match exactly
+    # Otherwise, use boundaries extracted from roadmap
+    if teacher_hw is not None:
+        vh, vw = teacher_hw
+        logger.info(
+            f"📐 Computing boundaries from known grid dimensions {(vh, vw)} "
+            f"(from teacher/config)"
+        )
+
+        # Compute required spans from expected grid dimensions
+        # Formula: span = (grid_dim - 1) * grid_size
+        required_lat_span = (vh - 1) * grid_size
+        required_lng_span = (vw - 1) * grid_size
+
+        # Center boundaries around road centroids to match training
+        lat_center = (
+            boundary_from_roadmap["min_lat"] + boundary_from_roadmap["max_lat"]
+        ) / 2.0
+        lng_center = (
+            boundary_from_roadmap["min_lng"] + boundary_from_roadmap["max_lng"]
+        ) / 2.0
+
+        boundary = {
+            "min_lat": lat_center - required_lat_span / 2.0,
+            "max_lat": lat_center + required_lat_span / 2.0,
+            "min_lng": lng_center - required_lng_span / 2.0,
+            "max_lng": lng_center + required_lng_span / 2.0,
+        }
+        logger.info(
+            f"✅ Computed boundaries from grid dimensions: "
+            f"lat=[{boundary['min_lat']:.6f}, {boundary['max_lat']:.6f}], "
+            f"lng=[{boundary['min_lng']:.6f}, {boundary['max_lng']:.6f}]"
+        )
+    else:
+        # Fallback: use boundaries extracted from roadmap
+        boundary = boundary_from_roadmap
+        logger.warning(
+            "⚠️  Using boundaries from roadmap (expected grid dimensions not available). "
+            "Grid dimensions may not match training exactly."
+        )
+        logger.info(
+            f"✅ Using extracted boundaries: "
+            f"lat=[{boundary['min_lat']:.6f}, {boundary['max_lat']:.6f}], "
+            f"lng=[{boundary['min_lng']:.6f}, {boundary['max_lng']:.6f}]"
+        )
 
     grid_config = GridConfig(
         min_lat=boundary["min_lat"],
@@ -350,10 +414,13 @@ def evaluate_spatial_abnormal_trajectories(
         vocab_size=vocab_size,  # Pass vocab_size for token validation
     )
 
-    # Classify each trajectory
+    # Classify each trajectory using known labels from OD pairs (if available)
+    # Otherwise fallback to perplexity-based classification
     classifications = []
     failed_evaluations = 0
-    for log_perp in log_perplexities:
+    unmatched_count = 0
+
+    for i, (trajectory, log_perp) in enumerate(zip(trajectories, log_perplexities)):
         if np.isinf(log_perp):
             classifications.append("evaluation_failed")
             failed_evaluations += 1
@@ -361,10 +428,35 @@ def evaluate_spatial_abnormal_trajectories(
                 "Trajectory evaluation failed (Infinity perplexity). "
                 "This may indicate invalid road IDs or mapping issues."
             )
+        elif od_pair_labels:
+            # Use known label from OD pairs file
+            # Extract OD pair from trajectory (first and last road ID)
+            if len(trajectory) >= 2:
+                od_pair = (trajectory[0], trajectory[-1])
+                if od_pair in od_pair_labels:
+                    classifications.append(od_pair_labels[od_pair])
+                else:
+                    # OD pair not found in labels - fallback to perplexity
+                    unmatched_count += 1
+                    classifications.append(
+                        classify_spatial_abnormality_type(log_perp, source_stats)
+                    )
+            else:
+                # Invalid trajectory - fallback to perplexity
+                classifications.append(
+                    classify_spatial_abnormality_type(log_perp, source_stats)
+                )
         else:
+            # No OD pairs file - use perplexity-based classification
             classifications.append(
                 classify_spatial_abnormality_type(log_perp, source_stats)
             )
+
+    if od_pair_labels and unmatched_count > 0:
+        logger.warning(
+            f"⚠️  {unmatched_count} trajectories could not be matched to OD pairs - "
+            f"using perplexity-based classification as fallback"
+        )
 
     # Count by type
     from collections import Counter

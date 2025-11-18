@@ -349,6 +349,7 @@ def run_lmtad_spatial_pipeline(
                                 device="cuda:0",
                                 batch_size=128,
                                 lmtad_repo=lmtad_repo,
+                                od_pairs_file=od_pairs_file,  # Pass OD pairs file for known labels
                             )
                             # Save results
                             output_file.parent.mkdir(parents=True, exist_ok=True)
