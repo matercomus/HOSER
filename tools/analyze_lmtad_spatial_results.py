@@ -40,6 +40,30 @@ logger = logging.getLogger(__name__)
 import sys  # noqa: E402
 
 
+def ensure_json_serializable(obj):
+    """Recursively convert object to JSON-serializable types
+
+    Handles numpy types, booleans, and nested structures.
+    """
+    if isinstance(obj, dict):
+        return {k: ensure_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [ensure_json_serializable(item) for item in obj]
+    elif isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    elif isinstance(obj, (np.integer, int)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, float)):
+        return float(obj)
+    elif isinstance(obj, str):
+        return obj
+    elif obj is None:
+        return None
+    else:
+        # Last resort: convert to string
+        return str(obj)
+
+
 @dataclass
 class SpatialEvaluationMetrics:
     """Metrics for a single spatial abnormality evaluation result"""
@@ -364,7 +388,7 @@ def aggregate_lmtad_spatial_results(
             for i, test in enumerate(statistical_tests):
                 if i in corrected_map:
                     test["p_value_corrected"] = float(corrected_map[i])
-                    test["significant"] = corrected_map[i] < 0.05
+                    test["significant"] = bool(corrected_map[i] < 0.05)
                 else:
                     # NaN p-value - mark as not significant
                     test["p_value_corrected"] = float("nan")
@@ -390,7 +414,8 @@ def aggregate_lmtad_spatial_results(
     logger.info(f"✅ Aggregated results for {len(generated_results)} models")
     logger.info(f"   Performed {len(statistical_tests)} statistical comparisons")
 
-    return result
+    # Ensure all values are JSON serializable (convert numpy types to Python types)
+    return ensure_json_serializable(result)
 
 
 def main():

@@ -45,7 +45,10 @@ if str(_parent_dir) not in sys.path:
     sys.path.insert(0, str(_parent_dir))
 
 # Import programmatic interfaces (after path setup)
-from tools.analyze_lmtad_spatial_results import aggregate_lmtad_spatial_results  # noqa: E402
+from tools.analyze_lmtad_spatial_results import (  # noqa: E402
+    aggregate_lmtad_spatial_results,
+    ensure_json_serializable,
+)
 from tools.evaluate_lmtad_spatial_abnormal import evaluate_spatial_abnormal_trajectories  # noqa: E402
 from tools.extract_lmtad_spatial_abnormal_od import extract_spatial_abnormal_od_pairs  # noqa: E402
 from tools.generate_lmtad_spatial_abnormal_trajectories import (  # noqa: E402
@@ -397,10 +400,10 @@ def run_lmtad_spatial_pipeline(
                     dataset=dataset,
                     source_eval_dir=lmtad_source_eval_dir,
                 )
-                # Save results
+                # Save results (ensure JSON serializable for extra safety)
                 output_file.parent.mkdir(parents=True, exist_ok=True)
                 with open(output_file, "w") as f:
-                    json.dump(result, f, indent=2)
+                    json.dump(ensure_json_serializable(result), f, indent=2)
                 logger.info(
                     "✅ Aggregate LM-TAD spatial results completed successfully"
                 )

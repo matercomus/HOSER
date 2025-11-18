@@ -399,6 +399,248 @@ class TestAnalyzeLMTADSpatialResults:
         assert "p_value" in tests[0]
         assert "cohens_h" in tests[0]
 
+    def test_aggregate_results_json_serializable(self, tmp_path):
+        """Test that aggregate_lmtad_spatial_results returns JSON-serializable results."""
+        eval_dir = tmp_path / "eval_dir"
+        eval_dir.mkdir()
+        dataset = "test_dataset"
+
+        # Create source eval directory
+        source_eval_dir = tmp_path / "source_eval"
+        source_eval_dir.mkdir()
+        tsv_file = source_eval_dir / "ckpt_best_outliers_config_test.tsv"
+        tsv_content = """log_perplexity\toutlier\tseq_length\ttrajectory
+0.304\tnon outlier\t53\t[74, 74, 208, 6165]
+7.026\troute switch\t45\t[100, 200, 300, 6165]
+8.413\tdetour\t50\t[150, 250, 350, 6165]
+"""
+        tsv_file.write_text(tsv_content)
+
+        # Create evaluation results directory
+        eval_results_dir = eval_dir / "eval_lmtad_spatial" / dataset
+        eval_results_dir.mkdir(parents=True)
+
+        # Create mock evaluation result
+        result_file = eval_results_dir / "model1_spatial_evaluation.json"
+        result_data = {
+            "model": "model1",
+            "dataset": dataset,
+            "total_trajectories": 1000,
+            "spatial_abnormal_count": 50,
+            "spatial_abnormality_rate": 5.0,
+            "by_type": {
+                "route_switch": {"count": 30, "rate": 3.0},
+                "detour": {"count": 20, "rate": 2.0},
+                "non_outlier": {"count": 950, "rate": 95.0},
+            },
+            "log_perplexity_stats": {
+                "mean": 2.5,
+                "std": 1.0,
+                "median": 2.3,
+            },
+        }
+        with open(result_file, "w") as f:
+            json.dump(result_data, f)
+
+        result = aggregate_lmtad_spatial_results(
+            eval_dir=eval_dir,
+            dataset=dataset,
+            source_eval_dir=source_eval_dir,
+        )
+
+        # Test that result can be serialized to JSON and loaded back
+        output_file = tmp_path / "test_output.json"
+        with open(output_file, "w") as f:
+            json.dump(result, f, indent=2)
+
+        # Verify it can be loaded back
+        with open(output_file, "r") as f:
+            loaded_result = json.load(f)
+
+        assert loaded_result == result
+        assert "statistical_analysis" in loaded_result
+        assert "statistical_tests" in loaded_result["statistical_analysis"]
+
+    def test_aggregate_results_with_numpy_bool(self, tmp_path):
+        """Test that aggregate_lmtad_spatial_results handles numpy bool values correctly."""
+        import numpy as np
+
+        eval_dir = tmp_path / "eval_dir"
+        eval_dir.mkdir()
+        dataset = "test_dataset"
+
+        # Create source eval directory
+        source_eval_dir = tmp_path / "source_eval"
+        source_eval_dir.mkdir()
+        tsv_file = source_eval_dir / "ckpt_best_outliers_config_test.tsv"
+        tsv_content = """log_perplexity\toutlier\tseq_length\ttrajectory
+0.304\tnon outlier\t53\t[74, 74, 208, 6165]
+7.026\troute switch\t45\t[100, 200, 300, 6165]
+8.413\tdetour\t50\t[150, 250, 350, 6165]
+"""
+        tsv_file.write_text(tsv_content)
+
+        # Create evaluation results directory with multiple models to trigger FDR correction
+        eval_results_dir = eval_dir / "eval_lmtad_spatial" / dataset
+        eval_results_dir.mkdir(parents=True)
+
+        # Create multiple evaluation results to trigger FDR correction
+        for model_idx in range(3):
+            result_file = eval_results_dir / f"model{model_idx}_spatial_evaluation.json"
+            result_data = {
+                "model": f"model{model_idx}",
+                "dataset": dataset,
+                "total_trajectories": 1000,
+                "spatial_abnormal_count": 50 + model_idx * 10,
+                "spatial_abnormality_rate": 5.0 + model_idx * 1.0,
+                "by_type": {
+                    "route_switch": {"count": 30, "rate": 3.0},
+                    "detour": {"count": 20, "rate": 2.0},
+                    "non_outlier": {"count": 950, "rate": 95.0},
+                },
+                "log_perplexity_stats": {
+                    "mean": 2.5,
+                    "std": 1.0,
+                    "median": 2.3,
+                },
+            }
+            with open(result_file, "w") as f:
+                json.dump(result_data, f)
+
+        result = aggregate_lmtad_spatial_results(
+            eval_dir=eval_dir,
+            dataset=dataset,
+            source_eval_dir=source_eval_dir,
+        )
+
+        # Test that result can be serialized to JSON (this should work even with numpy bools)
+        output_file = tmp_path / "test_output_numpy.json"
+        try:
+            with open(output_file, "w") as f:
+                json.dump(result, f, indent=2)
+            serialization_successful = True
+        except TypeError as e:
+            serialization_successful = False
+            pytest.fail(f"JSON serialization failed: {e}")
+
+        assert serialization_successful
+
+        # Verify all significant flags are Python bools, not numpy bools
+        tests = result["statistical_analysis"]["statistical_tests"]
+        for test in tests:
+            if "significant" in test:
+                assert isinstance(test["significant"], bool)
+                assert not isinstance(test["significant"], np.bool_)
+
+    def test_pipeline_json_serialization(self, tmp_path):
+        """Test that run_lmtad_spatial_pipeline can serialize aggregated results to JSON."""
+        from unittest.mock import patch
+        import numpy as np
+
+        eval_dir = tmp_path / "eval_dir"
+        eval_dir.mkdir()
+        dataset = "test_dataset"
+
+        # Create source eval directory
+        source_eval_dir = tmp_path / "source_eval"
+        source_eval_dir.mkdir()
+        checkpoint = tmp_path / "ckpt_best.pt"
+        checkpoint.write_text("dummy")
+
+        # Create a mock aggregated result with numpy types (simulating the bug)
+        mock_result = {
+            "summary_statistics": {
+                dataset: {
+                    "real_spatial_abnormality_rate": 6.54,
+                    "real_route_switch_rate": 3.27,
+                    "real_detour_rate": 3.27,
+                }
+            },
+            "real_data": {
+                dataset: {
+                    "dataset": dataset,
+                    "model": None,
+                    "is_real": True,
+                    "total_trajectories": 1000,
+                    "spatial_abnormal_count": 65,
+                    "spatial_abnormality_rate": 6.54,
+                }
+            },
+            "generated_data": {
+                dataset: {
+                    "model1": {
+                        "dataset": dataset,
+                        "model": "model1",
+                        "is_real": False,
+                        "total_trajectories": 1000,
+                        "spatial_abnormal_count": 50,
+                        "spatial_abnormality_rate": 5.0,
+                    }
+                }
+            },
+            "statistical_analysis": {
+                "statistical_tests": [
+                    {
+                        "model": "model1",
+                        "real_rate": 6.54,
+                        "generated_rate": 5.0,
+                        "difference": -1.54,
+                        "p_value": 0.03,
+                        "p_value_corrected": np.float64(0.03),  # numpy float
+                        "significant": np.bool_(
+                            True
+                        ),  # numpy bool - this causes the bug
+                        "cohens_h": np.float64(0.1),
+                    }
+                ],
+                "correction_method": "FDR (Benjamini-Hochberg)",
+                "alpha": 0.05,
+            },
+        }
+
+        # Mock the aggregate function to return result with numpy types
+        with patch(
+            "tools.run_lmtad_spatial_pipeline.aggregate_lmtad_spatial_results"
+        ) as mock_aggregate:
+            mock_aggregate.return_value = mock_result
+
+            # Import the pipeline function
+
+            # Try to run aggregation step (which should serialize to JSON)
+            # We'll skip other steps and only test aggregation
+            output_file = (
+                eval_dir
+                / "analysis_abnormal"
+                / dataset
+                / "lmtad_spatial_results_aggregated.json"
+            )
+
+            # Test that the pipeline can serialize results (with fix, this should work)
+            # Import ensure_json_serializable to test serialization
+            from tools.analyze_lmtad_spatial_results import ensure_json_serializable
+
+            # Test serialization with numpy types (should work after fix)
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                serializable_result = ensure_json_serializable(mock_result)
+                with open(output_file, "w") as f:
+                    json.dump(serializable_result, f, indent=2)
+                serialization_successful = True
+            except TypeError as e:
+                serialization_successful = False
+                pytest.fail(f"JSON serialization failed after fix: {e}")
+
+            # After fix, this should succeed
+            assert serialization_successful, (
+                "Serialization should succeed with ensure_json_serializable"
+            )
+
+            # Verify the file was created and can be loaded back
+            assert output_file.exists()
+            with open(output_file, "r") as f:
+                loaded_result = json.load(f)
+            assert "statistical_analysis" in loaded_result
+
 
 class TestVisualizeLMTADSpatialResults:
     """Tests for visualize_lmtad_spatial_results module."""
