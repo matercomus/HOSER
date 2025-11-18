@@ -824,14 +824,14 @@ class TestGridMapperVerification:
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
-    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.extract_road_centroids")
     @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
     @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
     def test_verify_hw_passed_to_gridmapper(
         self,
         mock_evaluate,
         mock_grid_mapper,
-        mock_load_centroids,
+        mock_extract_centroids,
         mock_load_traj,
         mock_load_stats,
         mock_lmtad_teacher,
@@ -846,7 +846,11 @@ class TestGridMapperVerification:
             "route_switch_mean": 7.03,
             "detour_mean": 8.41,
         }
-        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+        # Mock extract_road_centroids to return centroids and boundary
+        mock_extract_centroids.return_value = (
+            np.array([[0.0, 0.0], [1.0, 1.0]]),
+            {"min_lat": 0.0, "max_lat": 1.0, "min_lng": 0.0, "max_lng": 1.0},
+        )
 
         mock_mapper = MagicMock()
         mock_mapper.map_all.return_value = np.array([0, 1])
@@ -908,14 +912,14 @@ class TestGridMapperVerification:
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
-    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.extract_road_centroids")
     @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
     @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
     def test_verify_hw_none_when_teacher_returns_none(
         self,
         mock_evaluate,
         mock_grid_mapper,
-        mock_load_centroids,
+        mock_extract_centroids,
         mock_load_traj,
         mock_load_stats,
         mock_lmtad_teacher,
@@ -930,7 +934,11 @@ class TestGridMapperVerification:
             "route_switch_mean": 7.03,
             "detour_mean": 8.41,
         }
-        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+        # Mock extract_road_centroids to return centroids and boundary
+        mock_extract_centroids.return_value = (
+            np.array([[0.0, 0.0], [1.0, 1.0]]),
+            {"min_lat": 0.0, "max_lat": 1.0, "min_lng": 0.0, "max_lng": 1.0},
+        )
 
         mock_mapper = MagicMock()
         mock_mapper.map_all.return_value = np.array([0, 1])
@@ -992,14 +1000,14 @@ class TestGridMapperVerification:
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
-    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.extract_road_centroids")
     @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
     @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
     def test_vocab_size_passed_to_evaluate_trajectories_direct(
         self,
         mock_evaluate,
         mock_grid_mapper,
-        mock_load_centroids,
+        mock_extract_centroids,
         mock_load_traj,
         mock_load_stats,
         mock_lmtad_teacher,
@@ -1014,7 +1022,11 @@ class TestGridMapperVerification:
             "route_switch_mean": 7.03,
             "detour_mean": 8.41,
         }
-        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+        # Mock extract_road_centroids to return centroids and boundary
+        mock_extract_centroids.return_value = (
+            np.array([[0.0, 0.0], [1.0, 1.0]]),
+            {"min_lat": 0.0, "max_lat": 1.0, "min_lng": 0.0, "max_lng": 1.0},
+        )
 
         mock_mapper = MagicMock()
         mock_mapper.map_all.return_value = np.array([0, 1])
@@ -1067,8 +1079,101 @@ class TestGridMapperVerification:
                     device="cpu",
                 )
 
+        # Verify extract_road_centroids was called
+        assert mock_extract_centroids.called
+
         # Verify evaluate_trajectories_direct was called with vocab_size
         assert mock_evaluate.called
         call_kwargs = mock_evaluate.call_args[1]
         assert "vocab_size" in call_kwargs
         assert call_kwargs["vocab_size"] == 6167
+
+
+class TestBoundaryExtraction:
+    """Tests for boundary extraction consistency with LM-TAD conversion."""
+
+    def test_extract_road_centroids_returns_boundary(self, tmp_path):
+        """Test that extract_road_centroids returns both centroids and boundary."""
+        import pandas as pd
+        from tools.convert_to_lmtad_format import extract_road_centroids
+
+        # Create a simple roadmap file
+        roadmap_data = pd.DataFrame(
+            {
+                "coordinates": [
+                    "[[8.65000, 41.15000], [8.65050, 41.15050]]",
+                    "[[8.66000, 41.16000], [8.66050, 41.16050]]",
+                ],
+                "geo_id": [0, 1],
+                "lanes": ['["2"]', '["1"]'],
+                "oneway": ["[false]", "[true]"],
+                "name": ["Street A", "Street B"],
+            }
+        )
+        roadmap_file = tmp_path / "roadmap.geo"
+        roadmap_data.to_csv(roadmap_file, index=False)
+
+        # Extract centroids and boundaries
+        road_centroids, boundary = extract_road_centroids(roadmap_file)
+
+        # Verify return types
+        assert road_centroids.shape == (2, 2)
+        assert isinstance(boundary, dict)
+        assert "min_lat" in boundary
+        assert "max_lat" in boundary
+        assert "min_lng" in boundary
+        assert "max_lng" in boundary
+
+        # Verify boundary values are reasonable
+        assert boundary["min_lat"] < boundary["max_lat"]
+        assert boundary["min_lng"] < boundary["max_lng"]
+
+    def test_boundary_used_in_grid_config(self, tmp_path):
+        """Test that boundaries from extract_road_centroids are used in GridConfig."""
+        import pandas as pd
+        from tools.convert_to_lmtad_format import extract_road_centroids
+        from critics.grid_mapper import GridMapper, GridConfig
+
+        # Create a simple roadmap file
+        roadmap_data = pd.DataFrame(
+            {
+                "coordinates": [
+                    "[[8.65000, 41.15000], [8.65050, 41.15050]]",
+                    "[[8.66000, 41.16000], [8.66050, 41.16050]]",
+                ],
+                "geo_id": [0, 1],
+                "lanes": ['["2"]', '["1"]'],
+                "oneway": ["[false]", "[true]"],
+                "name": ["Street A", "Street B"],
+            }
+        )
+        roadmap_file = tmp_path / "roadmap.geo"
+        roadmap_data.to_csv(roadmap_file, index=False)
+
+        # Extract centroids and boundaries
+        road_centroids, boundary = extract_road_centroids(roadmap_file)
+
+        # Create GridConfig with extracted boundaries
+        grid_config = GridConfig(
+            min_lat=boundary["min_lat"],
+            max_lat=boundary["max_lat"],
+            min_lng=boundary["min_lng"],
+            max_lng=boundary["max_lng"],
+            grid_size=0.001,
+            downsample_factor=1,
+        )
+
+        # Create GridMapper
+        mapper = GridMapper(
+            boundary=grid_config,
+            road_centroids=road_centroids,
+            verify_hw=None,  # No verification for this test
+        )
+
+        # Verify mapper was created successfully
+        assert mapper.grid_h > 0
+        assert mapper.grid_w > 0
+        assert mapper.cfg.min_lat == boundary["min_lat"]
+        assert mapper.cfg.max_lat == boundary["max_lat"]
+        assert mapper.cfg.min_lng == boundary["min_lng"]
+        assert mapper.cfg.max_lng == boundary["max_lng"]

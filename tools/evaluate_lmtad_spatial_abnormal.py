@@ -31,8 +31,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from simple_evaluate_with_lmtad import (  # noqa: E402
     load_hoser_trajectories,
     evaluate_trajectories_direct,
-    load_road_centroids,
 )
+from tools.convert_to_lmtad_format import extract_road_centroids  # noqa: E402
 from critics.lmtad_teacher import LMTADTeacher  # noqa: E402
 from critics.grid_mapper import GridMapper, GridConfig  # noqa: E402
 
@@ -309,16 +309,27 @@ def evaluate_spatial_abnormal_trajectories(
     else:
         logger.warning("⚠️  Could not determine vocab_size from teacher")
 
-    road_centroids = load_road_centroids(roadmap_file)
+    # Extract road centroids and boundaries using the same method as LM-TAD conversion
+    # This ensures boundaries match exactly what was used during training
+    logger.info("📂 Extracting road centroids and boundaries from roadmap...")
+    road_centroids, boundary = extract_road_centroids(roadmap_file)
+    logger.info(
+        f"✅ Extracted boundaries: lat=[{boundary['min_lat']:.6f}, {boundary['max_lat']:.6f}], "
+        f"lng=[{boundary['min_lng']:.6f}, {boundary['max_lng']:.6f}]"
+    )
+
     # Use same grid_size and downsample_factor as training (matches config files)
     # Default: grid_size=0.001, downsample_factor=1 (no downsampling)
+    grid_size = 0.001
+    downsample_factor = 1
+
     grid_config = GridConfig(
-        min_lat=road_centroids[:, 1].min(),
-        max_lat=road_centroids[:, 1].max(),
-        min_lng=road_centroids[:, 0].min(),
-        max_lng=road_centroids[:, 0].max(),
-        grid_size=0.001,  # Matches config: grid_size: 0.001
-        downsample_factor=1,  # Matches config: downsample: 1 (no downsampling)
+        min_lat=boundary["min_lat"],
+        max_lat=boundary["max_lat"],
+        min_lng=boundary["min_lng"],
+        max_lng=boundary["max_lng"],
+        grid_size=grid_size,
+        downsample_factor=downsample_factor,
     )
     mapper = GridMapper(
         boundary=grid_config,

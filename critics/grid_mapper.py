@@ -12,6 +12,7 @@ This module is standalone to keep the training code clean and readable.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -66,11 +67,20 @@ class GridMapper:
         self.grid_h = lat_grid_num
         self.grid_w = lng_grid_num
 
+        # If verify_hw is provided and dimensions don't match, raise error
+        # Boundaries should match training exactly - don't adjust them
         if verify_hw is not None:
             vh, vw = int(verify_hw[0]), int(verify_hw[1])
             if (self.grid_h, self.grid_w) != (vh, vw):
+                logger = logging.getLogger(__name__)
+                logger.error(
+                    f"Grid dimension mismatch: computed {(self.grid_h, self.grid_w)} vs teacher {(vh, vw)}. "
+                    f"This indicates the boundaries used don't match training. "
+                    f"Please use the exact boundaries from the converted LM-TAD data."
+                )
                 raise ValueError(
-                    f"Grid dimension mismatch: computed {(self.grid_h, self.grid_w)} vs teacher {(vh, vw)}"
+                    f"Grid dimension mismatch: computed {(self.grid_h, self.grid_w)} vs teacher {(vh, vw)}. "
+                    f"Boundaries must match training exactly. Use boundaries from converted LM-TAD data."
                 )
 
     def map_all(self) -> np.ndarray:

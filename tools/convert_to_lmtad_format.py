@@ -143,34 +143,39 @@ def extract_road_centroids(roadmap_file: Path) -> Tuple[np.ndarray, Dict[str, fl
             logger.warning(f"Road {idx}: Empty coordinates list, skipping")
             continue
 
-        # Validate coordinate format
+        # Validate coordinate format and extract boundaries
+        # Use same method as LM-TAD conversion: iterate through each coordinate point
         try:
+            # Calculate centroid (needed for road mapping)
             lats = [coord[1] for coord in coords]
             lngs = [coord[0] for coord in coords]
+
+            # Validate coordinate values (reasonable lat/lng ranges)
+            if any(lat < -90 or lat > 90 for lat in lats):
+                logger.warning(f"Road {idx}: Latitude out of range [-90, 90], skipping")
+                continue
+
+            if any(lng < -180 or lng > 180 for lng in lngs):
+                logger.warning(
+                    f"Road {idx}: Longitude out of range [-180, 180], skipping"
+                )
+                continue
+
+            # Calculate centroid
+            centroid_lat = sum(lats) / len(lats)
+            centroid_lng = sum(lngs) / len(lngs)
+            centroids.append([centroid_lat, centroid_lng])
+
+            # Update boundaries - iterate through each coordinate point (same as LM-TAD)
+            # This matches convert_HOSER_to_LMTAD.py exactly
+            for lng, lat in coords:
+                min_lat = min(min_lat, lat)
+                max_lat = max(max_lat, lat)
+                min_lng = min(min_lng, lng)
+                max_lng = max(max_lng, lng)
         except (IndexError, TypeError) as e:
             logger.warning(f"Road {idx}: Invalid coordinate format: {e}, skipping")
             continue
-
-        # Validate coordinate values (reasonable lat/lng ranges)
-        if any(lat < -90 or lat > 90 for lat in lats):
-            logger.warning(f"Road {idx}: Latitude out of range [-90, 90], skipping")
-            continue
-
-        if any(lng < -180 or lng > 180 for lng in lngs):
-            logger.warning(f"Road {idx}: Longitude out of range [-180, 180], skipping")
-            continue
-
-        # Calculate centroid
-        centroid_lat = sum(lats) / len(lats)
-        centroid_lng = sum(lngs) / len(lngs)
-
-        centroids.append([centroid_lat, centroid_lng])
-
-        # Update boundaries
-        min_lat = min(min_lat, min(lats))
-        max_lat = max(max_lat, max(lats))
-        min_lng = min(min_lng, min(lngs))
-        max_lng = max(max_lng, max(lngs))
 
     if len(centroids) == 0:
         raise ValueError("No valid road centroids could be extracted from roadmap")

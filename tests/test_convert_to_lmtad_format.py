@@ -90,6 +90,78 @@ def test_extract_road_centroids(mock_roadmap_file):
     pprint(boundary)
 
 
+def test_boundary_extraction_matches_lmtad_method(mock_roadmap_file):
+    """Test that boundary extraction matches LM-TAD conversion method exactly."""
+    import json
+
+    # Extract boundaries using our method
+    road_centroids, boundary = extract_road_centroids(mock_roadmap_file)
+
+    # Simulate LM-TAD conversion method: iterate through each coordinate point
+    min_lat_lmtad = float("inf")
+    max_lat_lmtad = float("-inf")
+    min_lng_lmtad = float("inf")
+    max_lng_lmtad = float("-inf")
+
+    # Read roadmap and extract boundaries the LM-TAD way
+    roadmap_df = pd.read_csv(mock_roadmap_file)
+    for coords_str in roadmap_df["coordinates"]:
+        coords = json.loads(coords_str)
+        for lng, lat in coords:
+            min_lat_lmtad = min(min_lat_lmtad, lat)
+            max_lat_lmtad = max(max_lat_lmtad, lat)
+            min_lng_lmtad = min(min_lng_lmtad, lng)
+            max_lng_lmtad = max(max_lng_lmtad, lng)
+
+    boundary_lmtad = {
+        "min_lat": min_lat_lmtad,
+        "max_lat": max_lat_lmtad,
+        "min_lng": min_lng_lmtad,
+        "max_lng": max_lng_lmtad,
+    }
+
+    # Verify boundaries match exactly
+    assert boundary["min_lat"] == pytest.approx(boundary_lmtad["min_lat"])
+    assert boundary["max_lat"] == pytest.approx(boundary_lmtad["max_lat"])
+    assert boundary["min_lng"] == pytest.approx(boundary_lmtad["min_lng"])
+    assert boundary["max_lng"] == pytest.approx(boundary_lmtad["max_lng"])
+
+
+def test_boundary_extraction_from_all_coordinates(tmp_path):
+    """Test that boundaries are extracted from all coordinate points, not just centroids."""
+
+    # Create roadmap with roads that have multiple coordinate points
+    roadmap_data = pd.DataFrame(
+        {
+            "coordinates": [
+                "[[8.65000, 41.15000], [8.65050, 41.15050], [8.65100, 41.15100]]",  # 3 points
+                "[[8.66000, 41.16000], [8.66050, 41.16050]]",  # 2 points
+            ],
+            "geo_id": [0, 1],
+            "lanes": ['["2"]', '["1"]'],
+            "oneway": ["[false]", "[true]"],
+            "name": ["Street A", "Street B"],
+        }
+    )
+    roadmap_file = tmp_path / "roadmap.geo"
+    roadmap_data.to_csv(roadmap_file, index=False)
+
+    # Extract boundaries
+    road_centroids, boundary = extract_road_centroids(roadmap_file)
+
+    # Verify boundaries include all coordinate points
+    # min_lat should be from first coordinate of first road: 41.15000
+    # max_lat should be from last coordinate of second road: 41.16050
+    assert boundary["min_lat"] == pytest.approx(41.15000)
+    assert boundary["max_lat"] == pytest.approx(41.16050)
+    assert boundary["min_lng"] == pytest.approx(8.65000)
+    assert boundary["max_lng"] == pytest.approx(8.66050)
+
+    # Verify centroids are computed correctly (mean of coordinates)
+    # First road: mean of [41.15000, 41.15050, 41.15100] = 41.15050
+    assert road_centroids[0, 0] == pytest.approx(41.15050, abs=0.00001)
+
+
 def test_create_grid_mapper(mock_roadmap_file):
     """Test grid mapper creation."""
     # Extract centroids first
