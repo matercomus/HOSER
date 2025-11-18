@@ -199,12 +199,30 @@ def run_lmtad_spatial_pipeline(
         total_steps += 1
         output_file = eval_dir / f"abnormal_od_pairs_lmtad_spatial_{dataset}.json"
 
-        # Check if already exists
+        # Check if already exists and has OD pairs
+        should_extract = True
         if output_file.exists():
-            logger.info(
-                f"  ⏭️  OD pairs file already exists: {output_file.name}, skipping"
-            )
-        else:
+            try:
+                import json
+
+                with open(output_file, "r") as f:
+                    existing_data = json.load(f)
+                total_od_pairs = existing_data.get("total_unique_od_pairs", 0)
+                if total_od_pairs > 0:
+                    logger.info(
+                        f"  ⏭️  OD pairs file already exists with {total_od_pairs} OD pairs: {output_file.name}, skipping"
+                    )
+                    should_extract = False
+                else:
+                    logger.warning(
+                        "  ⚠️  OD pairs file exists but has 0 OD pairs, re-extracting..."
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"  ⚠️  Failed to read existing OD pairs file: {e}, re-extracting..."
+                )
+
+        if should_extract:
             # Pass the source eval directory directly - script will process all TSV files
             cmd = [
                 "uv",
