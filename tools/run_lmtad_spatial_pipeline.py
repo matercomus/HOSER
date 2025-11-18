@@ -197,7 +197,6 @@ def run_lmtad_spatial_pipeline(
     # Step 1: Extract spatial abnormal OD pairs
     if not skip_extraction:
         total_steps += 1
-        tsv_file = find_lmtad_tsv_file(lmtad_source_eval_dir)
         output_file = eval_dir / f"abnormal_od_pairs_lmtad_spatial_{dataset}.json"
 
         # Check if already exists
@@ -206,13 +205,14 @@ def run_lmtad_spatial_pipeline(
                 f"  ⏭️  OD pairs file already exists: {output_file.name}, skipping"
             )
         else:
+            # Pass the source eval directory directly - script will process all TSV files
             cmd = [
                 "uv",
                 "run",
                 "python",
                 str(project_root / "tools" / "extract_lmtad_spatial_abnormal_od.py"),
                 "--tsv-file",
-                str(tsv_file),
+                str(lmtad_source_eval_dir),  # Pass directory to process all TSV files
                 "--dataset",
                 dataset,
                 "--source-eval-dir",

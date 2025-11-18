@@ -16,7 +16,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Set
+from typing import Dict, List, Tuple
 
 import pandas as pd
 
@@ -94,38 +94,125 @@ def extract_spatial_abnormal_od_pairs(
     """Extract OD pairs from LM-TAD-identified spatial outliers
 
     Args:
-        tsv_file: Path to LM-TAD evaluation TSV file
+        tsv_file: Path to LM-TAD evaluation TSV file (or directory to process all TSV files)
         dataset: Dataset name
         source_eval_dir: Path to source evaluation directory (for metadata)
 
     Returns:
         Dictionary with extracted OD pairs and metadata
     """
-    logger.info(f"📂 Reading TSV file: {tsv_file}")
+    # If tsv_file is a directory, process all TSV files in it
+    if tsv_file.is_dir():
+        tsv_files = sorted(tsv_file.glob("ckpt_best_outliers_*.tsv"))
+        if not tsv_files:
+            raise FileNotFoundError(f"No TSV files found in {tsv_file}")
+        logger.info(f"📂 Found {len(tsv_files)} TSV files, processing all...")
+    else:
+        tsv_files = [tsv_file]
 
-    # Read TSV file
-    try:
-        df = pd.read_csv(tsv_file, sep="\t")
-    except Exception as e:
-        logger.error(f"Failed to read TSV file: {e}")
-        raise
+    # Process all TSV files and combine results
+    all_route_switch_od_pairs = set()
+    all_detour_od_pairs = set()
+    total_spatial_abnormal = 0
+    total_route_switch = 0
+    total_detour = 0
+    total_failed = 0
+    processed_configs = []
 
-    logger.info(f"✅ Loaded {len(df)} trajectories from TSV")
+    for tsv_file_path in tsv_files:
+        logger.info(f"📂 Reading TSV file: {tsv_file_path.name}")
 
-    # Filter for spatial abnormalities
-    # Handle both formats: "route switch"/"detour" and "route switch outlier"/"detour outlier"
-    spatial_outliers = df[
-        df["outlier"].isin(
-            ["route switch", "detour", "route switch outlier", "detour outlier"]
+        # Read TSV file
+        try:
+            df = pd.read_csv(tsv_file_path, sep="\t")
+        except Exception as e:
+            logger.error(f"Failed to read TSV file {tsv_file_path}: {e}")
+            continue
+
+        logger.info(f"✅ Loaded {len(df)} trajectories from {tsv_file_path.name}")
+
+        # Filter for spatial abnormalities
+        # Handle both formats: "route switch"/"detour" and "route switch outlier"/"detour outlier"
+        spatial_outliers = df[
+            df["outlier"].isin(
+                ["route switch", "detour", "route switch outlier", "detour outlier"]
+            )
+        ].copy()
+
+        if len(spatial_outliers) == 0:
+            logger.warning(f"No spatial outliers found in {tsv_file_path.name}")
+            continue
+
+        route_switch_mask = spatial_outliers["outlier"].isin(
+            ["route switch", "route switch outlier"]
         )
-    ].copy()
+        detour_mask = spatial_outliers["outlier"].isin(["detour", "detour outlier"])
+        logger.info(
+            f"🔍 Found {len(spatial_outliers)} spatial abnormal trajectories "
+            f"(route switch: {len(spatial_outliers[route_switch_mask])}, "
+            f"detour: {len(spatial_outliers[detour_mask])})"
+        )
 
-    if len(spatial_outliers) == 0:
-        logger.warning("No spatial outliers found in TSV file")
+        # Extract OD pairs from this file
+        file_route_switch_count = 0
+        file_detour_count = 0
+        file_failed_count = 0
+
+        for idx, row in spatial_outliers.iterrows():
+            outlier_type = row["outlier"]
+            trajectory_str = row["trajectory"]
+
+            try:
+                # Parse trajectory
+                road_ids = parse_trajectory_from_tsv(trajectory_str)
+
+                if not road_ids:
+                    file_failed_count += 1
+                    continue
+
+                # Extract OD pair
+                od_pair = extract_od_from_trajectory(road_ids)
+
+                # Add to appropriate category
+                # Normalize outlier type (handle both "route switch" and "route switch outlier")
+                if outlier_type in ["route switch", "route switch outlier"]:
+                    all_route_switch_od_pairs.add(od_pair)
+                    file_route_switch_count += 1
+                elif outlier_type in ["detour", "detour outlier"]:
+                    all_detour_od_pairs.add(od_pair)
+                    file_detour_count += 1
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to extract OD from trajectory {idx} in {tsv_file_path.name}: {e}"
+                )
+                file_failed_count += 1
+                continue
+
+        # Accumulate totals
+        total_spatial_abnormal += len(spatial_outliers)
+        total_route_switch += file_route_switch_count
+        total_detour += file_detour_count
+        total_failed += file_failed_count
+
+        # Extract config name from filename
+        config_name = tsv_file_path.stem.replace("ckpt_best_outliers_config_", "")
+        processed_configs.append(config_name)
+
+        logger.info(
+            f"  ✅ Extracted from {tsv_file_path.name}: "
+            f"{file_route_switch_count} route switch, {file_detour_count} detour OD pairs"
+        )
+
+    # Combine all results
+    if len(all_route_switch_od_pairs) == 0 and len(all_detour_od_pairs) == 0:
+        logger.warning("No spatial outliers found in any TSV file")
         return {
             "dataset": dataset,
             "source": "lmtad",
-            "lmtad_config": tsv_file.stem.replace("ckpt_best_outliers_config_", ""),
+            "lmtad_config": ",".join(processed_configs)
+            if processed_configs
+            else "none",
             "total_spatial_abnormal_trajectories": 0,
             "total_unique_od_pairs": 0,
             "od_pairs_by_type": {"route_switch": [], "detour": []},
@@ -133,92 +220,42 @@ def extract_spatial_abnormal_od_pairs(
                 "source_eval_dir": str(source_eval_dir),
                 "route_switch_count": 0,
                 "detour_count": 0,
+                "processed_tsv_files": processed_configs,
             },
         }
 
-    route_switch_mask = spatial_outliers["outlier"].isin(
-        ["route switch", "route switch outlier"]
-    )
-    detour_mask = spatial_outliers["outlier"].isin(["detour", "detour outlier"])
-    logger.info(
-        f"🔍 Found {len(spatial_outliers)} spatial abnormal trajectories "
-        f"(route switch: {len(spatial_outliers[route_switch_mask])}, "
-        f"detour: {len(spatial_outliers[detour_mask])})"
-    )
-
-    # Extract OD pairs by type
-    od_pairs_by_type: Dict[str, Set[Tuple[int, int]]] = {
-        "route_switch": set(),
-        "detour": set(),
-    }
-
-    route_switch_count = 0
-    detour_count = 0
-    failed_count = 0
-
-    for idx, row in spatial_outliers.iterrows():
-        outlier_type = row["outlier"]
-        trajectory_str = row["trajectory"]
-
-        try:
-            # Parse trajectory
-            road_ids = parse_trajectory_from_tsv(trajectory_str)
-
-            if not road_ids:
-                failed_count += 1
-                continue
-
-            # Extract OD pair
-            od_pair = extract_od_from_trajectory(road_ids)
-
-            # Add to appropriate category
-            # Normalize outlier type (handle both "route switch" and "route switch outlier")
-            if outlier_type in ["route switch", "route switch outlier"]:
-                od_pairs_by_type["route_switch"].add(od_pair)
-                route_switch_count += 1
-            elif outlier_type in ["detour", "detour outlier"]:
-                od_pairs_by_type["detour"].add(od_pair)
-                detour_count += 1
-
-        except Exception as e:
-            logger.warning(f"Failed to extract OD from trajectory {idx}: {e}")
-            failed_count += 1
-            continue
-
-    if failed_count > 0:
-        logger.warning(f"⚠️  Failed to extract OD from {failed_count} trajectories")
-
-    # Convert sets to lists for JSON serialization
-    od_pairs_output = {
-        "route_switch": sorted(list(od_pairs_by_type["route_switch"])),
-        "detour": sorted(list(od_pairs_by_type["detour"])),
+    # Convert sets to sorted lists for JSON serialization
+    od_pairs_by_type = {
+        "route_switch": sorted(list(all_route_switch_od_pairs)),
+        "detour": sorted(list(all_detour_od_pairs)),
     }
 
     total_unique_od_pairs = len(od_pairs_by_type["route_switch"]) + len(
         od_pairs_by_type["detour"]
     )
 
-    # Extract config name from filename
-    config_name = tsv_file.stem.replace("ckpt_best_outliers_config_", "")
-
     result = {
         "dataset": dataset,
         "source": "lmtad",
-        "lmtad_config": config_name,
-        "total_spatial_abnormal_trajectories": len(spatial_outliers),
+        "lmtad_config": ",".join(processed_configs),
+        "total_spatial_abnormal_trajectories": total_spatial_abnormal,
         "total_unique_od_pairs": total_unique_od_pairs,
-        "od_pairs_by_type": od_pairs_output,
+        "od_pairs_by_type": od_pairs_by_type,
         "metadata": {
             "source_eval_dir": str(source_eval_dir),
-            "route_switch_count": route_switch_count,
-            "detour_count": detour_count,
-            "failed_extraction_count": failed_count,
+            "processed_tsv_files": processed_configs,
+            "num_tsv_files": len(tsv_files),
+            "route_switch_count": total_route_switch,
+            "detour_count": total_detour,
+            "failed_extraction_count": total_failed,
         },
     }
 
-    logger.info(f"✅ Extracted {total_unique_od_pairs} unique OD pairs:")
-    logger.info(f"   Route switch: {len(od_pairs_by_type['route_switch'])}")
-    logger.info(f"   Detour: {len(od_pairs_by_type['detour'])}")
+    logger.info(f"\n✅ Combined extraction from {len(tsv_files)} TSV files:")
+    logger.info(f"   Total spatial abnormal trajectories: {total_spatial_abnormal}")
+    logger.info(f"   Total unique OD pairs: {total_unique_od_pairs}")
+    logger.info(f"   Route switch OD pairs: {len(od_pairs_by_type['route_switch'])}")
+    logger.info(f"   Detour OD pairs: {len(od_pairs_by_type['detour'])}")
 
     return result
 
@@ -274,12 +311,16 @@ Examples:
 
     # Validate inputs
     if not args.tsv_file.exists():
-        logger.error(f"TSV file not found: {args.tsv_file}")
+        logger.error(f"TSV file/directory not found: {args.tsv_file}")
         return 1
 
     if not args.source_eval_dir.exists():
         logger.error(f"Source eval directory not found: {args.source_eval_dir}")
         return 1
+
+    # If tsv_file is a file, validate it's a TSV file
+    if args.tsv_file.is_file() and not args.tsv_file.name.endswith(".tsv"):
+        logger.warning(f"File {args.tsv_file} doesn't appear to be a TSV file")
 
     # Extract OD pairs
     try:
