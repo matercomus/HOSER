@@ -114,8 +114,6 @@ def extract_spatial_abnormal_od_pairs(
     all_route_switch_od_pairs = set()
     all_detour_od_pairs = set()
     total_spatial_abnormal = 0
-    total_route_switch = 0
-    total_detour = 0
     total_failed = 0
     processed_configs = []
     per_file_stats = []  # Track statistics per file
@@ -155,8 +153,8 @@ def extract_spatial_abnormal_od_pairs(
         )
 
         # Extract OD pairs from this file
-        file_route_switch_count = 0
-        file_detour_count = 0
+        file_route_switch_od_pairs = set()  # Track unique OD pairs per file
+        file_detour_od_pairs = set()  # Track unique OD pairs per file
         file_failed_count = 0
 
         for idx, row in spatial_outliers.iterrows():
@@ -178,10 +176,10 @@ def extract_spatial_abnormal_od_pairs(
                 # Normalize outlier type (handle both "route switch" and "route switch outlier")
                 if outlier_type in ["route switch", "route switch outlier"]:
                     all_route_switch_od_pairs.add(od_pair)
-                    file_route_switch_count += 1
+                    file_route_switch_od_pairs.add(od_pair)
                 elif outlier_type in ["detour", "detour outlier"]:
                     all_detour_od_pairs.add(od_pair)
-                    file_detour_count += 1
+                    file_detour_od_pairs.add(od_pair)
 
             except Exception as e:
                 logger.warning(
@@ -192,8 +190,6 @@ def extract_spatial_abnormal_od_pairs(
 
         # Accumulate totals
         total_spatial_abnormal += len(spatial_outliers)
-        total_route_switch += file_route_switch_count
-        total_detour += file_detour_count
         total_failed += file_failed_count
 
         # Extract config name from filename
@@ -217,15 +213,15 @@ def extract_spatial_abnormal_od_pairs(
                 "detour_rate": (
                     file_detour_trajectories / len(df) * 100 if len(df) > 0 else 0
                 ),
-                "route_switch_od_pairs": file_route_switch_count,
-                "detour_od_pairs": file_detour_count,
+                "route_switch_od_pairs": len(file_route_switch_od_pairs),
+                "detour_od_pairs": len(file_detour_od_pairs),
                 "failed_extractions": file_failed_count,
             }
         )
 
         logger.info(
             f"  ✅ Extracted from {tsv_file_path.name}: "
-            f"{file_route_switch_count} route switch, {file_detour_count} detour OD pairs"
+            f"{len(file_route_switch_od_pairs)} route switch, {len(file_detour_od_pairs)} detour OD pairs"
         )
 
     # Combine all results
@@ -242,10 +238,13 @@ def extract_spatial_abnormal_od_pairs(
             "od_pairs_by_type": {"route_switch": [], "detour": []},
             "metadata": {
                 "source_eval_dir": str(source_eval_dir),
-                "route_switch_count": 0,
-                "detour_count": 0,
                 "processed_tsv_files": processed_configs,
+                "num_tsv_files": len(tsv_files),
+                "route_switch_od_pairs": 0,
+                "detour_od_pairs": 0,
+                "failed_extraction_count": total_failed,
             },
+            "per_file_statistics": per_file_stats,  # May be empty if no outliers found
         }
 
     # Convert sets to sorted lists for JSON serialization
@@ -269,8 +268,8 @@ def extract_spatial_abnormal_od_pairs(
             "source_eval_dir": str(source_eval_dir),
             "processed_tsv_files": processed_configs,
             "num_tsv_files": len(tsv_files),
-            "route_switch_count": total_route_switch,
-            "detour_count": total_detour,
+            "route_switch_od_pairs": len(all_route_switch_od_pairs),
+            "detour_od_pairs": len(all_detour_od_pairs),
             "failed_extraction_count": total_failed,
         },
         "per_file_statistics": per_file_stats,  # Statistics per TSV file for baseline comparison

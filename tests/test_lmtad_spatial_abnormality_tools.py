@@ -128,6 +128,172 @@ class TestExtractLMTADSpatialAbnormalOD:
         assert len(result["od_pairs_by_type"]["route_switch"]) == 0
         assert len(result["od_pairs_by_type"]["detour"]) == 0
 
+    def test_extract_spatial_abnormal_od_pairs_per_file_statistics_single_file(
+        self, tmp_path
+    ):
+        """Test that per-file statistics are included for single file."""
+        tsv_file = tmp_path / "ckpt_best_outliers_config_test.tsv"
+        source_eval_dir = tmp_path / "eval"
+        source_eval_dir.mkdir()
+
+        # Create TSV with spatial outliers
+        tsv_content = """log_perplexity\toutlier\tseq_length\ttrajectory
+0.304\tnon outlier\t53\t[74, 74, 208, 6165]
+7.026\troute switch\t45\t[100, 200, 300, 6165]
+8.413\tdetour\t50\t[150, 250, 350, 6165]
+7.100\troute switch\t40\t[100, 200, 300, 6165]
+8.500\tdetour\t55\t[150, 250, 350, 450, 6165]
+"""
+        tsv_file.write_text(tsv_content)
+
+        result = extract_spatial_abnormal_od_pairs(
+            tsv_file=tsv_file,
+            dataset="test_dataset",
+            source_eval_dir=source_eval_dir,
+        )
+
+        # Check that per_file_statistics exists
+        assert "per_file_statistics" in result
+        assert isinstance(result["per_file_statistics"], list)
+        assert len(result["per_file_statistics"]) == 1
+
+        # Check structure of per-file stats
+        file_stats = result["per_file_statistics"][0]
+        assert file_stats["tsv_file"] == "ckpt_best_outliers_config_test.tsv"
+        assert file_stats["config"] == "test"
+        assert file_stats["total_trajectories"] == 5
+        assert file_stats["spatial_abnormal_trajectories"] == 4
+        assert file_stats["route_switch_trajectories"] == 2
+        assert file_stats["detour_trajectories"] == 2
+        # Route switch rate: 2/5 * 100 = 40%
+        assert abs(file_stats["route_switch_rate"] - 40.0) < 0.01
+        # Detour rate: 2/5 * 100 = 40%
+        assert abs(file_stats["detour_rate"] - 40.0) < 0.01
+        assert file_stats["route_switch_od_pairs"] == 1  # Unique OD pairs
+        assert file_stats["detour_od_pairs"] == 2  # Two different destinations
+        assert file_stats["failed_extractions"] == 0
+
+    def test_extract_spatial_abnormal_od_pairs_per_file_statistics_multiple_files(
+        self, tmp_path
+    ):
+        """Test that per-file statistics are included for multiple files (directory)."""
+        source_eval_dir = tmp_path / "eval"
+        source_eval_dir.mkdir()
+
+        # Create first TSV file
+        tsv_file1 = source_eval_dir / "ckpt_best_outliers_config_config1.tsv"
+        tsv_content1 = """log_perplexity\toutlier\tseq_length\ttrajectory
+0.304\tnon outlier\t53\t[74, 74, 208, 6165]
+7.026\troute switch\t45\t[100, 200, 300, 6165]
+8.413\tdetour\t50\t[150, 250, 350, 6165]
+"""
+        tsv_file1.write_text(tsv_content1)
+
+        # Create second TSV file
+        tsv_file2 = source_eval_dir / "ckpt_best_outliers_config_config2.tsv"
+        tsv_content2 = """log_perplexity\toutlier\tseq_length\ttrajectory
+0.304\tnon outlier\t53\t[74, 74, 208, 6165]
+7.100\troute switch\t40\t[200, 300, 400, 6165]
+8.500\tdetour\t55\t[250, 350, 450, 6165]
+"""
+        tsv_file2.write_text(tsv_content2)
+
+        # Process directory
+        result = extract_spatial_abnormal_od_pairs(
+            tsv_file=source_eval_dir,
+            dataset="test_dataset",
+            source_eval_dir=source_eval_dir,
+        )
+
+        # Check that per_file_statistics exists and has 2 entries
+        assert "per_file_statistics" in result
+        assert isinstance(result["per_file_statistics"], list)
+        assert len(result["per_file_statistics"]) == 2
+
+        # Check first file stats
+        file_stats1 = result["per_file_statistics"][0]
+        assert file_stats1["tsv_file"] == "ckpt_best_outliers_config_config1.tsv"
+        assert file_stats1["config"] == "config1"
+        assert file_stats1["total_trajectories"] == 3
+        assert file_stats1["spatial_abnormal_trajectories"] == 2
+        assert file_stats1["route_switch_trajectories"] == 1
+        assert file_stats1["detour_trajectories"] == 1
+        # Route switch rate: 1/3 * 100 ≈ 33.33%
+        assert abs(file_stats1["route_switch_rate"] - 33.333) < 0.1
+        # Detour rate: 1/3 * 100 ≈ 33.33%
+        assert abs(file_stats1["detour_rate"] - 33.333) < 0.1
+
+        # Check second file stats
+        file_stats2 = result["per_file_statistics"][1]
+        assert file_stats2["tsv_file"] == "ckpt_best_outliers_config_config2.tsv"
+        assert file_stats2["config"] == "config2"
+        assert file_stats2["total_trajectories"] == 3
+        assert file_stats2["spatial_abnormal_trajectories"] == 2
+        assert file_stats2["route_switch_trajectories"] == 1
+        assert file_stats2["detour_trajectories"] == 1
+
+        # Check combined totals
+        assert result["total_spatial_abnormal_trajectories"] == 4
+        # Should have unique OD pairs from both files
+        assert len(result["od_pairs_by_type"]["route_switch"]) == 2
+        assert len(result["od_pairs_by_type"]["detour"]) == 2
+
+    def test_extract_spatial_abnormal_od_pairs_per_file_statistics_no_outliers(
+        self, tmp_path
+    ):
+        """Test that per_file_statistics is empty when no outliers found."""
+        tsv_file = tmp_path / "ckpt_best_outliers_config_test.tsv"
+        source_eval_dir = tmp_path / "eval"
+        source_eval_dir.mkdir()
+
+        # Create TSV with only non-outliers
+        tsv_content = """log_perplexity\toutlier\tseq_length\ttrajectory
+0.304\tnon outlier\t53\t[74, 74, 208, 6165]
+0.420\tnon outlier\t35\t[100, 200, 300, 6165]
+"""
+        tsv_file.write_text(tsv_content)
+
+        result = extract_spatial_abnormal_od_pairs(
+            tsv_file=tsv_file,
+            dataset="test_dataset",
+            source_eval_dir=source_eval_dir,
+        )
+
+        # When no outliers, per_file_statistics should be empty list
+        assert "per_file_statistics" in result
+        assert isinstance(result["per_file_statistics"], list)
+        assert len(result["per_file_statistics"]) == 0
+
+    def test_extract_spatial_abnormal_od_pairs_per_file_statistics_handles_outlier_variants(
+        self, tmp_path
+    ):
+        """Test that per-file statistics handle both 'route switch' and 'route switch outlier' formats."""
+        tsv_file = tmp_path / "ckpt_best_outliers_config_test.tsv"
+        source_eval_dir = tmp_path / "eval"
+        source_eval_dir.mkdir()
+
+        # Create TSV with both formats
+        tsv_content = """log_perplexity\toutlier\tseq_length\ttrajectory
+0.304\tnon outlier\t53\t[74, 74, 208, 6165]
+7.026\troute switch\t45\t[100, 200, 300, 6165]
+8.413\troute switch outlier\t50\t[150, 250, 350, 6165]
+7.100\tdetour\t40\t[200, 300, 400, 6165]
+8.500\tdetour outlier\t55\t[250, 350, 450, 6165]
+"""
+        tsv_file.write_text(tsv_content)
+
+        result = extract_spatial_abnormal_od_pairs(
+            tsv_file=tsv_file,
+            dataset="test_dataset",
+            source_eval_dir=source_eval_dir,
+        )
+
+        # Check per-file stats
+        file_stats = result["per_file_statistics"][0]
+        assert file_stats["route_switch_trajectories"] == 2  # Both formats counted
+        assert file_stats["detour_trajectories"] == 2  # Both formats counted
+        assert file_stats["spatial_abnormal_trajectories"] == 4
+
 
 class TestAnalyzeLMTADSpatialResults:
     """Tests for analyze_lmtad_spatial_results module."""
