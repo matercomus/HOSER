@@ -157,6 +157,10 @@ class PipelineConfig:
         )
         self.lmtad_spatial_config = None  # NEW: Path to LM-TAD spatial config file
         self.lmtad_source_eval_dir = None  # NEW: Path to LM-TAD source eval directory
+        self.lmtad_num_trajectories_per_od = (
+            None  # NEW: Override num trajectories per OD pair
+        )
+        self.lmtad_max_od_pairs = None  # NEW: Override max OD pairs to sample
 
         # Load from YAML if provided
         if config_path:
@@ -2160,6 +2164,17 @@ class EvaluationPipeline:
         if self.config.lmtad_spatial_config:
             cmd.extend(["--config", str(self.config.lmtad_spatial_config)])
 
+        # Add trajectory generation parameters if overridden
+        if self.config.lmtad_num_trajectories_per_od is not None:
+            cmd.extend(
+                [
+                    "--num-trajectories-per-od",
+                    str(self.config.lmtad_num_trajectories_per_od),
+                ]
+            )
+        if self.config.lmtad_max_od_pairs is not None:
+            cmd.extend(["--max-od-pairs", str(self.config.lmtad_max_od_pairs)])
+
         logger.info(f"Executing: {' '.join(cmd)}")
 
         try:
@@ -2696,6 +2711,16 @@ def main():
         type=str,
         help="Path to LM-TAD source evaluation directory (auto-detected if not provided)",
     )
+    parser.add_argument(
+        "--lmtad-num-trajectories-per-od",
+        type=int,
+        help="Number of trajectories per OD pair for LM-TAD spatial evaluation (default: 20, for testing use smaller values)",
+    )
+    parser.add_argument(
+        "--lmtad-max-od-pairs",
+        type=int,
+        help="Maximum OD pairs to sample for LM-TAD spatial evaluation (default: 250, for testing use smaller values)",
+    )
 
     args = parser.parse_args()
 
@@ -2789,6 +2814,10 @@ def main():
         config.lmtad_spatial_config = args.lmtad_spatial_config
     if args.lmtad_source_eval_dir:
         config.lmtad_source_eval_dir = args.lmtad_source_eval_dir
+    if args.lmtad_num_trajectories_per_od is not None:
+        config.lmtad_num_trajectories_per_od = args.lmtad_num_trajectories_per_od
+    if args.lmtad_max_od_pairs is not None:
+        config.lmtad_max_od_pairs = args.lmtad_max_od_pairs
 
     # Run pipeline
     try:

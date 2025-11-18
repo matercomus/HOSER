@@ -89,6 +89,19 @@ Generate trajectories for spatial abnormal OD pairs using HOSER models.
 
 **Note:** This step can be skipped if trajectories are already generated or if you want to reuse existing generation.
 
+### Sampling Strategy
+
+To maintain statistical rigor while keeping trajectory counts manageable (matching other evaluation phases at ~5,000 trajectories per model), the pipeline uses **stratified sampling**:
+
+- **Default: 250 OD pairs** sampled (maintaining route_switch/detour ratio)
+- **Default: 20 trajectories per OD pair**
+- **Total: ~5,000 trajectories per model** (matches other evaluation phases)
+
+The stratified sampling ensures:
+- **Proportional representation**: Route switch and detour OD pairs are sampled proportionally to maintain the original distribution
+- **Statistical rigor**: 20 trajectories per OD pair is sufficient for computing mean, std, and basic statistics
+- **Consistency**: Matches the trajectory count used in other evaluation phases
+
 **Command:**
 ```bash
 cd /home/matt/Dev/HOSER
@@ -98,8 +111,14 @@ uv run python tools/generate_lmtad_spatial_abnormal_trajectories.py \
   --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
   --dataset porto_hoser \
   --seed 42 \
-  --num-trajectories-per-od 50
+  --num-trajectories-per-od 20 \
+  --max-od-pairs 250
 ```
+
+**Options:**
+- `--num-trajectories-per-od`: Number of trajectories per OD pair (default: 20)
+- `--max-od-pairs`: Maximum OD pairs to sample (default: 250)
+- `--no-stratified-sampling`: Disable stratified sampling (use random sampling instead)
 
 **Output:**
 - CSV files per model: `gene_abnormal_lmtad_spatial/{dataset}/seed{seed}/{model}_spatial_abnormal.csv`
@@ -229,7 +248,8 @@ uv run python tools/run_lmtad_spatial_pipeline.py \
   --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
   --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
   --seed 42 \
-  --num-trajectories-per-od 50
+  --num-trajectories-per-od 20 \
+  --max-od-pairs 250
 ```
 
 **Skip Options:**

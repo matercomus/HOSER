@@ -17,12 +17,15 @@ Usage:
 import argparse
 import json
 import logging
+import os
+import random
 import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 # Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+_project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(_project_root))
 
 from gene import generate_trajectories_programmatic  # noqa: E402
 from tools.model_detection import detect_model_files  # noqa: E402
@@ -68,17 +71,111 @@ def find_models(eval_dir: Path, dataset: str) -> List[Tuple[str, Path]]:
     model_files = detect_model_files(
         models_dir,
         pattern="*.pth",
-        require_model=True,
-        require_od_type=False,
-        recursive=False,
     )
 
     models = []
     for model_file in model_files:
-        models.append((model_file.model, model_file.path))
+        models.append((model_file.model_name, model_file.path))
 
     logger.info(f"✅ Found {len(models)} models: {', '.join([m[0] for m in models])}")
     return models
+
+
+def _sample_od_pairs_stratified(
+    od_pairs_data: Dict,
+    max_od_pairs: int,
+    seed: int,
+) -> List[Tuple[int, int, str]]:
+    """Sample OD pairs using stratified sampling to maintain route_switch/detour ratio.
+
+    Args:
+        od_pairs_data: Dictionary with 'od_pairs_by_type' containing route_switch and detour
+        max_od_pairs: Maximum number of OD pairs to sample
+        seed: Random seed for reproducibility
+
+    Returns:
+        List of (origin, destination, od_type) tuples
+    """
+    random.seed(seed)
+
+    # Separate OD pairs by type and convert to tuples
+    od_pairs_by_type = {}
+    for od_type, pairs in od_pairs_data.get("od_pairs_by_type", {}).items():
+        normalized_pairs = [
+            tuple(pair) if isinstance(pair, list) else pair for pair in pairs
+        ]
+        # Deduplicate within each type
+        od_pairs_by_type[od_type] = list(set(normalized_pairs))
+
+    # Calculate total and proportions
+    total_pairs = sum(len(pairs) for pairs in od_pairs_by_type.values())
+    if total_pairs == 0:
+        return []
+
+    # If we have fewer pairs than max, return all
+    if total_pairs <= max_od_pairs:
+        sampled = []
+        for od_type, pairs in od_pairs_by_type.items():
+            for pair in pairs:
+                sampled.append((pair[0], pair[1], od_type))
+        return sampled
+
+    # Calculate sampling ratio for each type to maintain proportions
+    type_proportions = {
+        od_type: len(pairs) / total_pairs for od_type, pairs in od_pairs_by_type.items()
+    }
+
+    # Sample proportionally from each type
+    sampled = []
+    remaining_slots = max_od_pairs
+
+    for od_type, pairs in od_pairs_by_type.items():
+        if remaining_slots <= 0:
+            break
+
+        # Calculate how many to sample from this type
+        target_count = max(1, int(type_proportions[od_type] * max_od_pairs))
+        actual_count = min(target_count, len(pairs), remaining_slots)
+
+        # Sample without replacement
+        sampled_pairs = random.sample(pairs, actual_count)
+        for pair in sampled_pairs:
+            sampled.append((pair[0], pair[1], od_type))
+
+        remaining_slots -= actual_count
+
+    # If we have remaining slots, fill from the largest remaining group
+    if remaining_slots > 0:
+        # Find types that still have pairs available
+        available_types = {
+            od_type: [
+                p
+                for p in pairs
+                if (p[0], p[1], od_type) not in [(s[0], s[1], s[2]) for s in sampled]
+            ]
+            for od_type, pairs in od_pairs_by_type.items()
+        }
+        available_types = {k: v for k, v in available_types.items() if len(v) > 0}
+
+        while remaining_slots > 0 and available_types:
+            # Sample from the type with most available pairs
+            largest_type = max(
+                available_types.keys(), key=lambda k: len(available_types[k])
+            )
+            pairs = available_types[largest_type]
+            if not pairs:
+                del available_types[largest_type]
+                continue
+
+            pair = random.choice(pairs)
+            sampled.append((pair[0], pair[1], largest_type))
+            pairs.remove(pair)
+            remaining_slots -= 1
+
+            if not pairs:
+                del available_types[largest_type]
+
+    return sampled
 
 
 def generate_spatial_abnormal_trajectories(
@@ -87,7 +184,9 @@ def generate_spatial_abnormal_trajectories(
     dataset: str,
     models: List[str],
     seed: int,
-    num_traj_per_od: int = 50,
+    num_traj_per_od: int = 20,
+    max_od_pairs: int = 250,
+    stratified_sampling: bool = True,
     cuda_device: int = 0,
     beam_search: bool = False,
     beam_width: int = 4,
@@ -100,7 +199,9 @@ def generate_spatial_abnormal_trajectories(
         dataset: Dataset name
         models: List of model names to generate for (if empty, auto-detect all)
         seed: Random seed
-        num_traj_per_od: Number of trajectories to generate per OD pair
+        num_traj_per_od: Number of trajectories to generate per OD pair (default: 20)
+        max_od_pairs: Maximum number of OD pairs to sample (default: 250)
+        stratified_sampling: Use stratified sampling to maintain route_switch/detour ratio (default: True)
         cuda_device: CUDA device index
         beam_search: Use beam search (True) or A* search (False, default)
         beam_width: Beam width for beam search
@@ -108,25 +209,50 @@ def generate_spatial_abnormal_trajectories(
     # Load OD pairs
     od_pairs_data = load_od_pairs(od_pairs_file)
 
-    # Combine all OD pairs from both types
-    # Convert lists to tuples since JSON arrays are deserialized as lists
-    # but sets require hashable types (tuples)
-    all_od_pairs = []
+    # Log original counts
     for od_type, pairs in od_pairs_data.get("od_pairs_by_type", {}).items():
         logger.info(f"  {od_type}: {len(pairs)} OD pairs")
-        # Convert lists to tuples for hashability
-        normalized_pairs = [
-            tuple(pair) if isinstance(pair, list) else pair for pair in pairs
-        ]
-        all_od_pairs.extend(normalized_pairs)
 
-    if not all_od_pairs:
-        logger.warning("No OD pairs found in file")
-        return
+    # Sample OD pairs using stratified sampling if enabled
+    if stratified_sampling:
+        sampled_od_pairs = _sample_od_pairs_stratified(
+            od_pairs_data, max_od_pairs=max_od_pairs, seed=seed
+        )
+        logger.info(
+            f"✅ Sampled {len(sampled_od_pairs)} OD pairs (max: {max_od_pairs}) using stratified sampling"
+        )
+        # Count by type for logging
+        type_counts = {}
+        for _, _, od_type in sampled_od_pairs:
+            type_counts[od_type] = type_counts.get(od_type, 0) + 1
+        for od_type, count in type_counts.items():
+            logger.info(f"    {od_type}: {count} OD pairs")
+        # Extract just the OD pairs (origin, destination)
+        unique_od_pairs = [(origin, dest) for origin, dest, _ in sampled_od_pairs]
+    else:
+        # Original behavior: combine all and deduplicate
+        all_od_pairs = []
+        for od_type, pairs in od_pairs_data.get("od_pairs_by_type", {}).items():
+            normalized_pairs = [
+                tuple(pair) if isinstance(pair, list) else pair for pair in pairs
+            ]
+            all_od_pairs.extend(normalized_pairs)
 
-    # Deduplicate (now safe since all pairs are tuples)
-    unique_od_pairs = list(set(all_od_pairs))
-    logger.info(f"✅ Total unique OD pairs: {len(unique_od_pairs)}")
+        if not all_od_pairs:
+            logger.warning("No OD pairs found in file")
+            return
+
+        # Deduplicate
+        unique_od_pairs = list(set(all_od_pairs))
+        # Limit to max_od_pairs if specified
+        if max_od_pairs > 0 and len(unique_od_pairs) > max_od_pairs:
+            random.seed(seed)
+            unique_od_pairs = random.sample(unique_od_pairs, max_od_pairs)
+            logger.info(
+                f"✅ Randomly sampled {len(unique_od_pairs)} OD pairs (max: {max_od_pairs})"
+            )
+        else:
+            logger.info(f"✅ Total unique OD pairs: {len(unique_od_pairs)}")
 
     # Find models
     if not models:
@@ -138,15 +264,12 @@ def generate_spatial_abnormal_trajectories(
         models_dir = eval_dir / "models"
         model_list = []
         for model_name in models:
-            model_file = detect_model_files(
+            model_files = detect_model_files(
                 models_dir,
                 pattern=f"*{model_name}*.pth",
-                require_model=True,
-                require_od_type=False,
-                recursive=False,
             )
-            if model_file:
-                model_list.append((model_name, model_file[0].path))
+            if model_files:
+                model_list.append((model_name, model_files[0].path))
             else:
                 logger.warning(f"Model {model_name} not found, skipping")
 
@@ -173,6 +296,9 @@ def generate_spatial_abnormal_trajectories(
         logger.info(f"{'=' * 70}")
 
         output_file = output_dir / f"{model_name}_spatial_abnormal.csv"
+        # Convert to absolute paths before changing working directory
+        output_file = output_file.resolve()
+        model_path_abs = Path(model_path).resolve()
 
         # Check if already exists
         if output_file.exists():
@@ -180,21 +306,30 @@ def generate_spatial_abnormal_trajectories(
             continue
 
         try:
-            result = generate_trajectories_programmatic(
-                dataset=dataset,
-                model_path=str(model_path),
-                od_pairs=od_list_expanded,
-                output_file=str(output_file),
-                seed=seed,
-                cuda_device=cuda_device,
-                beam_search=beam_search,
-                beam_width=beam_width,
-                enable_wandb=False,
-                wandb_project=None,
-                wandb_run_name=None,
-                wandb_tags=None,
-                model_type=model_name,
-            )
+            # Save current working directory and change to tools directory
+            # This ensures relative paths in gene.py (../data/{dataset}/...) work correctly
+            # From tools/, ../data/ resolves to project_root/data/
+            original_cwd = os.getcwd()
+            os.chdir(_project_root / "tools")
+            try:
+                result = generate_trajectories_programmatic(
+                    dataset=dataset,
+                    model_path=str(model_path_abs),
+                    od_pairs=od_list_expanded,
+                    output_file=str(output_file),
+                    seed=seed,
+                    cuda_device=cuda_device,
+                    beam_search=beam_search,
+                    beam_width=beam_width,
+                    enable_wandb=False,
+                    wandb_project=None,
+                    wandb_run_name=None,
+                    wandb_tags=None,
+                    model_type=model_name,
+                )
+            finally:
+                # Restore original working directory
+                os.chdir(original_cwd)
 
             if result.get("output_file"):
                 traj_count = result.get("num_generated", 0)
@@ -270,8 +405,20 @@ Examples:
     parser.add_argument(
         "--num-trajectories-per-od",
         type=int,
-        default=50,
-        help="Number of trajectories to generate per OD pair (default: 50)",
+        default=20,
+        help="Number of trajectories to generate per OD pair (default: 20, target: ~5,000 total)",
+    )
+    parser.add_argument(
+        "--max-od-pairs",
+        type=int,
+        default=250,
+        help="Maximum number of OD pairs to sample (default: 250, uses stratified sampling)",
+    )
+    parser.add_argument(
+        "--no-stratified-sampling",
+        action="store_false",
+        dest="stratified_sampling",
+        help="Disable stratified sampling (use random sampling instead)",
     )
     parser.add_argument(
         "--cuda-device",
@@ -323,6 +470,8 @@ Examples:
             models=models,
             seed=args.seed,
             num_traj_per_od=args.num_trajectories_per_od,
+            max_od_pairs=args.max_od_pairs,
+            stratified_sampling=args.stratified_sampling,
             cuda_device=args.cuda_device,
             beam_search=args.beam_search,
             beam_width=args.beam_width,

@@ -130,7 +130,8 @@ def run_lmtad_spatial_pipeline(
     skip_aggregation: bool = False,
     skip_visualization: bool = False,
     seed: int = 42,
-    num_traj_per_od: int = 50,
+    num_traj_per_od: int = 20,
+    max_od_pairs: int = 250,
 ) -> bool:
     """Run complete LM-TAD spatial abnormality evaluation pipeline
 
@@ -145,7 +146,8 @@ def run_lmtad_spatial_pipeline(
         skip_aggregation: Skip result aggregation
         skip_visualization: Skip visualization generation
         seed: Random seed for generation
-        num_traj_per_od: Number of trajectories per OD pair
+        num_traj_per_od: Number of trajectories per OD pair (default: 20, target: ~5,000 total)
+        max_od_pairs: Maximum number of OD pairs to sample (default: 250, uses stratified sampling)
 
     Returns:
         True if all steps successful, False otherwise
@@ -260,6 +262,8 @@ def run_lmtad_spatial_pipeline(
                         models=[],  # Auto-detect all models
                         seed=seed,
                         num_traj_per_od=num_traj_per_od,
+                        max_od_pairs=max_od_pairs,
+                        stratified_sampling=True,  # Use stratified sampling to maintain ratio
                         cuda_device=0,
                         beam_search=False,  # Use A* by default
                         beam_width=4,
@@ -542,8 +546,14 @@ Prerequisites:
     parser.add_argument(
         "--num-trajectories-per-od",
         type=int,
-        default=50,
-        help="Number of trajectories to generate per OD pair (default: 50)",
+        default=20,
+        help="Number of trajectories to generate per OD pair (default: 20, target: ~5,000 total)",
+    )
+    parser.add_argument(
+        "--max-od-pairs",
+        type=int,
+        default=250,
+        help="Maximum number of OD pairs to sample (default: 250, uses stratified sampling)",
     )
 
     args = parser.parse_args()
@@ -561,6 +571,7 @@ Prerequisites:
             skip_visualization=args.skip_visualization,
             seed=args.seed,
             num_traj_per_od=args.num_trajectories_per_od,
+            max_od_pairs=args.max_od_pairs,
         )
         sys.exit(0 if success else 1)
     except Exception as e:
