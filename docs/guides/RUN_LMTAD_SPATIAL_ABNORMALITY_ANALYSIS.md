@@ -120,7 +120,7 @@ cd /home/matt/Dev/HOSER
 
 uv run python tools/evaluate_lmtad_spatial_abnormal.py \
   --trajectory-file hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/gene_abnormal_lmtad_spatial/porto_hoser/seed42/vanilla_spatial_abnormal.csv \
-  --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/checkpoints/ckpt_best.pt \
+  --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
   --source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
   --dataset porto_hoser \
   --output hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/eval_lmtad_spatial/porto_hoser/vanilla_spatial_evaluation.json
@@ -227,7 +227,7 @@ uv run python tools/run_lmtad_spatial_pipeline.py \
   --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
   --dataset porto_hoser \
   --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
-  --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/checkpoints/ckpt_best.pt \
+  --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
   --seed 42 \
   --num-trajectories-per-od 50
 ```
@@ -257,18 +257,30 @@ The LM-TAD spatial abnormality evaluation is integrated as a phase in the main p
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732
+cd /home/matt/Dev/HOSER
 
-uv run python ../python_pipeline.py \
-  --eval-dir . \
-  --only lmtad_spatial_abnormality \
+uv run python python_pipeline.py \
+  --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
+  --dataset porto_hoser \
   --run-lmtad-spatial \
-  --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval
+  --only lmtad_spatial_abnormality
+```
+
+**With explicit paths (optional):**
+```bash
+cd /home/matt/Dev/HOSER
+
+uv run python python_pipeline.py \
+  --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
+  --dataset porto_hoser \
+  --run-lmtad-spatial \
+  --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --only lmtad_spatial_abnormality
 ```
 
 **Auto-detection:**
 - If `--lmtad-source-eval-dir` is not provided, the pipeline will auto-detect the most recent LM-TAD evaluation directory
-- Checkpoint is auto-detected from the evaluation directory
+- Checkpoint is auto-detected from the evaluation directory (checks parent directory for `ckpt_best.pt`)
 
 ## Output Structure
 
@@ -338,8 +350,12 @@ uv run python ../python_pipeline.py \
 ```
 Solution: 
 1. Check checkpoint path in command
-2. Verify checkpoint file exists (ckpt_best.pt or best_model.pt)
+2. Verify checkpoint file exists:
+   - Check parent directory: {eval_dir}/../ckpt_best.pt
+   - Check checkpoints subdirectory: {eval_dir}/../checkpoints/ckpt_best.pt
+   - Check eval directory itself: {eval_dir}/ckpt_best.pt
 3. Use --lmtad-checkpoint to specify explicit path
+4. The pipeline auto-detection checks all these locations
 ```
 
 ### Error: Source eval directory not found

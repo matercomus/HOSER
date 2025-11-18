@@ -2227,6 +2227,12 @@ class EvaluationPipeline:
                 if checkpoint.exists():
                     return checkpoint
 
+        # Also check parent directory directly (common location)
+        for name in ["ckpt_best.pt", "best_model.pt"]:
+            checkpoint = eval_dir.parent / name
+            if checkpoint.exists():
+                return checkpoint
+
         # Also check eval_dir itself
         for name in ["ckpt_best.pt", "best_model.pt"]:
             checkpoint = eval_dir / name
