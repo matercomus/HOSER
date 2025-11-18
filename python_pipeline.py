@@ -2085,37 +2085,25 @@ class EvaluationPipeline:
             return
 
         # Import the pipeline runner
-        import subprocess
+        from tools.run_wang_detection_pipeline import run_wang_detection_pipeline
 
         # Run the Wang detection pipeline
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            str(PROJECT_ROOT / "tools" / "run_wang_detection_pipeline.py"),
-            "--eval-dir",
-            str(self.eval_dir),
-            "--dataset",
-            self.config.dataset,
-        ]
-
-        logger.info(f"Executing: {' '.join(cmd)}")
-
         try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=False,
-                text=True,
-                cwd=PROJECT_ROOT,
+            success = run_wang_detection_pipeline(
+                eval_dir=self.eval_dir,
+                dataset=self.config.dataset,
+                skip_real=False,
+                skip_generated=False,
+                skip_aggregation=False,
+                skip_visualization=False,
             )
-            logger.info("✅ Wang statistical detection pipeline completed successfully")
-
-        except subprocess.CalledProcessError as e:
-            logger.error(
-                f"❌ Wang detection pipeline failed with exit code {e.returncode}"
-            )
-            raise
+            if success:
+                logger.info(
+                    "✅ Wang statistical detection pipeline completed successfully"
+                )
+            else:
+                logger.error("❌ Wang detection pipeline completed with failures")
+                raise RuntimeError("Wang detection pipeline failed")
 
         except Exception as e:
             logger.error(f"❌ Wang detection pipeline failed: {e}")
@@ -2144,53 +2132,33 @@ class EvaluationPipeline:
             return
 
         # Import the pipeline runner
-        import subprocess
+        from tools.run_lmtad_spatial_pipeline import run_lmtad_spatial_pipeline
 
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            str(PROJECT_ROOT / "tools" / "run_lmtad_spatial_pipeline.py"),
-            "--eval-dir",
-            str(self.eval_dir),
-            "--dataset",
-            self.config.dataset,
-            "--lmtad-source-eval-dir",
-            str(lmtad_source_eval_dir),
-            "--lmtad-checkpoint",
-            str(lmtad_checkpoint),
-        ]
-
-        if self.config.lmtad_spatial_config:
-            cmd.extend(["--config", str(self.config.lmtad_spatial_config)])
-
-        # Add trajectory generation parameters if overridden
-        if self.config.lmtad_num_trajectories_per_od is not None:
-            cmd.extend(
-                [
-                    "--num-trajectories-per-od",
-                    str(self.config.lmtad_num_trajectories_per_od),
-                ]
-            )
-        if self.config.lmtad_max_od_pairs is not None:
-            cmd.extend(["--max-od-pairs", str(self.config.lmtad_max_od_pairs)])
-
-        logger.info(f"Executing: {' '.join(cmd)}")
-
+        # Run the LM-TAD spatial detection pipeline
         try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=False,
-                text=True,
-                cwd=PROJECT_ROOT,
+            success = run_lmtad_spatial_pipeline(
+                eval_dir=self.eval_dir,
+                dataset=self.config.dataset,
+                lmtad_source_eval_dir=lmtad_source_eval_dir,
+                lmtad_checkpoint=lmtad_checkpoint,
+                skip_extraction=False,
+                skip_generation=False,
+                skip_evaluation=False,
+                skip_aggregation=False,
+                skip_visualization=False,
+                seed=self.config.seed,
+                num_traj_per_od=self.config.lmtad_num_trajectories_per_od,
+                max_od_pairs=self.config.lmtad_max_od_pairs,
+                lmtad_repo=None,  # Auto-detect from checkpoint
+                force=self.config.force,
             )
-            logger.info("✅ LM-TAD spatial detection pipeline completed successfully")
-        except subprocess.CalledProcessError as e:
-            logger.error(
-                f"❌ LM-TAD spatial pipeline failed with exit code {e.returncode}"
-            )
-            raise
+            if success:
+                logger.info(
+                    "✅ LM-TAD spatial detection pipeline completed successfully"
+                )
+            else:
+                logger.error("❌ LM-TAD spatial pipeline completed with failures")
+                raise RuntimeError("LM-TAD spatial pipeline failed")
         except Exception as e:
             logger.error(f"❌ LM-TAD spatial pipeline failed: {e}")
             raise

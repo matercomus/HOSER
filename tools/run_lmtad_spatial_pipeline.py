@@ -133,6 +133,7 @@ def run_lmtad_spatial_pipeline(
     num_traj_per_od: int = 20,
     max_od_pairs: int = 250,
     lmtad_repo: Path | None = None,
+    force: bool = False,
 ) -> bool:
     """Run complete LM-TAD spatial abnormality evaluation pipeline
 
@@ -150,6 +151,7 @@ def run_lmtad_spatial_pipeline(
         num_traj_per_od: Number of trajectories per OD pair (default: 20, target: ~5,000 total)
         max_od_pairs: Maximum number of OD pairs to sample (default: 250, uses stratified sampling)
         lmtad_repo: Path to LM-TAD repository root (auto-detected from checkpoint if None)
+        force: Force rerun even if output files exist (default: False)
 
     Returns:
         True if all steps successful, False otherwise
@@ -197,11 +199,15 @@ def run_lmtad_spatial_pipeline(
                 with open(output_file, "r") as f:
                     existing_data = json.load(f)
                 total_od_pairs = existing_data.get("total_unique_od_pairs", 0)
-                if total_od_pairs > 0:
+                if total_od_pairs > 0 and not force:
                     logger.info(
                         f"  ⏭️  OD pairs file already exists with {total_od_pairs} OD pairs: {output_file.name}, skipping"
                     )
                     should_extract = False
+                elif force:
+                    logger.info(
+                        f"  🔄 Force flag set, re-extracting OD pairs (existing file has {total_od_pairs} OD pairs)"
+                    )
                 else:
                     logger.warning(
                         "  ⚠️  OD pairs file exists but has 0 OD pairs, re-extracting..."
@@ -248,10 +254,22 @@ def run_lmtad_spatial_pipeline(
             gene_dir = (
                 eval_dir / "gene_abnormal_lmtad_spatial" / dataset / f"seed{seed}"
             )
-            if gene_dir.exists() and list(gene_dir.glob("*_spatial_abnormal.csv")):
+            if (
+                gene_dir.exists()
+                and list(gene_dir.glob("*_spatial_abnormal.csv"))
+                and not force
+            ):
                 logger.info(
                     f"  ⏭️  Trajectories already generated in {gene_dir}, skipping"
                 )
+            elif force and gene_dir.exists():
+                logger.info(
+                    f"  🔄 Force flag set, regenerating trajectories in {gene_dir}"
+                )
+                # Remove existing trajectory files
+                for csv_file in gene_dir.glob("*_spatial_abnormal.csv"):
+                    csv_file.unlink()
+                    logger.debug(f"  Removed {csv_file.name}")
             else:
                 logger.info(f"{'=' * 70}")
                 logger.info("Step: Generate trajectories for spatial abnormal OD pairs")
@@ -298,12 +316,18 @@ def run_lmtad_spatial_pipeline(
                     )
 
                     # Check if already exists
-                    if output_file.exists():
+                    if output_file.exists() and not force:
                         logger.info(
                             f"  ⏭️  Evaluation result already exists: {output_file.name}, skipping"
                         )
                         success_count += 1
-                    else:
+                    elif force and output_file.exists():
+                        logger.info(
+                            f"  🔄 Force flag set, re-evaluating: {output_file.name}"
+                        )
+                        output_file.unlink()  # Remove existing file
+                        # Fall through to evaluation
+                    if not output_file.exists():
                         logger.info(f"{'=' * 70}")
                         logger.info(
                             f"Step: Evaluate spatial abnormal trajectories: {model_name}"
@@ -352,12 +376,18 @@ def run_lmtad_spatial_pipeline(
         )
 
         # Check if already exists
-        if output_file.exists():
+        if output_file.exists() and not force:
             logger.info(
                 f"  ⏭️  Aggregated results already exist: {output_file.name}, skipping"
             )
             success_count += 1
-        else:
+        elif force and output_file.exists():
+            logger.info(
+                f"  🔄 Force flag set, re-aggregating results (removing {output_file.name})"
+            )
+            output_file.unlink()
+            # Fall through to aggregation
+        if not output_file.exists():
             logger.info(f"{'=' * 70}")
             logger.info("Step: Aggregate LM-TAD spatial results")
             logger.info(f"{'=' * 70}")
@@ -564,6 +594,11 @@ Prerequisites:
         default=None,
         help="Path to LM-TAD repository root (auto-detected from checkpoint if not provided)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force rerun even if output files exist (regenerates trajectories and re-evaluates)",
+    )
 
     args = parser.parse_args()
 
@@ -582,6 +617,7 @@ Prerequisites:
             num_traj_per_od=args.num_trajectories_per_od,
             max_od_pairs=args.max_od_pairs,
             lmtad_repo=args.lmtad_repo,
+            force=args.force,
         )
         sys.exit(0 if success else 1)
     except Exception as e:

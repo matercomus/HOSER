@@ -152,6 +152,13 @@ def compute_statistical_test(
     Returns:
         Tuple of (chi2_statistic, p_value)
     """
+    # Validate inputs
+    if real_total == 0 or gen_total == 0:
+        logger.warning(
+            f"Cannot perform statistical test: real_total={real_total}, gen_total={gen_total}"
+        )
+        return float("nan"), float("nan")
+
     # Create contingency table
     # [real_abnormal, real_normal]
     # [gen_abnormal, gen_normal]
@@ -160,10 +167,28 @@ def compute_statistical_test(
 
     contingency_table = np.array([[real_count, real_normal], [gen_count, gen_normal]])
 
-    # Chi-square test
-    chi2, p_value = stats.chi2_contingency(contingency_table)[:2]
+    # Check if table has any zeros that would make chi-square invalid
+    if np.any(contingency_table < 0):
+        logger.warning("Invalid contingency table (negative values)")
+        return float("nan"), float("nan")
 
-    return float(chi2), float(p_value)
+    # Try chi-square test, fallback to Fisher's exact test if it fails
+    try:
+        chi2, p_value = stats.chi2_contingency(contingency_table)[:2]
+        return float(chi2), float(p_value)
+    except ValueError as e:
+        # Chi-square failed (likely due to zero expected frequencies)
+        # Use Fisher's exact test as fallback
+        logger.warning(
+            f"Chi-square test failed ({e}), using Fisher's exact test as fallback"
+        )
+        try:
+            _, p_value = stats.fisher_exact(contingency_table)
+            # Fisher's exact test doesn't return chi2, use NaN
+            return float("nan"), float(p_value)
+        except Exception as e2:
+            logger.warning(f"Fisher's exact test also failed: {e2}")
+            return float("nan"), float("nan")
 
 
 def aggregate_lmtad_spatial_results(
