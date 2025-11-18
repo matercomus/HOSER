@@ -192,6 +192,24 @@ def evaluate_trajectories_direct(
             logger.info(f"  Processed {traj_idx}/{len(trajectories)}...")
 
         try:
+            # Validate road IDs are within bounds
+            max_road_id = road_to_token.shape[0] - 1
+            invalid_roads = [rid for rid in road_ids if rid < 0 or rid > max_road_id]
+            if invalid_roads:
+                logger.warning(
+                    f"  Trajectory {traj_idx}: Invalid road IDs (out of bounds [0, {max_road_id}]): "
+                    f"{invalid_roads[:10]}{'...' if len(invalid_roads) > 10 else ''}"
+                )
+                # Filter out invalid road IDs
+                road_ids = [rid for rid in road_ids if 0 <= rid <= max_road_id]
+                if len(road_ids) < 2:
+                    logger.warning(
+                        f"  Trajectory {traj_idx}: Too few valid road IDs after filtering, skipping"
+                    )
+                    all_perplexities.append(float("inf"))
+                    all_outlier_scores.append(float("inf"))
+                    continue
+
             # Convert HOSER road IDs to LM-TAD grid tokens
             road_tensor = torch.tensor(road_ids, device=device, dtype=torch.long)
             tokens = road_to_token[road_tensor].cpu().numpy().tolist()

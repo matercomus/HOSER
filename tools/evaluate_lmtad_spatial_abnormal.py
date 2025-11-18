@@ -321,9 +321,15 @@ def evaluate_spatial_abnormal_trajectories(
 
     # Classify each trajectory
     classifications = []
+    failed_evaluations = 0
     for log_perp in log_perplexities:
         if np.isinf(log_perp):
-            classifications.append("non_outlier")  # Failed evaluation = non-outlier
+            classifications.append("evaluation_failed")
+            failed_evaluations += 1
+            logger.warning(
+                "Trajectory evaluation failed (Infinity perplexity). "
+                "This may indicate invalid road IDs or mapping issues."
+            )
         else:
             classifications.append(
                 classify_spatial_abnormality_type(log_perp, source_stats)
@@ -338,19 +344,26 @@ def evaluate_spatial_abnormal_trajectories(
     route_switch_count = type_counts.get("route_switch", 0)
     detour_count = type_counts.get("detour", 0)
     non_outlier_count = type_counts.get("non_outlier", 0)
+    evaluation_failed_count = type_counts.get("evaluation_failed", 0)
     spatial_abnormal_count = route_switch_count + detour_count
+    valid_trajectories = total_trajectories - evaluation_failed_count
 
-    # Compute rates
+    # Compute rates (based on valid trajectories only)
     spatial_abnormality_rate = (
-        (spatial_abnormal_count / total_trajectories * 100)
-        if total_trajectories > 0
+        (spatial_abnormal_count / valid_trajectories * 100)
+        if valid_trajectories > 0
         else 0
     )
     route_switch_rate = (
-        (route_switch_count / total_trajectories * 100) if total_trajectories > 0 else 0
+        (route_switch_count / valid_trajectories * 100) if valid_trajectories > 0 else 0
     )
     detour_rate = (
-        (detour_count / total_trajectories * 100) if total_trajectories > 0 else 0
+        (detour_count / valid_trajectories * 100) if valid_trajectories > 0 else 0
+    )
+    evaluation_failed_rate = (
+        (evaluation_failed_count / total_trajectories * 100)
+        if total_trajectories > 0
+        else 0
     )
 
     # Extract model name from filename
@@ -372,6 +385,9 @@ def evaluate_spatial_abnormal_trajectories(
         "model": model_name,
         "dataset": dataset,
         "total_trajectories": total_trajectories,
+        "valid_trajectories": valid_trajectories,
+        "evaluation_failed_count": evaluation_failed_count,
+        "evaluation_failed_rate": evaluation_failed_rate,
         "spatial_abnormal_count": spatial_abnormal_count,
         "spatial_abnormality_rate": spatial_abnormality_rate,
         "by_type": {
@@ -379,7 +395,15 @@ def evaluate_spatial_abnormal_trajectories(
             "detour": {"count": detour_count, "rate": detour_rate},
             "non_outlier": {
                 "count": non_outlier_count,
-                "rate": 100 - spatial_abnormality_rate,
+                "rate": (
+                    (non_outlier_count / valid_trajectories * 100)
+                    if valid_trajectories > 0
+                    else 0
+                ),
+            },
+            "evaluation_failed": {
+                "count": evaluation_failed_count,
+                "rate": evaluation_failed_rate,
             },
         },
         "log_perplexity_stats": log_perplexity_stats,
@@ -390,13 +414,18 @@ def evaluate_spatial_abnormal_trajectories(
 
     logger.info("✅ Evaluation complete:")
     logger.info(f"   Total trajectories: {total_trajectories}")
+    if evaluation_failed_count > 0:
+        logger.warning(
+            f"   ⚠️  Evaluation failed: {evaluation_failed_count} ({evaluation_failed_rate:.2f}%)"
+        )
+        logger.info(f"   Valid trajectories: {valid_trajectories}")
     logger.info(
-        f"   Spatial abnormal: {spatial_abnormal_count} ({spatial_abnormality_rate:.2f}%)"
+        f"   Spatial abnormal: {spatial_abnormal_count} ({spatial_abnormality_rate:.2f}% of valid)"
     )
     logger.info(f"     Route switch: {route_switch_count} ({route_switch_rate:.2f}%)")
     logger.info(f"     Detour: {detour_count} ({detour_rate:.2f}%)")
     logger.info(
-        f"   Non-outlier: {non_outlier_count} ({100 - spatial_abnormality_rate:.2f}%)"
+        f"   Non-outlier: {non_outlier_count} ({result['by_type']['non_outlier']['rate']:.2f}%)"
     )
 
     return result
