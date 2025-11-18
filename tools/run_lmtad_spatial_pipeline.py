@@ -132,6 +132,7 @@ def run_lmtad_spatial_pipeline(
     seed: int = 42,
     num_traj_per_od: int = 20,
     max_od_pairs: int = 250,
+    lmtad_repo: Path | None = None,
 ) -> bool:
     """Run complete LM-TAD spatial abnormality evaluation pipeline
 
@@ -148,6 +149,7 @@ def run_lmtad_spatial_pipeline(
         seed: Random seed for generation
         num_traj_per_od: Number of trajectories per OD pair (default: 20, target: ~5,000 total)
         max_od_pairs: Maximum number of OD pairs to sample (default: 250, uses stratified sampling)
+        lmtad_repo: Path to LM-TAD repository root (auto-detected from checkpoint if None)
 
     Returns:
         True if all steps successful, False otherwise
@@ -315,6 +317,7 @@ def run_lmtad_spatial_pipeline(
                                 dataset=dataset,
                                 device="cuda:0",
                                 batch_size=128,
+                                lmtad_repo=lmtad_repo,
                             )
                             # Save results
                             output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -555,6 +558,12 @@ Prerequisites:
         default=250,
         help="Maximum number of OD pairs to sample (default: 250, uses stratified sampling)",
     )
+    parser.add_argument(
+        "--lmtad-repo",
+        type=Path,
+        default=None,
+        help="Path to LM-TAD repository root (auto-detected from checkpoint if not provided)",
+    )
 
     args = parser.parse_args()
 
@@ -572,6 +581,7 @@ Prerequisites:
             seed=args.seed,
             num_traj_per_od=args.num_trajectories_per_od,
             max_od_pairs=args.max_od_pairs,
+            lmtad_repo=args.lmtad_repo,
         )
         sys.exit(0 if success else 1)
     except Exception as e:

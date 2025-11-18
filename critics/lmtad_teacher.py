@@ -166,7 +166,7 @@ class LMTADTeacher:
             else:
                 # Infer SOT token ID from model embeddings
                 # LM-TAD typically puts SOT as the last token (highest ID)
-                state_dict = checkpoint["state_dict"]
+                # Use the already-extracted state_dict (works for both "state_dict" and "model" keys)
                 if "transformer.wte.weight" in state_dict:
                     vocab_size = state_dict["transformer.wte.weight"].shape[0]
                     self.sot_id = vocab_size - 1  # SOT is typically the last token

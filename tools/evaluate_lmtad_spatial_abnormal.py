@@ -42,6 +42,35 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def detect_lmtad_repo_from_checkpoint(checkpoint_path: Path) -> Path:
+    """Detect LM-TAD repo root from checkpoint path.
+
+    Checkpoint is typically at: /path/to/lmtad/code/results/.../ckpt_best.pt
+    Repo root is: /path/to/lmtad (parent of 'code' directory)
+
+    Args:
+        checkpoint_path: Path to LM-TAD checkpoint file
+
+    Returns:
+        Path to LM-TAD repository root
+
+    Raises:
+        ValueError: If cannot auto-detect repo from checkpoint path
+    """
+    path = Path(checkpoint_path).resolve()
+    # Walk up to find 'code' directory, then return parent
+    for parent in [path] + list(path.parents):
+        if parent.name == "code" and (parent / "models" / "LMTAD.py").exists():
+            return parent.parent
+    # Fallback: assume checkpoint is in code/results/.../ckpt_best.pt
+    if "code" in path.parts:
+        code_idx = path.parts.index("code")
+        return Path(*path.parts[:code_idx])
+    raise ValueError(
+        f"Cannot auto-detect LM-TAD repo from checkpoint: {checkpoint_path}"
+    )
+
+
 def load_source_statistics(source_eval_dir: Path) -> Dict:
     """Load source evaluation statistics from EVALUATION_ANALYSIS.md or TSV files
 
@@ -166,6 +195,7 @@ def evaluate_spatial_abnormal_trajectories(
     dataset: str,
     device: str = "cuda:0",
     batch_size: int = 128,
+    lmtad_repo: Path | None = None,
 ) -> Dict:
     """Evaluate generated trajectories with LM-TAD and classify spatial abnormality types
 
@@ -176,6 +206,7 @@ def evaluate_spatial_abnormal_trajectories(
         dataset: Dataset name
         device: CUDA device
         batch_size: Batch size for evaluation
+        lmtad_repo: Path to LM-TAD repository root (auto-detected from checkpoint if None)
 
     Returns:
         Dictionary with evaluation results and classifications
@@ -189,17 +220,63 @@ def evaluate_spatial_abnormal_trajectories(
     # Load source statistics
     source_stats = load_source_statistics(source_eval_dir)
 
-    # Load LM-TAD teacher
-    logger.info(f"📂 Loading LM-TAD teacher from {lmtad_checkpoint}")
-    lmtad_repo = Path("/home/matt/Dev/LMTAD")
-    model = LMTADTeacher(
-        repo_path=str(lmtad_repo),
-        ckpt_path=str(lmtad_checkpoint),
-        device=device,
-        dtype="float16",
-        window=256,
-    )
-    logger.info("✅ LM-TAD teacher loaded")
+    # Determine LM-TAD repo path
+    if lmtad_repo is None:
+        logger.info("🔍 Auto-detecting LM-TAD repo from checkpoint path...")
+        lmtad_repo = detect_lmtad_repo_from_checkpoint(lmtad_checkpoint)
+        logger.info(f"✅ Detected LM-TAD repo: {lmtad_repo}")
+    else:
+        logger.info(f"📂 Using provided LM-TAD repo: {lmtad_repo}")
+
+    # Add LM-TAD code path to sys.path BEFORE importing LMTADTeacher
+    # This ensures models.LMTAD resolves to LM-TAD's models, not HOSER's
+    lmtad_code_path = str(lmtad_repo / "code")
+    hoser_project_root = str(Path(__file__).parent.parent)
+
+    # Temporarily move HOSER project root to end of sys.path to avoid namespace conflicts
+    hoser_index = None
+    if hoser_project_root in sys.path:
+        hoser_index = sys.path.index(hoser_project_root)
+        sys.path.remove(hoser_project_root)
+
+    # Ensure LM-TAD code path is first
+    if lmtad_code_path not in sys.path:
+        sys.path.insert(0, lmtad_code_path)
+        logger.debug(f"Added LM-TAD code path to sys.path: {lmtad_code_path}")
+    elif sys.path.index(lmtad_code_path) != 0:
+        # Move to front if already present
+        sys.path.remove(lmtad_code_path)
+        sys.path.insert(0, lmtad_code_path)
+
+    # Clear any cached 'models' and 'utils' modules from HOSER to prevent namespace conflicts
+    # LMTADTeacher will handle restoring utils, but we need to clear it first
+    cached_models = sys.modules.pop("models", None)
+    cached_utils = sys.modules.pop("utils", None)
+
+    try:
+        # Load LM-TAD teacher
+        logger.info(f"📂 Loading LM-TAD teacher from {lmtad_checkpoint}")
+        model = LMTADTeacher(
+            repo_path=str(lmtad_repo),
+            ckpt_path=str(lmtad_checkpoint),
+            device=device,
+            dtype="float16",
+            window=256,
+        )
+        logger.info("✅ LM-TAD teacher loaded")
+    finally:
+        # Restore HOSER project root to its original position
+        if hoser_index is not None:
+            sys.path.insert(hoser_index, hoser_project_root)
+        elif hoser_project_root not in sys.path:
+            sys.path.append(hoser_project_root)
+
+        # Restore cached modules if they existed
+        # Note: LMTADTeacher handles utils restoration, but we restore it here too for safety
+        if cached_models is not None:
+            sys.modules["models"] = cached_models
+        if cached_utils is not None and "utils" not in sys.modules:
+            sys.modules["utils"] = cached_utils
 
     # Create grid mapper
     logger.info("📂 Creating grid mapper...")
@@ -384,6 +461,12 @@ Examples:
         default=128,
         help="Batch size for evaluation (default: 128)",
     )
+    parser.add_argument(
+        "--lmtad-repo",
+        type=Path,
+        default=None,
+        help="Path to LM-TAD repository root (auto-detected from checkpoint if not provided)",
+    )
 
     args = parser.parse_args()
 
@@ -409,6 +492,7 @@ Examples:
             dataset=args.dataset,
             device=args.device,
             batch_size=args.batch_size,
+            lmtad_repo=args.lmtad_repo,
         )
 
         # Save results
