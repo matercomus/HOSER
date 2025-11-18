@@ -118,6 +118,7 @@ def extract_spatial_abnormal_od_pairs(
     total_detour = 0
     total_failed = 0
     processed_configs = []
+    per_file_stats = []  # Track statistics per file
 
     for tsv_file_path in tsv_files:
         logger.info(f"📂 Reading TSV file: {tsv_file_path.name}")
@@ -199,6 +200,29 @@ def extract_spatial_abnormal_od_pairs(
         config_name = tsv_file_path.stem.replace("ckpt_best_outliers_config_", "")
         processed_configs.append(config_name)
 
+        # Track per-file statistics
+        file_route_switch_trajectories = len(spatial_outliers[route_switch_mask])
+        file_detour_trajectories = len(spatial_outliers[detour_mask])
+        per_file_stats.append(
+            {
+                "tsv_file": tsv_file_path.name,
+                "config": config_name,
+                "total_trajectories": len(df),
+                "spatial_abnormal_trajectories": len(spatial_outliers),
+                "route_switch_trajectories": file_route_switch_trajectories,
+                "route_switch_rate": (
+                    file_route_switch_trajectories / len(df * 100) if len(df) > 0 else 0
+                ),
+                "detour_trajectories": file_detour_trajectories,
+                "detour_rate": (
+                    file_detour_trajectories / len(df) * 100 if len(df) > 0 else 0
+                ),
+                "route_switch_od_pairs": file_route_switch_count,
+                "detour_od_pairs": file_detour_count,
+                "failed_extractions": file_failed_count,
+            }
+        )
+
         logger.info(
             f"  ✅ Extracted from {tsv_file_path.name}: "
             f"{file_route_switch_count} route switch, {file_detour_count} detour OD pairs"
@@ -249,6 +273,7 @@ def extract_spatial_abnormal_od_pairs(
             "detour_count": total_detour,
             "failed_extraction_count": total_failed,
         },
+        "per_file_statistics": per_file_stats,  # Statistics per TSV file for baseline comparison
     }
 
     logger.info(f"\n✅ Combined extraction from {len(tsv_files)} TSV files:")
