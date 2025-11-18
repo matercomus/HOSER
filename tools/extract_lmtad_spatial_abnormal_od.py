@@ -211,7 +211,7 @@ def extract_spatial_abnormal_od_pairs(
                 "spatial_abnormal_trajectories": len(spatial_outliers),
                 "route_switch_trajectories": file_route_switch_trajectories,
                 "route_switch_rate": (
-                    file_route_switch_trajectories / len(df * 100) if len(df) > 0 else 0
+                    file_route_switch_trajectories / len(df) * 100 if len(df) > 0 else 0
                 ),
                 "detour_trajectories": file_detour_trajectories,
                 "detour_rate": (
