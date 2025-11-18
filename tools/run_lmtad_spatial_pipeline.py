@@ -6,17 +6,19 @@ This script runs the full LM-TAD spatial abnormality evaluation pipeline, includ
 OD pair extraction, trajectory generation, evaluation, aggregation, and visualization.
 
 Usage:
-    # Run on evaluation directory
+    # Run on evaluation directory (checkpoint auto-detected from eval dir)
     uv run python tools/run_lmtad_spatial_pipeline.py \\
         --eval-dir hoser-distill-optuna-porto-eval-xyz \\
         --dataset porto_hoser \\
-        --lmtad-source-eval-dir /path/to/lmtad/eval
+        --lmtad-source-eval-dir /path/to/lmtad/eval \\
+        --lmtad-checkpoint /path/to/ckpt_best.pt
 
     # Skip generation (use existing trajectories)
     uv run python tools/run_lmtad_spatial_pipeline.py \\
         --eval-dir eval_dir \\
         --dataset porto_hoser \\
         --lmtad-source-eval-dir /path/to/lmtad/eval \\
+        --lmtad-checkpoint /path/to/ckpt_best.pt \\
         --skip-generation
 
     # Only aggregate and visualize (evaluation already done)
@@ -24,6 +26,7 @@ Usage:
         --eval-dir eval_dir \\
         --dataset porto_hoser \\
         --lmtad-source-eval-dir /path/to/lmtad/eval \\
+        --lmtad-checkpoint /path/to/ckpt_best.pt \\
         --skip-extraction \\
         --skip-generation \\
         --skip-evaluation
@@ -437,8 +440,8 @@ Examples:
   uv run python tools/run_lmtad_spatial_pipeline.py \\
     --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \\
     --dataset porto_hoser \\
-    --lmtad-source-eval-dir /home/matt/Dev/LMTAD/.../eval \\
-    --lmtad-checkpoint /home/matt/Dev/LMTAD/.../ckpt_best.pt
+    --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \\
+    --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt
 
   # Skip generation (use existing trajectories)
   uv run python tools/run_lmtad_spatial_pipeline.py \\
