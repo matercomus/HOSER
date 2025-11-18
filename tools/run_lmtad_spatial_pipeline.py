@@ -33,50 +33,37 @@ Usage:
 """
 
 import argparse
+import json
 import logging
-import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 # Add parent directory to path for imports when run as script
 _parent_dir = Path(__file__).parent.parent
 if str(_parent_dir) not in sys.path:
     sys.path.insert(0, str(_parent_dir))
 
-# Import shared model detection utility (after path setup)
+# Import programmatic interfaces (after path setup)
+from tools.analyze_lmtad_spatial_results import aggregate_lmtad_spatial_results  # noqa: E402
+from tools.evaluate_lmtad_spatial_abnormal import evaluate_spatial_abnormal_trajectories  # noqa: E402
+from tools.extract_lmtad_spatial_abnormal_od import extract_spatial_abnormal_od_pairs  # noqa: E402
+from tools.generate_lmtad_spatial_abnormal_trajectories import (  # noqa: E402
+    generate_spatial_abnormal_trajectories,
+)
+from tools.visualize_lmtad_spatial_results import (  # noqa: E402
+    load_aggregated_results,
+    plot_model_rankings_spatial,
+    plot_perplexity_distribution_spatial,
+    plot_route_switch_vs_detour_breakdown,
+    plot_spatial_abnormality_rates_comparison,
+    plot_statistical_significance_spatial,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-
-def run_command(cmd: List[str], description: str) -> bool:
-    """Run a command and return success status
-
-    Args:
-        cmd: Command to run as list of strings
-        description: Description for logging
-
-    Returns:
-        True if successful, False otherwise
-    """
-    logger.info(f"{'=' * 70}")
-    logger.info(f"Step: {description}")
-    logger.info(f"{'=' * 70}")
-    logger.info(f"Command: {' '.join(cmd)}")
-
-    try:
-        subprocess.run(cmd, check=True, capture_output=False, text=True)
-        logger.info(f"✅ {description} completed successfully")
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"❌ {description} failed with exit code {e.returncode}")
-        return False
-    except Exception as e:
-        logger.error(f"❌ {description} failed: {e}")
-        return False
 
 
 def find_lmtad_tsv_file(source_eval_dir: Path) -> Path:
@@ -203,8 +190,6 @@ def run_lmtad_spatial_pipeline(
         should_extract = True
         if output_file.exists():
             try:
-                import json
-
                 with open(output_file, "r") as f:
                     existing_data = json.load(f)
                 total_od_pairs = existing_data.get("total_unique_od_pairs", 0)
@@ -223,24 +208,25 @@ def run_lmtad_spatial_pipeline(
                 )
 
         if should_extract:
-            # Pass the source eval directory directly - script will process all TSV files
-            cmd = [
-                "uv",
-                "run",
-                "python",
-                str(project_root / "tools" / "extract_lmtad_spatial_abnormal_od.py"),
-                "--tsv-file",
-                str(lmtad_source_eval_dir),  # Pass directory to process all TSV files
-                "--dataset",
-                dataset,
-                "--source-eval-dir",
-                str(lmtad_source_eval_dir),
-                "--output",
-                str(output_file),
-            ]
-            if run_command(cmd, "Extract spatial abnormal OD pairs"):
+            logger.info(f"{'=' * 70}")
+            logger.info("Step: Extract spatial abnormal OD pairs")
+            logger.info(f"{'=' * 70}")
+            try:
+                result = extract_spatial_abnormal_od_pairs(
+                    tsv_file=lmtad_source_eval_dir,  # Pass directory to process all TSV files
+                    dataset=dataset,
+                    source_eval_dir=lmtad_source_eval_dir,
+                )
+                # Save results
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(output_file, "w") as f:
+                    json.dump(result, f, indent=2)
+                logger.info(
+                    "✅ Extract spatial abnormal OD pairs completed successfully"
+                )
                 success_count += 1
-            else:
+            except Exception as e:
+                logger.error(f"❌ Extract spatial abnormal OD pairs failed: {e}")
                 failed_steps.append("OD pair extraction")
     else:
         logger.info("⏭️  Skipping OD pair extraction")
@@ -263,31 +249,29 @@ def run_lmtad_spatial_pipeline(
                     f"  ⏭️  Trajectories already generated in {gene_dir}, skipping"
                 )
             else:
-                cmd = [
-                    "uv",
-                    "run",
-                    "python",
-                    str(
-                        project_root
-                        / "tools"
-                        / "generate_lmtad_spatial_abnormal_trajectories.py"
-                    ),
-                    "--od-pairs-file",
-                    str(od_pairs_file),
-                    "--eval-dir",
-                    str(eval_dir),
-                    "--dataset",
-                    dataset,
-                    "--seed",
-                    str(seed),
-                    "--num-trajectories-per-od",
-                    str(num_traj_per_od),
-                ]
-                if run_command(
-                    cmd, "Generate trajectories for spatial abnormal OD pairs"
-                ):
+                logger.info(f"{'=' * 70}")
+                logger.info("Step: Generate trajectories for spatial abnormal OD pairs")
+                logger.info(f"{'=' * 70}")
+                try:
+                    generate_spatial_abnormal_trajectories(
+                        od_pairs_file=od_pairs_file,
+                        eval_dir=eval_dir,
+                        dataset=dataset,
+                        models=[],  # Auto-detect all models
+                        seed=seed,
+                        num_traj_per_od=num_traj_per_od,
+                        cuda_device=0,
+                        beam_search=False,  # Use A* by default
+                        beam_width=4,
+                    )
+                    logger.info(
+                        "✅ Generate trajectories for spatial abnormal OD pairs completed successfully"
+                    )
                     success_count += 1
-                else:
+                except Exception as e:
+                    logger.error(
+                        f"❌ Generate trajectories for spatial abnormal OD pairs failed: {e}"
+                    )
                     failed_steps.append("Trajectory generation")
     else:
         logger.info("⏭️  Skipping trajectory generation")
@@ -314,31 +298,32 @@ def run_lmtad_spatial_pipeline(
                         )
                         success_count += 1
                     else:
-                        cmd = [
-                            "uv",
-                            "run",
-                            "python",
-                            str(
-                                project_root
-                                / "tools"
-                                / "evaluate_lmtad_spatial_abnormal.py"
-                            ),
-                            "--trajectory-file",
-                            str(trajectory_file),
-                            "--lmtad-checkpoint",
-                            str(lmtad_checkpoint),
-                            "--source-eval-dir",
-                            str(lmtad_source_eval_dir),
-                            "--dataset",
-                            dataset,
-                            "--output",
-                            str(output_file),
-                        ]
-                        if run_command(
-                            cmd, f"Evaluate spatial abnormal trajectories: {model_name}"
-                        ):
+                        logger.info(f"{'=' * 70}")
+                        logger.info(
+                            f"Step: Evaluate spatial abnormal trajectories: {model_name}"
+                        )
+                        logger.info(f"{'=' * 70}")
+                        try:
+                            result = evaluate_spatial_abnormal_trajectories(
+                                trajectory_file=trajectory_file,
+                                lmtad_checkpoint=lmtad_checkpoint,
+                                source_eval_dir=lmtad_source_eval_dir,
+                                dataset=dataset,
+                                device="cuda:0",
+                                batch_size=128,
+                            )
+                            # Save results
+                            output_file.parent.mkdir(parents=True, exist_ok=True)
+                            with open(output_file, "w") as f:
+                                json.dump(result, f, indent=2)
+                            logger.info(
+                                f"✅ Evaluate spatial abnormal trajectories: {model_name} completed successfully"
+                            )
                             success_count += 1
-                        else:
+                        except Exception as e:
+                            logger.error(
+                                f"❌ Evaluate spatial abnormal trajectories: {model_name} failed: {e}"
+                            )
                             failed_steps.append(f"Evaluation: {model_name}")
                 else:
                     logger.warning(
@@ -366,23 +351,25 @@ def run_lmtad_spatial_pipeline(
             )
             success_count += 1
         else:
-            cmd = [
-                "uv",
-                "run",
-                "python",
-                str(project_root / "tools" / "analyze_lmtad_spatial_results.py"),
-                "--eval-dir",
-                str(eval_dir),
-                "--dataset",
-                dataset,
-                "--source-eval-dir",
-                str(lmtad_source_eval_dir),
-                "--output",
-                str(output_file),
-            ]
-            if run_command(cmd, "Aggregate LM-TAD spatial results"):
+            logger.info(f"{'=' * 70}")
+            logger.info("Step: Aggregate LM-TAD spatial results")
+            logger.info(f"{'=' * 70}")
+            try:
+                result = aggregate_lmtad_spatial_results(
+                    eval_dir=eval_dir,
+                    dataset=dataset,
+                    source_eval_dir=lmtad_source_eval_dir,
+                )
+                # Save results
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(output_file, "w") as f:
+                    json.dump(result, f, indent=2)
+                logger.info(
+                    "✅ Aggregate LM-TAD spatial results completed successfully"
+                )
                 success_count += 1
-            else:
+            except Exception as e:
+                logger.error(f"❌ Aggregate LM-TAD spatial results failed: {e}")
                 failed_steps.append("Aggregation")
     else:
         logger.info("⏭️  Skipping aggregation")
@@ -399,21 +386,25 @@ def run_lmtad_spatial_pipeline(
         output_dir = eval_dir / "figures" / "lmtad_spatial_abnormality" / dataset
 
         if results_file.exists():
-            cmd = [
-                "uv",
-                "run",
-                "python",
-                str(project_root / "tools" / "visualize_lmtad_spatial_results.py"),
-                "--input",
-                str(results_file),
-                "--output-dir",
-                str(output_dir),
-                "--dataset",
-                dataset,
-            ]
-            if run_command(cmd, "Generate visualizations"):
+            logger.info(f"{'=' * 70}")
+            logger.info("Step: Generate visualizations")
+            logger.info(f"{'=' * 70}")
+            try:
+                results = load_aggregated_results(results_file)
+                output_dir.mkdir(parents=True, exist_ok=True)
+
+                # Generate all plots
+                plot_spatial_abnormality_rates_comparison(results, output_dir, dataset)
+                plot_route_switch_vs_detour_breakdown(results, output_dir, dataset)
+                plot_model_rankings_spatial(results, output_dir, dataset)
+                plot_statistical_significance_spatial(results, output_dir, dataset)
+                plot_perplexity_distribution_spatial(results, output_dir, dataset)
+
+                logger.info("✅ Generate visualizations completed successfully")
+                logger.info(f"Visualizations saved to {output_dir}/")
                 success_count += 1
-            else:
+            except Exception as e:
+                logger.error(f"❌ Generate visualizations failed: {e}")
                 failed_steps.append("Visualization")
         else:
             logger.warning(

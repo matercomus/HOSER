@@ -109,16 +109,22 @@ def generate_spatial_abnormal_trajectories(
     od_pairs_data = load_od_pairs(od_pairs_file)
 
     # Combine all OD pairs from both types
+    # Convert lists to tuples since JSON arrays are deserialized as lists
+    # but sets require hashable types (tuples)
     all_od_pairs = []
     for od_type, pairs in od_pairs_data.get("od_pairs_by_type", {}).items():
         logger.info(f"  {od_type}: {len(pairs)} OD pairs")
-        all_od_pairs.extend(pairs)
+        # Convert lists to tuples for hashability
+        normalized_pairs = [
+            tuple(pair) if isinstance(pair, list) else pair for pair in pairs
+        ]
+        all_od_pairs.extend(normalized_pairs)
 
     if not all_od_pairs:
         logger.warning("No OD pairs found in file")
         return
 
-    # Deduplicate
+    # Deduplicate (now safe since all pairs are tuples)
     unique_od_pairs = list(set(all_od_pairs))
     logger.info(f"✅ Total unique OD pairs: {len(unique_od_pairs)}")
 
