@@ -16,11 +16,13 @@ _parent_dir = Path(__file__).parent.parent
 if str(_parent_dir) not in sys.path:
     sys.path.insert(0, str(_parent_dir))
 
-from tools.evaluate_lmtad_spatial_abnormal import (
-    _build_cross_model_od_comparison,
-    _compute_log_perplexity_stats,
-    _compute_segment_stats,
-)
+# Import tools after path setup
+if True:  # Use a block to avoid E402
+    from tools.evaluate_lmtad_spatial_abnormal import (
+        _build_cross_model_od_comparison,
+        _compute_log_perplexity_stats,
+        _compute_segment_stats,
+    )
 
 
 class TestComputeLogPerplexityStats:
@@ -1193,9 +1195,7 @@ class TestBuildCrossModelODComparisonOutputPath:
         mock_file = MagicMock()
         mock_open.return_value.__enter__.return_value = mock_file
 
-        result = _build_cross_model_od_comparison(
-            evaluation_results, output_path=output_file
-        )
+        _build_cross_model_od_comparison(evaluation_results, output_path=output_file)
 
         # Verify mkdir was called with parents=True
         mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)

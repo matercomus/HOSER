@@ -8,7 +8,13 @@ from pathlib import Path
 from datetime import datetime
 
 BASE_DIR = Path("/home/matt/Dev/HOSER")
-EVAL_DIR = BASE_DIR / "hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732" / "eval_lmtad_simple" / "porto_hoser"
+EVAL_DIR = (
+    BASE_DIR
+    / "hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732"
+    / "eval_lmtad_simple"
+    / "porto_hoser"
+)
+
 
 def check_status():
     print("\n" + "=" * 80)
@@ -36,10 +42,12 @@ def check_status():
 
         # Try to load and show structure
         try:
-            with open(results_file, 'r') as f:
+            with open(results_file, "r") as f:
                 data = json.load(f)
             print(f"    - Contains {len(data)} top-level keys")
-            print(f"    - Keys: {', '.join(list(data.keys())[:5])}{'...' if len(data) > 5 else ''}")
+            print(
+                f"    - Keys: {', '.join(list(data.keys())[:5])}{'...' if len(data) > 5 else ''}"
+            )
         except Exception as e:
             print(f"    ⚠ Could not parse JSON: {e}")
     else:

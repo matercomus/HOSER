@@ -221,11 +221,11 @@ def classify_models(
         return [], []
 
     models = sorted(data[od_source].keys())
-    
+
     # Use model detection to classify
     vanilla_models = []
     distilled_models = []
-    
+
     for m in models:
         # Extract base model type (handles seed variants automatically)
         model_lower = m.lower()
@@ -233,7 +233,7 @@ def classify_models(
             vanilla_models.append(m)
         elif "distill" in model_lower:
             distilled_models.append(m)
-    
+
     vanilla_models = sorted(vanilla_models)
     distilled_models = sorted(distilled_models)
 
