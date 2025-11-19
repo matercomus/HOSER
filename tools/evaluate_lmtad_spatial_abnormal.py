@@ -200,6 +200,387 @@ def _compute_segment_stats(segment_lists: List[List[float]]) -> Dict[str, Any]:
     return {"max_segment_length": max_len, "per_index": per_index}
 
 
+def _build_cross_model_od_comparison(
+    evaluation_results: List[Dict[str, Any]],
+    output_path: Path | None = None,
+) -> Dict[str, Any]:
+    """Build cross-model comparison data for OD pair analysis.
+
+    This function processes multiple evaluation results to compare model performance
+    across OD pairs by computing rankings and deltas for visualization.
+
+    Args:
+        evaluation_results: List of evaluation results, one per model. Each result
+            contains:
+            {
+              "model": str,
+              "trajectories": [
+                {
+                  "origin": int,
+                  "destination": int,
+                  "log_perplexity": float,
+                  "segment_log_perplexities": [float, ...],
+                  "status": "ok" | "evaluation_failed",
+                  "source_label": "route_switch" | "detour" | None
+                },
+                ...
+              ]
+            }
+        output_path: Optional path to save the comparison JSON
+
+    Returns:
+        Dictionary with structure:
+        {
+            "metadata": {
+                "timestamp": ISO timestamp,
+                "output_path": str | None,
+                "model_count": int,
+                "model_names": [str, ...],
+                "total_trajectories": int
+            },
+            "models": [
+                {
+                    "name": str,
+                    "trajectory_count": int,
+                    "failed_count": int,
+                    "failed_rate": float,
+                    "log_perplexity_stats": {mean, std, median, min, max},
+                    "segment_stats": {max_segment_length, per_index: [...]},
+                    "od_pair_label_counts": {str: count, ...}
+                },
+                ...
+            ],
+            "od_pairs": {
+                "(origin, destination)": {
+                    "origin": int,
+                    "destination": int,
+                    "trajectory_count": int,
+                    "source_label": "route_switch" | "detour" | None,
+                    "trajectories": [
+                        {
+                            "model": str,
+                            "trajectory_index": int,
+                            "log_perplexity": float,
+                            "segment_log_perplexities": [float, ...],
+                            "status": str
+                        },
+                        ...
+                    ],
+                    "per_model_stats": {
+                        "model_name": {
+                            "mean_log_perplexity": float,
+                            "median_log_perplexity": float,
+                            "count": int,
+                            "best_log_perplexity": float,
+                            "worst_log_perplexity": float
+                        },
+                        ...
+                    },
+                    "best_model": str,
+                    "best_model_mean_log_perplexity": float,
+                    "worst_model": str,
+                    "worst_model_mean_log_perplexity": float,
+                    "performance_delta": float,
+                    "ranking": [
+                        {"model": str, "rank": int, "mean_log_perplexity": float},
+                        ...
+                    ]
+                },
+                ...
+            },
+            "od_summary": {
+                "total_unique_od_pairs": int,
+                "od_pairs_with_all_models": int,
+                "average_performance_delta": float,
+                "best_performing_models": {str: count},
+                "source_label_distribution": {str: count},
+                "statistics_by_source_label": {
+                    "route_switch": {
+                        "count": int,
+                        "best_models": {str: count},
+                        "avg_delta": float,
+                        "std_delta": float
+                    },
+                    "detour": {...},
+                    None: {...}
+                }
+            }
+        }
+    """
+    logger.info("🚀 Building cross-model OD comparison")
+    logger.info(f"   Processing {len(evaluation_results)} model results")
+
+    # Validate inputs
+    if not evaluation_results:
+        raise ValueError("Empty evaluation results list")
+
+    if not all(isinstance(r.get("trajectories"), list) for r in evaluation_results):
+        raise ValueError("All results must contain 'trajectories' list")
+
+    # Extract model names
+    model_names = [r["model"] for r in evaluation_results]
+    logger.info(f"   Models: {model_names}")
+
+    # Extract trajectory data from all models
+    all_trajectories_by_model: Dict[str, List[Dict[str, Any]]] = {
+        r["model"]: r["trajectories"] for r in evaluation_results
+    }
+
+    # Build OD pair index across all models
+    od_pair_trajectories: Dict[Tuple[int, int], Dict[str, List[Dict[str, Any]]]] = {}
+
+    for model_name, trajectories in all_trajectories_by_model.items():
+        for traj in trajectories:
+            # Skip failed evaluations
+            if traj.get("status") == "evaluation_failed":
+                continue
+
+            origin = traj.get("origin")
+            destination = traj.get("destination")
+
+            if origin is None or destination is None:
+                logger.warning(
+                    f"   Skipping trajectory {traj.get('trajectory_index')} "
+                    f"from {model_name}: missing origin/destination"
+                )
+                continue
+
+            od_pair = (origin, destination)
+
+            if od_pair not in od_pair_trajectories:
+                od_pair_trajectories[od_pair] = {}
+
+            if model_name not in od_pair_trajectories[od_pair]:
+                od_pair_trajectories[od_pair][model_name] = []
+
+            od_pair_trajectories[od_pair][model_name].append(traj)
+
+    logger.info(f"   Found {len(od_pair_trajectories)} unique OD pairs")
+
+    # Build per-model metadata
+    model_metadata = []
+    for result in evaluation_results:
+        model_name = result["model"]
+        trajectories = result["trajectories"]
+        total_count = len(trajectories)
+        failed_count = sum(1 for t in trajectories if t.get("status") == "evaluation_failed")
+        valid_count = total_count - failed_count
+
+        # Extract finite perplexities for stats
+        finite_perplexities = [
+            t["log_perplexity"]
+            for t in trajectories
+            if t.get("status") == "ok" and np.isfinite(t["log_perplexity"])
+        ]
+
+        log_perplexity_stats = _compute_log_perplexity_stats(finite_perplexities)
+
+        # Compute segment stats
+        segment_lists = [
+            t["segment_log_perplexities"]
+            for t in trajectories
+            if t.get("status") == "ok" and np.isfinite(t["log_perplexity"])
+        ]
+        segment_stats = _compute_segment_stats(segment_lists)
+
+        # OD pair label counts (only for valid trajectories)
+        od_label_counts: Counter[str] = Counter()
+        for t in trajectories:
+            if t.get("status") == "ok" and t.get("source_label"):
+                od_label_counts[t["source_label"]] += 1
+
+        model_metadata.append(
+            {
+                "name": model_name,
+                "trajectory_count": total_count,
+                "valid_trajectory_count": valid_count,
+                "failed_count": failed_count,
+                "failed_rate": (failed_count / total_count * 100) if total_count > 0 else 0,
+                "log_perplexity_stats": log_perplexity_stats,
+                "segment_stats": segment_stats,
+                "od_pair_label_counts": dict(od_label_counts),
+            }
+        )
+
+    # Build OD pair comparison data
+    od_pair_results: Dict[Tuple[int, int], Dict[str, Any]] = {}
+    source_label_stats: Dict[str, Dict[str, Any]] = {None: {"count": 0}, "route_switch": {"count": 0}, "detour": {"count": 0}}
+    model_best_worst_counts: Dict[str, Dict[str, int]] = {name: {"best": 0, "worst": 0} for name in model_names}
+
+    for od_pair, model_trajs in od_pair_trajectories.items():
+        origin, destination = od_pair
+
+        # Get source label (use first available)
+        source_label = None
+        for model_name, trajs in model_trajs.items():
+            if trajs and trajs[0].get("source_label"):
+                source_label = trajs[0]["source_label"]
+                break
+
+        # Count trajectories
+        trajectory_count = sum(len(trajs) for trajs in model_trajs.values())
+
+        # Build per-model stats
+        per_model_stats = {}
+        for model_name, trajs in model_trajs.items():
+            perplexities = [
+                t["log_perplexity"]
+                for t in trajs
+                if t.get("status") == "ok" and np.isfinite(t["log_perplexity"])
+            ]
+
+            if not perplexities:
+                continue
+
+            arr = np.array(perplexities, dtype=np.float64)
+            per_model_stats[model_name] = {
+                "mean_log_perplexity": float(np.mean(arr)),
+                "median_log_perplexity": float(np.median(arr)),
+                "count": len(perplexities),
+                "std_log_perplexity": float(np.std(arr)),
+                "min_log_perplexity": float(np.min(arr)),
+                "max_log_perplexity": float(np.max(arr)),
+            }
+
+        # Skip if no valid stats
+        if not per_model_stats:
+            continue
+
+        # Find best and worst performing models
+        sorted_models = sorted(
+            per_model_stats.items(),
+            key=lambda x: x[1]["mean_log_perplexity"],
+        )
+
+        best_model, best_stats = sorted_models[0]
+        worst_model, worst_stats = sorted_models[-1]
+
+        best_model_mean = best_stats["mean_log_perplexity"]
+        worst_model_mean = worst_stats["mean_log_perplexity"]
+        performance_delta = worst_model_mean - best_model_mean
+
+        # Build ranking
+        ranking = [
+            {
+                "model": model_name,
+                "rank": rank + 1,
+                "mean_log_perplexity": stats["mean_log_perplexity"],
+            }
+            for rank, (model_name, stats) in enumerate(sorted_models)
+        ]
+
+        # Build trajectory list for this OD pair
+        od_trajectories = []
+        for model_name, trajs in model_trajs.items():
+            for t in trajs:
+                od_trajectories.append(
+                    {
+                        "model": model_name,
+                        "trajectory_index": t.get("trajectory_index"),
+                        "log_perplexity": t.get("log_perplexity"),
+                        "segment_log_perplexities": t.get("segment_log_perplexities", []),
+                        "status": t.get("status"),
+                    }
+                )
+
+        od_pair_results[od_pair] = {
+            "origin": origin,
+            "destination": destination,
+            "trajectory_count": trajectory_count,
+            "source_label": source_label,
+            "trajectories": od_trajectories,
+            "per_model_stats": per_model_stats,
+            "best_model": best_model,
+            "best_model_mean_log_perplexity": best_model_mean,
+            "worst_model": worst_model,
+            "worst_model_mean_log_perplexity": worst_model_mean,
+            "performance_delta": performance_delta,
+            "ranking": ranking,
+        }
+
+        # Update summary stats
+        if source_label:
+            source_label_stats[source_label]["count"] += 1
+        else:
+            source_label_stats[None]["count"] += 1
+
+        # Track best/worst counts
+        model_best_worst_counts[best_model]["best"] += 1
+        model_best_worst_counts[worst_model]["worst"] += 1
+
+    # Compute summary statistics
+    all_deltas = [data["performance_delta"] for data in od_pair_results.values()]
+    avg_delta = float(np.mean(all_deltas)) if all_deltas else 0.0
+    std_delta = float(np.std(all_deltas)) if all_deltas else 0.0
+
+    # Build statistics by source label
+    stats_by_source_label = {}
+    for label in [None, "route_switch", "detour"]:
+        label_pairs = {
+            od: data
+            for od, data in od_pair_results.items()
+            if data["source_label"] == label
+        }
+
+        if label_pairs:
+            deltas = [data["performance_delta"] for data in label_pairs.values()]
+            best_model_counts = Counter(data["best_model"] for data in label_pairs.values())
+
+            stats_by_source_label[str(label) if label else "unknown"] = {
+                "count": len(label_pairs),
+                "best_models": dict(best_model_counts),
+                "avg_delta": float(np.mean(deltas)),
+                "std_delta": float(np.std(deltas)),
+                "min_delta": float(np.min(deltas)),
+                "max_delta": float(np.max(deltas)),
+            }
+
+    od_summary = {
+        "total_unique_od_pairs": len(od_pair_results),
+        "od_pairs_with_all_models": sum(
+            1 for data in od_pair_results.values() if len(data["per_model_stats"]) == len(model_names)
+        ),
+        "average_performance_delta": avg_delta,
+        "std_performance_delta": std_delta,
+        "min_performance_delta": float(np.min(all_deltas)) if all_deltas else 0.0,
+        "max_performance_delta": float(np.max(all_deltas)) if all_deltas else 0.0,
+        "best_performing_models": model_best_worst_counts,
+        "source_label_distribution": {str(k) if k else "unknown": v["count"] for k, v in source_label_stats.items()},
+        "statistics_by_source_label": stats_by_source_label,
+    }
+
+    # Build final output structure
+    output_data = {
+        "metadata": {
+            "timestamp": pd.Timestamp.now().isoformat(),
+            "output_path": str(output_path) if output_path else None,
+            "model_count": len(evaluation_results),
+            "model_names": model_names,
+            "total_trajectories": sum(len(r["trajectories"]) for r in evaluation_results),
+            "comparison_type": "cross_model_od_comparison",
+            "version": "1.0",
+        },
+        "models": model_metadata,
+        "od_pairs": od_pair_results,
+        "od_summary": od_summary,
+    }
+
+    # Save to file if output_path provided
+    if output_path is not None:
+        logger.info(f"💾 Saving comparison results to {output_path}")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            json.dump(output_data, f, indent=2)
+        logger.info(f"✅ Results saved successfully")
+
+    logger.info("✅ Cross-model OD comparison complete:")
+    logger.info(f"   Total unique OD pairs: {len(od_pair_results)}")
+    logger.info(f"   Average performance delta: {avg_delta:.4f}")
+    logger.info(f"   Best performing model distribution: {model_best_worst_counts}")
+
+    return output_data
+
+
 def evaluate_spatial_abnormal_trajectories(
     trajectory_file: Path,
     lmtad_checkpoint: Path,

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-LM-TAD Spatial Abnormality Detection Pipeline - Complete Workflow
+LM-TAD Perplexity-Based Evaluation Pipeline - Complete Workflow
 
-This script runs the full LM-TAD spatial abnormality evaluation pipeline, including
-OD pair extraction, trajectory generation, evaluation, aggregation, and visualization.
+This script runs the full LM-TAD perplexity-based evaluation pipeline, including
+OD pair extraction, trajectory generation, perplexity evaluation, aggregation, and visualization.
+
+The pipeline evaluates generated trajectories using LM-TAD teacher model perplexity scoring,
+with support for per-road-segment perplexity analysis and cross-model comparison on the
+same OD pairs.
 
 Usage:
     # Run on evaluation directory (checkpoint auto-detected from eval dir)
@@ -57,7 +61,7 @@ from tools.generate_lmtad_spatial_abnormal_trajectories import (  # noqa: E402
 from tools.visualize_lmtad_spatial_results import (  # noqa: E402
     load_aggregated_results,
     plot_model_rankings_spatial,
-    plot_perplexity_distribution_spatial,
+    plot_perplexity_distribution_comparison,
     plot_route_switch_vs_detour_breakdown,
     plot_spatial_abnormality_rates_comparison,
     plot_statistical_significance_spatial,
@@ -138,7 +142,10 @@ def run_lmtad_spatial_pipeline(
     lmtad_repo: Path | None = None,
     force: bool = False,
 ) -> bool:
-    """Run complete LM-TAD spatial abnormality evaluation pipeline
+    """Run complete LM-TAD perplexity-based evaluation pipeline
+
+    This pipeline evaluates generated trajectories using LM-TAD teacher model perplexity scoring.
+    It supports per-road-segment perplexity analysis and cross-model comparison on the same OD pairs.
 
     Args:
         eval_dir: Evaluation directory path
@@ -147,7 +154,7 @@ def run_lmtad_spatial_pipeline(
         lmtad_checkpoint: Path to LM-TAD checkpoint file
         skip_extraction: Skip OD pair extraction
         skip_generation: Skip trajectory generation
-        skip_evaluation: Skip LM-TAD evaluation
+        skip_evaluation: Skip LM-TAD perplexity evaluation
         skip_aggregation: Skip result aggregation
         skip_visualization: Skip visualization generation
         seed: Random seed for generation
@@ -178,7 +185,7 @@ def run_lmtad_spatial_pipeline(
         return False
 
     logger.info(f"\n{'=' * 70}")
-    logger.info("LM-TAD Spatial Abnormality Detection Pipeline")
+    logger.info("LM-TAD Perplexity-Based Evaluation Pipeline")
     logger.info(f"{'=' * 70}")
     logger.info(f"Evaluation directory: {eval_dir}")
     logger.info(f"Dataset: {dataset}")
@@ -222,7 +229,7 @@ def run_lmtad_spatial_pipeline(
 
         if should_extract:
             logger.info(f"{'=' * 70}")
-            logger.info("Step: Extract spatial abnormal OD pairs")
+            logger.info("Step: Extract OD pairs for perplexity-based evaluation")
             logger.info(f"{'=' * 70}")
             try:
                 result = extract_spatial_abnormal_od_pairs(
@@ -279,7 +286,7 @@ def run_lmtad_spatial_pipeline(
                         logger.debug(f"  Removed {csv_file.name}")
 
                 logger.info(f"{'=' * 70}")
-                logger.info("Step: Generate trajectories for spatial abnormal OD pairs")
+                logger.info("Step: Generate trajectories for perplexity-based evaluation")
                 logger.info(f"{'=' * 70}")
                 try:
                     generate_spatial_abnormal_trajectories(
@@ -296,12 +303,12 @@ def run_lmtad_spatial_pipeline(
                         beam_width=4,
                     )
                     logger.info(
-                        "✅ Generate trajectories for spatial abnormal OD pairs completed successfully"
+                        "✅ Generate trajectories for perplexity-based evaluation completed successfully"
                     )
                     success_count += 1
                 except Exception as e:
                     logger.error(
-                        f"❌ Generate trajectories for spatial abnormal OD pairs failed: {e}"
+                        f"❌ Generate trajectories for perplexity-based evaluation failed: {e}"
                     )
                     failed_steps.append("Trajectory generation")
     else:
@@ -337,7 +344,7 @@ def run_lmtad_spatial_pipeline(
                     if not output_file.exists():
                         logger.info(f"{'=' * 70}")
                         logger.info(
-                            f"Step: Evaluate spatial abnormal trajectories: {model_name}"
+                            f"Step: Evaluate trajectories with LM-TAD perplexity: {model_name}"
                         )
                         logger.info(f"{'=' * 70}")
                         try:
@@ -349,19 +356,21 @@ def run_lmtad_spatial_pipeline(
                                 device="cuda:0",
                                 batch_size=128,
                                 lmtad_repo=lmtad_repo,
-                                od_pairs_file=od_pairs_file,  # Pass OD pairs file for known labels
                             )
                             # Save results
                             output_file.parent.mkdir(parents=True, exist_ok=True)
                             with open(output_file, "w") as f:
                                 json.dump(result, f, indent=2)
                             logger.info(
-                                f"✅ Evaluate spatial abnormal trajectories: {model_name} completed successfully"
+                                f"✅ Evaluate trajectories with LM-TAD perplexity: {model_name} completed successfully"
+                            )
+                            logger.info(
+                                f"   📊 Capturing per-road-segment perplexity for detailed analysis"
                             )
                             success_count += 1
                         except Exception as e:
                             logger.error(
-                                f"❌ Evaluate spatial abnormal trajectories: {model_name} failed: {e}"
+                                f"❌ Evaluate trajectories with LM-TAD perplexity: {model_name} failed: {e}"
                             )
                             failed_steps.append(f"Evaluation: {model_name}")
                 else:
@@ -397,7 +406,7 @@ def run_lmtad_spatial_pipeline(
             # Fall through to aggregation
         if not output_file.exists():
             logger.info(f"{'=' * 70}")
-            logger.info("Step: Aggregate LM-TAD spatial results")
+            logger.info("Step: Aggregate LM-TAD perplexity-based results")
             logger.info(f"{'=' * 70}")
             try:
                 result = aggregate_lmtad_spatial_results(
@@ -410,11 +419,11 @@ def run_lmtad_spatial_pipeline(
                 with open(output_file, "w") as f:
                     json.dump(ensure_json_serializable(result), f, indent=2)
                 logger.info(
-                    "✅ Aggregate LM-TAD spatial results completed successfully"
+                    "✅ Aggregate LM-TAD perplexity-based results completed successfully"
                 )
                 success_count += 1
             except Exception as e:
-                logger.error(f"❌ Aggregate LM-TAD spatial results failed: {e}")
+                logger.error(f"❌ Aggregate LM-TAD perplexity-based results failed: {e}")
                 failed_steps.append("Aggregation")
     else:
         logger.info("⏭️  Skipping aggregation")
@@ -438,12 +447,11 @@ def run_lmtad_spatial_pipeline(
                 results = load_aggregated_results(results_file)
                 output_dir.mkdir(parents=True, exist_ok=True)
 
-                # Generate all plots
-                plot_spatial_abnormality_rates_comparison(results, output_dir, dataset)
-                plot_route_switch_vs_detour_breakdown(results, output_dir, dataset)
+                # Generate all plots (perplexity-based approach)
+                # Note: route_switch/detour plots removed in favor of perplexity-based analysis
+                plot_perplexity_distribution_comparison(results, output_dir, dataset)
                 plot_model_rankings_spatial(results, output_dir, dataset)
                 plot_statistical_significance_spatial(results, output_dir, dataset)
-                plot_perplexity_distribution_spatial(results, output_dir, dataset)
 
                 logger.info("✅ Generate visualizations completed successfully")
                 logger.info(f"Visualizations saved to {output_dir}/")
@@ -460,7 +468,7 @@ def run_lmtad_spatial_pipeline(
 
     # Summary
     logger.info(f"\n{'=' * 70}")
-    logger.info("Pipeline Summary")
+    logger.info("Pipeline Summary - Perplexity-Based Evaluation")
     logger.info(f"{'=' * 70}")
     logger.info(f"Total steps: {total_steps}")
     logger.info(f"Successful: {success_count}")
@@ -473,20 +481,25 @@ def run_lmtad_spatial_pipeline(
         return False
     else:
         logger.info("\n✅ All pipeline steps completed successfully!")
-        logger.info("\nResults saved to:")
+        logger.info("\nPerplexity-based evaluation results saved to:")
         logger.info(
             f"  - Aggregated data: {eval_dir / 'analysis_abnormal' / dataset / 'lmtad_spatial_results_aggregated.json'}"
         )
         logger.info(
             f"  - Visualizations: {eval_dir / 'figures' / 'lmtad_spatial_abnormality' / dataset}"
         )
+        logger.info("\nKey Features Evaluated:")
+        logger.info("  - Overall trajectory perplexity (lower = better)")
+        logger.info("  - Per-road-segment perplexity (identifies problematic segments)")
+        logger.info("  - Cross-model comparison on same OD pairs")
+        logger.info("  - Statistical significance of perplexity differences")
         return True
 
 
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
-        description="Run complete LM-TAD spatial abnormality detection pipeline",
+        description="Run complete LM-TAD perplexity-based evaluation pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -516,11 +529,17 @@ Examples:
     --skip-evaluation
 
 Pipeline Steps:
-  1. Extract spatial abnormal OD pairs from LM-TAD source evaluation
+  1. Extract OD pairs from LM-TAD source evaluation for perplexity-based analysis
   2. Generate trajectories for these OD pairs (all models)
-  3. Evaluate generated trajectories with LM-TAD (classify spatial types)
-  4. Aggregate results into JSON
-  5. Generate visualizations (PNG + SVG)
+  3. Evaluate generated trajectories with LM-TAD teacher model (perplexity scoring)
+  4. Aggregate perplexity results and cross-model comparisons into JSON
+  5. Generate visualizations (PNG + SVG) with perplexity distributions
+
+Key Features:
+  - Per-road-segment perplexity analysis
+  - Cross-model comparison on same OD pairs
+  - No source-label classification (pure perplexity-based)
+  - Statistical significance testing of perplexity distributions
 
 Prerequisites:
   - LM-TAD source evaluation directory with TSV files
