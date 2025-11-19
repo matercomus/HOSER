@@ -18,7 +18,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 from scipy import stats
@@ -26,11 +26,6 @@ from statsmodels.stats.multitest import multipletests
 
 # Import statistical functions from analyze_wang_results
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from tools.analyze_wang_results import (  # noqa: E402
-    compute_cohens_h,
-    compute_proportion_ci,
-    interpret_cohens_h,
-)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -96,12 +91,15 @@ def aggregate_lmtad_spatial_results(
 
     # Add deprecated "statistical_tests" key
     if "statistical_analysis" in old_format:
-        distribution_tests = old_format["statistical_analysis"].get("distribution_tests", [])
+        distribution_tests = old_format["statistical_analysis"].get(
+            "distribution_tests", []
+        )
         # Convert distribution tests to old format
         old_format["statistical_analysis"]["statistical_tests"] = [
             {
                 "model": test.get("model", ""),
-                "generated_rate": test.get("mean_perplexity", 0) * 10,  # Convert perplexity to percentage
+                "generated_rate": test.get("mean_perplexity", 0)
+                * 10,  # Convert perplexity to percentage
                 "ci_lower": test.get("ci_lower", 0) * 10,
                 "ci_upper": test.get("ci_upper", 0) * 10,
                 "effect_size": test.get("effect_size", "unknown"),
@@ -137,7 +135,9 @@ def load_source_real_rates(source_eval_dir: Path) -> Optional[Dict]:
         # Convert from perplexity stats if available
         if "log_perplexity_stats" in old_format:
             mean_perp = old_format["log_perplexity_stats"].get("mean", 0)
-            old_format["spatial_abnormality_rate"] = max(0, min(100, (mean_perp - 5) * 20))
+            old_format["spatial_abnormality_rate"] = max(
+                0, min(100, (mean_perp - 5) * 20)
+            )
         else:
             old_format["spatial_abnormality_rate"] = 0
 
@@ -145,10 +145,7 @@ def load_source_real_rates(source_eval_dir: Path) -> Optional[Dict]:
 
 
 def compute_statistical_test(
-    results_1: Dict,
-    results_2: Dict,
-    test_type: str = "ks",
-    **kwargs
+    results_1: Dict, results_2: Dict, test_type: str = "ks", **kwargs
 ) -> Optional[Dict]:
     """
     Backward compatibility wrapper for compare_perplexity_distributions.
@@ -167,10 +164,7 @@ def compute_statistical_test(
         kwargs["count_2"] = kwargs.pop("generated_count")
 
     result = compare_perplexity_distributions(
-        results_1=results_1,
-        results_2=results_2,
-        test_type=test_type,
-        **kwargs
+        results_1=results_1, results_2=results_2, test_type=test_type, **kwargs
     )
 
     if not result:
@@ -272,7 +266,9 @@ def build_od_pair_data(evaluation_results: List[Dict]) -> Dict[str, Dict]:
 
             if log_perplexity is not None:
                 # Get segment log perplexities if available
-                segment_log_perplexities = trajectory.get("segment_log_perplexities", [])
+                segment_log_perplexities = trajectory.get(
+                    "segment_log_perplexities", []
+                )
 
                 od_pair_data[od_key][model_name] = {
                     "log_perplexity": log_perplexity,
@@ -338,7 +334,7 @@ def load_source_perplexity_rates(source_eval_dir: Path) -> Optional[Dict]:
     """
     # For now, real data perplexity rates are not available
     # This is a placeholder for when the data structure is implemented
-    logger.info(f"Real data perplexity data not yet implemented for source evaluation")
+    logger.info("Real data perplexity data not yet implemented for source evaluation")
     return None
 
 
@@ -390,12 +386,22 @@ def compare_perplexity_distributions(
         mw_statistic, mw_p_value = float("nan"), float("nan")
 
     return {
-        "ks_statistic": float(ks_statistic) if not np.isnan(ks_statistic) else float("nan"),
+        "ks_statistic": float(ks_statistic)
+        if not np.isnan(ks_statistic)
+        else float("nan"),
         "ks_p_value": float(ks_p_value) if not np.isnan(ks_p_value) else float("nan"),
-        "mannwhitney_u_statistic": float(mw_statistic) if not np.isnan(mw_statistic) else float("nan"),
-        "mannwhitney_u_p_value": float(mw_p_value) if not np.isnan(mw_p_value) else float("nan"),
-        "significant_ks": bool(ks_p_value < 0.05) if not np.isnan(ks_p_value) else False,
-        "significant_mw": bool(mw_p_value < 0.05) if not np.isnan(mw_p_value) else False,
+        "mannwhitney_u_statistic": float(mw_statistic)
+        if not np.isnan(mw_statistic)
+        else float("nan"),
+        "mannwhitney_u_p_value": float(mw_p_value)
+        if not np.isnan(mw_p_value)
+        else float("nan"),
+        "significant_ks": bool(ks_p_value < 0.05)
+        if not np.isnan(ks_p_value)
+        else False,
+        "significant_mw": bool(mw_p_value < 0.05)
+        if not np.isnan(mw_p_value)
+        else False,
     }
 
 
@@ -416,7 +422,7 @@ def paired_perplexity_test(
 
     # Compare each pair of models
     for i, model_1 in enumerate(models):
-        for j, model_2 in enumerate(models[i + 1:], start=i + 1):
+        for j, model_2 in enumerate(models[i + 1 :], start=i + 1):
             # Find shared OD pairs
             shared_od_pairs = []
             perplexities_1 = []
@@ -459,9 +465,15 @@ def paired_perplexity_test(
                     "mean_diff": np.mean(diff),
                     "std_diff": np.std(diff),
                     "cohens_d": float(cohens_d),
-                    "t_statistic": float(t_statistic) if not np.isnan(t_statistic) else float("nan"),
-                    "p_value": float(p_value) if not np.isnan(p_value) else float("nan"),
-                    "significant": bool(p_value < 0.05) if not np.isnan(p_value) else False,
+                    "t_statistic": float(t_statistic)
+                    if not np.isnan(t_statistic)
+                    else float("nan"),
+                    "p_value": float(p_value)
+                    if not np.isnan(p_value)
+                    else float("nan"),
+                    "significant": bool(p_value < 0.05)
+                    if not np.isnan(p_value)
+                    else False,
                 }
             )
 
@@ -486,9 +498,9 @@ def aggregate_lmtad_perplexity_results(
     # Load perplexity data from source evaluation (real data - not yet available)
     real_perplexity = load_source_perplexity_rates(source_eval_dir)
     if real_perplexity:
-        logger.info(f"✅ Real perplexity data loaded")
+        logger.info("✅ Real perplexity data loaded")
     else:
-        logger.info(f"⚠️  Real perplexity data not available")
+        logger.info("⚠️  Real perplexity data not available")
 
     # Find all evaluation result files
     eval_results_dir = eval_dir / "eval_lmtad_spatial" / dataset
@@ -557,7 +569,9 @@ def aggregate_lmtad_perplexity_results(
     per_od_statistics = {}
     if len(model_names) >= 2:
         per_od_statistics = compute_per_od_pair_statistics(od_pair_data, model_names)
-        logger.info(f"✅ Computed statistics for {len(per_od_statistics)} OD pairs with multiple models")
+        logger.info(
+            f"✅ Computed statistics for {len(per_od_statistics)} OD pairs with multiple models"
+        )
 
     # Perform statistical comparisons between models
     perplexity_comparisons = []
@@ -567,7 +581,7 @@ def aggregate_lmtad_perplexity_results(
     if all_perplexities:
         model_list = list(all_perplexities.keys())
         for i, model_1 in enumerate(model_list):
-            for j, model_2 in enumerate(model_list[i + 1:], start=i + 1):
+            for j, model_2 in enumerate(model_list[i + 1 :], start=i + 1):
                 perp_1 = all_perplexities[model_1]
                 perp_2 = all_perplexities[model_2]
 
@@ -639,12 +653,8 @@ def aggregate_lmtad_perplexity_results(
         p_values_mw = [test["mannwhitney_u_p_value"] for test in distribution_tests]
 
         # Filter out NaN values for FDR correction
-        valid_indices_ks = [
-            i for i, p in enumerate(p_values_ks) if not np.isnan(p)
-        ]
-        valid_indices_mw = [
-            i for i, p in enumerate(p_values_mw) if not np.isnan(p)
-        ]
+        valid_indices_ks = [i for i, p in enumerate(p_values_ks) if not np.isnan(p)]
+        valid_indices_mw = [i for i, p in enumerate(p_values_mw) if not np.isnan(p)]
 
         if valid_indices_ks:
             valid_p_values_ks = [p_values_ks[i] for i in valid_indices_ks]

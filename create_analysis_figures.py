@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 # Import model detection utility
-from tools.model_detection import get_model_color, extract_model_name, MODEL_COLORS
+from tools.model_detection import extract_model_name, MODEL_COLORS
 
 # Set publication-quality defaults
 plt.rcParams.update(

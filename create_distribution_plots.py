@@ -22,7 +22,7 @@ import numpy as np
 import polars as pl
 
 # Import model detection utility
-from tools.model_detection import get_model_color, extract_model_name, MODEL_COLORS
+from tools.model_detection import extract_model_name, MODEL_COLORS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

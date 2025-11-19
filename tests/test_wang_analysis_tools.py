@@ -2,11 +2,10 @@
 
 import json
 import pytest
-import tempfile
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 # Import the modules to test
 from tools.analyze_wang_results import (

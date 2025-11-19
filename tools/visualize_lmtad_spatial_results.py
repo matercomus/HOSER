@@ -17,11 +17,10 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 
 # Import model detection utility
 from tools.model_detection import get_model_color, get_display_name  # noqa: E402
@@ -100,14 +99,16 @@ def plot_route_switch_vs_detour_breakdown(
         "Route Switch/Detour Visualizations Removed\n\n"
         "Perplexity-focused visualizations now provide\n"
         "more detailed model comparisons.\n\n"
-        f"Use plot_perplexity_distribution_comparison()\n"
-        f"or plot_model_rankings_by_perplexity()",
+        "Use plot_perplexity_distribution_comparison()\n"
+        "or plot_model_rankings_by_perplexity()",
         ha="center",
         va="center",
         fontsize=14,
         transform=ax.transAxes,
     )
-    ax.set_title(f"Visualization Update Notice: {dataset}", fontsize=16, fontweight="bold")
+    ax.set_title(
+        f"Visualization Update Notice: {dataset}", fontsize=16, fontweight="bold"
+    )
     ax.axis("off")
 
     output_file = output_dir / f"route_switch_vs_detour_{dataset}.png"
@@ -135,9 +136,7 @@ def plot_statistical_significance_spatial(
     return plot_statistical_significance_perplexity(results, output_dir, dataset)
 
 
-def plot_model_rankings_spatial(
-    results: Dict, output_dir: Path, dataset: str
-):
+def plot_model_rankings_spatial(results: Dict, output_dir: Path, dataset: str):
     """
     Backward compatibility wrapper for plot_model_rankings_by_perplexity.
 
@@ -189,7 +188,10 @@ def plot_perplexity_distribution_comparison(
     models = list(model_stats.keys())
     means = [model_stats[m].get("mean", 0) for m in models]
     stds = [model_stats[m].get("std", 0) for m in models]
-    medians = [model_stats[m].get("median", np.mean([model_stats[m].get("mean", 0)])) for m in models]
+    medians = [
+        model_stats[m].get("median", np.mean([model_stats[m].get("mean", 0)]))
+        for m in models
+    ]
 
     colors = [get_model_color(m) for m in models]
 
@@ -229,7 +231,9 @@ def plot_perplexity_distribution_comparison(
 
     # Bottom plot: Summary statistics (median, IQR approximation)
     x = np.arange(len(models))
-    lower_quartiles = [np.maximum(0, med - std * 0.6745) for med, std in zip(medians, stds)]
+    lower_quartiles = [
+        np.maximum(0, med - std * 0.6745) for med, std in zip(medians, stds)
+    ]
     upper_quartiles = [med + std * 0.6745 for med, std in zip(medians, stds)]
     iqr_lower = [med - std * 0.6745 for med, std in zip(medians, stds)]
     iqr_upper = [med + std * 0.6745 for med, std in zip(medians, stds)]
@@ -334,7 +338,9 @@ def plot_per_od_pair_perplexity_comparison(
         valid_od_pairs = [valid_od_pairs[i] for i in top_indices]
 
     # Create heatmap
-    fig, ax = plt.subplots(figsize=(max(10, len(models) * 1.5), max(8, len(valid_od_pairs) * 0.4)))
+    fig, ax = plt.subplots(
+        figsize=(max(10, len(models) * 1.5), max(8, len(valid_od_pairs) * 0.4))
+    )
 
     # Use viridis colormap for better visibility
     im = ax.imshow(
@@ -362,7 +368,10 @@ def plot_per_od_pair_perplexity_comparison(
                     f"{value:.2f}",
                     ha="center",
                     va="center",
-                    color="white" if value > (np.nanmax(perplexity_matrix) + np.nanmin(perplexity_matrix)) / 2 else "black",
+                    color="white"
+                    if value
+                    > (np.nanmax(perplexity_matrix) + np.nanmin(perplexity_matrix)) / 2
+                    else "black",
                     fontsize=8,
                 )
 
@@ -388,9 +397,7 @@ def plot_per_od_pair_perplexity_comparison(
     logger.info(f"  ✓ Saved to {output_file}")
 
 
-def plot_model_rankings_by_perplexity(
-    results: Dict, output_dir: Path, dataset: str
-):
+def plot_model_rankings_by_perplexity(results: Dict, output_dir: Path, dataset: str):
     """
     Plot model rankings by mean perplexity (lower is better).
 
@@ -421,7 +428,9 @@ def plot_model_rankings_by_perplexity(
     # Sort by mean perplexity (ascending - lower is better)
     sorted_models = sorted(model_data.items(), key=lambda x: x[1]["mean"])
 
-    logger.info(f"  Ranking {len(sorted_models)} models by mean perplexity for {dataset}")
+    logger.info(
+        f"  Ranking {len(sorted_models)} models by mean perplexity for {dataset}"
+    )
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, max(6, len(sorted_models) * 0.5)))
 
@@ -474,7 +483,15 @@ def plot_model_rankings_by_perplexity(
     width = 0.35
 
     bars1 = ax2.bar(x - width / 2, means, width, label="Mean", color=colors, alpha=0.8)
-    bars2 = ax2.bar(x + width / 2, medians, width, label="Median", color=colors, alpha=0.5, hatch="//")
+    bars2 = ax2.bar(
+        x + width / 2,
+        medians,
+        width,
+        label="Median",
+        color=colors,
+        alpha=0.5,
+        hatch="//",
+    )
 
     ax2.set_xlabel("Model", fontsize=12)
     ax2.set_ylabel("Log Perplexity", fontsize=12)
@@ -571,7 +588,9 @@ def plot_statistical_significance_perplexity(
     )
 
     # Add value labels
-    for i, (bar, mean, ci_lower, ci_upper) in enumerate(zip(bars, means, ci_lowers, ci_uppers)):
+    for i, (bar, mean, ci_lower, ci_upper) in enumerate(
+        zip(bars, means, ci_lowers, ci_uppers)
+    ):
         width = bar.get_width()
         ax.text(
             width + 0.05,
@@ -696,7 +715,9 @@ def plot_segment_level_perplexity_aggregate(
         ax2.set_ylabel("Percentile Value", fontsize=12)
         ax2.set_title("Segment Perplexity Percentiles", fontsize=12, fontweight="bold")
         ax2.set_xticks(x + width * len(percentile_labels) / 2)
-        ax2.set_xticklabels([get_display_name(m) for m in models], rotation=45, ha="right")
+        ax2.set_xticklabels(
+            [get_display_name(m) for m in models], rotation=45, ha="right"
+        )
         ax2.legend()
         ax2.grid(True, alpha=0.3, axis="y")
 
@@ -743,7 +764,11 @@ def plot_segment_level_perplexity_aggregate(
     ax4.set_xticklabels([get_display_name(m) for m in models], rotation=45, ha="right")
     ax4.grid(True, alpha=0.3, axis="y")
 
-    plt.suptitle(f"Segment-Level Perplexity Statistics: {dataset}", fontsize=16, fontweight="bold")
+    plt.suptitle(
+        f"Segment-Level Perplexity Statistics: {dataset}",
+        fontsize=16,
+        fontweight="bold",
+    )
     plt.tight_layout()
     output_file = output_dir / f"segment_level_perplexity_{dataset}.png"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -804,7 +829,15 @@ def plot_comprehensive_perplexity_summary(
     width = 0.35
 
     bars1 = ax2.bar(x - width / 2, means, width, label="Mean", color=colors, alpha=0.8)
-    bars2 = ax2.bar(x + width / 2, medians, width, label="Median", color=colors, alpha=0.5, hatch="//")
+    bars2 = ax2.bar(
+        x + width / 2,
+        medians,
+        width,
+        label="Median",
+        color=colors,
+        alpha=0.5,
+        hatch="//",
+    )
 
     ax2.set_xlabel("Model", fontsize=12)
     ax2.set_ylabel("Perplexity", fontsize=12)
@@ -856,18 +889,39 @@ def plot_comprehensive_perplexity_summary(
     while len(worst_perps) < n_positions:
         worst_perps.append(0)
 
-    bars1 = ax4.bar(x_pos - 0.2, best_perps[:n_positions], 0.4, label="Best", color="#2ecc71", alpha=0.8)
-    bars2 = ax4.bar(x_pos + 0.2, worst_perps[:n_positions], 0.4, label="Worst", color="#e74c3c", alpha=0.8)
+    bars1 = ax4.bar(
+        x_pos - 0.2,
+        best_perps[:n_positions],
+        0.4,
+        label="Best",
+        color="#2ecc71",
+        alpha=0.8,
+    )
+    bars2 = ax4.bar(
+        x_pos + 0.2,
+        worst_perps[:n_positions],
+        0.4,
+        label="Worst",
+        color="#e74c3c",
+        alpha=0.8,
+    )
 
     ax4.set_xlabel("Rank", fontsize=12)
     ax4.set_ylabel("Mean Log Perplexity", fontsize=12)
     ax4.set_title("Best vs Worst Models", fontsize=12, fontweight="bold")
     ax4.set_xticks(x_pos)
-    ax4.set_xticklabels([f"{i+1}{'st' if i == 0 else 'nd' if i == 1 else 'rd'}" for i in range(n_positions)])
+    ax4.set_xticklabels(
+        [
+            f"{i + 1}{'st' if i == 0 else 'nd' if i == 1 else 'rd'}"
+            for i in range(n_positions)
+        ]
+    )
     ax4.legend()
     ax4.grid(True, alpha=0.3, axis="y")
 
-    plt.suptitle(f"Comprehensive Perplexity Summary: {dataset}", fontsize=16, fontweight="bold")
+    plt.suptitle(
+        f"Comprehensive Perplexity Summary: {dataset}", fontsize=16, fontweight="bold"
+    )
     plt.tight_layout()
     output_file = output_dir / f"comprehensive_perplexity_summary_{dataset}.png"
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -5,7 +5,6 @@ function and related utilities that process multiple evaluation results to compa
 model performance across OD pairs.
 """
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -297,7 +296,9 @@ class TestBuildCrossModelODComparisonBasic:
             }
         ]
 
-        with pytest.raises(ValueError, match="All results must contain 'trajectories' list"):
+        with pytest.raises(
+            ValueError, match="All results must contain 'trajectories' list"
+        ):
             _build_cross_model_od_comparison(evaluation_results)
 
 
@@ -542,8 +543,12 @@ class TestBuildCrossModelODComparisonEdgeCases:
 
         # Check per-model stats use mean of trajectories
         assert od_pair["per_model_stats"]["model_a"]["count"] == 2
-        assert od_pair["per_model_stats"]["model_a"]["mean_log_perplexity"] == pytest.approx(5.5)
-        assert od_pair["per_model_stats"]["model_b"]["mean_log_perplexity"] == pytest.approx(5.0)
+        assert od_pair["per_model_stats"]["model_a"][
+            "mean_log_perplexity"
+        ] == pytest.approx(5.5)
+        assert od_pair["per_model_stats"]["model_b"][
+            "mean_log_perplexity"
+        ] == pytest.approx(5.0)
 
     def test_build_comparison_missing_origin_destination(self):
         """Test handling of missing origin or destination."""
@@ -1145,7 +1150,9 @@ class TestBuildCrossModelODComparisonOutputPath:
         mock_file = MagicMock()
         mock_open.return_value.__enter__.return_value = mock_file
 
-        result = _build_cross_model_od_comparison(evaluation_results, output_path=output_file)
+        result = _build_cross_model_od_comparison(
+            evaluation_results, output_path=output_file
+        )
 
         # Verify file was opened for writing
         mock_open.assert_called_once_with(output_file, "w")
@@ -1159,7 +1166,9 @@ class TestBuildCrossModelODComparisonOutputPath:
     @patch("builtins.open")
     @patch("tools.evaluate_lmtad_spatial_abnormal.json.dump")
     @patch("pathlib.Path.mkdir")
-    def test_save_to_file_creates_parent_directories(self, mock_mkdir, mock_json_dump, mock_open, tmp_path):
+    def test_save_to_file_creates_parent_directories(
+        self, mock_mkdir, mock_json_dump, mock_open, tmp_path
+    ):
         """Test that parent directories are created when saving."""
         evaluation_results = [
             {
@@ -1184,7 +1193,9 @@ class TestBuildCrossModelODComparisonOutputPath:
         mock_file = MagicMock()
         mock_open.return_value.__enter__.return_value = mock_file
 
-        result = _build_cross_model_od_comparison(evaluation_results, output_path=output_file)
+        result = _build_cross_model_od_comparison(
+            evaluation_results, output_path=output_file
+        )
 
         # Verify mkdir was called with parents=True
         mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
@@ -1456,7 +1467,10 @@ class TestBuildCrossModelODComparisonBackwardCompatibility:
 
         # Summary should show None or unknown
         summary = result["od_summary"]
-        assert "None" in summary["source_label_distribution"] or "unknown" in summary["source_label_distribution"]
+        assert (
+            "None" in summary["source_label_distribution"]
+            or "unknown" in summary["source_label_distribution"]
+        )
 
     def test_handles_missing_trajectory_index(self):
         """Test that missing trajectory_index is handled."""

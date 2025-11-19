@@ -12,7 +12,6 @@ import seaborn as sns
 import yaml
 
 # Import model detection utility
-from tools.model_detection import extract_model_name
 
 logger = logging.getLogger(__name__)
 

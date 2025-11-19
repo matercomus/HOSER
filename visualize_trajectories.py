@@ -37,7 +37,6 @@ except ImportError:
     cx = None
 
 # Import shared model detection utility
-from tools.model_detection import detect_model_files
 
 # Configure logging
 logging.basicConfig(

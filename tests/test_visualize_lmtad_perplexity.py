@@ -9,7 +9,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from tools.visualize_lmtad_spatial_results import (
@@ -203,7 +202,9 @@ def test_plot_perplexity_distribution_comparison(
     sample_perplexity_results, temp_output_dir
 ):
     """Test perplexity distribution comparison plot generation"""
-    output_file = temp_output_dir / "perplexity_distribution_comparison_test_dataset.png"
+    output_file = (
+        temp_output_dir / "perplexity_distribution_comparison_test_dataset.png"
+    )
 
     plot_perplexity_distribution_comparison(
         sample_perplexity_results, temp_output_dir, "test_dataset"
@@ -245,9 +246,7 @@ def test_plot_per_od_pair_perplexity_comparison_no_od_data():
         # Should not raise exception, just log warning and return
 
 
-def test_plot_model_rankings_by_perplexity(
-    sample_perplexity_results, temp_output_dir
-):
+def test_plot_model_rankings_by_perplexity(sample_perplexity_results, temp_output_dir):
     """Test model rankings by perplexity plot generation"""
     output_file = temp_output_dir / "model_rankings_perplexity_test_dataset.png"
 
@@ -272,7 +271,9 @@ def test_plot_statistical_significance_perplexity(
     sample_perplexity_results, temp_output_dir
 ):
     """Test statistical significance perplexity plot generation"""
-    output_file = temp_output_dir / "statistical_significance_perplexity_test_dataset.png"
+    output_file = (
+        temp_output_dir / "statistical_significance_perplexity_test_dataset.png"
+    )
 
     plot_statistical_significance_perplexity(
         sample_perplexity_results, temp_output_dir, "test_dataset"
@@ -529,20 +530,32 @@ def test_all_plot_functions_with_full_dataset(temp_results_file, temp_output_dir
     plot_comprehensive_perplexity_summary(results, temp_output_dir, "test_dataset")
 
     # Verify all files were created
-    assert (temp_output_dir / "perplexity_distribution_comparison_test_dataset.png").exists()
+    assert (
+        temp_output_dir / "perplexity_distribution_comparison_test_dataset.png"
+    ).exists()
     assert (temp_output_dir / "per_od_pair_perplexity_test_dataset.png").exists()
     assert (temp_output_dir / "model_rankings_perplexity_test_dataset.png").exists()
-    assert (temp_output_dir / "statistical_significance_perplexity_test_dataset.png").exists()
+    assert (
+        temp_output_dir / "statistical_significance_perplexity_test_dataset.png"
+    ).exists()
     assert (temp_output_dir / "segment_level_perplexity_test_dataset.png").exists()
-    assert (temp_output_dir / "comprehensive_perplexity_summary_test_dataset.png").exists()
+    assert (
+        temp_output_dir / "comprehensive_perplexity_summary_test_dataset.png"
+    ).exists()
 
     # Verify SVG versions also exist
-    assert (temp_output_dir / "perplexity_distribution_comparison_test_dataset.svg").exists()
+    assert (
+        temp_output_dir / "perplexity_distribution_comparison_test_dataset.svg"
+    ).exists()
     assert (temp_output_dir / "per_od_pair_perplexity_test_dataset.svg").exists()
     assert (temp_output_dir / "model_rankings_perplexity_test_dataset.svg").exists()
-    assert (temp_output_dir / "statistical_significance_perplexity_test_dataset.svg").exists()
+    assert (
+        temp_output_dir / "statistical_significance_perplexity_test_dataset.svg"
+    ).exists()
     assert (temp_output_dir / "segment_level_perplexity_test_dataset.svg").exists()
-    assert (temp_output_dir / "comprehensive_perplexity_summary_test_dataset.svg").exists()
+    assert (
+        temp_output_dir / "comprehensive_perplexity_summary_test_dataset.svg"
+    ).exists()
 
 
 if __name__ == "__main__":

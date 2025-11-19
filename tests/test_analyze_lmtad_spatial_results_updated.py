@@ -5,9 +5,8 @@ refactored to use perplexity-based metrics instead of classification-based metri
 """
 
 import json
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import patch
 import numpy as np
 import pytest
 
@@ -27,7 +26,6 @@ from tools.analyze_lmtad_spatial_results import (
     load_evaluation_result,
     ensure_json_serializable,
     PerplexityEvaluationMetrics,
-    PerplexityStatisticalComparison,
 )
 
 
@@ -510,20 +508,32 @@ class TestPairedPerplexityTest:
         # Using OrderedDict or explicit order to ensure consistent iteration
         # Python 3.7+ maintains insertion order, so this should work
         from collections import OrderedDict
-        od_pair_data = OrderedDict([
-            ("od1", {
-                "model_a": {"log_perplexity": 7.5},
-                "model_b": {"log_perplexity": 7.0},
-            }),
-            ("od2", {
-                "model_a": {"log_perplexity": 8.0},
-                "model_b": {"log_perplexity": 7.5},
-            }),
-            ("od3", {
-                "model_a": {"log_perplexity": 6.5},
-                "model_b": {"log_perplexity": 6.0},
-            }),
-        ])
+
+        od_pair_data = OrderedDict(
+            [
+                (
+                    "od1",
+                    {
+                        "model_a": {"log_perplexity": 7.5},
+                        "model_b": {"log_perplexity": 7.0},
+                    },
+                ),
+                (
+                    "od2",
+                    {
+                        "model_a": {"log_perplexity": 8.0},
+                        "model_b": {"log_perplexity": 7.5},
+                    },
+                ),
+                (
+                    "od3",
+                    {
+                        "model_a": {"log_perplexity": 6.5},
+                        "model_b": {"log_perplexity": 6.0},
+                    },
+                ),
+            ]
+        )
         models = ["model_a", "model_b"]
 
         result = paired_perplexity_test(od_pair_data, models, min_pairs=3)
@@ -562,35 +572,47 @@ class TestPairedPerplexityTest:
         """Test with multiple model pairs"""
         # Using OrderedDict to ensure consistent iteration order
         from collections import OrderedDict
-        od_pair_data = OrderedDict([
-            ("od1", {
-                "model_a": {"log_perplexity": 7.5},
-                "model_b": {"log_perplexity": 7.0},
-                "model_c": {"log_perplexity": 8.0},
-            }),
-            ("od2", {
-                "model_a": {"log_perplexity": 8.0},
-                "model_b": {"log_perplexity": 7.5},
-                "model_c": {"log_perplexity": 8.5},
-            }),
-            ("od3", {
-                "model_a": {"log_perplexity": 6.0},
-                "model_b": {"log_perplexity": 5.5},
-                "model_c": {"log_perplexity": 7.0},
-            }),
-        ])
+
+        od_pair_data = OrderedDict(
+            [
+                (
+                    "od1",
+                    {
+                        "model_a": {"log_perplexity": 7.5},
+                        "model_b": {"log_perplexity": 7.0},
+                        "model_c": {"log_perplexity": 8.0},
+                    },
+                ),
+                (
+                    "od2",
+                    {
+                        "model_a": {"log_perplexity": 8.0},
+                        "model_b": {"log_perplexity": 7.5},
+                        "model_c": {"log_perplexity": 8.5},
+                    },
+                ),
+                (
+                    "od3",
+                    {
+                        "model_a": {"log_perplexity": 6.0},
+                        "model_b": {"log_perplexity": 5.5},
+                        "model_c": {"log_perplexity": 7.0},
+                    },
+                ),
+            ]
+        )
         models = ["model_a", "model_b", "model_c"]
 
         result = paired_perplexity_test(od_pair_data, models, min_pairs=3)
 
         # Should have 3 comparisons: (a,b), (a,c), (b,c)
         assert len(result) == 3
-        
+
         model_pairs = {(r["model_1"], r["model_2"]) for r in result}
         assert ("model_a", "model_b") in model_pairs
         assert ("model_a", "model_c") in model_pairs
         assert ("model_b", "model_c") in model_pairs
-        
+
         # Verify each comparison has correct number of shared OD pairs
         for comparison in result:
             assert comparison["shared_od_pairs"] == 3
@@ -599,20 +621,32 @@ class TestPairedPerplexityTest:
         """Test handling of missing perplexity values"""
         # Using OrderedDict to ensure consistent iteration
         from collections import OrderedDict
-        od_pair_data = OrderedDict([
-            ("od1", {
-                "model_a": {"log_perplexity": 7.5},
-                "model_b": {"log_perplexity": None},  # Missing
-            }),
-            ("od2", {
-                "model_a": {"log_perplexity": 8.0},
-                "model_b": {"log_perplexity": 7.5},
-            }),
-            ("od3", {
-                "model_a": {"log_perplexity": None},  # Missing
-                "model_b": {"log_perplexity": 6.0},
-            }),
-        ])
+
+        od_pair_data = OrderedDict(
+            [
+                (
+                    "od1",
+                    {
+                        "model_a": {"log_perplexity": 7.5},
+                        "model_b": {"log_perplexity": None},  # Missing
+                    },
+                ),
+                (
+                    "od2",
+                    {
+                        "model_a": {"log_perplexity": 8.0},
+                        "model_b": {"log_perplexity": 7.5},
+                    },
+                ),
+                (
+                    "od3",
+                    {
+                        "model_a": {"log_perplexity": None},  # Missing
+                        "model_b": {"log_perplexity": 6.0},
+                    },
+                ),
+            ]
+        )
         models = ["model_a", "model_b"]
 
         result = paired_perplexity_test(od_pair_data, models, min_pairs=1)
@@ -690,9 +724,7 @@ class TestAggregateLmtadPerplexityResults:
     """Test aggregate_lmtad_perplexity_results main function"""
 
     @patch("tools.analyze_lmtad_spatial_results.load_source_perplexity_rates")
-    def test_aggregate_lmtad_perplexity_results_basic(
-        self, mock_load_source, tmp_path
-    ):
+    def test_aggregate_lmtad_perplexity_results_basic(self, mock_load_source, tmp_path):
         """Test basic aggregation of perplexity results"""
         # Setup mock data
         mock_load_source.return_value = None
@@ -781,7 +813,9 @@ class TestAggregateLmtadPerplexityResults:
         assert result == {}
 
     @patch("tools.analyze_lmtad_spatial_results.load_source_perplexity_rates")
-    def test_aggregate_lmtad_perplexity_results_no_result_files(self, mock_load_source, tmp_path):
+    def test_aggregate_lmtad_perplexity_results_no_result_files(
+        self, mock_load_source, tmp_path
+    ):
         """Test handling when no result files are found"""
         eval_dir = tmp_path / "eval"
         dataset_dir = eval_dir / "eval_lmtad_spatial" / "test_dataset"
@@ -800,7 +834,9 @@ class TestAggregateLmtadPerplexityResults:
         assert result == {}
 
     @patch("tools.analyze_lmtad_spatial_results.load_source_perplexity_rates")
-    def test_aggregate_lmtad_perplexity_results_fdr_correction(self, mock_load_source, tmp_path):
+    def test_aggregate_lmtad_perplexity_results_fdr_correction(
+        self, mock_load_source, tmp_path
+    ):
         """Test FDR correction is applied correctly"""
         eval_dir = tmp_path / "eval"
         dataset_dir = eval_dir / "eval_lmtad_spatial" / "test_dataset"
@@ -854,7 +890,9 @@ class TestAggregateLmtadPerplexityResults:
                     assert "significant_corrected" in test
 
     @patch("tools.analyze_lmtad_spatial_results.load_source_perplexity_rates")
-    def test_aggregate_lmtad_perplexity_results_json_serializable(self, mock_load_source, tmp_path):
+    def test_aggregate_lmtad_perplexity_results_json_serializable(
+        self, mock_load_source, tmp_path
+    ):
         """Test that result is JSON serializable"""
         eval_dir = tmp_path / "eval"
         dataset_dir = eval_dir / "eval_lmtad_spatial" / "test_dataset"

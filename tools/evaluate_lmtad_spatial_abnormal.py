@@ -363,7 +363,9 @@ def _build_cross_model_od_comparison(
         model_name = result["model"]
         trajectories = result["trajectories"]
         total_count = len(trajectories)
-        failed_count = sum(1 for t in trajectories if t.get("status") == "evaluation_failed")
+        failed_count = sum(
+            1 for t in trajectories if t.get("status") == "evaluation_failed"
+        )
         valid_count = total_count - failed_count
 
         # Extract finite perplexities for stats
@@ -395,7 +397,9 @@ def _build_cross_model_od_comparison(
                 "trajectory_count": total_count,
                 "valid_trajectory_count": valid_count,
                 "failed_count": failed_count,
-                "failed_rate": (failed_count / total_count * 100) if total_count > 0 else 0,
+                "failed_rate": (failed_count / total_count * 100)
+                if total_count > 0
+                else 0,
                 "log_perplexity_stats": log_perplexity_stats,
                 "segment_stats": segment_stats,
                 "od_pair_label_counts": dict(od_label_counts),
@@ -404,8 +408,14 @@ def _build_cross_model_od_comparison(
 
     # Build OD pair comparison data
     od_pair_results: Dict[Tuple[int, int], Dict[str, Any]] = {}
-    source_label_stats: Dict[str, Dict[str, Any]] = {None: {"count": 0}, "route_switch": {"count": 0}, "detour": {"count": 0}}
-    model_best_worst_counts: Dict[str, Dict[str, int]] = {name: {"best": 0, "worst": 0} for name in model_names}
+    source_label_stats: Dict[str, Dict[str, Any]] = {
+        None: {"count": 0},
+        "route_switch": {"count": 0},
+        "detour": {"count": 0},
+    }
+    model_best_worst_counts: Dict[str, Dict[str, int]] = {
+        name: {"best": 0, "worst": 0} for name in model_names
+    }
 
     for od_pair, model_trajs in od_pair_trajectories.items():
         origin, destination = od_pair
@@ -478,7 +488,9 @@ def _build_cross_model_od_comparison(
                         "model": model_name,
                         "trajectory_index": t.get("trajectory_index"),
                         "log_perplexity": t.get("log_perplexity"),
-                        "segment_log_perplexities": t.get("segment_log_perplexities", []),
+                        "segment_log_perplexities": t.get(
+                            "segment_log_perplexities", []
+                        ),
                         "status": t.get("status"),
                     }
                 )
@@ -524,7 +536,9 @@ def _build_cross_model_od_comparison(
 
         if label_pairs:
             deltas = [data["performance_delta"] for data in label_pairs.values()]
-            best_model_counts = Counter(data["best_model"] for data in label_pairs.values())
+            best_model_counts = Counter(
+                data["best_model"] for data in label_pairs.values()
+            )
 
             stats_by_source_label[str(label) if label else "unknown"] = {
                 "count": len(label_pairs),
@@ -538,14 +552,19 @@ def _build_cross_model_od_comparison(
     od_summary = {
         "total_unique_od_pairs": len(od_pair_results),
         "od_pairs_with_all_models": sum(
-            1 for data in od_pair_results.values() if len(data["per_model_stats"]) == len(model_names)
+            1
+            for data in od_pair_results.values()
+            if len(data["per_model_stats"]) == len(model_names)
         ),
         "average_performance_delta": avg_delta,
         "std_performance_delta": std_delta,
         "min_performance_delta": float(np.min(all_deltas)) if all_deltas else 0.0,
         "max_performance_delta": float(np.max(all_deltas)) if all_deltas else 0.0,
         "best_performing_models": model_best_worst_counts,
-        "source_label_distribution": {str(k) if k else "unknown": v["count"] for k, v in source_label_stats.items()},
+        "source_label_distribution": {
+            str(k) if k else "unknown": v["count"]
+            for k, v in source_label_stats.items()
+        },
         "statistics_by_source_label": stats_by_source_label,
     }
 
@@ -556,7 +575,9 @@ def _build_cross_model_od_comparison(
             "output_path": str(output_path) if output_path else None,
             "model_count": len(evaluation_results),
             "model_names": model_names,
-            "total_trajectories": sum(len(r["trajectories"]) for r in evaluation_results),
+            "total_trajectories": sum(
+                len(r["trajectories"]) for r in evaluation_results
+            ),
             "comparison_type": "cross_model_od_comparison",
             "version": "1.0",
         },
@@ -571,7 +592,7 @@ def _build_cross_model_od_comparison(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
             json.dump(output_data, f, indent=2)
-        logger.info(f"✅ Results saved successfully")
+        logger.info("✅ Results saved successfully")
 
     logger.info("✅ Cross-model OD comparison complete:")
     logger.info(f"   Total unique OD pairs: {len(od_pair_results)}")

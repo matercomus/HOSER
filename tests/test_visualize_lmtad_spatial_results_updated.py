@@ -7,13 +7,11 @@ refactored to use perplexity-based visualizations instead of classification-base
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
-import numpy as np
+from unittest.mock import patch
 import pytest
 import matplotlib
 
 matplotlib.use("Agg")  # Use non-interactive backend for testing
-import matplotlib.pyplot as plt
 
 # Import functions to test
 from tools.visualize_lmtad_spatial_results import (
@@ -42,15 +40,15 @@ class TestBackwardCompatibilityWrappers:
         """Test that deprecated function shows warning"""
         results = {
             "generated_data": {
-                "test_dataset": {
-                    "model_a": {"log_perplexity_stats": {"mean": 7.5}}
-                }
+                "test_dataset": {"model_a": {"log_perplexity_stats": {"mean": 7.5}}}
             }
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
-            plot_spatial_abnormality_rates_comparison(results, output_dir, "test_dataset")
+            plot_spatial_abnormality_rates_comparison(
+                results, output_dir, "test_dataset"
+            )
 
             # Check deprecation warning was logged
             assert any("deprecated" in record.message for record in caplog.records)
@@ -62,7 +60,9 @@ class TestBackwardCompatibilityWrappers:
             output_dir = Path(tmpdir)
 
             with patch("matplotlib.pyplot.savefig") as mock_savefig:
-                plot_route_switch_vs_detour_breakdown(results, output_dir, "test_dataset")
+                plot_route_switch_vs_detour_breakdown(
+                    results, output_dir, "test_dataset"
+                )
 
                 # Check deprecation warning was logged
                 assert any("deprecated" in record.message for record in caplog.records)
@@ -70,15 +70,11 @@ class TestBackwardCompatibilityWrappers:
                 # Check that savefig was called (notice plot created)
                 assert mock_savefig.called
 
-    def test_plot_statistical_significance_spatial_deprecation_warning(
-        self, caplog
-    ):
+    def test_plot_statistical_significance_spatial_deprecation_warning(self, caplog):
         """Test that deprecated function shows warning"""
         results = {
             "generated_data": {
-                "test_dataset": {
-                    "model_a": {"log_perplexity_stats": {"mean": 7.5}}
-                }
+                "test_dataset": {"model_a": {"log_perplexity_stats": {"mean": 7.5}}}
             }
         }
 
@@ -93,9 +89,7 @@ class TestBackwardCompatibilityWrappers:
         """Test that deprecated function shows warning"""
         results = {
             "generated_data": {
-                "test_dataset": {
-                    "model_a": {"log_perplexity_stats": {"mean": 7.5}}
-                }
+                "test_dataset": {"model_a": {"log_perplexity_stats": {"mean": 7.5}}}
             }
         }
 
@@ -110,9 +104,7 @@ class TestBackwardCompatibilityWrappers:
         """Test that wrappers call new functions correctly"""
         results = {
             "generated_data": {
-                "test_dataset": {
-                    "model_a": {"log_perplexity_stats": {"mean": 7.5}}
-                }
+                "test_dataset": {"model_a": {"log_perplexity_stats": {"mean": 7.5}}}
             }
         }
 
@@ -123,8 +115,12 @@ class TestBackwardCompatibilityWrappers:
             with patch(
                 "tools.visualize_lmtad_spatial_results.plot_perplexity_distribution_comparison"
             ) as mock_new_func:
-                plot_spatial_abnormality_rates_comparison(results, output_dir, "test_dataset")
-                mock_new_func.assert_called_once_with(results, output_dir, "test_dataset")
+                plot_spatial_abnormality_rates_comparison(
+                    results, output_dir, "test_dataset"
+                )
+                mock_new_func.assert_called_once_with(
+                    results, output_dir, "test_dataset"
+                )
 
 
 class TestLoadAggregatedResults:
@@ -135,9 +131,7 @@ class TestLoadAggregatedResults:
         results_file = tmp_path / "results.json"
         test_data = {
             "generated_data": {
-                "test_dataset": {
-                    "model_a": {"log_perplexity_stats": {"mean": 7.5}}
-                }
+                "test_dataset": {"model_a": {"log_perplexity_stats": {"mean": 7.5}}}
             }
         }
 
@@ -167,11 +161,14 @@ class TestPlotPerplexityDistributionComparison:
             output_dir = Path(tmpdir)
 
             # Mock model detection functions
-            with patch(
-                "tools.visualize_lmtad_spatial_results.get_model_color"
-            ) as mock_color, patch(
-                "tools.visualize_lmtad_spatial_results.get_display_name"
-            ) as mock_display:
+            with (
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_model_color"
+                ) as mock_color,
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_display_name"
+                ) as mock_display,
+            ):
                 mock_color.return_value = "#3498db"
                 mock_display.side_effect = lambda x: f"Model {x}"
 
@@ -227,11 +224,14 @@ class TestPlotPerplexityDistributionComparison:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
 
-            with patch(
-                "tools.visualize_lmtad_spatial_results.get_model_color"
-            ) as mock_color, patch(
-                "tools.visualize_lmtad_spatial_results.get_display_name"
-            ) as mock_display:
+            with (
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_model_color"
+                ) as mock_color,
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_display_name"
+                ) as mock_display,
+            ):
                 mock_color.return_value = "#3498db"
                 mock_display.side_effect = lambda x: x
 
@@ -298,7 +298,7 @@ class TestPlotPerOdPairPerplexityComparison:
             },
             "od_pair_perplexities": {
                 "test_dataset": {
-                    f"{i}-{i+100}": {
+                    f"{i}-{i + 100}": {
                         "model_a": {"mean_log_perplexity": 7.0 + i * 0.1},
                         "model_b": {"mean_log_perplexity": 6.5 + i * 0.1},
                     }
@@ -362,11 +362,14 @@ class TestPlotModelRankingsByPerplexity:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
 
-            with patch(
-                "tools.visualize_lmtad_spatial_results.get_model_color"
-            ) as mock_color, patch(
-                "tools.visualize_lmtad_spatial_results.get_display_name"
-            ) as mock_display:
+            with (
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_model_color"
+                ) as mock_color,
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_display_name"
+                ) as mock_display,
+            ):
                 mock_color.side_effect = ["#3498db", "#2ecc71", "#e74c3c"]
                 mock_display.side_effect = lambda x: f"Model {x}"
 
@@ -394,16 +397,21 @@ class TestPlotModelRankingsByPerplexity:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
 
-            with patch(
-                "tools.visualize_lmtad_spatial_results.get_model_color"
-            ) as mock_color, patch(
-                "tools.visualize_lmtad_spatial_results.get_display_name"
-            ) as mock_display:
+            with (
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_model_color"
+                ) as mock_color,
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_display_name"
+                ) as mock_display,
+            ):
                 mock_color.return_value = "#3498db"
                 mock_display.side_effect = lambda x: x
 
                 with patch("matplotlib.axes.Axes.barh") as mock_barh:
-                    plot_model_rankings_by_perplexity(results, output_dir, "test_dataset")
+                    plot_model_rankings_by_perplexity(
+                        results, output_dir, "test_dataset"
+                    )
 
                     # barh should be called (plot created)
                     assert mock_barh.called
@@ -706,11 +714,14 @@ class TestPlotComprehensivePerplexitySummary:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
 
-            with patch(
-                "tools.visualize_lmtad_spatial_results.get_model_color"
-            ) as mock_color, patch(
-                "tools.visualize_lmtad_spatial_results.get_display_name"
-            ) as mock_display:
+            with (
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_model_color"
+                ) as mock_color,
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_display_name"
+                ) as mock_display,
+            ):
                 mock_color.side_effect = ["#3498db", "#2ecc71", "#e74c3c"]
                 mock_display.side_effect = lambda x: f"Model {x}"
 
@@ -719,7 +730,9 @@ class TestPlotComprehensivePerplexitySummary:
                 )
 
                 # Check output files are created
-                output_file = output_dir / "comprehensive_perplexity_summary_test_dataset.png"
+                output_file = (
+                    output_dir / "comprehensive_perplexity_summary_test_dataset.png"
+                )
                 assert output_file.exists()
                 assert output_file.with_suffix(".svg").exists()
 
@@ -752,18 +765,25 @@ class TestPlotComprehensivePerplexitySummary:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
 
-            with patch(
-                "tools.visualize_lmtad_spatial_results.get_model_color"
-            ) as mock_color, patch(
-                "tools.visualize_lmtad_spatial_results.get_display_name"
-            ) as mock_display:
+            with (
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_model_color"
+                ) as mock_color,
+                patch(
+                    "tools.visualize_lmtad_spatial_results.get_display_name"
+                ) as mock_display,
+            ):
                 mock_color.return_value = "#3498db"
                 mock_display.side_effect = lambda x: x
 
-                plot_comprehensive_perplexity_summary(results, output_dir, "test_dataset")
+                plot_comprehensive_perplexity_summary(
+                    results, output_dir, "test_dataset"
+                )
 
                 # Should create plot with best/worst identification
-                output_file = output_dir / "comprehensive_perplexity_summary_test_dataset.png"
+                output_file = (
+                    output_dir / "comprehensive_perplexity_summary_test_dataset.png"
+                )
                 assert output_file.exists()
 
     def test_plot_comprehensive_perplexity_summary_range_calculation(self):
@@ -797,10 +817,14 @@ class TestPlotComprehensivePerplexitySummary:
             ) as mock_color:
                 mock_color.side_effect = ["#3498db", "#2ecc71"]
 
-                plot_comprehensive_perplexity_summary(results, output_dir, "test_dataset")
+                plot_comprehensive_perplexity_summary(
+                    results, output_dir, "test_dataset"
+                )
 
                 # Should calculate ranges: model_a = 7.0, model_b = 4.0
-                output_file = output_dir / "comprehensive_perplexity_summary_test_dataset.png"
+                output_file = (
+                    output_dir / "comprehensive_perplexity_summary_test_dataset.png"
+                )
                 assert output_file.exists()
 
 
@@ -811,9 +835,7 @@ class TestPlotGenerationIntegration:
         """Test that plots create output directory if it doesn't exist"""
         results = {
             "generated_data": {
-                "test_dataset": {
-                    "model_a": {"log_perplexity_stats": {"mean": 7.5}}
-                }
+                "test_dataset": {"model_a": {"log_perplexity_stats": {"mean": 7.5}}}
             }
         }
 
@@ -828,7 +850,9 @@ class TestPlotGenerationIntegration:
             ) as mock_color:
                 mock_color.return_value = "#3498db"
 
-                plot_perplexity_distribution_comparison(results, output_dir, "test_dataset")
+                plot_perplexity_distribution_comparison(
+                    results, output_dir, "test_dataset"
+                )
 
                 # Directory should be created
                 assert output_dir.exists()
@@ -843,9 +867,7 @@ class TestPlotGenerationIntegration:
         """Test that plots save in both PNG and SVG formats"""
         results = {
             "generated_data": {
-                "test_dataset": {
-                    "model_a": {"log_perplexity_stats": {"mean": 7.5}}
-                }
+                "test_dataset": {"model_a": {"log_perplexity_stats": {"mean": 7.5}}}
             }
         }
 
@@ -857,11 +879,17 @@ class TestPlotGenerationIntegration:
             ) as mock_color:
                 mock_color.return_value = "#3498db"
 
-                plot_perplexity_distribution_comparison(results, output_dir, "test_dataset")
+                plot_perplexity_distribution_comparison(
+                    results, output_dir, "test_dataset"
+                )
 
                 # Both PNG and SVG should exist
-                png_file = output_dir / "perplexity_distribution_comparison_test_dataset.png"
-                svg_file = output_dir / "perplexity_distribution_comparison_test_dataset.svg"
+                png_file = (
+                    output_dir / "perplexity_distribution_comparison_test_dataset.png"
+                )
+                svg_file = (
+                    output_dir / "perplexity_distribution_comparison_test_dataset.svg"
+                )
 
                 assert png_file.exists()
                 assert svg_file.exists()
@@ -885,7 +913,9 @@ class TestPlotGenerationIntegration:
             ) as mock_color:
                 mock_color.return_value = "#3498db"
 
-                plot_perplexity_distribution_comparison(results, output_dir, "test_dataset")
+                plot_perplexity_distribution_comparison(
+                    results, output_dir, "test_dataset"
+                )
 
                 # Should handle many models gracefully
                 output_file = (
@@ -897,9 +927,7 @@ class TestPlotGenerationIntegration:
         """Test that plots use correct styling parameters"""
         results = {
             "generated_data": {
-                "test_dataset": {
-                    "model_a": {"log_perplexity_stats": {"mean": 7.5}}
-                }
+                "test_dataset": {"model_a": {"log_perplexity_stats": {"mean": 7.5}}}
             }
         }
 
@@ -921,7 +949,7 @@ class TestPlotGenerationIntegration:
                     # Check that bbox_inches='tight' is used
                     call_args = mock_savefig.call_args
                     assert call_args is not None
-                    assert 'bbox_inches' in call_args.kwargs or len(call_args.args) > 1
+                    assert "bbox_inches" in call_args.kwargs or len(call_args.args) > 1
 
 
 class TestErrorHandling:

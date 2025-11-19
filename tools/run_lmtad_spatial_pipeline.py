@@ -62,8 +62,6 @@ from tools.visualize_lmtad_spatial_results import (  # noqa: E402
     load_aggregated_results,
     plot_model_rankings_spatial,
     plot_perplexity_distribution_comparison,
-    plot_route_switch_vs_detour_breakdown,
-    plot_spatial_abnormality_rates_comparison,
     plot_statistical_significance_spatial,
 )
 
@@ -286,7 +284,9 @@ def run_lmtad_spatial_pipeline(
                         logger.debug(f"  Removed {csv_file.name}")
 
                 logger.info(f"{'=' * 70}")
-                logger.info("Step: Generate trajectories for perplexity-based evaluation")
+                logger.info(
+                    "Step: Generate trajectories for perplexity-based evaluation"
+                )
                 logger.info(f"{'=' * 70}")
                 try:
                     generate_spatial_abnormal_trajectories(
@@ -365,7 +365,7 @@ def run_lmtad_spatial_pipeline(
                                 f"✅ Evaluate trajectories with LM-TAD perplexity: {model_name} completed successfully"
                             )
                             logger.info(
-                                f"   📊 Capturing per-road-segment perplexity for detailed analysis"
+                                "   📊 Capturing per-road-segment perplexity for detailed analysis"
                             )
                             success_count += 1
                         except Exception as e:
@@ -423,7 +423,9 @@ def run_lmtad_spatial_pipeline(
                 )
                 success_count += 1
             except Exception as e:
-                logger.error(f"❌ Aggregate LM-TAD perplexity-based results failed: {e}")
+                logger.error(
+                    f"❌ Aggregate LM-TAD perplexity-based results failed: {e}"
+                )
                 failed_steps.append("Aggregation")
     else:
         logger.info("⏭️  Skipping aggregation")
