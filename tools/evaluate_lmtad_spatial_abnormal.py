@@ -611,6 +611,7 @@ def evaluate_spatial_abnormal_trajectories(
     batch_size: int = 128,
     lmtad_repo: Path | None = None,
     od_pairs_file: Path | None = None,
+    eval_config: Dict | None = None,
 ) -> Dict:
     """Evaluate generated trajectories with LM-TAD and classify spatial abnormality types
 
@@ -623,6 +624,7 @@ def evaluate_spatial_abnormal_trajectories(
         batch_size: Batch size for evaluation
         lmtad_repo: Path to LM-TAD repository root (auto-detected from checkpoint if None)
         od_pairs_file: Path to OD pairs JSON file (optional, for using known labels)
+        eval_config: Evaluation configuration dictionary with grid settings (optional)
 
     Returns:
         Dictionary with evaluation results and classifications
@@ -756,18 +758,46 @@ def evaluate_spatial_abnormal_trajectories(
     logger.info("📂 Extracting road centroids from roadmap...")
     road_centroids, boundary_from_roadmap = extract_road_centroids(roadmap_file)
 
-    # Use same grid_size and downsample_factor as training (matches config files)
+    # Use grid_size and downsample_factor from config or defaults
     # Default: grid_size=0.001, downsample_factor=1 (no downsampling)
     grid_size = 0.001
     downsample_factor = 1
 
-    # If we have expected grid dimensions from teacher, compute boundaries to match exactly
-    # Otherwise, use boundaries extracted from roadmap
-    if teacher_hw is not None:
-        vh, vw = teacher_hw
+    # Check for Porto grid configuration from config file
+    porto_grid_hw = None
+    if eval_config and dataset == "porto_hoser":
+        porto_config = eval_config.get("porto_grid_config", {})
+        # Use grid_size from config if available
+        config_grid_size = porto_config.get("grid_size")
+        if config_grid_size is not None:
+            grid_size = config_grid_size
+            logger.info(f"📏 Using grid_size from config: {grid_size}")
+
+        expected_dims = porto_config.get("expected_dimensions", {})
+        height = expected_dims.get("height")
+        width = expected_dims.get("width")
+        if height and width:
+            porto_grid_hw = (height, width)
+            logger.info(f"📋 Using Porto grid dimensions from config: {porto_grid_hw}")
+
+    # Priority order for grid dimensions:
+    # 1. Porto config file (most reliable for Porto)
+    # 2. Teacher model dimensions (from checkpoint)
+    # 3. Fallback to roadmap boundaries
+    grid_hw_to_use = None
+    source = ""
+
+    if porto_grid_hw is not None:
+        grid_hw_to_use = porto_grid_hw
+        source = "Porto config file"
+    elif teacher_hw is not None:
+        grid_hw_to_use = teacher_hw
+        source = "teacher model"
+
+    if grid_hw_to_use is not None:
+        vh, vw = grid_hw_to_use
         logger.info(
-            f"📐 Computing boundaries from known grid dimensions {(vh, vw)} "
-            f"(from teacher/config)"
+            f"📐 Computing boundaries from known grid dimensions {(vh, vw)} ({source})"
         )
 
         # Compute required spans from expected grid dimensions
@@ -797,6 +827,7 @@ def evaluate_spatial_abnormal_trajectories(
     else:
         # Fallback: use boundaries extracted from roadmap
         boundary = boundary_from_roadmap
+        logger.info("📋 Using boundaries extracted from roadmap as fallback")
         logger.warning(
             "⚠️  Using boundaries from roadmap (expected grid dimensions not available). "
             "Grid dimensions may not match training exactly."
@@ -976,8 +1007,30 @@ Examples:
         default=None,
         help="Path to LM-TAD repository root (auto-detected from checkpoint if not provided)",
     )
+    parser.add_argument(
+        "--eval-config",
+        type=Path,
+        default=None,
+        help="Path to evaluation configuration YAML file (optional)",
+    )
 
     args = parser.parse_args()
+
+    # Load evaluation config if provided
+    eval_config = None
+    if args.eval_config:
+        if not args.eval_config.exists():
+            logger.error(f"Evaluation config file not found: {args.eval_config}")
+            return 1
+        try:
+            import yaml
+
+            with open(args.eval_config, "r") as f:
+                eval_config = yaml.safe_load(f)
+            logger.info(f"📋 Loaded evaluation config from: {args.eval_config}")
+        except Exception as e:
+            logger.error(f"Failed to load evaluation config: {e}")
+            return 1
 
     # Validate inputs
     if not args.trajectory_file.exists():
@@ -1002,6 +1055,7 @@ Examples:
             device=args.device,
             batch_size=args.batch_size,
             lmtad_repo=args.lmtad_repo,
+            eval_config=eval_config,
         )
 
         # Save results

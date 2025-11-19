@@ -139,6 +139,7 @@ def run_lmtad_spatial_pipeline(
     max_od_pairs: int = 250,
     lmtad_repo: Path | None = None,
     force: bool = False,
+    eval_config: Dict | None = None,
 ) -> bool:
     """Run complete LM-TAD perplexity-based evaluation pipeline
 
@@ -356,6 +357,7 @@ def run_lmtad_spatial_pipeline(
                                 device="cuda:0",
                                 batch_size=128,
                                 lmtad_repo=lmtad_repo,
+                                eval_config=eval_config,
                             )
                             # Save results
                             output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -628,8 +630,30 @@ Prerequisites:
         action="store_true",
         help="Force rerun even if output files exist (regenerates trajectories and re-evaluates)",
     )
+    parser.add_argument(
+        "--eval-config",
+        type=Path,
+        default=None,
+        help="Path to evaluation configuration YAML file (optional)",
+    )
 
     args = parser.parse_args()
+
+    # Load evaluation config if provided
+    eval_config = None
+    if args.eval_config:
+        if not args.eval_config.exists():
+            logger.error(f"Evaluation config file not found: {args.eval_config}")
+            return 1
+        try:
+            import yaml
+
+            with open(args.eval_config, "r") as f:
+                eval_config = yaml.safe_load(f)
+            logger.info(f"📋 Loaded evaluation config from: {args.eval_config}")
+        except Exception as e:
+            logger.error(f"Failed to load evaluation config: {e}")
+            return 1
 
     try:
         success = run_lmtad_spatial_pipeline(
@@ -647,6 +671,7 @@ Prerequisites:
             max_od_pairs=args.max_od_pairs,
             lmtad_repo=args.lmtad_repo,
             force=args.force,
+            eval_config=eval_config,
         )
         sys.exit(0 if success else 1)
     except Exception as e:
