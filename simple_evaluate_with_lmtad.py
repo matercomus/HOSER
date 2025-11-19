@@ -161,7 +161,8 @@ def evaluate_trajectories_direct(
     device: str,
     batch_size: int = 128,
     vocab_size: Optional[int] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+    return_segment_perplexity: bool = False,
+) -> Tuple[np.ndarray, np.ndarray, Optional[List[List[float]]]]:
     """
     Evaluate trajectories using LM-TAD teacher by computing perplexity.
 
@@ -179,10 +180,15 @@ def evaluate_trajectories_direct(
     Returns:
         perplexities: Array of perplexity values (lower is better)
         outliers: Binary array (1 = outlier, 0 = normal) based on threshold
+        segment_log_perplexities: Optional list of per-segment log perplexities
+            (list per trajectory, values are -log prob for each segment).
     """
     # Note: LMTADTeacher is already in eval mode when loaded
     all_perplexities = []
     all_outlier_scores = []
+    segment_log_perplexities: Optional[List[List[float]]] = (
+        [] if return_segment_perplexity else None
+    )
 
     logger.info(f"Evaluating {len(trajectories)} trajectories...")
 
@@ -194,6 +200,9 @@ def evaluate_trajectories_direct(
             logger.info(f"  Processed {traj_idx}/{len(trajectories)}...")
 
         try:
+            current_segment_logs: List[float] = (
+                [] if return_segment_perplexity else None
+            )  # type: ignore[assignment]
             # Validate road IDs are within bounds
             max_road_id = road_to_token.shape[0] - 1
             invalid_roads = [rid for rid in road_ids if rid < 0 or rid > max_road_id]
@@ -210,6 +219,8 @@ def evaluate_trajectories_direct(
                     )
                     all_perplexities.append(float("inf"))
                     all_outlier_scores.append(float("inf"))
+                    if return_segment_perplexity:
+                        segment_log_perplexities.append([])
                     continue
 
             # Convert HOSER road IDs to LM-TAD grid tokens
@@ -232,6 +243,8 @@ def evaluate_trajectories_direct(
                         )
                         all_perplexities.append(float("inf"))
                         all_outlier_scores.append(float("inf"))
+                        if return_segment_perplexity:
+                            segment_log_perplexities.append([])
                         continue
 
             # Add SOT token if available
@@ -242,6 +255,8 @@ def evaluate_trajectories_direct(
                 # Too short to evaluate
                 all_perplexities.append(float("inf"))
                 all_outlier_scores.append(1.0)  # Mark as outlier
+                if return_segment_perplexity:
+                    segment_log_perplexities.append([])
                 continue
 
             # Compute perplexity by evaluating each position
@@ -280,12 +295,16 @@ def evaluate_trajectories_direct(
 
                 log_prob = torch.log(pred_dist[target_token] + 1e-10)
                 log_probs.append(log_prob.item())
+                if return_segment_perplexity:
+                    current_segment_logs.append(float(-log_prob.item()))
 
             # Compute log perplexity = -average log prob (matches source dataset format)
             if evaluation_failed or len(log_probs) == 0:
                 # No valid log probabilities (all tokens were invalid or evaluation failed)
                 all_perplexities.append(float("inf"))
                 all_outlier_scores.append(float("inf"))
+                if return_segment_perplexity:
+                    segment_log_perplexities.append([])
             else:
                 avg_log_prob = np.mean(log_probs)
                 log_perplexity = float(-avg_log_prob)
@@ -293,12 +312,16 @@ def evaluate_trajectories_direct(
                 # Simple outlier detection: high log perplexity = outlier
                 # Use threshold based on distribution (can be tuned)
                 all_outlier_scores.append(log_perplexity)
+                if return_segment_perplexity:
+                    segment_log_perplexities.append(current_segment_logs.copy())
 
         except Exception as e:
             logger.error(f"  Trajectory {traj_idx}: Evaluation failed: {e}")
             # Mark as failed/outlier
             all_perplexities.append(float("inf"))
             all_outlier_scores.append(float("inf"))
+            if return_segment_perplexity:
+                segment_log_perplexities.append([])
 
     # Convert outlier scores to binary labels using threshold
     # Use 95th percentile as threshold (adjustable)
@@ -310,7 +333,7 @@ def evaluate_trajectories_direct(
     else:
         outliers = np.array([])
 
-    return np.array(all_perplexities), outliers
+    return np.array(all_perplexities), outliers, segment_log_perplexities
 
 
 def main():
@@ -454,7 +477,7 @@ def main():
             logger.info(f"  Loaded {len(trajectories)} trajectories")
 
             # Evaluate
-            perplexities, outliers = evaluate_trajectories_direct(
+            perplexities, outliers, _ = evaluate_trajectories_direct(
                 trajectories=trajectories,
                 model=model,
                 road_to_token=road_to_token,

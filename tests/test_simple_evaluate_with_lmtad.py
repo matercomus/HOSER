@@ -38,7 +38,7 @@ class TestBoundsChecking:
         # Trajectory with some valid and some invalid road IDs
         trajectories = [[50, 150, 60, 200, 70]]  # 150 and 200 are out of bounds
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -63,7 +63,7 @@ class TestBoundsChecking:
         # All road IDs are out of bounds
         trajectories = [[150, 200, 300]]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -95,7 +95,7 @@ class TestBoundsChecking:
         # Trajectory with negative road IDs
         trajectories = [[-10, 50, -5, 60]]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -124,7 +124,7 @@ class TestBoundsChecking:
         # Mix of valid, invalid (too high), and negative
         trajectories = [[10, 150, 20, -5, 30, 200]]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -154,7 +154,7 @@ class TestBoundsChecking:
         # Road ID at maximum (100) should be valid
         trajectories = [[0, 50, 100]]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -183,7 +183,7 @@ class TestBoundsChecking:
         # Road ID 101 is out of bounds (max is 100)
         trajectories = [[0, 50, 101]]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -206,7 +206,7 @@ class TestBoundsChecking:
         # All invalid, becomes empty after filtering
         trajectories = [[150, 200]]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -229,7 +229,7 @@ class TestBoundsChecking:
         # Only one valid road ID (needs at least 2 for evaluation)
         trajectories = [[150, 200, 50]]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -262,7 +262,7 @@ class TestBoundsChecking:
             [-10, 20],  # One negative, one valid (too short after filtering)
         ]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -280,6 +280,68 @@ class TestBoundsChecking:
         assert not np.isinf(log_perplexities[2])
         # Fourth should be Infinity (too short after filtering)
         assert np.isinf(log_perplexities[3])
+
+
+class TestSegmentPerplexityCapture:
+    """Tests for per-segment log perplexity capture."""
+
+    def test_segment_perplexity_enabled_returns_values(self):
+        mock_model = MagicMock()
+        mock_model.sot_token.return_value = None
+
+        dists = [
+            torch.tensor([0.1, 0.7, 0.2], dtype=torch.float32),
+            torch.tensor([0.25, 0.25, 0.5], dtype=torch.float32),
+        ]
+
+        def mock_predict(context):
+            return dists.pop(0)
+
+        mock_model.predict_next_distribution.side_effect = mock_predict
+        road_to_token = torch.arange(3)
+        trajectories = [[0, 1, 2]]
+
+        log_perplexities, outlier_scores, segment_logs = evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=mock_model,
+            road_to_token=road_to_token,
+            device="cpu",
+            batch_size=128,
+            vocab_size=3,
+            return_segment_perplexity=True,
+        )
+
+        assert len(log_perplexities) == 1
+        assert not np.isinf(log_perplexities[0])
+        assert segment_logs is not None
+        assert len(segment_logs) == 1
+        expected = [
+            -np.log(0.7),
+            -np.log(0.5),
+        ]
+        np.testing.assert_allclose(segment_logs[0], expected, rtol=1e-6)
+
+    def test_segment_perplexity_disabled_returns_none(self):
+        mock_model = MagicMock()
+        mock_model.sot_token.return_value = None
+
+        def mock_predict(context):
+            return torch.tensor([0.5, 0.5], dtype=torch.float32)
+
+        mock_model.predict_next_distribution.side_effect = mock_predict
+        road_to_token = torch.arange(2)
+        trajectories = [[0, 1]]
+
+        _, _, segment_logs = evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=mock_model,
+            road_to_token=road_to_token,
+            device="cpu",
+            batch_size=128,
+            vocab_size=2,
+        )
+
+        assert segment_logs is None
 
 
 class TestVocabSizeTokenValidation:
@@ -315,7 +377,7 @@ class TestVocabSizeTokenValidation:
         ]  # Road 50 and 100 will produce tokens 50 and 100
         # Token 50 is valid, token 100 is invalid (>= vocab_size)
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token_large,
@@ -340,7 +402,7 @@ class TestVocabSizeTokenValidation:
 
         trajectories = [[0, 1, 2, 3, 4]]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -383,7 +445,7 @@ class TestVocabSizeTokenValidation:
             [0, 1, 2, 5, 3]
         ]  # Roads: 0,1,2 -> tokens 0,1,2 (valid), 5 -> token 100 (invalid), 3 -> token 3 (valid)
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -421,7 +483,7 @@ class TestVocabSizeTokenValidation:
             [0, 1, 2, 5, 3]
         ]  # Tokens: 0,1,2 (valid), 50 (exceeds pred_dist), 3 (valid)
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -452,7 +514,7 @@ class TestVocabSizeTokenValidation:
 
         trajectories = [[0, 1, 2, 3, 4]]
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -483,7 +545,7 @@ class TestVocabSizeTokenValidation:
 
         trajectories = [[0, 5, 1, 6, 2]]  # Mix: valid, invalid, valid, invalid, valid
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,
@@ -512,7 +574,7 @@ class TestVocabSizeTokenValidation:
 
         trajectories = [[0, 1, 2, 3, 4]]  # Tokens 95-99 are valid, 100-104 are invalid
 
-        log_perplexities, outlier_scores = evaluate_trajectories_direct(
+        log_perplexities, outlier_scores, _ = evaluate_trajectories_direct(
             trajectories=trajectories,
             model=mock_model,
             road_to_token=road_to_token,

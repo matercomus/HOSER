@@ -1,8 +1,9 @@
 """Tests for evaluate_lmtad_spatial_abnormal module."""
 
+import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, patch
 import pytest
 
 # Add parent directory to path for imports
@@ -13,8 +14,6 @@ if str(_parent_dir) not in sys.path:
 from tools.evaluate_lmtad_spatial_abnormal import (  # noqa: E402
     detect_lmtad_repo_from_checkpoint,
     evaluate_spatial_abnormal_trajectories,
-    classify_spatial_abnormality_type,
-    load_source_statistics,
 )
 
 
@@ -81,7 +80,7 @@ class TestEvaluateSpatialAbnormalTrajectories:
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
-    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.extract_road_centroids")
     @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
     @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
     def test_evaluate_with_explicit_lmtad_repo(
@@ -104,7 +103,10 @@ class TestEvaluateSpatialAbnormalTrajectories:
         }
         import numpy as np
 
-        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+        mock_load_centroids.return_value = (
+            np.array([[0.0, 0.0], [1.0, 1.0]]),
+            {"min_lat": 0.0, "max_lat": 1.0, "min_lng": 0.0, "max_lng": 1.0},
+        )
 
         mock_mapper = MagicMock()
         mock_mapper.map_all.return_value = np.array([0, 1])
@@ -118,6 +120,7 @@ class TestEvaluateSpatialAbnormalTrajectories:
         mock_evaluate.return_value = (
             np.array([7.0, 8.5]),  # log_perplexities
             np.array([False, True]),  # outliers
+            [[0.5, 0.6], [0.7, 0.8]],
         )
 
         # Create test files
@@ -153,7 +156,7 @@ class TestEvaluateSpatialAbnormalTrajectories:
                 "tools.evaluate_lmtad_spatial_abnormal.__file__",
                 str(tmp_path / "tools" / "evaluate_lmtad_spatial_abnormal.py"),
             ):
-                _ = evaluate_spatial_abnormal_trajectories(
+                result = evaluate_spatial_abnormal_trajectories(
                     trajectory_file=trajectory_file,
                     lmtad_checkpoint=checkpoint,
                     source_eval_dir=source_eval_dir,
@@ -166,6 +169,12 @@ class TestEvaluateSpatialAbnormalTrajectories:
         mock_lmtad_teacher.assert_called_once()
         call_kwargs = mock_lmtad_teacher.call_args[1]
         assert str(call_kwargs["repo_path"]) == str(tmp_path / "LMTAD")
+
+        assert result["total_trajectories"] == 2
+        assert result["failed_trajectory_count"] == 0
+        assert len(result["trajectories"]) == 2
+        assert result["trajectories"][0]["log_perplexity"] == 7.0
+        assert result["trajectories"][0]["segment_log_perplexities"] == [0.5, 0.6]
 
     @patch("tools.evaluate_lmtad_spatial_abnormal.detect_lmtad_repo_from_checkpoint")
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
@@ -194,7 +203,7 @@ class TestEvaluateSpatialAbnormalTrajectories:
         source_eval_dir.mkdir()
 
         with patch(
-            "tools.evaluate_lmtad_spatial_abnormal.load_road_centroids"
+            "tools.evaluate_lmtad_spatial_abnormal.extract_road_centroids"
         ) as mock_centroids:
             with patch(
                 "tools.evaluate_lmtad_spatial_abnormal.GridMapper"
@@ -204,9 +213,21 @@ class TestEvaluateSpatialAbnormalTrajectories:
                 ) as mock_eval:
                     import numpy as np
 
-                    mock_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+                    mock_centroids.return_value = (
+                        np.array([[0.0, 0.0], [1.0, 1.0]]),
+                        {
+                            "min_lat": 0.0,
+                            "max_lat": 1.0,
+                            "min_lng": 0.0,
+                            "max_lng": 1.0,
+                        },
+                    )
                     mock_mapper.return_value.map_all.return_value = np.array([0, 1])
-                    mock_eval.return_value = (np.array([7.0]), np.array([False]))
+                    mock_eval.return_value = (
+                        np.array([7.0]),
+                        np.array([False]),
+                        [[0.25, 0.5]],
+                    )
 
                     # Create roadmap file in proper location
                     data_dir = tmp_path / "data" / "test_dataset"
@@ -235,7 +256,7 @@ class TestEvaluateSpatialAbnormalTrajectories:
                                 / "evaluate_lmtad_spatial_abnormal.py"
                             ),
                         ):
-                            _ = evaluate_spatial_abnormal_trajectories(
+                            result = evaluate_spatial_abnormal_trajectories(
                                 trajectory_file=trajectory_file,
                                 lmtad_checkpoint=checkpoint,
                                 source_eval_dir=source_eval_dir,
@@ -249,6 +270,8 @@ class TestEvaluateSpatialAbnormalTrajectories:
         mock_lmtad_teacher.assert_called_once()
         call_kwargs = mock_lmtad_teacher.call_args[1]
         assert str(call_kwargs["repo_path"]) == str(detected_repo)
+        assert mock_eval.call_args[1]["return_segment_perplexity"] is True
+        assert result["segment_stats"]["per_index"][0]["count"] == 1
 
     def test_sys_path_ordering_with_lmtad_repo(self, tmp_path):
         """Test that LM-TAD code path is added to sys.path before HOSER project root."""
@@ -339,91 +362,13 @@ class TestEvaluateSpatialAbnormalTrajectories:
             )
 
 
-class TestClassifySpatialAbnormalityType:
-    """Tests for classify_spatial_abnormality_type function."""
-
-    def test_classify_route_switch(self):
-        """Test classification of route switch trajectory."""
-        source_stats = {"route_switch_mean": 7.03, "detour_mean": 8.41}
-        log_perp = 7.0  # Between route_switch_mean - 1.0 and detour_mean - 0.5
-
-        result = classify_spatial_abnormality_type(log_perp, source_stats)
-        assert result == "route_switch"
-
-    def test_classify_detour(self):
-        """Test classification of detour trajectory."""
-        source_stats = {"route_switch_mean": 7.03, "detour_mean": 8.41}
-        log_perp = 9.0  # Above detour_mean - 0.5
-
-        result = classify_spatial_abnormality_type(log_perp, source_stats)
-        assert result == "detour"
-
-    def test_classify_non_outlier(self):
-        """Test classification of non-outlier trajectory."""
-        source_stats = {"route_switch_mean": 7.03, "detour_mean": 8.41}
-        log_perp = 5.0  # Below route_switch_mean - 1.0
-
-        result = classify_spatial_abnormality_type(log_perp, source_stats)
-        assert result == "non_outlier"
-
-    def test_classify_with_default_stats(self):
-        """Test classification with default statistics when not provided."""
-        source_stats = {}
-        log_perp = 7.0
-
-        result = classify_spatial_abnormality_type(log_perp, source_stats)
-        # Should use defaults: route_switch_mean=7.03, detour_mean=8.41
-        assert result == "route_switch"
-
-
-class TestLoadSourceStatistics:
-    """Tests for load_source_statistics function."""
-
-    def test_load_statistics_from_markdown(self, tmp_path):
-        """Test loading statistics from EVALUATION_ANALYSIS.md."""
-        eval_dir = tmp_path / "eval"
-        eval_dir.mkdir()
-        md_file = eval_dir / "EVALUATION_ANALYSIS.md"
-
-        md_content = """
-# Evaluation Analysis
-
-## Spatial Abnormality Statistics
-- Route Switch Mean: 7.03
-- Detour Mean: 8.41
-- Route Switch Rate: 0.0327
-- Detour Rate: 0.0327
-"""
-        md_file.write_text(md_content)
-
-        with patch(
-            "tools.evaluate_lmtad_spatial_abnormal.Path.exists", return_value=True
-        ):
-            with patch("builtins.open", mock_open(read_data=md_content)):
-                stats = load_source_statistics(eval_dir)
-                # Function should extract or use defaults
-                assert isinstance(stats, dict)
-
-    def test_load_statistics_fallback_to_defaults(self, tmp_path):
-        """Test that function falls back to defaults when file doesn't exist."""
-        eval_dir = tmp_path / "eval"
-        eval_dir.mkdir()
-
-        with patch(
-            "tools.evaluate_lmtad_spatial_abnormal.Path.exists", return_value=False
-        ):
-            stats = load_source_statistics(eval_dir)
-            # Should return dict with defaults or empty
-            assert isinstance(stats, dict)
-
-
 class TestFailedEvaluationsAndEdgeCases:
     """Tests for failed evaluations, edge cases, and bounds checking."""
 
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
-    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.extract_road_centroids")
     @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
     @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
     def test_all_trajectories_fail_evaluation(
@@ -446,7 +391,10 @@ class TestFailedEvaluationsAndEdgeCases:
             "route_switch_mean": 7.03,
             "detour_mean": 8.41,
         }
-        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+        mock_load_centroids.return_value = (
+            np.array([[0.0, 0.0], [1.0, 1.0]]),
+            {"min_lat": 0.0, "max_lat": 1.0, "min_lng": 0.0, "max_lng": 1.0},
+        )
 
         mock_mapper = MagicMock()
         mock_mapper.map_all.return_value = np.array([0, 1])
@@ -459,6 +407,7 @@ class TestFailedEvaluationsAndEdgeCases:
         mock_evaluate.return_value = (
             np.array([np.inf, np.inf]),  # All Infinity
             np.array([True, True]),
+            [[], []],
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -497,19 +446,17 @@ class TestFailedEvaluationsAndEdgeCases:
                     device="cpu",
                 )
 
-        # Verify all trajectories marked as evaluation_failed
         assert result["total_trajectories"] == 2
-        assert result["evaluation_failed_count"] == 2
-        assert result["evaluation_failed_rate"] == 100.0
-        assert result["valid_trajectories"] == 0
-        assert result["spatial_abnormal_count"] == 0
-        assert result["by_type"]["evaluation_failed"]["count"] == 2
-        assert all(c == "evaluation_failed" for c in result["classifications"])
+        assert result["failed_trajectory_count"] == 2
+        assert result["failed_trajectory_rate"] == 100.0
+        assert result["valid_trajectory_count"] == 0
+        assert result["log_perplexity_stats"] == {}
+        assert all(t["status"] == "evaluation_failed" for t in result["trajectories"])
 
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
-    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.extract_road_centroids")
     @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
     @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
     def test_mixed_successful_and_failed_evaluations(
@@ -531,7 +478,10 @@ class TestFailedEvaluationsAndEdgeCases:
             "route_switch_mean": 7.03,
             "detour_mean": 8.41,
         }
-        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+        mock_load_centroids.return_value = (
+            np.array([[0.0, 0.0], [1.0, 1.0]]),
+            {"min_lat": 0.0, "max_lat": 1.0, "min_lng": 0.0, "max_lng": 1.0},
+        )
 
         mock_mapper = MagicMock()
         mock_mapper.map_all.return_value = np.array([0, 1])
@@ -544,6 +494,7 @@ class TestFailedEvaluationsAndEdgeCases:
         mock_evaluate.return_value = (
             np.array([np.inf, 7.5, np.inf]),  # Mixed results
             np.array([True, True, True]),
+            [[], [0.2, 0.3], []],
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -582,24 +533,18 @@ class TestFailedEvaluationsAndEdgeCases:
                     device="cpu",
                 )
 
-        # Verify mixed results
         assert result["total_trajectories"] == 3
-        assert result["evaluation_failed_count"] == 2
-        assert result["evaluation_failed_rate"] == pytest.approx(66.67, abs=0.01)
-        assert result["valid_trajectories"] == 1
-        assert result["spatial_abnormal_count"] == 1  # One route_switch
-        assert result["by_type"]["route_switch"]["count"] == 1
-        assert result["by_type"]["evaluation_failed"]["count"] == 2
-        assert result["classifications"] == [
-            "evaluation_failed",
-            "route_switch",
-            "evaluation_failed",
-        ]
+        assert result["failed_trajectory_count"] == 2
+        assert result["failed_trajectory_rate"] == pytest.approx(66.67, abs=0.01)
+        assert result["valid_trajectory_count"] == 1
+        assert result["log_perplexity_stats"]["mean"] == pytest.approx(7.5)
+        statuses = [t["status"] for t in result["trajectories"]]
+        assert statuses == ["evaluation_failed", "ok", "evaluation_failed"]
 
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
-    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.extract_road_centroids")
     @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
     @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
     def test_edge_case_all_classification_types(
@@ -627,7 +572,10 @@ class TestFailedEvaluationsAndEdgeCases:
             "route_switch_mean": 7.03,
             "detour_mean": 8.41,
         }
-        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+        mock_load_centroids.return_value = (
+            np.array([[0.0, 0.0], [1.0, 1.0]]),
+            {"min_lat": 0.0, "max_lat": 1.0, "min_lng": 0.0, "max_lng": 1.0},
+        )
 
         mock_mapper = MagicMock()
         mock_mapper.map_all.return_value = np.array([0, 1])
@@ -636,10 +584,11 @@ class TestFailedEvaluationsAndEdgeCases:
         mock_model = MagicMock()
         mock_lmtad_teacher.return_value = mock_model
 
-        # All types: failed, route_switch, detour, non_outlier, failed
+        # All types: failed, labeled route_switch, labeled detour, non_outlier, failed
         mock_evaluate.return_value = (
             np.array([np.inf, 7.5, 9.0, 3.0, np.inf]),
-            np.array([True, True, True, False, True]),
+            np.array([True, False, False, False, True]),
+            [[], [0.1, 0.2], [0.3, 0.4], [0.05], []],
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -669,6 +618,18 @@ class TestFailedEvaluationsAndEdgeCases:
                 "tools.evaluate_lmtad_spatial_abnormal.__file__",
                 str(tmp_path / "tools" / "evaluate_lmtad_spatial_abnormal.py"),
             ):
+                od_pairs_file = tmp_path / "od_pairs.json"
+                od_pairs_file.write_text(
+                    json.dumps(
+                        {
+                            "od_pairs_by_type": {
+                                "route_switch": [[4, 6]],
+                                "detour": [[7, 9]],
+                            }
+                        }
+                    )
+                )
+
                 result = evaluate_spatial_abnormal_trajectories(
                     trajectory_file=trajectory_file,
                     lmtad_checkpoint=checkpoint,
@@ -676,29 +637,23 @@ class TestFailedEvaluationsAndEdgeCases:
                     dataset="test_dataset",
                     lmtad_repo=tmp_path / "LMTAD",
                     device="cpu",
+                    od_pairs_file=od_pairs_file,
                 )
 
-        # Verify all classification types present
         assert result["total_trajectories"] == 5
-        assert result["evaluation_failed_count"] == 2
-        assert result["valid_trajectories"] == 3
-        assert result["by_type"]["route_switch"]["count"] == 1
-        assert result["by_type"]["detour"]["count"] == 1
-        assert result["by_type"]["non_outlier"]["count"] == 1
-        assert result["by_type"]["evaluation_failed"]["count"] == 2
-        assert result["spatial_abnormal_count"] == 2  # route_switch + detour
-        assert result["classifications"] == [
-            "evaluation_failed",
-            "route_switch",
-            "detour",
-            "non_outlier",
-            "evaluation_failed",
-        ]
+        assert result["failed_trajectory_count"] == 2
+        assert result["valid_trajectory_count"] == 3
+        assert result["od_pair_label_counts"]["route_switch"] == 1
+        assert result["od_pair_label_counts"]["detour"] == 1
+        labels = [t["source_label"] for t in result["trajectories"]]
+        assert labels == [None, "route_switch", "detour", None, None]
+        statuses = [t["status"] for t in result["trajectories"]]
+        assert statuses.count("evaluation_failed") == 2
 
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_source_statistics")
-    @patch("tools.evaluate_lmtad_spatial_abnormal.load_road_centroids")
+    @patch("tools.evaluate_lmtad_spatial_abnormal.extract_road_centroids")
     @patch("tools.evaluate_lmtad_spatial_abnormal.GridMapper")
     @patch("tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct")
     def test_edge_case_zero_valid_trajectories(
@@ -720,7 +675,10 @@ class TestFailedEvaluationsAndEdgeCases:
             "route_switch_mean": 7.03,
             "detour_mean": 8.41,
         }
-        mock_load_centroids.return_value = np.array([[0.0, 0.0], [1.0, 1.0]])
+        mock_load_centroids.return_value = (
+            np.array([[0.0, 0.0], [1.0, 1.0]]),
+            {"min_lat": 0.0, "max_lat": 1.0, "min_lng": 0.0, "max_lng": 1.0},
+        )
 
         mock_mapper = MagicMock()
         mock_mapper.map_all.return_value = np.array([0, 1])
@@ -733,6 +691,7 @@ class TestFailedEvaluationsAndEdgeCases:
         mock_evaluate.return_value = (
             np.array([np.inf]),
             np.array([True]),
+            [[]],
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -771,51 +730,11 @@ class TestFailedEvaluationsAndEdgeCases:
                     device="cpu",
                 )
 
-        # Verify rates are 0 when no valid trajectories
         assert result["total_trajectories"] == 1
-        assert result["valid_trajectories"] == 0
-        assert result["evaluation_failed_count"] == 1
-        assert result["spatial_abnormality_rate"] == 0.0
-        assert result["by_type"]["route_switch"]["rate"] == 0.0
-        assert result["by_type"]["detour"]["rate"] == 0.0
-        assert result["by_type"]["non_outlier"]["rate"] == 0.0
-
-    def test_classify_spatial_abnormality_type_edge_cases(self):
-        """Test classification function with edge case perplexity values."""
-        source_stats = {
-            "route_switch_mean": 7.03,
-            "detour_mean": 8.41,
-        }
-
-        # Test boundary values
-        # Thresholds: non_outlier < 6.03, route_switch: 6.03 <= x < 7.91, detour: >= 7.91
-        assert (
-            classify_spatial_abnormality_type(6.02, source_stats) == "non_outlier"
-        )  # Just below threshold
-        assert (
-            classify_spatial_abnormality_type(6.03, source_stats) == "route_switch"
-        )  # At threshold
-        assert (
-            classify_spatial_abnormality_type(7.90, source_stats) == "route_switch"
-        )  # Just below detour
-        assert (
-            classify_spatial_abnormality_type(7.91, source_stats) == "detour"
-        )  # At detour threshold
-        assert (
-            classify_spatial_abnormality_type(10.0, source_stats) == "detour"
-        )  # High detour
-
-        # Test with different source stats
-        # Custom thresholds: non_outlier < 4.0, route_switch: 4.0 <= x < 6.5, detour: >= 6.5
-        custom_stats = {
-            "route_switch_mean": 5.0,
-            "detour_mean": 7.0,
-        }
-        assert classify_spatial_abnormality_type(3.9, custom_stats) == "non_outlier"
-        assert classify_spatial_abnormality_type(4.0, custom_stats) == "route_switch"
-        assert classify_spatial_abnormality_type(6.4, custom_stats) == "route_switch"
-        assert classify_spatial_abnormality_type(6.5, custom_stats) == "detour"
-        assert classify_spatial_abnormality_type(6.6, custom_stats) == "detour"
+        assert result["valid_trajectory_count"] == 0
+        assert result["failed_trajectory_count"] == 1
+        assert result["failed_trajectory_rate"] == 100.0
+        assert result["log_perplexity_stats"] == {}
 
 
 class TestGridMapperVerification:
@@ -865,6 +784,7 @@ class TestGridMapperVerification:
         mock_evaluate.return_value = (
             np.array([5.0]),
             np.array([False]),
+            None,
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -953,6 +873,7 @@ class TestGridMapperVerification:
         mock_evaluate.return_value = (
             np.array([5.0]),
             np.array([False]),
+            None,
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -1041,6 +962,7 @@ class TestGridMapperVerification:
         mock_evaluate.return_value = (
             np.array([5.0]),
             np.array([False]),
+            None,
         )
 
         trajectory_file = tmp_path / "trajectories.csv"

@@ -18,8 +18,9 @@ import argparse
 import json
 import logging
 import sys
+from collections import Counter
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -157,35 +158,46 @@ def load_source_statistics(source_eval_dir: Path) -> Dict:
     }
 
 
-def classify_spatial_abnormality_type(log_perplexity: float, source_stats: Dict) -> str:
-    """Classify trajectory as spatial abnormality type based on log perplexity
+def _compute_log_perplexity_stats(values: List[float]) -> Dict[str, float]:
+    """Compute summary statistics for finite log perplexity values."""
+    if not values:
+        return {}
+    arr = np.array(values, dtype=np.float64)
+    return {
+        "mean": float(np.mean(arr)),
+        "std": float(np.std(arr)),
+        "median": float(np.median(arr)),
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr)),
+    }
 
-    Args:
-        log_perplexity: Log perplexity value
-        source_stats: Source evaluation statistics
 
-    Returns:
-        Classification: "route_switch", "detour", or "non_outlier"
-    """
-    # Use thresholds based on source statistics
-    # Route Switch: mean ~7.03, use range [6.0, 8.0]
-    # Detour: mean ~8.41, use range [8.0, 10.0]
-    # Non-outlier: mean ~0.38, use range [0.0, 5.0]
+def _compute_segment_stats(segment_lists: List[List[float]]) -> Dict[str, Any]:
+    """Compute per-segment perplexity statistics across all trajectories."""
+    if not segment_lists:
+        return {"max_segment_length": 0, "per_index": []}
 
-    route_switch_mean = source_stats.get("route_switch_mean", 7.03)
-    detour_mean = source_stats.get("detour_mean", 8.41)
+    max_len = max((len(seg) for seg in segment_lists), default=0)
+    per_index = []
 
-    # Use mean values to determine thresholds
-    # Route switch: between route_switch_mean - 1.0 and route_switch_mean + 1.0
-    # Detour: above route_switch_mean + 1.0
-    # Non-outlier: below route_switch_mean - 1.0
+    for idx in range(max_len):
+        values = [seg[idx] for seg in segment_lists if idx < len(seg)]
+        if not values:
+            continue
+        arr = np.array(values, dtype=np.float64)
+        per_index.append(
+            {
+                "index": idx,
+                "count": int(len(values)),
+                "mean": float(np.mean(arr)),
+                "std": float(np.std(arr)),
+                "median": float(np.median(arr)),
+                "min": float(np.min(arr)),
+                "max": float(np.max(arr)),
+            }
+        )
 
-    if log_perplexity < route_switch_mean - 1.0:
-        return "non_outlier"
-    elif log_perplexity < detour_mean - 0.5:
-        return "route_switch"
-    else:
-        return "detour"
+    return {"max_segment_length": max_len, "per_index": per_index}
 
 
 def evaluate_spatial_abnormal_trajectories(
@@ -317,9 +329,15 @@ def evaluate_spatial_abnormal_trajectories(
         raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
 
     # Get expected grid dimensions from teacher (matches training process)
-    teacher_hw = model.get_grid_size_hw()
-    if teacher_hw is not None:
+    raw_teacher_hw = model.get_grid_size_hw()
+    teacher_hw: Optional[Tuple[int, int]] = None
+    if isinstance(raw_teacher_hw, (list, tuple)) and len(raw_teacher_hw) == 2:
+        teacher_hw = (int(raw_teacher_hw[0]), int(raw_teacher_hw[1]))
         logger.info(f"📐 Expected grid dimensions from teacher: {teacher_hw}")
+    elif raw_teacher_hw is not None:
+        logger.warning(
+            "⚠️  Teacher returned unexpected grid dimension format; proceeding without verification"
+        )
     else:
         logger.warning(
             "⚠️  Could not get grid dimensions from teacher, proceeding without verification"
@@ -405,151 +423,88 @@ def evaluate_spatial_abnormal_trajectories(
 
     # Evaluate trajectories
     logger.info("🔍 Evaluating trajectories with LM-TAD...")
-    log_perplexities, _ = evaluate_trajectories_direct(
+    log_perplexities, _, segment_log_perplexities = evaluate_trajectories_direct(
         trajectories=trajectories,
         model=model,
         road_to_token=road_to_token,
         device=device,
         batch_size=batch_size,
-        vocab_size=vocab_size,  # Pass vocab_size for token validation
+        vocab_size=vocab_size,
+        return_segment_perplexity=True,
     )
 
-    # Classify each trajectory using known labels from OD pairs (if available)
-    # Otherwise fallback to perplexity-based classification
-    classifications = []
-    failed_evaluations = 0
-    unmatched_count = 0
-
-    for i, (trajectory, log_perp) in enumerate(zip(trajectories, log_perplexities)):
-        if np.isinf(log_perp):
-            classifications.append("evaluation_failed")
-            failed_evaluations += 1
-            logger.warning(
-                "Trajectory evaluation failed (Infinity perplexity). "
-                "This may indicate invalid road IDs or mapping issues."
-            )
-        elif od_pair_labels:
-            # Use known label from OD pairs file
-            # Extract OD pair from trajectory (first and last road ID)
-            if len(trajectory) >= 2:
-                od_pair = (trajectory[0], trajectory[-1])
-                if od_pair in od_pair_labels:
-                    classifications.append(od_pair_labels[od_pair])
-                else:
-                    # OD pair not found in labels - fallback to perplexity
-                    unmatched_count += 1
-                    classifications.append(
-                        classify_spatial_abnormality_type(log_perp, source_stats)
-                    )
-            else:
-                # Invalid trajectory - fallback to perplexity
-                classifications.append(
-                    classify_spatial_abnormality_type(log_perp, source_stats)
-                )
-        else:
-            # No OD pairs file - use perplexity-based classification
-            classifications.append(
-                classify_spatial_abnormality_type(log_perp, source_stats)
-            )
-
-    if od_pair_labels and unmatched_count > 0:
-        logger.warning(
-            f"⚠️  {unmatched_count} trajectories could not be matched to OD pairs - "
-            f"using perplexity-based classification as fallback"
+    if segment_log_perplexities is None:
+        segment_log_perplexities = [[] for _ in trajectories]
+    elif len(segment_log_perplexities) < len(trajectories):
+        segment_log_perplexities.extend(
+            [[] for _ in range(len(trajectories) - len(segment_log_perplexities))]
         )
-
-    # Count by type
-    from collections import Counter
-
-    type_counts = Counter(classifications)
+    elif len(segment_log_perplexities) > len(trajectories):
+        segment_log_perplexities = segment_log_perplexities[: len(trajectories)]
 
     total_trajectories = len(trajectories)
-    route_switch_count = type_counts.get("route_switch", 0)
-    detour_count = type_counts.get("detour", 0)
-    non_outlier_count = type_counts.get("non_outlier", 0)
-    evaluation_failed_count = type_counts.get("evaluation_failed", 0)
-    spatial_abnormal_count = route_switch_count + detour_count
-    valid_trajectories = total_trajectories - evaluation_failed_count
+    trajectory_records: List[Dict[str, Any]] = []
+    finite_perplexities: List[float] = []
+    failed_evaluations = 0
+    od_label_counts: Counter[str] = Counter()
 
-    # Compute rates (based on valid trajectories only)
-    spatial_abnormality_rate = (
-        (spatial_abnormal_count / valid_trajectories * 100)
-        if valid_trajectories > 0
-        else 0
-    )
-    route_switch_rate = (
-        (route_switch_count / valid_trajectories * 100) if valid_trajectories > 0 else 0
-    )
-    detour_rate = (
-        (detour_count / valid_trajectories * 100) if valid_trajectories > 0 else 0
-    )
-    evaluation_failed_rate = (
-        (evaluation_failed_count / total_trajectories * 100)
-        if total_trajectories > 0
-        else 0
+    for idx, (trajectory, log_perp, segment_logs) in enumerate(
+        zip(trajectories, log_perplexities, segment_log_perplexities)
+    ):
+        log_perp_value = float(log_perp)
+        origin = trajectory[0] if trajectory else None
+        destination = trajectory[-1] if trajectory else None
+        source_label = od_pair_labels.get((origin, destination))
+
+        status = "ok"
+        if np.isinf(log_perp_value):
+            status = "evaluation_failed"
+            failed_evaluations += 1
+        else:
+            finite_perplexities.append(log_perp_value)
+            if source_label:
+                od_label_counts[source_label] += 1
+
+        trajectory_records.append(
+            {
+                "trajectory_index": idx,
+                "origin": origin,
+                "destination": destination,
+                "log_perplexity": log_perp_value,
+                "segment_log_perplexities": segment_logs,
+                "status": status,
+                "source_label": source_label if status == "ok" else None,
+            }
+        )
+
+    valid_trajectories = total_trajectories - failed_evaluations
+    failed_rate = (
+        (failed_evaluations / total_trajectories * 100) if total_trajectories > 0 else 0
     )
 
-    # Extract model name from filename
+    log_perplexity_stats = _compute_log_perplexity_stats(finite_perplexities)
+    segment_stats = _compute_segment_stats(segment_log_perplexities)
+
     model_name = trajectory_file.stem.replace("_spatial_abnormal", "")
-
-    # Compute log perplexity statistics
-    valid_perplexities = log_perplexities[~np.isinf(log_perplexities)]
-    log_perplexity_stats = {}
-    if len(valid_perplexities) > 0:
-        log_perplexity_stats = {
-            "mean": float(np.mean(valid_perplexities)),
-            "std": float(np.std(valid_perplexities)),
-            "median": float(np.median(valid_perplexities)),
-            "min": float(np.min(valid_perplexities)),
-            "max": float(np.max(valid_perplexities)),
-        }
 
     result = {
         "model": model_name,
         "dataset": dataset,
         "total_trajectories": total_trajectories,
-        "valid_trajectories": valid_trajectories,
-        "evaluation_failed_count": evaluation_failed_count,
-        "evaluation_failed_rate": evaluation_failed_rate,
-        "spatial_abnormal_count": spatial_abnormal_count,
-        "spatial_abnormality_rate": spatial_abnormality_rate,
-        "by_type": {
-            "route_switch": {"count": route_switch_count, "rate": route_switch_rate},
-            "detour": {"count": detour_count, "rate": detour_rate},
-            "non_outlier": {
-                "count": non_outlier_count,
-                "rate": (
-                    (non_outlier_count / valid_trajectories * 100)
-                    if valid_trajectories > 0
-                    else 0
-                ),
-            },
-            "evaluation_failed": {
-                "count": evaluation_failed_count,
-                "rate": evaluation_failed_rate,
-            },
-        },
+        "valid_trajectory_count": valid_trajectories,
+        "failed_trajectory_count": failed_evaluations,
+        "failed_trajectory_rate": failed_rate,
         "log_perplexity_stats": log_perplexity_stats,
-        "classifications": classifications,  # Per-trajectory classifications
-        "log_perplexities": log_perplexities.tolist(),  # Per-trajectory perplexities
+        "segment_stats": segment_stats,
+        "trajectories": trajectory_records,
+        "od_pair_label_counts": dict(od_label_counts),
         "source_statistics": source_stats,
     }
 
     logger.info("✅ Evaluation complete:")
     logger.info(f"   Total trajectories: {total_trajectories}")
-    if evaluation_failed_count > 0:
-        logger.warning(
-            f"   ⚠️  Evaluation failed: {evaluation_failed_count} ({evaluation_failed_rate:.2f}%)"
-        )
-        logger.info(f"   Valid trajectories: {valid_trajectories}")
-    logger.info(
-        f"   Spatial abnormal: {spatial_abnormal_count} ({spatial_abnormality_rate:.2f}% of valid)"
-    )
-    logger.info(f"     Route switch: {route_switch_count} ({route_switch_rate:.2f}%)")
-    logger.info(f"     Detour: {detour_count} ({detour_rate:.2f}%)")
-    logger.info(
-        f"   Non-outlier: {non_outlier_count} ({result['by_type']['non_outlier']['rate']:.2f}%)"
-    )
+    logger.info(f"   Failed trajectories: {failed_evaluations} ({failed_rate:.2f}%)")
+    logger.info(f"   Valid trajectories: {valid_trajectories}")
 
     return result
 
