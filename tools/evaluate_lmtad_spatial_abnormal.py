@@ -811,6 +811,7 @@ def evaluate_spatial_abnormal_trajectories(
     lmtad_repo: Path | None = None,
     od_pairs_file: Path | None = None,
     eval_config: Dict | None = None,
+    road_to_token_override: Optional[np.ndarray] = None,
 ) -> Dict:
     """Evaluate generated trajectories with LM-TAD and classify spatial abnormality types
 
@@ -1025,15 +1026,21 @@ def evaluate_spatial_abnormal_trajectories(
     )
 
     verify_dimensions = porto_grid_hw if porto_grid_hw is not None else teacher_hw
-    mapper = GridMapper(
-        boundary=grid_config,
-        road_centroids=road_centroids,
-        verify_hw=verify_dimensions,
-    )
 
-    # CPU numpy array mapping road_id -> token
-    road_to_token_cpu = mapper.map_all()
-    logger.info("✅ Grid mapper prepared for validation (road_id -> token)")
+    # If caller provided a precomputed mapping, use it; otherwise build mapper.
+    if road_to_token_override is not None:
+        road_to_token_cpu = road_to_token_override
+        logger.info("✅ Using provided `road_to_token` mapping for validation")
+    else:
+        mapper = GridMapper(
+            boundary=grid_config,
+            road_centroids=road_centroids,
+            verify_hw=verify_dimensions,
+        )
+
+        # CPU numpy array mapping road_id -> token
+        road_to_token_cpu = mapper.map_all()
+        logger.info("✅ Grid mapper prepared for validation (road_id -> token)")
 
     # Validate trajectories before LM-TAD evaluation to prevent infinite perplexity
     logger.info("🔍 Validating trajectories for LM-TAD compatibility...")
@@ -1153,13 +1160,19 @@ def evaluate_spatial_abnormal_trajectories(
 
     # Use Porto config dimensions for verification if available, otherwise use teacher dimensions
     verify_dimensions = porto_grid_hw if porto_grid_hw is not None else teacher_hw
-    mapper = GridMapper(
-        boundary=grid_config,
-        road_centroids=road_centroids,
-        verify_hw=verify_dimensions,  # Ensure grid dimensions match training or Porto config
-    )
-    road_to_token = torch.from_numpy(mapper.map_all()).to(device)
-    logger.info("✅ Grid mapper created")
+
+    # Reuse provided mapping for evaluation if available; otherwise build mapper
+    if road_to_token_override is not None:
+        road_to_token = torch.from_numpy(road_to_token_override).to(device)
+        logger.info("✅ Using provided `road_to_token` mapping for evaluation")
+    else:
+        mapper = GridMapper(
+            boundary=grid_config,
+            road_centroids=road_centroids,
+            verify_hw=verify_dimensions,  # Ensure grid dimensions match training or Porto config
+        )
+        road_to_token = torch.from_numpy(mapper.map_all()).to(device)
+        logger.info("✅ Grid mapper created")
 
     # Evaluate trajectories
     logger.info("🔍 Evaluating trajectories with LM-TAD...")

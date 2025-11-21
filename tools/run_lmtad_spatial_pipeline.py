@@ -319,6 +319,50 @@ def run_lmtad_spatial_pipeline(
     if not skip_evaluation:
         models = find_generated_models(eval_dir, dataset, seed)
         if models:
+            # Precompute a road_id -> token mapping once for this dataset so we can
+            # pass it into the evaluation function (avoids re-computing per model).
+            try:
+                from tools.convert_to_lmtad_format import extract_road_centroids  # noqa: E402
+                from critics.grid_mapper import GridMapper, GridConfig  # noqa: E402
+
+                data_dir = Path(__file__).parent.parent / "data" / dataset
+                roadmap_file = data_dir / "roadmap.geo"
+                if not roadmap_file.exists():
+                    roadmap_file = Path("data") / dataset / "roadmap.geo"
+
+                road_to_token_override = None
+                if roadmap_file.exists():
+                    road_centroids, boundary_from_roadmap = extract_road_centroids(
+                        roadmap_file
+                    )
+                    grid_config = GridConfig(
+                        min_lat=boundary_from_roadmap["min_lat"],
+                        max_lat=boundary_from_roadmap["max_lat"],
+                        min_lng=boundary_from_roadmap["min_lng"],
+                        max_lng=boundary_from_roadmap["max_lng"],
+                        grid_size=0.001,
+                        downsample_factor=1,
+                    )
+                    mapper = GridMapper(
+                        boundary=grid_config,
+                        road_centroids=road_centroids,
+                        verify_hw=None,
+                    )
+                    road_to_token_override = mapper.map_all()
+                    logger.info(
+                        "🔁 Pipeline: precomputed road_id->token mapping for dataset %s",
+                        dataset,
+                    )
+                else:
+                    logger.warning(
+                        "Pipeline: roadmap file not found; skipping precompute mapping"
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Pipeline: failed to precompute road->token mapping: %s", e
+                )
+                road_to_token_override = None
+
             for model_name, trajectory_file in models.items():
                 total_steps += 1
 
@@ -358,6 +402,7 @@ def run_lmtad_spatial_pipeline(
                                 batch_size=128,
                                 lmtad_repo=lmtad_repo,
                                 eval_config=eval_config,
+                                road_to_token_override=road_to_token_override,
                             )
                             # Save results
                             output_file.parent.mkdir(parents=True, exist_ok=True)
