@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
+import re
 
 # Import statistical functions from analyze_wang_results
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -609,6 +610,33 @@ def aggregate_lmtad_perplexity_results(
             ]
             if perplexities:
                 all_perplexities[model_name] = perplexities
+
+    # If we have both plain models and seeded variants (e.g. "vanilla" and "vanilla_seed42"),
+    # prefer the seeded variants and drop the plain model from aggregation to avoid misleading
+    # summary statistics being dominated by an accidental plain-file result.
+    seeded_bases = set()
+    for name in model_names:
+        m = re.match(r"(?P<base>.+)_seed\d+$", name)
+        if m:
+            seeded_bases.add(m.group("base"))
+
+    if seeded_bases:
+        filtered_model_names = []
+        for name in model_names:
+            # Skip the plain base if seeded variants exist
+            if name in seeded_bases:
+                logger.info(
+                    f"Ignoring base model '{name}' because seeded variants exist."
+                )
+                # Also remove from generated_data and all_perplexities if previously added
+                if name in generated_data[dataset]:
+                    generated_data[dataset].pop(name, None)
+                if name in all_perplexities:
+                    all_perplexities.pop(name, None)
+                continue
+            filtered_model_names.append(name)
+
+        model_names = filtered_model_names
 
     # Build OD pair comparison structure
     od_pair_data = build_od_pair_data(generated_results)

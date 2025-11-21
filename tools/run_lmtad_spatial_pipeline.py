@@ -111,12 +111,32 @@ def find_generated_models(eval_dir: Path, dataset: str, seed: int) -> Dict[str, 
         logger.warning(f"No spatial abnormal trajectory files found in {gene_dir}")
         return {}
 
-    # Extract model names from filenames
+    # Use model_detection to robustly extract model names from filenames
+    from tools.model_detection import detect_model_files  # noqa: E402
+
+    detected = detect_model_files(gene_dir, pattern="*_spatial_abnormal.csv")
+
     models = {}
-    for csv_file in csv_files:
-        # Filename format: {model}_spatial_abnormal.csv
-        model_name = csv_file.stem.replace("_spatial_abnormal", "")
-        models[model_name] = csv_file
+    # Build mapping model_name -> file (ModelFile.filename preserves original name)
+    for mf in detected:
+        models[mf.model_name] = gene_dir / mf.filename
+
+    # If both plain base model and seeded variants exist (e.g., 'vanilla' and 'vanilla_seed42'),
+    # prefer the seeded variants and drop the plain base to avoid duplicate/ambiguous aggregation
+    bases_with_seeds = set()
+    for name in list(models.keys()):
+        # detect seeded pattern
+        if "_seed" in name:
+            base = name.split("_seed")[0]
+            bases_with_seeds.add(base)
+
+    if bases_with_seeds:
+        for base in bases_with_seeds:
+            if base in models:
+                logger.info(
+                    f"Dropping plain model '{base}' in generated models because seeded variants exist"
+                )
+                models.pop(base, None)
 
     logger.info(
         f"Found {len(models)} generated models: {', '.join(sorted(models.keys()))}"
@@ -138,6 +158,7 @@ def run_lmtad_spatial_pipeline(
     num_traj_per_od: int = 20,
     max_od_pairs: int = 250,
     lmtad_repo: Path | None = None,
+    max_duplicate_ratio: float = 0.1,
     force: bool = False,
     eval_config: Dict | None = None,
 ) -> bool:
@@ -402,6 +423,7 @@ def run_lmtad_spatial_pipeline(
                                 batch_size=128,
                                 lmtad_repo=lmtad_repo,
                                 eval_config=eval_config,
+                                max_duplicate_ratio=max_duplicate_ratio,
                                 road_to_token_override=road_to_token_override,
                             )
                             # Save results
@@ -681,6 +703,12 @@ Prerequisites:
         default=None,
         help="Path to evaluation configuration YAML file (optional)",
     )
+    parser.add_argument(
+        "--lmtad-max-duplicate-ratio",
+        type=float,
+        default=0.1,
+        help="Maximum duplicate ratio allowed for trajectories during validation (default: 0.1)",
+    )
 
     args = parser.parse_args()
 
@@ -717,6 +745,7 @@ Prerequisites:
             lmtad_repo=args.lmtad_repo,
             force=args.force,
             eval_config=eval_config,
+            max_duplicate_ratio=args.lmtad_max_duplicate_ratio,
         )
         sys.exit(0 if success else 1)
     except Exception as e:
