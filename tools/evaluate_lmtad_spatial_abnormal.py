@@ -108,6 +108,7 @@ def filter_valid_trajectories(
     trajectories: List[List[int]],
     od_pair_labels: Dict[Tuple[int, int], str],
     vocab_size: int = 6167,
+    road_to_token: Optional[np.ndarray] = None,
 ) -> Tuple[List[List[int]], List[str], Dict[Tuple[int, int], str]]:
     """Filter trajectories and keep only valid ones for LM-TAD evaluation.
 
@@ -129,37 +130,85 @@ def filter_valid_trajectories(
     duplicate_issues = []
 
     for i, trajectory in enumerate(trajectories):
-        is_valid, reason = validate_trajectory_for_lmtad(trajectory, vocab_size)
-
-        if is_valid:
-            valid_trajectories.append(trajectory)
-            # Preserve OD pair label for valid trajectories
-            origin = trajectory[0]
-            destination = trajectory[-1]
-            od_key = (origin, destination)
-            if od_key in od_pair_labels:
-                filtered_od_labels[od_key] = od_pair_labels[od_key]
-        else:
-            validation_reasons.append(f"Trajectory {i}: {reason}")
-
-            # Collect diagnostic information
-            if "Invalid road IDs" in reason:
-                # Extract invalid road IDs from reason
+        # If a road_to_token mapping is provided, map raw HOSER road IDs to LM-TAD tokens
+        # prior to token-space validation. This prevents incorrectly comparing raw
+        # road IDs (which are in the road_id space) against the teacher vocab_size.
+        if road_to_token is not None:
+            try:
+                # Map via numpy indexing (road_to_token should be an array of length num_roads)
+                mapped_tokens = [int(road_to_token[rid]) for rid in trajectory]
+            except Exception as e:
+                # Mapping failed (out-of-range raw road id or other issue)
+                validation_reasons.append(
+                    f"Trajectory {i}: Failed mapping to tokens: {e}"
+                )
+                # Collect diagnostic raw ids where possible
                 try:
-                    invalid_ids = [
-                        int(x.split()[-1])
-                        for x in reason.split(":")[1].split(",")
-                        if x.strip().isdigit()
-                    ]
-                    invalid_road_ids.extend(invalid_ids)
+                    invalid_road_ids.extend(
+                        [
+                            rid
+                            for rid in trajectory
+                            if rid < 0 or rid >= len(road_to_token)
+                        ]
+                    )
                 except Exception:
-                    # Defensive: parsing failure of the reason string
-                    # Log debug info for later diagnosis without failing
-                    logger.debug(f"Failed to parse invalid IDs from reason: {reason}")
-            elif "too short" in reason:
-                length_issues.append(reason)
-            elif "duplicates" in reason:
-                duplicate_issues.append(reason)
+                    pass
+                continue
+
+            # Now validate tokenized trajectory against vocab_size
+            is_valid, reason = validate_trajectory_for_lmtad(mapped_tokens, vocab_size)
+
+            if is_valid:
+                valid_trajectories.append(trajectory)
+                origin = trajectory[0]
+                destination = trajectory[-1]
+                od_key = (origin, destination)
+                if od_key in od_pair_labels:
+                    filtered_od_labels[od_key] = od_pair_labels[od_key]
+            else:
+                validation_reasons.append(f"Trajectory {i}: {reason}")
+                # If token-level invalidation, collect sample mapped tokens for diagnostics
+                if "Invalid road IDs" in reason or "road ID" in reason:
+                    try:
+                        invalid_ids = [
+                            int(x.split()[-1])
+                            for x in reason.split(":")[1].split(",")
+                            if x.strip().isdigit()
+                        ]
+                    except Exception:
+                        invalid_ids = []
+                    invalid_road_ids.extend(invalid_ids)
+        else:
+            # No mapper provided: conservative raw-ID validation (backwards-compatible)
+            is_valid, reason = validate_trajectory_for_lmtad(trajectory, vocab_size)
+
+            if is_valid:
+                valid_trajectories.append(trajectory)
+                origin = trajectory[0]
+                destination = trajectory[-1]
+                od_key = (origin, destination)
+                if od_key in od_pair_labels:
+                    filtered_od_labels[od_key] = od_pair_labels[od_key]
+            else:
+                validation_reasons.append(f"Trajectory {i}: {reason}")
+
+                # Collect diagnostic information
+                if "Invalid road IDs" in reason:
+                    try:
+                        invalid_ids = [
+                            int(x.split()[-1])
+                            for x in reason.split(":")[1].split(",")
+                            if x.strip().isdigit()
+                        ]
+                        invalid_road_ids.extend(invalid_ids)
+                    except Exception:
+                        logger.debug(
+                            f"Failed to parse invalid IDs from reason: {reason}"
+                        )
+                elif "too short" in reason:
+                    length_issues.append(reason)
+                elif "duplicates" in reason:
+                    duplicate_issues.append(reason)
 
     logger.info(
         f"Trajectory validation: {len(valid_trajectories)}/{len(trajectories)} valid "
@@ -909,10 +958,96 @@ def evaluate_spatial_abnormal_trajectories(
         logger.warning("⚠️  Could not determine vocab_size from teacher")
         vocab_size = 6167  # Default for Porto
 
+    # Create grid mapper BEFORE validation so we can map raw HOSER road IDs to
+    # LM-TAD grid tokens and validate token-space instead of comparing raw IDs
+    # directly against the teacher vocab size.
+    logger.info("📂 Preparing grid mapper for token mapping (used in validation)")
+    from pathlib import Path as PathLib
+
+    data_dir = PathLib("data") / dataset
+    roadmap_file = data_dir / "roadmap.geo"
+    if not roadmap_file.exists():
+        # Try relative to project root
+        roadmap_file = (
+            PathLib(__file__).parent.parent / "data" / dataset / "roadmap.geo"
+        )
+
+    if not roadmap_file.exists():
+        raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
+
+    # Extract road centroids (needed for mapper)
+    road_centroids, boundary_from_roadmap = extract_road_centroids(roadmap_file)
+
+    # Use grid_size and downsample_factor from config or defaults
+    grid_size = 0.001
+    downsample_factor = 1
+
+    porto_grid_hw = None
+    if eval_config and dataset == "porto_hoser":
+        porto_config = eval_config.get("porto_grid_config", {})
+        config_grid_size = porto_config.get("grid_size")
+        if config_grid_size is not None:
+            grid_size = config_grid_size
+        expected_dims = porto_config.get("expected_dimensions", {})
+        height = expected_dims.get("height")
+        width = expected_dims.get("width")
+        if height and width:
+            porto_grid_hw = (height, width)
+
+    # Determine which grid dimensions to use for verification
+    grid_hw_to_use = porto_grid_hw if porto_grid_hw is not None else teacher_hw
+    source = "Porto config file" if porto_grid_hw is not None else "teacher model"
+
+    if grid_hw_to_use is not None:
+        vh, vw = grid_hw_to_use
+        # Compute boundaries centered on roadmap centroid to match training
+        epsilon = 1e-10
+        required_lat_span = (vh - 1) * grid_size + epsilon
+        required_lng_span = (vw - 1) * grid_size + epsilon
+        lat_center = (
+            boundary_from_roadmap["min_lat"] + boundary_from_roadmap["max_lat"]
+        ) / 2.0
+        lng_center = (
+            boundary_from_roadmap["min_lng"] + boundary_from_roadmap["max_lng"]
+        ) / 2.0
+        boundary = {
+            "min_lat": lat_center - required_lat_span / 2.0,
+            "max_lat": lat_center + required_lat_span / 2.0,
+            "min_lng": lng_center - required_lng_span / 2.0,
+            "max_lng": lng_center + required_lng_span / 2.0,
+        }
+    else:
+        boundary = boundary_from_roadmap
+
+    grid_config = GridConfig(
+        min_lat=boundary["min_lat"],
+        max_lat=boundary["max_lat"],
+        min_lng=boundary["min_lng"],
+        max_lng=boundary["max_lng"],
+        grid_size=grid_size,
+        downsample_factor=downsample_factor,
+    )
+
+    verify_dimensions = porto_grid_hw if porto_grid_hw is not None else teacher_hw
+    mapper = GridMapper(
+        boundary=grid_config,
+        road_centroids=road_centroids,
+        verify_hw=verify_dimensions,
+    )
+
+    # CPU numpy array mapping road_id -> token
+    road_to_token_cpu = mapper.map_all()
+    logger.info("✅ Grid mapper prepared for validation (road_id -> token)")
+
     # Validate trajectories before LM-TAD evaluation to prevent infinite perplexity
     logger.info("🔍 Validating trajectories for LM-TAD compatibility...")
     valid_trajectories, validation_failures, filtered_od_labels = (
-        filter_valid_trajectories(trajectories, od_pair_labels, vocab_size=vocab_size)
+        filter_valid_trajectories(
+            trajectories,
+            od_pair_labels,
+            vocab_size=vocab_size,
+            road_to_token=road_to_token_cpu,
+        )
     )
 
     if len(valid_trajectories) == 0:
