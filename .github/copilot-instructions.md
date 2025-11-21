@@ -59,7 +59,7 @@ uv run python python_pipeline.py --eval-dir hoser-distill-optuna-porto-eval-eb0e
 
 ## Repo-specific conventions & quick pointers
 - **Config-first (preferred)**: Put static settings and hyperparameters in YAML files under `config/` (e.g., `config/Beijing.yaml`, `config/evaluation.yaml`). These files are snapshotted into evaluation workspaces for reproducibility. Use CLI arguments for dynamic, short-term overrides only (examples: `--seed`, `--cuda`, `--force`, `--num-gene`, `--no-wandb`). Avoid encoding long‑term hyperparameter changes only via CLI — prefer updating the YAML and re-running so experiments are fully reproducible.
-- **Checkpoint names**: follow `setup_evaluation.py` naming patterns (e.g. `vanilla_25epoch_seed42.pth`).
+- **Checkpoint names**: follow `tools/model_detection.py` naming patterns (e.g. `vanilla_25epoch_seed42.pth`).
 - **WandB**: enabled by default; disable with `--no-wandb` or config `enable_wandb: false` for offline runs.
 - **Optuna outputs**: `optuna_results/`, `optuna_trials*/` contain hyperparameter search artifacts.
 
