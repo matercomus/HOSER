@@ -106,3 +106,42 @@ class GridMapper:
 
         tokens = gi * self.grid_w + gj
         return tokens.astype(np.int64, copy=False)
+
+
+def map_roads_to_tokens(road_ids, road_to_token: np.ndarray):
+    """Map a sequence of HOSER road IDs to LM-TAD grid tokens using a precomputed
+    `road_to_token` array.
+
+    Parameters
+    ----------
+    road_ids: Sequence[int]
+        Iterable of integer road IDs (HOSER domain).
+    road_to_token: np.ndarray
+        Precomputed array of shape (num_roads,) mapping road_id -> token_id.
+
+    Returns
+    -------
+    Tuple[List[int], List[int]]
+        - mapped_tokens: list of int where invalid entries are set to -1
+        - invalid_indices: list of indices in the input that were invalid
+
+    Notes
+    -----
+    This helper is intentionally simple and defensive: it does not raise on
+    out-of-range inputs but returns invalid indices for callers to decide how
+    to handle the cases.
+    """
+    mapped = []
+    invalid_indices = []
+    n = int(len(road_to_token))
+    for idx, rid in enumerate(road_ids):
+        try:
+            if not isinstance(rid, int) or rid < 0 or rid >= n:
+                invalid_indices.append(idx)
+                mapped.append(-1)
+            else:
+                mapped.append(int(road_to_token[rid]))
+        except Exception:
+            invalid_indices.append(idx)
+            mapped.append(-1)
+    return mapped, invalid_indices

@@ -276,3 +276,52 @@ class LMTADTeacher:
         # - Converting GPU tensors to Python tuples forces expensive GPU->CPU transfer
         # - With diverse training data, cache hit rate is likely very low
         # - The teacher forward pass is already optimized with torch.compile
+
+
+def validate_tokenized_trajectory_for_lmtad(
+    tokens, vocab_size: int, min_length: int = 2, max_duplicate_ratio: float = 0.1
+) -> tuple[bool, str]:
+    """Validate a tokenized (LM-TAD grid token) trajectory before querying the teacher.
+
+    This mirrors the validation used for raw road IDs but checks token space
+    semantics (i.e., token values against `vocab_size`).
+    """
+    # Basic checks
+    if not tokens:
+        return False, "Empty trajectory"
+
+    if len(tokens) < min_length:
+        return False, f"Trajectory too short: {len(tokens)} < {min_length}"
+
+    # Check token range and types
+    invalid_tokens = []
+    for i, t in enumerate(tokens):
+        if not isinstance(t, int):
+            return False, f"Non-integer token at position {i}: {t}"
+        if t < 0:
+            invalid_tokens.append(f"negative token: {t}")
+        elif t >= vocab_size:
+            invalid_tokens.append(f"token {t} >= vocab_size {vocab_size}")
+
+    if invalid_tokens:
+        return False, f"Invalid tokens: {', '.join(invalid_tokens[:5])}"
+
+    # Duplicate checks
+    unique = set(tokens)
+    duplicate_ratio = 1 - (len(unique) / len(tokens))
+    if duplicate_ratio > max_duplicate_ratio:
+        return (
+            False,
+            f"Excessive duplicates: {duplicate_ratio:.1%} > {max_duplicate_ratio:.1%}",
+        )
+
+    # Consecutive duplicates
+    consecutive_duplicates = 0
+    for i in range(1, len(tokens)):
+        if tokens[i] == tokens[i - 1]:
+            consecutive_duplicates += 1
+
+    if consecutive_duplicates > 0:
+        return False, f"Consecutive duplicate tokens: {consecutive_duplicates}"
+
+    return True, "Valid"

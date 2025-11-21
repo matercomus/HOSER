@@ -34,8 +34,9 @@ from simple_evaluate_with_lmtad import (  # noqa: E402
     evaluate_trajectories_direct,
 )
 from tools.convert_to_lmtad_format import extract_road_centroids  # noqa: E402
-from critics.lmtad_teacher import LMTADTeacher  # noqa: E402
+from critics.lmtad_teacher import LMTADTeacher, validate_tokenized_trajectory_for_lmtad  # noqa: E402
 from critics.grid_mapper import GridMapper, GridConfig  # noqa: E402
+from critics.grid_mapper import map_roads_to_tokens  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -134,29 +135,23 @@ def filter_valid_trajectories(
         # prior to token-space validation. This prevents incorrectly comparing raw
         # road IDs (which are in the road_id space) against the teacher vocab_size.
         if road_to_token is not None:
-            try:
-                # Map via numpy indexing (road_to_token should be an array of length num_roads)
-                mapped_tokens = [int(road_to_token[rid]) for rid in trajectory]
-            except Exception as e:
-                # Mapping failed (out-of-range raw road id or other issue)
+            # Map using helper which returns invalid indices instead of raising
+            mapped_tokens, invalid_idxs = map_roads_to_tokens(trajectory, road_to_token)
+            if invalid_idxs:
                 validation_reasons.append(
-                    f"Trajectory {i}: Failed mapping to tokens: {e}"
+                    f"Trajectory {i}: Failed mapping to tokens for {len(invalid_idxs)} positions"
                 )
-                # Collect diagnostic raw ids where possible
+                # Collect sample invalid raw ids for diagnostics
                 try:
-                    invalid_road_ids.extend(
-                        [
-                            rid
-                            for rid in trajectory
-                            if rid < 0 or rid >= len(road_to_token)
-                        ]
-                    )
+                    invalid_road_ids.extend([trajectory[j] for j in invalid_idxs])
                 except Exception:
                     pass
                 continue
 
-            # Now validate tokenized trajectory against vocab_size
-            is_valid, reason = validate_trajectory_for_lmtad(mapped_tokens, vocab_size)
+            # Now validate tokenized trajectory using the token-level helper
+            is_valid, reason = validate_tokenized_trajectory_for_lmtad(
+                mapped_tokens, vocab_size
+            )
 
             if is_valid:
                 valid_trajectories.append(trajectory)
@@ -168,12 +163,13 @@ def filter_valid_trajectories(
             else:
                 validation_reasons.append(f"Trajectory {i}: {reason}")
                 # If token-level invalidation, collect sample mapped tokens for diagnostics
-                if "Invalid road IDs" in reason or "road ID" in reason:
+                if "Invalid tokens" in reason or "token" in reason:
+                    # Try extracting numeric tokens mentioned in the reason
                     try:
                         invalid_ids = [
                             int(x.split()[-1])
                             for x in reason.split(":")[1].split(",")
-                            if x.strip().isdigit()
+                            if x.strip().lstrip("-").isdigit()
                         ]
                     except Exception:
                         invalid_ids = []
