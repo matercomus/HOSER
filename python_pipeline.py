@@ -161,6 +161,9 @@ class PipelineConfig:
             None  # NEW: Override num trajectories per OD pair
         )
         self.lmtad_max_od_pairs = None  # NEW: Override max OD pairs to sample
+        self.lmtad_max_duplicate_ratio = (
+            0.1  # NEW: Duplicate threshold for LM-TAD validation
+        )
 
         # Load from YAML if provided
         if config_path:
@@ -2161,6 +2164,9 @@ class EvaluationPipeline:
                 lmtad_repo=None,  # Auto-detect from checkpoint
                 force=self.config.force,
                 eval_config=eval_config,
+                max_duplicate_ratio=(
+                    getattr(self.config, "lmtad_max_duplicate_ratio", 0.1)
+                ),
             )
             if success:
                 logger.info(
@@ -2699,6 +2705,11 @@ def main():
         type=int,
         help="Maximum OD pairs to sample for LM-TAD spatial evaluation (default: 250, for testing use smaller values)",
     )
+    parser.add_argument(
+        "--lmtad-max-duplicate-ratio",
+        type=float,
+        help="Maximum duplicate ratio allowed for trajectories during LM-TAD validation (default: 0.1)",
+    )
 
     args = parser.parse_args()
 
@@ -2790,6 +2801,11 @@ def main():
         config.run_lmtad_spatial_detection = True
     if args.lmtad_spatial_config:
         config.lmtad_spatial_config = args.lmtad_spatial_config
+    if (
+        hasattr(args, "lmtad_max_duplicate_ratio")
+        and args.lmtad_max_duplicate_ratio is not None
+    ):
+        config.lmtad_max_duplicate_ratio = args.lmtad_max_duplicate_ratio
     if args.lmtad_source_eval_dir:
         config.lmtad_source_eval_dir = args.lmtad_source_eval_dir
     if args.lmtad_num_trajectories_per_od is not None:

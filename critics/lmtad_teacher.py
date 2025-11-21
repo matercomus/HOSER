@@ -280,7 +280,7 @@ class LMTADTeacher:
 
 def validate_tokenized_trajectory_for_lmtad(
     tokens, vocab_size: int, min_length: int = 2, max_duplicate_ratio: float = 0.1
-) -> tuple[bool, str]:
+) -> tuple[bool, str, dict]:
     """Validate a tokenized (LM-TAD grid token) trajectory before querying the teacher.
 
     This mirrors the validation used for raw road IDs but checks token space
@@ -288,40 +288,64 @@ def validate_tokenized_trajectory_for_lmtad(
     """
     # Basic checks
     if not tokens:
-        return False, "Empty trajectory"
+        return False, "Empty trajectory", {}
 
     if len(tokens) < min_length:
-        return False, f"Trajectory too short: {len(tokens)} < {min_length}"
+        return False, f"Trajectory too short: {len(tokens)} < {min_length}", {}
 
     # Check token range and types
     invalid_tokens = []
     for i, t in enumerate(tokens):
         if not isinstance(t, int):
-            return False, f"Non-integer token at position {i}: {t}"
+            return False, f"Non-integer token at position {i}: {t}", {}
         if t < 0:
             invalid_tokens.append(f"negative token: {t}")
         elif t >= vocab_size:
             invalid_tokens.append(f"token {t} >= vocab_size {vocab_size}")
 
     if invalid_tokens:
-        return False, f"Invalid tokens: {', '.join(invalid_tokens[:5])}"
-
-    # Duplicate checks
-    unique = set(tokens)
-    duplicate_ratio = 1 - (len(unique) / len(tokens))
-    if duplicate_ratio > max_duplicate_ratio:
+        # Provide structured diagnostics for callers instead of forcing them
+        # to parse a human-readable message.
+        # Attempt to extract numeric token IDs where possible.
+        numeric_tokens = []
+        for tok in invalid_tokens:
+            parts = [p for p in tok.split() if p.lstrip("-").isdigit()]
+            if parts:
+                try:
+                    numeric_tokens.append(int(parts[-1]))
+                except Exception:
+                    pass
         return (
             False,
-            f"Excessive duplicates: {duplicate_ratio:.1%} > {max_duplicate_ratio:.1%}",
+            f"Invalid tokens: {', '.join(invalid_tokens[:5])}",
+            {"invalid_tokens": numeric_tokens},
         )
 
-    # Consecutive duplicates
-    consecutive_duplicates = 0
-    for i in range(1, len(tokens)):
-        if tokens[i] == tokens[i - 1]:
-            consecutive_duplicates += 1
+    # Duplicate checks. Allow callers to disable duplicate-based rejection by
+    # setting `max_duplicate_ratio >= 1.0` (temporary evaluation mode).
+    # When `max_duplicate_ratio >= 1.0` we treat duplicate checks as disabled
+    # to allow forcing evaluation for diagnostic purposes.
+    if max_duplicate_ratio < 1.0:
+        unique = set(tokens)
+        duplicate_ratio = 1 - (len(unique) / len(tokens))
+        if duplicate_ratio > max_duplicate_ratio:
+            return (
+                False,
+                f"Excessive duplicates: {duplicate_ratio:.1%} > {max_duplicate_ratio:.1%}",
+                {"duplicate_ratio": float(duplicate_ratio)},
+            )
 
-    if consecutive_duplicates > 0:
-        return False, f"Consecutive duplicate tokens: {consecutive_duplicates}"
+        # Consecutive duplicates
+        consecutive_duplicates = 0
+        for i in range(1, len(tokens)):
+            if tokens[i] == tokens[i - 1]:
+                consecutive_duplicates += 1
 
-    return True, "Valid"
+        if consecutive_duplicates > 0:
+            return (
+                False,
+                f"Consecutive duplicate tokens: {consecutive_duplicates}",
+                {"consecutive_duplicates": consecutive_duplicates},
+            )
+
+    return True, "Valid", {}

@@ -49,7 +49,7 @@ def validate_trajectory_for_lmtad(
     vocab_size: int = 6167,
     min_length: int = 2,
     max_duplicate_ratio: float = 0.1,
-) -> Tuple[bool, str]:
+) -> Tuple[bool, str, dict]:
     """Validate trajectory before LM-TAD evaluation to prevent infinite perplexity.
 
     Args:
@@ -63,46 +63,63 @@ def validate_trajectory_for_lmtad(
     """
     # Check basic requirements
     if not trajectory:
-        return False, "Empty trajectory"
+        return False, "Empty trajectory", {}
 
     if len(trajectory) < min_length:
-        return False, f"Trajectory too short: {len(trajectory)} < {min_length}"
+        return False, f"Trajectory too short: {len(trajectory)} < {min_length}", {}
 
     # Check for invalid road IDs
     invalid_roads = []
     for i, road_id in enumerate(trajectory):
         if not isinstance(road_id, int):
-            return False, f"Non-integer road ID at position {i}: {road_id}"
+            return False, f"Non-integer road ID at position {i}: {road_id}", {}
         if road_id < 0:
             invalid_roads.append(f"negative road ID: {road_id}")
         elif road_id >= vocab_size:
             invalid_roads.append(f"road ID {road_id} >= vocab_size {vocab_size}")
 
     if invalid_roads:
+        # Extract numeric invalid ids for diagnostics
+        numeric = []
+        for s in invalid_roads:
+            parts = [p for p in s.split() if p.lstrip("-").isdigit()]
+            if parts:
+                try:
+                    numeric.append(int(parts[-1]))
+                except Exception:
+                    pass
         return (
             False,
             f"Invalid road IDs: {', '.join(invalid_roads[:5])}",
+            {"invalid_roads": numeric},
         )  # Show first 5
 
-    # Check for excessive duplicates (indicates loops or invalid generation)
-    unique_roads = set(trajectory)
-    duplicate_ratio = 1 - (len(unique_roads) / len(trajectory))
-    if duplicate_ratio > max_duplicate_ratio:
-        return (
-            False,
-            f"Excessive duplicates: {duplicate_ratio:.1%} > {max_duplicate_ratio:.1%}",
-        )
+    # Check for excessive duplicates (indicates loops or invalid generation).
+    # When `max_duplicate_ratio >= 1.0` we treat duplicate checks as disabled
+    # to allow forcing evaluation for diagnostic purposes.
+    if max_duplicate_ratio < 1.0:
+        unique_roads = set(trajectory)
+        duplicate_ratio = 1 - (len(unique_roads) / len(trajectory))
+        if duplicate_ratio > max_duplicate_ratio:
+            return (
+                False,
+                f"Excessive duplicates: {duplicate_ratio:.1%} > {max_duplicate_ratio:.1%}",
+                {"duplicate_ratio": float(duplicate_ratio)},
+            )
 
-    # Check for consecutive duplicates (impossible in real traffic)
-    consecutive_duplicates = 0
-    for i in range(1, len(trajectory)):
-        if trajectory[i] == trajectory[i - 1]:
-            consecutive_duplicates += 1
+        # Check for consecutive duplicates (impossible in real traffic)
+        consecutive_duplicates = 0
+        for i in range(1, len(trajectory)):
+            if trajectory[i] == trajectory[i - 1]:
+                consecutive_duplicates += 1
 
-    if consecutive_duplicates > 0:
-        return False, f"Consecutive duplicate roads: {consecutive_duplicates}"
-
-    return True, "Valid"
+        if consecutive_duplicates > 0:
+            return (
+                False,
+                f"Consecutive duplicate roads: {consecutive_duplicates}",
+                {"consecutive_duplicates": consecutive_duplicates},
+            )
+    return True, "Valid", {}
 
 
 def filter_valid_trajectories(
@@ -110,6 +127,7 @@ def filter_valid_trajectories(
     od_pair_labels: Dict[Tuple[int, int], str],
     vocab_size: int = 6167,
     road_to_token: Optional[np.ndarray] = None,
+    max_duplicate_ratio: float = 0.1,
 ) -> Tuple[List[List[int]], List[str], Dict[Tuple[int, int], str]]:
     """Filter trajectories and keep only valid ones for LM-TAD evaluation.
 
@@ -149,8 +167,8 @@ def filter_valid_trajectories(
                 continue
 
             # Now validate tokenized trajectory using the token-level helper
-            is_valid, reason = validate_tokenized_trajectory_for_lmtad(
-                mapped_tokens, vocab_size
+            is_valid, reason, diag = validate_tokenized_trajectory_for_lmtad(
+                mapped_tokens, vocab_size, max_duplicate_ratio=max_duplicate_ratio
             )
 
             if is_valid:
@@ -162,21 +180,27 @@ def filter_valid_trajectories(
                     filtered_od_labels[od_key] = od_pair_labels[od_key]
             else:
                 validation_reasons.append(f"Trajectory {i}: {reason}")
-                # If token-level invalidation, collect sample mapped tokens for diagnostics
-                if "Invalid tokens" in reason or "token" in reason:
-                    # Try extracting numeric tokens mentioned in the reason
-                    try:
-                        invalid_ids = [
-                            int(x.split()[-1])
-                            for x in reason.split(":")[1].split(",")
-                            if x.strip().lstrip("-").isdigit()
-                        ]
-                    except Exception:
-                        invalid_ids = []
-                    invalid_road_ids.extend(invalid_ids)
+                # Use structured diagnostics from the token validator when available
+                if isinstance(diag, dict):
+                    toks = diag.get("invalid_tokens") or []
+                    if toks:
+                        # Map back to raw road ids where possible
+                        try:
+                            invalid_road_ids.extend(
+                                [
+                                    trajectory[j]
+                                    for j, _ in enumerate(mapped_tokens)
+                                    if mapped_tokens[j] in toks
+                                ]
+                            )
+                        except Exception:
+                            # Fallback: extend with token values
+                            invalid_road_ids.extend(toks)
         else:
             # No mapper provided: conservative raw-ID validation (backwards-compatible)
-            is_valid, reason = validate_trajectory_for_lmtad(trajectory, vocab_size)
+            is_valid, reason, diag = validate_trajectory_for_lmtad(
+                trajectory, vocab_size, max_duplicate_ratio=max_duplicate_ratio
+            )
 
             if is_valid:
                 valid_trajectories.append(trajectory)
@@ -188,23 +212,32 @@ def filter_valid_trajectories(
             else:
                 validation_reasons.append(f"Trajectory {i}: {reason}")
 
-                # Collect diagnostic information
-                if "Invalid road IDs" in reason:
-                    try:
-                        invalid_ids = [
-                            int(x.split()[-1])
-                            for x in reason.split(":")[1].split(",")
-                            if x.strip().isdigit()
-                        ]
-                        invalid_road_ids.extend(invalid_ids)
-                    except Exception:
-                        logger.debug(
-                            f"Failed to parse invalid IDs from reason: {reason}"
-                        )
-                elif "too short" in reason:
-                    length_issues.append(reason)
-                elif "duplicates" in reason:
-                    duplicate_issues.append(reason)
+                # Collect diagnostic information using structured diagnostics
+                if isinstance(diag, dict):
+                    if diag.get("invalid_roads"):
+                        invalid_road_ids.extend(diag.get("invalid_roads", []))
+                    if diag.get("duplicate_ratio"):
+                        duplicate_issues.append(reason)
+                    if diag.get("consecutive_duplicates"):
+                        duplicate_issues.append(reason)
+                else:
+                    # Backwards-compatible fallback to parsing reason string
+                    if "Invalid road IDs" in reason:
+                        try:
+                            invalid_ids = [
+                                int(x.split(":")[-1])
+                                for x in reason.split(":")[1].split(",")
+                                if x.strip().isdigit()
+                            ]
+                            invalid_road_ids.extend(invalid_ids)
+                        except Exception:
+                            logger.debug(
+                                f"Failed to parse invalid IDs from reason: {reason}"
+                            )
+                    elif "too short" in reason:
+                        length_issues.append(reason)
+                    elif "duplicates" in reason:
+                        duplicate_issues.append(reason)
 
     logger.info(
         f"Trajectory validation: {len(valid_trajectories)}/{len(trajectories)} valid "
@@ -811,6 +844,7 @@ def evaluate_spatial_abnormal_trajectories(
     lmtad_repo: Path | None = None,
     od_pairs_file: Path | None = None,
     eval_config: Dict | None = None,
+    max_duplicate_ratio: float = 0.1,
     road_to_token_override: Optional[np.ndarray] = None,
 ) -> Dict:
     """Evaluate generated trajectories with LM-TAD and classify spatial abnormality types
@@ -1050,6 +1084,7 @@ def evaluate_spatial_abnormal_trajectories(
             od_pair_labels,
             vocab_size=vocab_size,
             road_to_token=road_to_token_cpu,
+            max_duplicate_ratio=max_duplicate_ratio,
         )
     )
 
@@ -1322,6 +1357,12 @@ Examples:
         help="Batch size for evaluation (default: 128)",
     )
     parser.add_argument(
+        "--max-duplicate-ratio",
+        type=float,
+        default=0.1,
+        help="Maximum duplicate ratio allowed for trajectories (default: 0.1)",
+    )
+    parser.add_argument(
         "--lmtad-repo",
         type=Path,
         default=None,
@@ -1376,6 +1417,7 @@ Examples:
             batch_size=args.batch_size,
             lmtad_repo=args.lmtad_repo,
             eval_config=eval_config,
+            max_duplicate_ratio=args.max_duplicate_ratio,
         )
 
         # Save results
