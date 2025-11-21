@@ -63,6 +63,8 @@ uv run python python_pipeline.py --eval-dir hoser-distill-optuna-porto-eval-eb0e
 - **WandB**: enabled by default; disable with `--no-wandb` or config `enable_wandb: false` for offline runs.
 - **Optuna outputs**: `optuna_results/`, `optuna_trials*/` contain hyperparameter search artifacts.
 
+- **Git commit style**: Use emoji prefixes in commit messages to make change types obvious at a glance. Examples: `✨ feat:`, `🔧 fix:`, `📝 docs:`, `✅ test:`, `♻️ refactor:`, `📈 perf:`, `🚀 chore:`. Example full message: `✨ feat: add vocabulary mapping validation`.
+
  
 ## Where to start when asked to change behavior
 - Small change (model code): run unit test(s) touching the file and a smoke `uv run python train.py --config config/Beijing.yaml` on a reduced dataset.
