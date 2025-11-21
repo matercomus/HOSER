@@ -2136,6 +2136,15 @@ class EvaluationPipeline:
 
         # Run the LM-TAD spatial detection pipeline
         try:
+            # Load evaluation config for Porto grid configuration
+            eval_config = None
+            config_path = self.eval_dir / "config" / "evaluation.yaml"
+            if config_path.exists():
+                import yaml
+
+                with open(config_path, "r") as f:
+                    eval_config = yaml.safe_load(f)
+
             success = run_lmtad_spatial_pipeline(
                 eval_dir=self.eval_dir,
                 dataset=self.config.dataset,
@@ -2151,6 +2160,7 @@ class EvaluationPipeline:
                 max_od_pairs=self.config.lmtad_max_od_pairs,
                 lmtad_repo=None,  # Auto-detect from checkpoint
                 force=self.config.force,
+                eval_config=eval_config,
             )
             if success:
                 logger.info(

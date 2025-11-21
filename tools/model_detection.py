@@ -63,6 +63,7 @@ MODEL_CONVENTIONS = [
     # Vanilla_seed<M> pattern
     (r"vanilla_seed(\d+)", "vanilla_seed{}"),
     # Vanilla pattern (no seed)
+    (r"vanilla_.*seed(\d+)", "vanilla_seed{}"),
     (r"vanilla(?!_seed)", "vanilla"),
 ]
 

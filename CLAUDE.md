@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
 HOSER (Hierarchical Origin-destination Spatio-temporal Encoder-decoder for Roads) is a research project focused on knowledge distillation from LM-TAD (teacher model) into a more efficient student model for trajectory generation.

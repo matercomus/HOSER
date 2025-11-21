@@ -16,6 +16,7 @@ import argparse
 import json
 import logging
 import sys
+import pandas as pd
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -332,10 +333,42 @@ def load_source_perplexity_rates(source_eval_dir: Path) -> Optional[Dict]:
     Returns:
         Dictionary with perplexity data or None
     """
-    # For now, real data perplexity rates are not available
-    # This is a placeholder for when the data structure is implemented
-    logger.info("Real data perplexity data not yet implemented for source evaluation")
-    return None
+    try:
+        tsv_files = list(source_eval_dir.glob("ckpt_best_outliers_*.tsv"))
+        if not tsv_files:
+            logger.warning(f"No TSV files found in {source_eval_dir}")
+            return None
+
+        # Use the first file
+        tsv_file = tsv_files[0]
+        logger.info(f"Loading real data perplexity from {tsv_file}")
+
+        df = pd.read_csv(tsv_file, sep="\t")
+
+        # Filter for non-outliers (real data)
+        real_df = df[df["outlier"] == "non outlier"]
+
+        if real_df.empty:
+            logger.warning("No non-outlier data found in TSV file")
+            return None
+
+        log_perplexities = real_df["log_perplexity"].tolist()
+
+        # Compute statistics
+        stats = {
+            "mean": float(np.mean(log_perplexities)),
+            "std": float(np.std(log_perplexities)),
+            "median": float(np.median(log_perplexities)),
+            "min": float(np.min(log_perplexities)),
+            "max": float(np.max(log_perplexities)),
+            "count": len(log_perplexities),
+        }
+
+        return {"log_perplexity_stats": stats, "raw_log_perplexities": log_perplexities}
+
+    except Exception as e:
+        logger.warning(f"Failed to load source perplexity data: {e}")
+        return None
 
 
 def compare_perplexity_distributions(
@@ -525,6 +558,21 @@ def aggregate_lmtad_perplexity_results(
     # Build model data structure
     generated_data = {dataset: {}}
     all_perplexities = {}
+
+    if real_perplexity:
+        logger.info("✅ Real perplexity data loaded")
+        # Add real data to structures
+        generated_data[dataset]["real"] = {
+            "dataset": dataset,
+            "model": "real",
+            "is_real": True,
+            "total_trajectories": real_perplexity["log_perplexity_stats"]["count"],
+            "log_perplexity_stats": real_perplexity["log_perplexity_stats"],
+            "trajectories_with_perplexity": [],
+        }
+        all_perplexities["real"] = real_perplexity["raw_log_perplexities"]
+    else:
+        logger.info("⚠️  Real perplexity data not available")
     model_names = []
 
     # Process generated results
@@ -614,14 +662,25 @@ def aggregate_lmtad_perplexity_results(
                         )
                 else:
                     # Simple mean comparison
-                    mean_diff = perp_1 - perp_2
+                    # Ensure we're subtracting scalars
+                    val_1 = (
+                        np.mean(perp_1)
+                        if isinstance(perp_1, (list, np.ndarray))
+                        else perp_1
+                    )
+                    val_2 = (
+                        np.mean(perp_2)
+                        if isinstance(perp_2, (list, np.ndarray))
+                        else perp_2
+                    )
+                    mean_diff = val_1 - val_2
                     perplexity_comparisons.append(
                         {
                             "dataset": dataset,
                             "model_1": model_1,
                             "model_2": model_2,
-                            "mean_perplexity_1": float(perp_1),
-                            "mean_perplexity_2": float(perp_2),
+                            "mean_perplexity_1": float(val_1),
+                            "mean_perplexity_2": float(val_2),
                             "mean_diff": float(mean_diff),
                             "abs_diff": float(abs(mean_diff)),
                         }

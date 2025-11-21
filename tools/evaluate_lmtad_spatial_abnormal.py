@@ -43,6 +43,160 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def validate_trajectory_for_lmtad(
+    trajectory: List[int],
+    vocab_size: int = 6167,
+    min_length: int = 2,
+    max_duplicate_ratio: float = 0.1,
+) -> Tuple[bool, str]:
+    """Validate trajectory before LM-TAD evaluation to prevent infinite perplexity.
+
+    Args:
+        trajectory: List of road IDs
+        vocab_size: LM-TAD vocabulary size (default: 6167 for Porto)
+        min_length: Minimum trajectory length (default: 2)
+        max_duplicate_ratio: Maximum ratio of duplicate roads (default: 10%)
+
+    Returns:
+        Tuple of (is_valid, reason)
+    """
+    # Check basic requirements
+    if not trajectory:
+        return False, "Empty trajectory"
+
+    if len(trajectory) < min_length:
+        return False, f"Trajectory too short: {len(trajectory)} < {min_length}"
+
+    # Check for invalid road IDs
+    invalid_roads = []
+    for i, road_id in enumerate(trajectory):
+        if not isinstance(road_id, int):
+            return False, f"Non-integer road ID at position {i}: {road_id}"
+        if road_id < 0:
+            invalid_roads.append(f"negative road ID: {road_id}")
+        elif road_id >= vocab_size:
+            invalid_roads.append(f"road ID {road_id} >= vocab_size {vocab_size}")
+
+    if invalid_roads:
+        return (
+            False,
+            f"Invalid road IDs: {', '.join(invalid_roads[:5])}",
+        )  # Show first 5
+
+    # Check for excessive duplicates (indicates loops or invalid generation)
+    unique_roads = set(trajectory)
+    duplicate_ratio = 1 - (len(unique_roads) / len(trajectory))
+    if duplicate_ratio > max_duplicate_ratio:
+        return (
+            False,
+            f"Excessive duplicates: {duplicate_ratio:.1%} > {max_duplicate_ratio:.1%}",
+        )
+
+    # Check for consecutive duplicates (impossible in real traffic)
+    consecutive_duplicates = 0
+    for i in range(1, len(trajectory)):
+        if trajectory[i] == trajectory[i - 1]:
+            consecutive_duplicates += 1
+
+    if consecutive_duplicates > 0:
+        return False, f"Consecutive duplicate roads: {consecutive_duplicates}"
+
+    return True, "Valid"
+
+
+def filter_valid_trajectories(
+    trajectories: List[List[int]],
+    od_pair_labels: Dict[Tuple[int, int], str],
+    vocab_size: int = 6167,
+) -> Tuple[List[List[int]], List[str], Dict[Tuple[int, int], str]]:
+    """Filter trajectories and keep only valid ones for LM-TAD evaluation.
+
+    Args:
+        trajectories: List of trajectory road ID sequences
+        od_pair_labels: OD pair source labels mapping
+        vocab_size: LM-TAD vocabulary size
+
+    Returns:
+        Tuple of (valid_trajectories, validation_reasons, filtered_od_labels)
+    """
+    valid_trajectories = []
+    validation_reasons = []
+    filtered_od_labels = {}
+
+    # Collect statistics for diagnostics
+    invalid_road_ids = []
+    length_issues = []
+    duplicate_issues = []
+
+    for i, trajectory in enumerate(trajectories):
+        is_valid, reason = validate_trajectory_for_lmtad(trajectory, vocab_size)
+
+        if is_valid:
+            valid_trajectories.append(trajectory)
+            # Preserve OD pair label for valid trajectories
+            origin = trajectory[0]
+            destination = trajectory[-1]
+            od_key = (origin, destination)
+            if od_key in od_pair_labels:
+                filtered_od_labels[od_key] = od_pair_labels[od_key]
+        else:
+            validation_reasons.append(f"Trajectory {i}: {reason}")
+
+            # Collect diagnostic information
+            if "Invalid road IDs" in reason:
+                # Extract invalid road IDs from reason
+                try:
+                    invalid_ids = [
+                        int(x.split()[-1])
+                        for x in reason.split(":")[1].split(",")
+                        if x.strip().isdigit()
+                    ]
+                    invalid_road_ids.extend(invalid_ids)
+                except Exception:
+                    # Defensive: parsing failure of the reason string
+                    # Log debug info for later diagnosis without failing
+                    logger.debug(f"Failed to parse invalid IDs from reason: {reason}")
+            elif "too short" in reason:
+                length_issues.append(reason)
+            elif "duplicates" in reason:
+                duplicate_issues.append(reason)
+
+    logger.info(
+        f"Trajectory validation: {len(valid_trajectories)}/{len(trajectories)} valid "
+        f"({len(valid_trajectories) / len(trajectories) * 100:.1f}%)"
+    )
+
+    if validation_reasons:
+        # Log most common failure reasons
+        reasons_counter = Counter(validation_reasons)
+        logger.warning("Common validation failures:")
+        for reason, count in reasons_counter.most_common(3):
+            logger.warning(f"  {count}x: {reason}")
+
+        # Log detailed diagnostics for invalid road IDs
+        if invalid_road_ids:
+            logger.error(
+                f"🚨 Found {len(set(invalid_road_ids))} unique invalid road IDs"
+            )
+            logger.error(
+                f"   Max invalid road ID: {max(invalid_road_ids)} (vocab_size: {vocab_size})"
+            )
+            logger.error(
+                f"   Invalid road IDs sample: {sorted(set(invalid_road_ids))[:10]}"
+            )
+
+            # Check if this is a systematic issue
+            if max(invalid_road_ids) >= vocab_size * 2:
+                logger.error("🚨 INVALID ROAD ID PATTERN DETECTED:")
+                logger.error("   Road IDs are significantly larger than vocab_size")
+                logger.error(
+                    "   This suggests a fundamental mismatch in road ID mapping"
+                )
+                logger.error("   Check: HOSER road ID → LM-TAD token mapping")
+
+    return valid_trajectories, validation_reasons, filtered_od_labels
+
+
 def detect_lmtad_repo_from_checkpoint(checkpoint_path: Path) -> Path:
     """Detect LM-TAD repo root from checkpoint path.
 
@@ -637,7 +791,7 @@ def evaluate_spatial_abnormal_trajectories(
 
     # Load OD pairs file to get known labels (if available)
     od_pair_labels = {}  # Maps (origin, dest) -> "route_switch" or "detour"
-    if od_pairs_file is not None and od_pairs_file.exists():
+    if not od_pair_labels and od_pairs_file is not None and od_pairs_file.exists():
         logger.info(f"📂 Loading OD pairs labels from {od_pairs_file}")
         with open(od_pairs_file, "r") as f:
             od_pairs_data = json.load(f)
@@ -753,6 +907,24 @@ def evaluate_spatial_abnormal_trajectories(
         logger.info(f"📚 Vocab size from teacher: {vocab_size}")
     else:
         logger.warning("⚠️  Could not determine vocab_size from teacher")
+        vocab_size = 6167  # Default for Porto
+
+    # Validate trajectories before LM-TAD evaluation to prevent infinite perplexity
+    logger.info("🔍 Validating trajectories for LM-TAD compatibility...")
+    valid_trajectories, validation_failures, filtered_od_labels = (
+        filter_valid_trajectories(trajectories, od_pair_labels, vocab_size=vocab_size)
+    )
+
+    if len(valid_trajectories) == 0:
+        logger.error(
+            "❌ No valid trajectories found! All trajectories failed validation."
+        )
+        raise ValueError("All trajectories are invalid for LM-TAD evaluation")
+
+    # Replace original trajectories with validated ones
+    trajectories = valid_trajectories
+    od_pair_labels = filtered_od_labels
+    logger.info(f"✅ Using {len(trajectories)} validated trajectories for evaluation")
 
     # Extract road centroids (always needed for mapping)
     logger.info("📂 Extracting road centroids from roadmap...")
@@ -802,8 +974,9 @@ def evaluate_spatial_abnormal_trajectories(
 
         # Compute required spans from expected grid dimensions
         # Formula: span = (grid_dim - 1) * grid_size
-        required_lat_span = (vh - 1) * grid_size
-        required_lng_span = (vw - 1) * grid_size
+        epsilon = 1e-10
+        required_lat_span = (vh - 1) * grid_size + epsilon
+        required_lng_span = (vw - 1) * grid_size + epsilon
 
         # Center boundaries around road centroids to match training
         lat_center = (
@@ -846,10 +1019,13 @@ def evaluate_spatial_abnormal_trajectories(
         grid_size=grid_size,
         downsample_factor=downsample_factor,
     )
+
+    # Use Porto config dimensions for verification if available, otherwise use teacher dimensions
+    verify_dimensions = porto_grid_hw if porto_grid_hw is not None else teacher_hw
     mapper = GridMapper(
         boundary=grid_config,
         road_centroids=road_centroids,
-        verify_hw=teacher_hw,  # Ensure grid dimensions match training
+        verify_hw=verify_dimensions,  # Ensure grid dimensions match training or Porto config
     )
     road_to_token = torch.from_numpy(mapper.map_all()).to(device)
     logger.info("✅ Grid mapper created")

@@ -50,7 +50,7 @@ if str(_parent_dir) not in sys.path:
 
 # Import programmatic interfaces (after path setup)
 from tools.analyze_lmtad_spatial_results import (  # noqa: E402
-    aggregate_lmtad_spatial_results,
+    aggregate_lmtad_perplexity_results,
     ensure_json_serializable,
 )
 from tools.evaluate_lmtad_spatial_abnormal import evaluate_spatial_abnormal_trajectories  # noqa: E402
@@ -60,9 +60,9 @@ from tools.generate_lmtad_spatial_abnormal_trajectories import (  # noqa: E402
 )
 from tools.visualize_lmtad_spatial_results import (  # noqa: E402
     load_aggregated_results,
-    plot_model_rankings_spatial,
+    plot_model_rankings_by_perplexity,
     plot_perplexity_distribution_comparison,
-    plot_statistical_significance_spatial,
+    plot_statistical_significance_perplexity,
 )
 
 logging.basicConfig(
@@ -411,7 +411,7 @@ def run_lmtad_spatial_pipeline(
             logger.info("Step: Aggregate LM-TAD perplexity-based results")
             logger.info(f"{'=' * 70}")
             try:
-                result = aggregate_lmtad_spatial_results(
+                result = aggregate_lmtad_perplexity_results(
                     eval_dir=eval_dir,
                     dataset=dataset,
                     source_eval_dir=lmtad_source_eval_dir,
@@ -454,8 +454,8 @@ def run_lmtad_spatial_pipeline(
                 # Generate all plots (perplexity-based approach)
                 # Note: route_switch/detour plots removed in favor of perplexity-based analysis
                 plot_perplexity_distribution_comparison(results, output_dir, dataset)
-                plot_model_rankings_spatial(results, output_dir, dataset)
-                plot_statistical_significance_spatial(results, output_dir, dataset)
+                plot_model_rankings_by_perplexity(results, output_dir, dataset)
+                plot_statistical_significance_perplexity(results, output_dir, dataset)
 
                 logger.info("✅ Generate visualizations completed successfully")
                 logger.info(f"Visualizations saved to {output_dir}/")
