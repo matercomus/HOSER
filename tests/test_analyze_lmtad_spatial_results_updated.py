@@ -801,6 +801,65 @@ class TestAggregateLmtadPerplexityResults:
         assert "model_b" in summary["model_names"]
 
     @patch("tools.analyze_lmtad_spatial_results.load_source_perplexity_rates")
+    def test_aggregate_drops_plain_base_model_when_seeded_variants_exist(
+        self, mock_load_source, tmp_path
+    ):
+        """When both a plain base model and seeded variants exist, aggregation should ignore the plain base and prefer the seeded variants."""
+        mock_load_source.return_value = None
+
+        # Create evaluation directory structure
+        eval_dir = tmp_path / "eval"
+        dataset_dir = eval_dir / "eval_lmtad_spatial" / "test_dataset"
+        dataset_dir.mkdir(parents=True)
+
+        # Create seeded result files and a plain base file (older)
+        seeded_file = dataset_dir / "vanilla_seed42_spatial_evaluation.json"
+        seeded_file.write_text(
+            json.dumps(
+                {
+                    "model": "vanilla_seed42",
+                    "log_perplexity_stats": {"mean": 1.0, "std": 0.1, "count": 10},
+                }
+            )
+        )
+
+        seeded_file_2 = dataset_dir / "vanilla_seed43_spatial_evaluation.json"
+        seeded_file_2.write_text(
+            json.dumps(
+                {
+                    "model": "vanilla_seed43",
+                    "log_perplexity_stats": {"mean": 1.2, "std": 0.1, "count": 10},
+                }
+            )
+        )
+
+        # Create a plain base model file that should be ignored in aggregation
+        base_file = dataset_dir / "vanilla_spatial_evaluation.json"
+        base_file.write_text(
+            json.dumps(
+                {
+                    "model": "vanilla",
+                    "log_perplexity_stats": {"mean": 5.0, "std": 1.2, "count": 10},
+                }
+            )
+        )
+
+        # Run aggregation
+        result = aggregate_lmtad_perplexity_results(
+            eval_dir=eval_dir,
+            dataset="test_dataset",
+            source_eval_dir=tmp_path / "source",
+        )
+
+        # Verify the plain base model 'vanilla' is not present in the summary and generated data
+        summary = result["summary_statistics"]["test_dataset"]
+        assert "vanilla" not in summary["model_names"]
+        assert "vanilla" not in result["generated_data"]["test_dataset"]
+        # Seeded model names should be present
+        assert "vanilla_seed42" in summary["model_names"]
+        assert "vanilla_seed43" in summary["model_names"]
+
+    @patch("tools.analyze_lmtad_spatial_results.load_source_perplexity_rates")
     def test_aggregate_lmtad_perplexity_results_no_eval_dir(self, mock_load_source):
         """Test handling of missing evaluation directory"""
         result = aggregate_lmtad_perplexity_results(
