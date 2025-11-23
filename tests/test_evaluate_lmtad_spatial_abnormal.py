@@ -176,6 +176,25 @@ class TestEvaluateSpatialAbnormalTrajectories:
         assert result["trajectories"][0]["log_perplexity"] == 7.0
         assert result["trajectories"][0]["segment_log_perplexities"] == [0.5, 0.6]
 
+    def test_validate_trajectory_duplicate_check_disabled_by_default(self):
+        """By default, duplicate checking should be disabled (max_duplicate_ratio=1.0)."""
+        from tools.evaluate_lmtad_spatial_abnormal import validate_trajectory_for_lmtad
+
+        # A trajectory with many duplicates
+        duplicate_traj = [5, 5, 5, 5, 5]
+
+        # Default should be disabled -> valid
+        is_valid_default, reason, diag = validate_trajectory_for_lmtad(
+            duplicate_traj, vocab_size=10000
+        )
+        assert is_valid_default is True
+
+        # With duplicate ratio set to 0.1, it should be rejected
+        is_valid_strict, reason, diag = validate_trajectory_for_lmtad(
+            duplicate_traj, vocab_size=10000, max_duplicate_ratio=0.1
+        )
+        assert is_valid_strict is False
+
     @patch("tools.evaluate_lmtad_spatial_abnormal.detect_lmtad_repo_from_checkpoint")
     @patch("tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher")
     @patch("tools.evaluate_lmtad_spatial_abnormal.load_hoser_trajectories")

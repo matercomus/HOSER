@@ -51,7 +51,7 @@ def validate_trajectory_for_lmtad(
     trajectory: List[int],
     vocab_size: int = 6167,
     min_length: int = 2,
-    max_duplicate_ratio: float = 0.1,
+    max_duplicate_ratio: float = 1.0,
 ) -> Tuple[bool, str, dict]:
     """Validate trajectory before LM-TAD evaluation to prevent infinite perplexity.
 
@@ -59,7 +59,7 @@ def validate_trajectory_for_lmtad(
         trajectory: List of road IDs
         vocab_size: LM-TAD vocabulary size (default: 6167 for Porto)
         min_length: Minimum trajectory length (default: 2)
-        max_duplicate_ratio: Maximum ratio of duplicate roads (default: 10%)
+        max_duplicate_ratio: Maximum ratio of duplicate roads (default: 1.0 — disabled)
 
     Returns:
         Tuple of (is_valid, reason)
@@ -130,7 +130,7 @@ def filter_valid_trajectories(
     od_pair_labels: Dict[Tuple[int, int], str],
     vocab_size: int = 6167,
     road_to_token: Optional[np.ndarray] = None,
-    max_duplicate_ratio: float = 0.1,
+    max_duplicate_ratio: float = 1.0,
 ) -> Tuple[List[List[int]], List[str], Dict[Tuple[int, int], str]]:
     """Filter trajectories and keep only valid ones for LM-TAD evaluation.
 
@@ -847,7 +847,7 @@ def evaluate_spatial_abnormal_trajectories(
     lmtad_repo: Path | None = None,
     od_pairs_file: Path | None = None,
     eval_config: Dict | None = None,
-    max_duplicate_ratio: float = 0.1,
+    max_duplicate_ratio: float = 1.0,
     road_to_token_override: Optional[np.ndarray] = None,
 ) -> Dict:
     """Evaluate generated trajectories with LM-TAD (perplexity-based analysis)
@@ -1364,8 +1364,11 @@ Examples:
     parser.add_argument(
         "--max-duplicate-ratio",
         type=float,
-        default=0.1,
-        help="Maximum duplicate ratio allowed for trajectories (default: 0.1)",
+        default=1.0,
+        help=(
+            "Maximum duplicate ratio allowed for trajectories (default: 1.0). "
+            "Set to a value < 1.0 (e.g., 0.1) to enable duplicate checks; 1.0 disables the duplicate check."
+        ),
     )
     parser.add_argument(
         "--lmtad-repo",

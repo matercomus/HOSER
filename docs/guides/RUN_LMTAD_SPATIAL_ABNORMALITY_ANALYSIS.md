@@ -587,7 +587,7 @@ uv run python python_pipeline.py \
 
 - **`--lmtad-max-od-pairs`**: maximum number of OD pairs to sample for generation (use a small number like `100` for CI).
 - **`--lmtad-num-trajectories-per-od`**: number of generated trajectories per OD pair (set to `2` or small values for CI).
-- **`--lmtad-max-duplicate-ratio`**: controls duplicate-segment tolerance. Setting this to `1.0` effectively disables the duplicate check for quick runs; set it lower (e.g., `0.05`) for stricter validation.
+-- **`--lmtad-max-duplicate-ratio`**: controls duplicate-segment tolerance. Duplicate checking is disabled by default (`1.0`). Set this to a value < `1.0` (e.g., `0.05`) to enable the duplicate check for stricter validation.
 
 - **Notes:**
   - The pipeline maps HOSER road IDs to LM‑TAD token IDs before token-level validation to avoid token-bounds errors.

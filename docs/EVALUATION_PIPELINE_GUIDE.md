@@ -180,7 +180,7 @@ uv run python python_pipeline.py \
     --lmtad-max-duplicate-ratio 1.0
 ```
 
-- **`--lmtad-max-duplicate-ratio`**: controls how tolerant the LM‑TAD trajectory validator is to consecutive-duplicate road segments. The validator will fail trajectories whose duplicate ratio (consecutive duplicated road ids) exceeds this threshold. For debugging or CI runs you can set this to `1.0` to effectively disable the duplicate check temporarily.
+-- **`--lmtad-max-duplicate-ratio`**: controls how tolerant the LM‑TAD trajectory validator is to consecutive-duplicate road segments. The validator will fail trajectories whose duplicate ratio (consecutive duplicated road ids) exceeds this threshold. Note: duplicate checking is disabled by default (`1.0`). Set the flag to a value < `1.0` (e.g., `0.1`) to enable duplicate checking.
 
 - **Mapping note**: the pipeline maps HOSER road IDs to LM‑TAD token IDs before performing token-level validation. This prevents spurious "road ID >= vocab_size" errors that occur if raw road IDs are validated against the LM‑TAD vocabulary directly.
 

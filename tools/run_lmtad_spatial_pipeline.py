@@ -158,7 +158,7 @@ def run_lmtad_spatial_pipeline(
     num_traj_per_od: int = 20,
     max_od_pairs: int = 250,
     lmtad_repo: Path | None = None,
-    max_duplicate_ratio: float = 0.1,
+    max_duplicate_ratio: float = 1.0,
     force: bool = False,
     eval_config: Dict | None = None,
 ) -> bool:
@@ -706,8 +706,11 @@ Prerequisites:
     parser.add_argument(
         "--lmtad-max-duplicate-ratio",
         type=float,
-        default=0.1,
-        help="Maximum duplicate ratio allowed for trajectories during validation (default: 0.1)",
+        default=1.0,
+        help=(
+            "Maximum duplicate ratio allowed for trajectories during validation (default: 1.0). "
+            "Set to a value < 1.0 (e.g., 0.1) to enable duplicate checks; 1.0 disables the duplicate check."
+        ),
     )
 
     args = parser.parse_args()
