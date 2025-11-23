@@ -83,6 +83,29 @@ class GridMapper:
                     f"Boundaries must match training exactly. Use boundaries from converted LM-TAD data."
                 )
 
+        # Validate provided centroids are within configured boundaries.
+        # If any centroid falls outside the expected boundary, raise ValueError
+        # to avoid silent clipping of off-grid coordinates which may indicate
+        # broken or misaligned inputs (e.g., lat/lng switched, wrong CRS).
+        if self.road_centroids.size > 0:
+            min_lat, max_lat = float(self.cfg.min_lat), float(self.cfg.max_lat)
+            min_lng, max_lng = float(self.cfg.min_lng), float(self.cfg.max_lng)
+
+            lat_arr = self.road_centroids[:, 0]
+            lng_arr = self.road_centroids[:, 1]
+            # Detect any centroids outside specified range
+            out_of_lat = np.logical_or(lat_arr < min_lat, lat_arr > max_lat)
+            out_of_lng = np.logical_or(lng_arr < min_lng, lng_arr > max_lng)
+            if np.any(np.logical_or(out_of_lat, out_of_lng)):
+                logger = logging.getLogger(__name__)
+                logger.error(
+                    "Provided road centroids contain points outside the specified boundary. "
+                    "This usually indicates invalid coordinate input or wrong order of lat/lng."
+                )
+                raise ValueError(
+                    "Provided road centroids contain points outside the configured boundary."
+                )
+
     def map_all(self) -> np.ndarray:
         """Return an array of grid tokens for each road.
 

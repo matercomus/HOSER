@@ -330,9 +330,9 @@ def plot_perplexity_distributions(
         ["Std Dev", f"{real_std:.3f}", f"{gen_std:.3f}", f"{gen_std - real_std:+.3f}"],
         [
             "Outlier Rate",
-            f"{real_results['outlier_rate']:.2%}",
-            f"{generated_results['outlier_rate']:.2%}",
-            f"{generated_results['outlier_rate'] - real_results['outlier_rate']:+.2%}",
+            f"{real_results.get('outlier_rate', 0):.2%}",
+            f"{generated_results.get('outlier_rate', 0):.2%}",
+            f"{generated_results.get('outlier_rate', 0) - real_results.get('outlier_rate', 0):+.2%}",
         ],
     ]
 
@@ -376,7 +376,7 @@ def plot_normal_trajectory_rates(
     output_file: Path,
     dataset: str,
     config: Optional[LMTADPlotConfig] = None,
-) -> None:
+):
     """Plot normal trajectory rates (non-outlier) comparison
 
     Args:
@@ -506,6 +506,12 @@ def plot_perplexity_scatter(
     gen_perplexities = generated_results.get("perplexity_values", [])
     real_lengths = real_results.get("trajectory_lengths", [])
     gen_lengths = generated_results.get("trajectory_lengths", [])
+    # If trajectory length data is missing for both real and generated, skip plotting
+    if not ((real_perplexities and real_lengths) or (gen_perplexities and gen_lengths)):
+        logger.warning(
+            "Missing trajectory_lengths for both real and generated - skipping scatter plot"
+        )
+        return
 
     # Create figure with subplots
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
@@ -718,9 +724,9 @@ def plot_lmtad_evaluation_from_files(
     assert generated_results_file.exists(), (
         f"Generated results file not found: {generated_results_file}"
     )
-    assert output_dir.parent.exists(), (
-        f"Output directory parent does not exist: {output_dir.parent}"
-    )
+    # If the parent directory does not exist, create it.
+    if not output_dir.parent.exists():
+        output_dir.parent.mkdir(parents=True, exist_ok=True)
 
     if config is None:
         config = LMTADPlotConfig()

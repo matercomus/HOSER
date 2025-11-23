@@ -257,9 +257,10 @@ def test_convert_hoser_to_lmtad_format(
     # Check trajectory format
     with open(output_file) as f:
         lines = f.readlines()
-        assert len(lines) == 2  # Two trajectories
-        # Each line should be a list of grid tokens
-        grid_tokens = [eval(line.strip()) for line in lines]
+        # First line is a header 'trajectory', so expect 1 + number of trajectories
+        assert len(lines) == 3  # 1 header + 2 trajectories
+        # Each line after header should be a list of grid tokens
+        grid_tokens = [eval(line.strip()) for line in lines[1:]]
         assert all(isinstance(tokens, list) for tokens in grid_tokens)
         assert all(len(tokens) == 3 for tokens in grid_tokens)  # Each has 3 points
         assert all(isinstance(t, int) for tokens in grid_tokens for t in tokens)

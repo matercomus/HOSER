@@ -19,7 +19,7 @@ import sys
 import pandas as pd
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Tuple
 
 import numpy as np
 from scipy import stats
@@ -51,7 +51,11 @@ def ensure_json_serializable(obj):
     elif isinstance(obj, (np.integer, int)):
         return int(obj)
     elif isinstance(obj, (np.floating, float)):
-        return float(obj)
+        val = float(obj)
+        # Convert NaN to None for JSON compatibility and deterministic equality
+        if np.isnan(val):
+            return None
+        return val
     elif isinstance(obj, str):
         return obj
     elif obj is None:
@@ -110,8 +114,40 @@ def aggregate_lmtad_spatial_results(
             }
             for test in distribution_tests
         ]
+        # If no distribution_tests were generated, but we have simple mean comparisons,
+        # create fallback statistical_tests entries for backwards compatibility
+        if not old_format["statistical_analysis"]["statistical_tests"]:
+            mean_comp = old_format["statistical_analysis"].get(
+                "perplexity_comparisons", []
+            )
+            fallback_tests = []
+            for comp in mean_comp:
+                fallback_tests.append(
+                    {
+                        "model": comp.get("model_2", ""),
+                        "generated_rate": comp.get("mean_perplexity_2", 0) * 10,
+                        "ci_lower": comp.get("mean_perplexity_2", 0) * 10,
+                        "ci_upper": comp.get("mean_perplexity_2", 0) * 10,
+                        "p_value": float("nan"),
+                        "cohens_h": float("nan"),
+                    }
+                )
+            if fallback_tests:
+                old_format["statistical_analysis"]["statistical_tests"] = fallback_tests
 
-    return old_format
+        # Move dataset's 'real' data to top-level 'real_data' for old format compatibility
+        try:
+            gen_data = old_format.get("generated_data", {})
+            if isinstance(gen_data, dict) and dataset in gen_data:
+                dataset_gen = gen_data.get(dataset, {})
+                if "real" in dataset_gen:
+                    old_format["real_data"] = dataset_gen.pop("real")
+        except Exception:
+            # Best-effort conversion only; if this fails, don't crash the wrapper
+            pass
+
+    # Ensure JSON serializable for backward compatibility
+    return ensure_json_serializable(old_format)
 
 
 def load_source_real_rates(source_eval_dir: Path) -> Optional[Dict]:
@@ -143,12 +179,34 @@ def load_source_real_rates(source_eval_dir: Path) -> Optional[Dict]:
         else:
             old_format["spatial_abnormality_rate"] = 0
 
+    # Also attempt to extract labeled rates (route_switch/detour) from TSV file(s)
+    try:
+        tsv_files = list(source_eval_dir.glob("ckpt_best_outliers_*.tsv"))
+        if tsv_files:
+            tsv_file = tsv_files[0]
+            df = pd.read_csv(tsv_file, sep="\t")
+            total = len(df)
+            if total > 0:
+                route_switch_count = int((df["outlier"] == "route switch").sum())
+                detour_count = int((df["outlier"] == "detour").sum())
+                # Compute rates (%) in the old format
+                old_format["route_switch_count"] = route_switch_count
+                old_format["detour_count"] = detour_count
+                old_format["route_switch_rate"] = 100.0 * route_switch_count / total
+                old_format["detour_rate"] = 100.0 * detour_count / total
+                old_format["total_trajectories"] = int(total)
+    except Exception:
+        logger.warning("Failed to extract route_switch/detour rates from TSV file")
+
     return old_format
 
 
 def compute_statistical_test(
-    results_1: Dict, results_2: Dict, test_type: str = "ks", **kwargs
-) -> Optional[Dict]:
+    results_1: Optional[Dict] = None,
+    results_2: Optional[Dict] = None,
+    test_type: str = "ks",
+    **kwargs,
+) -> Optional[Union[Dict, Tuple[float, float]]]:
     """
     Backward compatibility wrapper for compare_perplexity_distributions.
 
@@ -159,14 +217,58 @@ def compute_statistical_test(
         "Use compare_perplexity_distributions instead."
     )
 
-    # Handle old parameter names
+    # Handle old parameter names (support multiple variants)
     if "real_count" in kwargs:
         kwargs["count_1"] = kwargs.pop("real_count")
+    if "real_total" in kwargs:
+        kwargs["total_1"] = kwargs.pop("real_total")
+    if "gen_count" in kwargs:
+        kwargs["count_2"] = kwargs.pop("gen_count")
+    if "gen_total" in kwargs:
+        kwargs["total_2"] = kwargs.pop("gen_total")
     if "generated_count" in kwargs:
         kwargs["count_2"] = kwargs.pop("generated_count")
+    if "generated_total" in kwargs:
+        kwargs["total_2"] = kwargs.pop("generated_total")
+
+    # Legacy call signature: callers passed counts + totals instead of distributions
+    if (
+        results_1 is None
+        and results_2 is None
+        and all(k in kwargs for k in ("count_1", "total_1", "count_2", "total_2"))
+    ):
+        # Perform chi-square or proportion test directly (Fisher's exact or chi2)
+        count_1 = int(kwargs["count_1"])
+        total_1 = int(kwargs["total_1"])
+        count_2 = int(kwargs["count_2"])
+        total_2 = int(kwargs["total_2"])
+
+        # Build contingency table
+        table = np.array([[count_1, total_1 - count_1], [count_2, total_2 - count_2]])
+        try:
+            chi2, p_value, dof, expected = stats.chi2_contingency(table)
+        except Exception:
+            # Fallback to Fisher's exact if chi-square fails (small counts)
+            from scipy.stats import fisher_exact
+
+            _, p_value = fisher_exact(table)
+            chi2 = float("nan")
+
+        return float(chi2), float(p_value)
+
+    # If results_1/results_2 were not provided but legacy counts/totals were not either,
+    # return None instead of attempting to dereference None.
+    if results_1 is None or results_2 is None:
+        logger.warning(
+            "compute_statistical_test: insufficient parameters for distribution comparison"
+        )
+        return None
 
     result = compare_perplexity_distributions(
-        results_1=results_1, results_2=results_2, test_type=test_type, **kwargs
+        perplexities_1=results_1.get("raw_log_perplexities", []),
+        perplexities_2=results_2.get("raw_log_perplexities", []),
+        model_name_1=results_1.get("model", "real"),
+        model_name_2=results_2.get("model", "generated"),
     )
 
     if not result:
@@ -689,8 +791,128 @@ def aggregate_lmtad_perplexity_results(
                             }
                         )
                 else:
-                    # Simple mean comparison
-                    # Ensure we're subtracting scalars
+                    # Simple mean comparison or summary-vs-distribution comparison
+                    # If one side is a raw array and the other has summary stats (mean, std, count),
+                    # perform a t-test from summary statistics to create a distribution test entry.
+                    is_list_1 = isinstance(perp_1, (list, np.ndarray))
+                    is_list_2 = isinstance(perp_2, (list, np.ndarray))
+
+                    if is_list_1 and not is_list_2:
+                        # perp_2 is scalar; get summary stats for model_2 from generated_data
+                        stats_2 = (
+                            generated_data[dataset]
+                            .get(model_2, {})
+                            .get("log_perplexity_stats", {})
+                        )
+                        mean2 = stats_2.get("mean")
+                        std2 = stats_2.get("std")
+                        count2 = stats_2.get("count")
+                        if (
+                            mean2 is not None
+                            and std2 is not None
+                            and count2 is not None
+                        ):
+                            arr1 = np.array(perp_1)
+                            mean1 = float(np.mean(arr1))
+                            std1 = float(np.std(arr1, ddof=1)) if len(arr1) > 1 else 0.0
+                            count1 = len(arr1)
+                            # Use Welch t-test from summary stats
+                            try:
+                                _, p_value = stats.ttest_ind_from_stats(
+                                    mean1,
+                                    std1,
+                                    count1,
+                                    mean2,
+                                    float(std2),
+                                    int(count2),
+                                    equal_var=False,
+                                )
+                            except Exception:
+                                p_value = float("nan")
+                            # Compute Cohen's d (approximate)
+                            pooled_std = np.sqrt((std1**2 + float(std2) ** 2) / 2)
+                            cohens_d = (
+                                (mean1 - float(mean2)) / pooled_std
+                                if pooled_std > 0
+                                else 0.0
+                            )
+                            distribution_tests.append(
+                                {
+                                    "dataset": dataset,
+                                    "model": model_2,
+                                    "mean_perplexity": float(mean2),
+                                    "mean_perplexity_1": float(mean1),
+                                    "mean_perplexity_2": float(mean2),
+                                    "ks_statistic": float("nan"),
+                                    "ks_p_value": float("nan"),
+                                    "mannwhitney_u_statistic": float("nan"),
+                                    "mannwhitney_u_p_value": float("nan"),
+                                    "p_value": float(p_value)
+                                    if not np.isnan(p_value)
+                                    else float("nan"),
+                                    "cohens_h": float(cohens_d),
+                                    "trajectory_count_1": int(count1),
+                                    "trajectory_count_2": int(count2),
+                                }
+                            )
+                            continue
+                    elif is_list_2 and not is_list_1:
+                        stats_1 = (
+                            generated_data[dataset]
+                            .get(model_1, {})
+                            .get("log_perplexity_stats", {})
+                        )
+                        mean1 = stats_1.get("mean")
+                        std1 = stats_1.get("std")
+                        count1 = stats_1.get("count")
+                        if (
+                            mean1 is not None
+                            and std1 is not None
+                            and count1 is not None
+                        ):
+                            arr2 = np.array(perp_2)
+                            mean2 = float(np.mean(arr2))
+                            std2 = float(np.std(arr2, ddof=1)) if len(arr2) > 1 else 0.0
+                            count2 = len(arr2)
+                            try:
+                                _, p_value = stats.ttest_ind_from_stats(
+                                    float(mean1),
+                                    float(std1),
+                                    int(count1),
+                                    mean2,
+                                    std2,
+                                    count2,
+                                    equal_var=False,
+                                )
+                            except Exception:
+                                p_value = float("nan")
+                            pooled_std = np.sqrt((float(std1) ** 2 + std2**2) / 2)
+                            cohens_d = (
+                                (float(mean1) - mean2) / pooled_std
+                                if pooled_std > 0
+                                else 0.0
+                            )
+                            distribution_tests.append(
+                                {
+                                    "dataset": dataset,
+                                    "model": model_1,
+                                    "mean_perplexity": float(mean1),
+                                    "mean_perplexity_1": float(mean1),
+                                    "mean_perplexity_2": float(mean2),
+                                    "ks_statistic": float("nan"),
+                                    "ks_p_value": float("nan"),
+                                    "mannwhitney_u_statistic": float("nan"),
+                                    "mannwhitney_u_p_value": float("nan"),
+                                    "p_value": float(p_value)
+                                    if not np.isnan(p_value)
+                                    else float("nan"),
+                                    "cohens_h": float(cohens_d),
+                                    "trajectory_count_1": int(count1),
+                                    "trajectory_count_2": int(count2),
+                                }
+                            )
+                            continue
+                    # Otherwise fallback to simple mean diff record
                     val_1 = (
                         np.mean(perp_1)
                         if isinstance(perp_1, (list, np.ndarray))

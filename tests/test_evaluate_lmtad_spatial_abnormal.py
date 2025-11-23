@@ -109,10 +109,13 @@ class TestEvaluateSpatialAbnormalTrajectories:
         )
 
         mock_mapper = MagicMock()
-        mock_mapper.map_all.return_value = np.array([0, 1])
+        # Provide a generous mapping array so mock trajectories map cleanly
+        mock_mapper.map_all.return_value = np.arange(7000)
         mock_grid_mapper.return_value = mock_mapper
 
         mock_model = MagicMock()
+        # Ensure vocab_size returns a real int to avoid MagicMock being used in numeric comparisons
+        mock_model.vocab_size.return_value = 7000
         mock_lmtad_teacher.return_value = mock_model
 
         import numpy as np
@@ -241,7 +244,7 @@ class TestEvaluateSpatialAbnormalTrajectories:
                             "max_lng": 1.0,
                         },
                     )
-                    mock_mapper.return_value.map_all.return_value = np.array([0, 1])
+                    mock_mapper.return_value.map_all.return_value = np.arange(7000)
                     mock_eval.return_value = (
                         np.array([7.0]),
                         np.array([False]),
@@ -416,10 +419,11 @@ class TestFailedEvaluationsAndEdgeCases:
         )
 
         mock_mapper = MagicMock()
-        mock_mapper.map_all.return_value = np.array([0, 1])
+        mock_mapper.map_all.return_value = np.arange(7000)
         mock_grid_mapper.return_value = mock_mapper
 
         mock_model = MagicMock()
+        mock_model.vocab_size.return_value = 7000
         mock_lmtad_teacher.return_value = mock_model
 
         # All trajectories fail (Infinity perplexity)
@@ -503,10 +507,11 @@ class TestFailedEvaluationsAndEdgeCases:
         )
 
         mock_mapper = MagicMock()
-        mock_mapper.map_all.return_value = np.array([0, 1])
+        mock_mapper.map_all.return_value = np.arange(7000)
         mock_grid_mapper.return_value = mock_mapper
 
         mock_model = MagicMock()
+        mock_model.vocab_size.return_value = 7000
         mock_lmtad_teacher.return_value = mock_model
 
         # Mixed: first fails, second succeeds (route_switch), third fails
@@ -597,10 +602,11 @@ class TestFailedEvaluationsAndEdgeCases:
         )
 
         mock_mapper = MagicMock()
-        mock_mapper.map_all.return_value = np.array([0, 1])
+        mock_mapper.map_all.return_value = np.arange(7000)
         mock_grid_mapper.return_value = mock_mapper
 
         mock_model = MagicMock()
+        mock_model.vocab_size.return_value = 7000
         mock_lmtad_teacher.return_value = mock_model
 
         # All types: failed, labeled route_switch, labeled detour, non_outlier, failed
@@ -700,10 +706,11 @@ class TestFailedEvaluationsAndEdgeCases:
         )
 
         mock_mapper = MagicMock()
-        mock_mapper.map_all.return_value = np.array([0, 1])
+        mock_mapper.map_all.return_value = np.arange(7000)
         mock_grid_mapper.return_value = mock_mapper
 
         mock_model = MagicMock()
+        mock_model.vocab_size.return_value = 7000
         mock_lmtad_teacher.return_value = mock_model
 
         # All fail
@@ -791,7 +798,7 @@ class TestGridMapperVerification:
         )
 
         mock_mapper = MagicMock()
-        mock_mapper.map_all.return_value = np.array([0, 1])
+        mock_mapper.map_all.return_value = np.arange(7000)
         mock_grid_mapper.return_value = mock_mapper
 
         # Mock teacher with get_grid_size_hw and vocab_size methods
@@ -880,7 +887,7 @@ class TestGridMapperVerification:
         )
 
         mock_mapper = MagicMock()
-        mock_mapper.map_all.return_value = np.array([0, 1])
+        mock_mapper.map_all.return_value = np.arange(7000)
         mock_grid_mapper.return_value = mock_mapper
 
         # Mock teacher that returns None for grid dimensions
@@ -969,7 +976,8 @@ class TestGridMapperVerification:
         )
 
         mock_mapper = MagicMock()
-        mock_mapper.map_all.return_value = np.array([0, 1])
+        # Provide full mapping to avoid mapping failures in the test
+        mock_mapper.map_all.return_value = np.arange(7000)
         mock_grid_mapper.return_value = mock_mapper
 
         # Mock teacher with vocab_size

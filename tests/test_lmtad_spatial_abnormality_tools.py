@@ -600,7 +600,7 @@ class TestAnalyzeLMTADSpatialResults:
 
         # Mock the aggregate function to return result with numpy types
         with patch(
-            "tools.run_lmtad_spatial_pipeline.aggregate_lmtad_spatial_results"
+            "tools.analyze_lmtad_spatial_results.aggregate_lmtad_spatial_results"
         ) as mock_aggregate:
             mock_aggregate.return_value = mock_result
 
@@ -1185,13 +1185,21 @@ class TestLMTADSpatialPipeline:
     @patch("tools.run_lmtad_spatial_pipeline.extract_spatial_abnormal_od_pairs")
     @patch("tools.run_lmtad_spatial_pipeline.generate_spatial_abnormal_trajectories")
     @patch("tools.run_lmtad_spatial_pipeline.evaluate_spatial_abnormal_trajectories")
-    @patch("tools.run_lmtad_spatial_pipeline.aggregate_lmtad_spatial_results")
+    @patch("tools.analyze_lmtad_spatial_results.aggregate_lmtad_spatial_results")
     @patch("tools.run_lmtad_spatial_pipeline.load_aggregated_results")
-    @patch("tools.run_lmtad_spatial_pipeline.plot_spatial_abnormality_rates_comparison")
-    @patch("tools.run_lmtad_spatial_pipeline.plot_route_switch_vs_detour_breakdown")
-    @patch("tools.run_lmtad_spatial_pipeline.plot_model_rankings_spatial")
-    @patch("tools.run_lmtad_spatial_pipeline.plot_statistical_significance_spatial")
-    @patch("tools.run_lmtad_spatial_pipeline.plot_perplexity_distribution_spatial")
+    @patch(
+        "tools.visualize_lmtad_spatial_results.plot_spatial_abnormality_rates_comparison"
+    )
+    @patch(
+        "tools.visualize_lmtad_spatial_results.plot_route_switch_vs_detour_breakdown"
+    )
+    @patch("tools.visualize_lmtad_spatial_results.plot_model_rankings_spatial")
+    @patch(
+        "tools.visualize_lmtad_spatial_results.plot_statistical_significance_spatial"
+    )
+    @patch(
+        "tools.visualize_lmtad_spatial_results.plot_perplexity_distribution_comparison"
+    )
     @patch("tools.run_lmtad_spatial_pipeline.find_generated_models")
     def test_pipeline_full_workflow(
         self,

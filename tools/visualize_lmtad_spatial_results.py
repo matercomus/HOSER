@@ -73,6 +73,69 @@ def plot_spatial_abnormality_rates_comparison(
         "plot_spatial_abnormality_rates_comparison is deprecated. "
         "Use plot_perplexity_distribution_comparison instead."
     )
+
+    # Backwards compatibility: support old 'statistical_tests' structure
+    statistical_tests = results.get("statistical_analysis", {}).get(
+        "statistical_tests", []
+    )
+    if statistical_tests:
+        # Real rate if available
+        real_rate = (
+            results.get("summary_statistics", {})
+            .get(dataset, {})
+            .get("real_spatial_abnormality_rate")
+            if dataset
+            else None
+        )
+
+        # Validate inputs
+        for test in statistical_tests:
+            gen_rate = test.get("generated_rate")
+            ci_lower = test.get("ci_lower")
+            ci_upper = test.get("ci_upper")
+            # NaN check
+            if gen_rate is None or (isinstance(gen_rate, float) and np.isnan(gen_rate)):
+                raise AssertionError("Rate cannot be NaN")
+            # Non-negative check
+            if gen_rate < 0:
+                raise AssertionError("Rate must be non-negative")
+            # CI sanity check
+            if ci_lower is not None and ci_upper is not None:
+                if ci_lower > ci_upper:
+                    raise AssertionError("ci_lower cannot be > ci_upper")
+
+        # Create simple bar chart with CI error bars and real rate line
+        fig, ax = plt.subplots(figsize=(10, 6))
+        models = [t.get("model", f"model_{i}") for i, t in enumerate(statistical_tests)]
+        rates = [float(t.get("generated_rate", 0)) for t in statistical_tests]
+        ci_lowers = [
+            float(t.get("ci_lower", r)) for t, r in zip(statistical_tests, rates)
+        ]
+        ci_uppers = [
+            float(t.get("ci_upper", r)) for t, r in zip(statistical_tests, rates)
+        ]
+        error_lower = [r - lower for r, lower in zip(rates, ci_lowers)]
+        error_upper = [upper - r for upper, r in zip(ci_uppers, rates)]
+        errors = np.array([error_lower, error_upper])
+
+        ax.bar(models, rates, color=[get_model_color(m) for m in models], alpha=0.8)
+        ax.errorbar(models, rates, yerr=errors, fmt="none", ecolor="black", capsize=5)
+        if real_rate is not None:
+            ax.axhline(y=real_rate, color=get_model_color("real"), linestyle="--")
+
+        ax.set_xlabel("Model", fontsize=12)
+        ax.set_ylabel("Spatial Abnormality Rate (%)", fontsize=12)
+        ax.set_title(f"Spatial Abnormality Rates Comparison: {dataset}")
+        plt.tight_layout()
+        output_file = output_dir / f"spatial_abnormality_rates_{dataset}.png"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_file, dpi=300, bbox_inches="tight")
+        plt.savefig(output_file.with_suffix(".svg"), bbox_inches="tight")
+        plt.close()
+        logger.info(f"  ✓ Saved to {output_file}")
+        return
+
+    # Fallback: use perplexity-focused plot if no statistical_tests present
     return plot_perplexity_distribution_comparison(results, output_dir, dataset)
 
 
@@ -133,6 +196,46 @@ def plot_statistical_significance_spatial(
         "plot_statistical_significance_spatial is deprecated. "
         "Use plot_statistical_significance_perplexity instead."
     )
+
+    # Backwards compatibility: accept 'statistical_tests' from old format
+    statistical_tests = results.get("statistical_analysis", {}).get(
+        "statistical_tests", []
+    )
+    if statistical_tests:
+        # Extract rates and significance flags
+        models = [t.get("model", f"model_{i}") for i, t in enumerate(statistical_tests)]
+        rates = [t.get("generated_rate") for t in statistical_tests]
+
+        # Validate rates: ensure no NaN
+        for r in rates:
+            if r is None or (isinstance(r, float) and np.isnan(r)):
+                raise AssertionError("Rates cannot contain NaN")
+
+        # Build a simple significance plot (bars colored by significance)
+        sig_flags = [bool(t.get("significant", False)) for t in statistical_tests]
+        colors = ["red" if s else "green" for s in sig_flags]
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        x = np.arange(len(models))
+        ax.bar(x, [float(r) for r in rates], color=colors)
+        ax.set_xticks(x)
+        ax.set_xticklabels(
+            [get_display_name(m) for m in models], rotation=45, ha="right"
+        )
+        ax.set_xlabel("Model")
+        ax.set_ylabel("Spatial Abnormality Rate (%)")
+        ax.set_title(
+            f"Statistical Significance of Spatial Abnormality Rates: {dataset}"
+        )
+        plt.tight_layout()
+        output_file = output_dir / f"statistical_significance_spatial_{dataset}.png"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_file, dpi=300, bbox_inches="tight")
+        plt.savefig(output_file.with_suffix(".svg"), bbox_inches="tight")
+        plt.close()
+        logger.info(f"  ✓ Saved to {output_file}")
+        return
+
     return plot_statistical_significance_perplexity(results, output_dir, dataset)
 
 
@@ -231,12 +334,7 @@ def plot_perplexity_distribution_comparison(
 
     # Bottom plot: Summary statistics (median, IQR approximation)
     x = np.arange(len(models))
-    lower_quartiles = [
-        np.maximum(0, med - std * 0.6745) for med, std in zip(medians, stds)
-    ]
-    upper_quartiles = [med + std * 0.6745 for med, std in zip(medians, stds)]
-    iqr_lower = [med - std * 0.6745 for med, std in zip(medians, stds)]
-    iqr_upper = [med + std * 0.6745 for med, std in zip(medians, stds)]
+    # Quartile approximations (not used directly; kept for future enhancement)
 
     # Box plots (using statistical approximations)
     box_parts = ax2.boxplot(
@@ -362,7 +460,7 @@ def plot_per_od_pair_perplexity_comparison(
         for j in range(len(models)):
             value = perplexity_matrix[i, j]
             if not np.isnan(value):
-                text = ax.text(
+                ax.text(
                     j,
                     i,
                     f"{value:.2f}",
@@ -482,8 +580,8 @@ def plot_model_rankings_by_perplexity(results: Dict, output_dir: Path, dataset: 
     x = np.arange(len(models))
     width = 0.35
 
-    bars1 = ax2.bar(x - width / 2, means, width, label="Mean", color=colors, alpha=0.8)
-    bars2 = ax2.bar(
+    ax2.bar(x - width / 2, means, width, label="Mean", color=colors, alpha=0.8)
+    ax2.bar(
         x + width / 2,
         medians,
         width,
@@ -568,6 +666,17 @@ def plot_statistical_significance_perplexity(
         counts.append(count)
         ci_lowers.append(mean - ci_margin)
         ci_uppers.append(mean + ci_margin)
+
+    # Input validation: no NaNs, no negative means, and ci_lower <= ci_upper
+    for i, (mean, ci_lower, ci_upper) in enumerate(zip(means, ci_lowers, ci_uppers)):
+        if not np.isfinite(mean) or np.isnan(mean):
+            raise AssertionError("Mean perplexity must be a finite number")
+        if mean < 0:
+            raise AssertionError("Mean perplexity must be non-negative")
+        if not np.isfinite(ci_lower) or not np.isfinite(ci_upper):
+            raise AssertionError("CI bounds must be finite")
+        if ci_lower > ci_upper:
+            raise AssertionError("ci_lower cannot be > ci_upper")
 
     fig, ax = plt.subplots(figsize=(14, 8))
     x = np.arange(len(models))
@@ -796,7 +905,7 @@ def plot_comprehensive_perplexity_summary(
     # Collect all available statistics
     models = []
     perplexity_stats = []
-    od_pair_stats = []
+    # Placeholder for future per-OD pair stats usage
 
     for model_name, data in generated.items():
         log_perp_stats = data.get("log_perplexity_stats", {})
@@ -815,7 +924,7 @@ def plot_comprehensive_perplexity_summary(
     stds = [stats.get("std", 0) for stats in perplexity_stats]
     colors = [get_model_color(m) for m in models]
 
-    bars = ax1.bar(models, means, yerr=stds, color=colors, alpha=0.8, capsize=5)
+    ax1.bar(models, means, yerr=stds, color=colors, alpha=0.8, capsize=5)
     ax1.set_xlabel("Model", fontsize=12)
     ax1.set_ylabel("Mean Log Perplexity", fontsize=12)
     ax1.set_title("Mean Perplexity Comparison", fontsize=12, fontweight="bold")
@@ -828,8 +937,8 @@ def plot_comprehensive_perplexity_summary(
     x = np.arange(len(models))
     width = 0.35
 
-    bars1 = ax2.bar(x - width / 2, means, width, label="Mean", color=colors, alpha=0.8)
-    bars2 = ax2.bar(
+    ax2.bar(x - width / 2, means, width, label="Mean", color=colors, alpha=0.8)
+    ax2.bar(
         x + width / 2,
         medians,
         width,
@@ -853,7 +962,7 @@ def plot_comprehensive_perplexity_summary(
         for stats in perplexity_stats
     ]
 
-    bars = ax3.bar(models, ranges, color=colors, alpha=0.8)
+    ax3.bar(models, ranges, color=colors, alpha=0.8)
     ax3.set_xlabel("Model", fontsize=12)
     ax3.set_ylabel("Perplexity Range (Max - Min)", fontsize=12)
     ax3.set_title("Perplexity Range", fontsize=12, fontweight="bold")
@@ -889,7 +998,7 @@ def plot_comprehensive_perplexity_summary(
     while len(worst_perps) < n_positions:
         worst_perps.append(0)
 
-    bars1 = ax4.bar(
+    ax4.bar(
         x_pos - 0.2,
         best_perps[:n_positions],
         0.4,
@@ -897,7 +1006,7 @@ def plot_comprehensive_perplexity_summary(
         color="#2ecc71",
         alpha=0.8,
     )
-    bars2 = ax4.bar(
+    ax4.bar(
         x_pos + 0.2,
         worst_perps[:n_positions],
         0.4,

@@ -62,6 +62,15 @@ def sample_road_network():
         "length": [1000.0] * len(coordinates),
         "highway": ["primary"] * len(coordinates),
     }
+    # Compute centroid GPS coordinates (lat, lon) for each road
+    center_gps = []
+    for coord in coordinates:
+        lons = [pt[0] for pt in coord]
+        lats = [pt[1] for pt in coord]
+        center_lat = sum(lats) / len(lats)
+        center_lon = sum(lons) / len(lons)
+        center_gps.append((center_lat, center_lon))
+    geo_data["center_gps"] = center_gps
     return pd.DataFrame(geo_data)
 
 
@@ -87,7 +96,13 @@ def temp_data_dir():
 
 # End-to-End Workflow Tests
 def test_complete_pipeline(
-    temp_data_dir, lmtad_config, grid_config, sample_road_network, sample_trajectories
+    temp_data_dir,
+    lmtad_config,
+    grid_config,
+    sample_road_network,
+    sample_trajectories,
+    fake_lmtad_teacher,
+    monkeypatch,
 ):
     """Test the complete LM-TAD pipeline execution."""
 
@@ -109,10 +124,10 @@ def test_complete_pipeline(
         }
     ).to_csv(test_file, index=False)
 
-    # Initialize LM-TAD teacher
-    teacher = LMTADTeacher(**lmtad_config)
+    # Use fake LMTAD teacher fixture to avoid heavy model load
+    teacher = fake_lmtad_teacher
     assert teacher is not None
-    assert hasattr(teacher, "model")
+    assert hasattr(teacher, "vocab_size")
 
     # Initialize grid mapper with sample road centroids
     road_centroids = np.array([[39.905, 116.305], [39.915, 116.315], [39.925, 116.325]])
@@ -132,6 +147,13 @@ def test_complete_pipeline(
         dtype=lmtad_config["dtype"],
         window=lmtad_config["window"],
         grid_size=grid_config.grid_size,
+    )
+
+    # Ensure DistillationManager uses our fake teacher (monkeypatch constructor)
+    fake_lmtad_teacher.get_grid_size_hw.return_value = None
+    fake_lmtad_teacher.sot_token.return_value = None
+    monkeypatch.setattr(
+        "critics.distill_hook.LMTADTeacher", lambda **kwargs: fake_lmtad_teacher
     )
 
     manager = DistillationManager(

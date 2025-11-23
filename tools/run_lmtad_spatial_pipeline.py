@@ -49,21 +49,16 @@ if str(_parent_dir) not in sys.path:
     sys.path.insert(0, str(_parent_dir))
 
 # Import programmatic interfaces (after path setup)
-from tools.analyze_lmtad_spatial_results import (  # noqa: E402
-    aggregate_lmtad_perplexity_results,
-    ensure_json_serializable,
-)
+import tools.analyze_lmtad_spatial_results as analyze_lmtad_spatial_results  # noqa: E402
 from tools.evaluate_lmtad_spatial_abnormal import evaluate_spatial_abnormal_trajectories  # noqa: E402
 from tools.extract_lmtad_spatial_abnormal_od import extract_spatial_abnormal_od_pairs  # noqa: E402
 from tools.generate_lmtad_spatial_abnormal_trajectories import (  # noqa: E402
     generate_spatial_abnormal_trajectories,
 )
-from tools.visualize_lmtad_spatial_results import (  # noqa: E402
-    load_aggregated_results,
-    plot_model_rankings_by_perplexity,
-    plot_perplexity_distribution_comparison,
-    plot_statistical_significance_perplexity,
-)
+import tools.visualize_lmtad_spatial_results as viz  # noqa: E402
+
+# Backwards compatibility: expose helper aliases used by tests
+load_aggregated_results = viz.load_aggregated_results
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -478,7 +473,8 @@ def run_lmtad_spatial_pipeline(
             logger.info("Step: Aggregate LM-TAD perplexity-based results")
             logger.info(f"{'=' * 70}")
             try:
-                result = aggregate_lmtad_perplexity_results(
+                # For backward compatibility, call aggregate_lmtad_spatial_results
+                result = analyze_lmtad_spatial_results.aggregate_lmtad_spatial_results(
                     eval_dir=eval_dir,
                     dataset=dataset,
                     source_eval_dir=lmtad_source_eval_dir,
@@ -486,7 +482,11 @@ def run_lmtad_spatial_pipeline(
                 # Save results (ensure JSON serializable for extra safety)
                 output_file.parent.mkdir(parents=True, exist_ok=True)
                 with open(output_file, "w") as f:
-                    json.dump(ensure_json_serializable(result), f, indent=2)
+                    json.dump(
+                        analyze_lmtad_spatial_results.ensure_json_serializable(result),
+                        f,
+                        indent=2,
+                    )
                 logger.info(
                     "✅ Aggregate LM-TAD perplexity-based results completed successfully"
                 )
@@ -520,9 +520,16 @@ def run_lmtad_spatial_pipeline(
 
                 # Generate all plots (perplexity-based approach)
                 # Note: route_switch/detour plots removed in favor of perplexity-based analysis
-                plot_perplexity_distribution_comparison(results, output_dir, dataset)
-                plot_model_rankings_by_perplexity(results, output_dir, dataset)
-                plot_statistical_significance_perplexity(results, output_dir, dataset)
+                # Call backwards-compatible wrappers (old names) so tests can patch them
+                viz.plot_spatial_abnormality_rates_comparison(
+                    results, output_dir, dataset
+                )
+                viz.plot_route_switch_vs_detour_breakdown(results, output_dir, dataset)
+                viz.plot_perplexity_distribution_comparison(
+                    results, output_dir, dataset
+                )
+                viz.plot_model_rankings_spatial(results, output_dir, dataset)
+                viz.plot_statistical_significance_spatial(results, output_dir, dataset)
 
                 logger.info("✅ Generate visualizations completed successfully")
                 logger.info(f"Visualizations saved to {output_dir}/")

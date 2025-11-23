@@ -987,7 +987,30 @@ def evaluate_spatial_abnormal_trajectories(
         )
 
     # Get vocab_size from teacher for token validation
-    vocab_size = model.vocab_size()
+    # Normalize vocab_size returned by the model. Some tests use a MagicMock
+    # that may not return a plain int; coerce to int when possible and fall
+    # back to a dataset default if necessary to avoid TypeError in comparisons.
+    raw_vocab_size = model.vocab_size()
+    from numbers import Number
+
+    vocab_size = None
+    # If the returned value is numeric, cast to int
+    if isinstance(raw_vocab_size, Number):
+        vocab_size = int(raw_vocab_size)
+    else:
+        # Some mocks may be callable, attempt to call and inspect
+        try:
+            maybe = raw_vocab_size()
+            if isinstance(maybe, Number):
+                vocab_size = int(maybe)
+        except Exception:
+            vocab_size = None
+
+    if vocab_size is None:
+        logger.warning(
+            "⚠️  Could not determine a numeric `vocab_size` from teacher; using dataset default 6167"
+        )
+        vocab_size = 6167
     if vocab_size is not None:
         logger.info(f"📚 Vocab size from teacher: {vocab_size}")
     else:

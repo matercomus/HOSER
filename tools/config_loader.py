@@ -158,7 +158,15 @@ class EvaluationConfig:
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a config value from raw config"""
-        return self._raw_config.get(key, default)
+        # Return raw config value if present
+        if key in self._raw_config:
+            return self._raw_config.get(key, default)
+
+        # Fall back to dataclass attribute value if it exists
+        if hasattr(self, key):
+            return getattr(self, key)
+
+        return default
 
     def get_translation_mapping_file(self) -> Optional[Path]:
         """Auto-detect translation mapping file path based on source/target datasets

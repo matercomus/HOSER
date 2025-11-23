@@ -112,6 +112,8 @@ def test_load_lmtad_evaluator(
 ):
     """Test loading LM-TAD evaluator"""
     mock_model = Mock()
+    # Provide realistic vocab_size for any code paths that may use it
+    mock_model.vocab_size = Mock(return_value=7000)
     mock_lmtad_teacher.return_value = mock_model
 
     # Configure path mocks
