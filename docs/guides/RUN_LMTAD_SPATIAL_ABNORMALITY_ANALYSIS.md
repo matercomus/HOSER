@@ -47,15 +47,16 @@ The LM-TAD spatial abnormality evaluation complements the Wang temporal abnormal
    - Standard deviation to show variability
    - Distribution analysis (min, max, median) per segment
 
-### Source Labels (Optional Context)
+### Source Labels (Optional Metadata)
 
-If OD pairs file is provided with known labels, it provides context but doesn't determine classification:
+If an OD pairs file includes labels, treat them as contextual metadata rather than discrete target classes. Labels can help with stratified sampling and post-hoc analysis, but they do not determine or change how trajectories are evaluated.
 
-- **Route Switch**: OD pairs where source trajectory took a different route than usual
-- **Detour**: OD pairs where source trajectory took a significantly longer path
-- **Non-outlier**: OD pairs with normal route patterns
+- Example metadata values you may see in source OD files:
+  - `route_switch`: indicates the source trajectory deviated from the common route for that OD
+  - `detour`: indicates a substantially longer route than typical
+  - `non_outlier` / `null`: no label or typical route
 
-**Important**: These labels are now used for **analysis and filtering**, not for trajectory classification. All trajectories are evaluated purely on their perplexity scores.
+**Important**: The evaluation does not perform classification of trajectories. Trajectory quality is assessed exclusively via LM‑TAD perplexity scores; labels are optional context used for sampling and analysis only.
 
 ### Perplexity-Based Evaluation Method
 
