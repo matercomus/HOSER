@@ -107,3 +107,65 @@ def test_evaluate_spatial_abnormal_e2e_monkeypatched(tmp_path, monkeypatch):
     assert result.get("dataset") == "porto_hoser"
     assert "log_perplexity_stats" in result
     assert result.get("failed_trajectory_count", 0) == 0
+
+
+def test_no_od_pairs_does_not_infer_labels(tmp_path, monkeypatch):
+    """When no OD pairs file is provided, evaluation must not infer source labels from perplexity."""
+    from tools.evaluate_lmtad_spatial_abnormal import (
+        evaluate_spatial_abnormal_trajectories,
+    )
+
+    # Create tiny CSV with a few trajectories
+    trajs = [[1152, 1676, 1801], [1915, 543, 5194], [1152, 1676, 1801]]
+    csv_path = tmp_path / "gene.csv"
+    make_csv(csv_path, trajs)
+
+    # Fake LM-TAD teacher
+    class FakeTeacher:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_grid_size_hw(self):
+            return None
+
+        def vocab_size(self):
+            return 100000
+
+        def sot_token(self):
+            return None
+
+    monkeypatch.setattr(
+        "tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher", FakeTeacher
+    )
+
+    # Fake evaluation to return deterministic perplexities
+    def fake_evaluate_trajectories_direct(*args, **kwargs):
+        import numpy as np
+
+        return np.array([2.0, 3.5, 2.1]), None, [[] for _ in range(3)]
+
+    monkeypatch.setattr(
+        "tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct",
+        fake_evaluate_trajectories_direct,
+    )
+
+    fake_repo = tmp_path / "LMTAD"
+    fake_repo.mkdir()
+    fake_ckpt = tmp_path / "ckpt.pt"
+    fake_ckpt.touch()
+
+    result = evaluate_spatial_abnormal_trajectories(
+        trajectory_file=csv_path,
+        lmtad_checkpoint=fake_ckpt,
+        source_eval_dir=Path("/tmp"),
+        dataset="porto_hoser",
+        device="cpu",
+        batch_size=1,
+        lmtad_repo=fake_repo,
+        od_pairs_file=None,
+        eval_config=None,
+    )
+
+    # Verify no labels have been inferred - they should all be None
+    labels = [t["source_label"] for t in result["trajectories"]]
+    assert all(x is None for x in labels)
