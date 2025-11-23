@@ -9,9 +9,11 @@ __pycache__/
 HOSER_paper.pdf
 HOSER_paper.txt
 EVAL_NOTES.md
-.cursor/
-# Note: .cursor/ contains development tooling and is fully excluded from repository
 *.pdf
+# Allow PDF figures in evaluation directories (publication quality)
+!hoser-distill-*/figures/**/*.pdf
+!*/figures/analysis/*.pdf
+!*/figures/distributions/*.pdf
 # Weights & Biases
 wandb/
 *.wandb
@@ -64,6 +66,7 @@ map_manager.py
 *heatmap*.ipynb
 
 # Backup files
+backups/
 backup_*.tar.gz
 *-backup-*.tar.gz
 
@@ -71,9 +74,44 @@ backup_*.tar.gz
 hoser-distill-optuna-6/figures/scenarios/
 */figures/scenarios/
 
+# LM-TAD evaluation outputs and temporary files
+*/lmtad_evaluation/                      # Evaluation results directory
+eval_lmtad_sample/                       # Sample evaluation outputs
+*/eval_lmtad_*/                         # Any evaluation sample directories
+*_evaluation_results.json                # Generated evaluation results
+*_evaluation_summary.json                # Generated evaluation summaries
+
+# Temporary development files
+test_lmtad_evaluation.py                # Standalone test scripts
+*_test_script.py                        # Any temporary test scripts
+IMPLEMENTATION_SUMMARY.md               # Implementation notes
+*_SUMMARY.md                           # Any temporary summary docs
+*_NOTES.md                            # Any temporary notes
+
+# Root-level figures and examples directories (moved/removed)
+figures/
+examples/
+
+# Keep example figures but ignore generated ones
+*/figures/lmtad_*/
+# Note: figures/lmtad_example/ and figures/wang_abnormality/ have been moved/removed
+
 # Porto evaluation directory (entire directory and its backups)
 hoser-distill-optuna-porto-eval-*/
 hoser-distill-optuna-porto-eval-*-backup-*.tar.gz
+
+# Beijing evaluation directory - exclude large generated files
+hoser-distill-beijing/gene/
+hoser-distill-beijing/eval/
+hoser-distill-beijing/wandb/
+hoser-distill-beijing/cross_dataset_eval/
+hoser-distill-beijing/models/*.pth
+hoser-distill-beijing/*.log
+hoser-distill-beijing/paired_analysis/
+hoser-distill-beijing/road_mapping_*.json
+hoser-distill-beijing/data
+hoser-distill-beijing/data/
+hoser-distill-beijing/pipeline.log
 
 # Root level pipeline logs
 pipeline.log
@@ -86,3 +124,20 @@ baselines_*.log
 wang_results_aggregated.json
 *.backup*
 vocab_validation_*.json
+
+# Coverage
+.coverage
+
+# Model binaries (large files, should not be committed)
+*.pth
+*.pt
+*.ckpt
+
+# Log files
+*.log
+scripts/*.log
+**/*.log
+
+# Other evaluation directory outputs (keep only hoser-distill-beijing)
+hoser-distill-optuna-6/figures/**/*.pdf
+hoser-distill-optuna-6/models/*.pth

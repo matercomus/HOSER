@@ -1899,7 +1899,7 @@ def select_timestamps_for_od_pairs(
         source_traj_df = data["train_traj"]
         od_to_indices = data["od_to_train_indices"]
 
-    for od in od_pairs:
+    for od in tqdm(od_pairs, desc="Selecting timestamps"):
         candidates = od_to_indices.get(od, [])
         if candidates:
             src_idx = random.choice(candidates)
@@ -2068,15 +2068,18 @@ def generate_trajectories_programmatic(
 
     # Validate custom OD pairs if provided
     if od_pairs is not None:
+        print(f"🔍 Validating {len(od_pairs)} OD pairs...")
         valid_destinations = {
             i for i in range(num_roads) if len(data["reachable_road_id_dict"][i]) > 0
         }
-        for origin, dest in od_pairs:
+        print(f"✅ Found {len(valid_destinations)} valid destinations")
+        for origin, dest in tqdm(od_pairs, desc="Validating OD pairs"):
             if dest not in valid_destinations:
                 raise ValueError(
                     f"Destination {dest} is not reachable from any origin. "
                     f"OD pair ({origin}, {dest}) is invalid."
                 )
+        print(f"✅ All {len(od_pairs)} OD pairs are valid")
 
     with open(f"../config/{dataset}.yaml", "r") as file:
         config = yaml.safe_load(file)
@@ -2096,9 +2099,11 @@ def generate_trajectories_programmatic(
     config.road_network_encoder_feature.zone_edge_weight = data["zone_edge_weight"]
 
     # Select timestamps for OD pairs using helper function
+    print(f"⏰ Selecting timestamps for {len(od_coords)} OD pairs...")
     source_indices, origin_datetime_list = select_timestamps_for_od_pairs(
         od_coords, data, od_source
     )
+    print(f"✅ Selected timestamps for {len(source_indices)} OD pairs")
 
     print("🧠 Loading trained model...")
     if os.path.exists(model_path):

@@ -22,7 +22,7 @@ import numpy as np
 import polars as pl
 
 # Import model detection utility
-from tools.model_detection import get_model_color, extract_model_name, MODEL_COLORS
+from tools.model_detection import extract_model_name, MODEL_COLORS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -249,7 +249,7 @@ class DistributionPlotter:
         for csv_file in sorted(self.gene_dir.glob("*.csv")):
             # Extract model name and OD type
             model = extract_model_name(csv_file.name)
-            
+
             # Determine OD type
             if "train" in csv_file.name.lower():
                 od_type = "train"
@@ -257,7 +257,7 @@ class DistributionPlotter:
                 od_type = "test"
             else:
                 continue  # Skip files without clear OD type
-            
+
             # Create key and load data
             key = f"{model}_{od_type}"
             generated_data[key] = self._load_generated_data(csv_file)

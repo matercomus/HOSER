@@ -2,135 +2,258 @@
 
 ## Overview
 
-The abnormal OD analysis workflow provides a **common test set** and **evaluation framework** that connects teacher (LM-TAD) and student (HOSER) model evaluation, enabling direct comparison despite different tasks and architectures.
+This document explains how the abnormal OD analysis workflow provides a unified framework for evaluating and comparing LM-TAD teacher and HOSER student models, despite their architectural differences and primary tasks.
 
-## The Connection
+## Evaluation Tasks
 
 ### Teacher Model (LM-TAD)
-- **Task**: Outlier detection (classification)
-- **Input**: Complete trajectory
-- **Output**: Binary classification (normal vs abnormal)
-- **Metric**: F1 score on outlier detection
-- **Current Performance**: 
-  - Beijing: 83.89% F1
-  - Porto: 91.10% F1
+- **Primary Task**: Outlier detection via perplexity scoring
+- **Input**: Complete trajectory sequence
+- **Output**: Binary classification (normal/abnormal)
+- **Metrics**: F1 score, precision, recall, PR-AUC
 
 ### Student Model (HOSER)
-- **Task**: Trajectory generation
-- **Input**: Origin-destination (OD) pair
-- **Output**: Generated trajectory
-- **Metric**: Abnormality reproduction rate (how well generated trajectories reproduce abnormal patterns)
-- **Current Performance**: 
-  - Porto: 0.98% mean abnormality rate (vs 9.86% real)
+- **Primary Task**: Trajectory generation
+- **Input**: Origin-destination pair
+- **Output**: Generated trajectory sequence
+- **Metrics**: Abnormality reproduction rate
 
-### The Bridge: Abnormal OD Pairs
+## Common Test Set: Abnormal OD Pairs
 
-**Abnormal OD pairs** extracted from real data serve as the common test set:
+The bridge between teacher and student evaluation is built on a shared set of abnormal OD pairs extracted from real data:
 
-1. **For Teacher**: Evaluate detection accuracy on trajectories with these OD pairs
-2. **For Student**: Generate trajectories for these OD pairs, then evaluate pattern reproduction
+```json
+{
+  "dataset": "porto_hoser",
+  "total_abnormal_trajectories": 61046,
+  "total_unique_od_pairs": 13348,
+  "od_pairs_by_category": {
+    "temporal_delay": [[o1,d1], [o2,d2], ...],
+    "detour": [[o3,d3], ...],
+    "suspicious_stops": [...],
+    "circuitous": [...],
+    "unusual_duration": [...]
+  }
+}
+```
 
-## Current Analysis Results (Porto Dataset)
+### Extraction Process
+```python
+from tools.extract_abnormal_od_pairs import extract_and_save_abnormal_od_pairs
 
-### Real Abnormal Data
-- **Total Abnormal Trajectories**: 61,046 (9.86% of 618,891)
-- **Unique Abnormal OD Pairs**: 13,348
-- **Pattern Distribution**: 100% temporal delays (Abp2_temporal_delay)
-- **Test Split Rate**: 10.43% (14,349 / 137,532)
-- **Train Split Rate**: 9.70% (46,697 / 481,359)
+# Extract OD pairs from abnormal trajectories
+od_pairs = extract_and_save_abnormal_od_pairs(
+    detection_results_files=[Path("abnormal/porto/detection_results.json")],
+    real_data_files=[Path("data/porto/train.csv")],
+    dataset_name="porto_hoser",
+    output_file=Path("abnormal_od_pairs.json")
+)
+```
 
-### Generated Trajectory Performance
-- **Mean Abnormality Rate**: 0.98% (dramatically lower than real 9.86%)
-- **Best Model**: `vanilla_seed43` (3.54% abnormality rate, 6.89% deviation from real)
-- **Pattern**: All models significantly underperform on abnormal pattern reproduction
+## Dual Evaluation Framework
 
-## Integration Strategy
+### 1. Teacher Model Evaluation
+```python
+from tools.evaluate_with_lmtad import evaluate_with_lmtad
 
-### Step 1: Extract Abnormal OD Pairs
-✅ **Completed** for Porto:
-- File: `hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/abnormal_od_pairs_porto_hoser.json`
-- Contains 13,348 unique abnormal OD pairs
-- Categorized by abnormality type (currently all temporal delays)
+# Evaluate real trajectories with these OD pairs
+teacher_results = evaluate_with_lmtad(
+    trajectory_file="real_trajectories.csv",
+    vocab_file="vocab.json",
+    lmtad_checkpoint="weights_only.pt",
+    lmtad_repo_path="/home/matt/Dev/LMTAD",
+    dataset="porto_hoser",
+    output_dir="eval_lmtad/porto_hoser/real_data"
+)
+```
 
-### Step 2: Evaluate Teacher on Abnormal OD Pairs
-⏳ **Pending**:
-- Use LM-TAD teacher model to detect abnormalities in trajectories with these OD pairs
-- Calculate teacher's detection accuracy for abnormal OD pairs specifically
-- Compare to overall teacher performance (91.10% F1 Porto)
+**Output Format**:
+```json
+{
+  "model": "LM-TAD",
+  "parameters": 85000000,
+  "evaluation": {
+    "total_trajectories": 61046,
+    "detected_abnormal": 55614,
+    "detection_rate": 91.10,
+    "metrics": {
+      "accuracy": 0.9934,
+      "precision": 0.8366,
+      "recall": 0.9999,
+      "f1": 0.9110,
+      "pr_auc": 0.9999
+    },
+    "perplexity": {
+      "mean": 0.38,
+      "std": 0.14,
+      "abnormal_mean": 8.41,
+      "abnormal_std": 3.85
+    }
+  }
+}
+```
 
-### Step 3: Generate Student Trajectories for Abnormal OD Pairs
-⏳ **Pending** (can be enabled):
-- Generate trajectories for all 13,348 abnormal OD pairs using student models
-- Current workflow skipped generation (analysis-only mode)
-- Would produce trajectories that can be evaluated for abnormality reproduction
+### 2. Student Model Evaluation
+```python
+from tools.generate_abnormal_od import generate_abnormal_od_trajectories
+from tools.evaluate_abnormal_od import evaluate_abnormal_od
 
-### Step 4: Compare Teacher Detection vs Student Reproduction
-⏳ **Pending**:
-- **Teacher Metric**: Detection accuracy on abnormal OD pairs
-- **Student Metric**: Abnormality reproduction rate on same OD pairs
-- **Target**: Student should achieve 85-95% of teacher's detection capability
+# Generate trajectories for abnormal OD pairs
+generate_abnormal_od_trajectories(
+    od_pairs_file=od_pairs_file,
+    model_dir=model_dir,
+    output_dir=gene_dir,
+    dataset="porto_hoser",
+    num_traj_per_od=50
+)
 
-## Visualizations Available
+# Evaluate abnormality reproduction
+student_results = evaluate_abnormal_od(
+    generated_dir=gene_dir,
+    real_abnormal_file=real_file,
+    abnormal_od_pairs_file=od_pairs_file,
+    output_dir=eval_dir
+)
+```
 
-The analysis includes comprehensive visualizations in:
-`hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/analysis_abnormal/porto_hoser/figures/`
+**Output Format**:
+```json
+{
+  "model": "vanilla_seed43",
+  "parameters": 6700000,
+  "evaluation": {
+    "total_trajectories": 50000,
+    "abnormal_trajectories": 1770,
+    "abnormality_rate": 0.0354,
+    "vs_real_rate": -0.6607,
+    "metrics": {
+      "edr_distance": 0.342,
+      "dtw_distance": 156.7,
+      "hausdorff_distance": 89.3
+    },
+    "pattern_reproduction": {
+      "temporal_delay": 0.0354,
+      "detour": 0.0,
+      "suspicious_stops": 0.0,
+      "circuitous": 0.0,
+      "unusual_duration": 0.0
+    }
+  }
+}
+```
 
-1. **abnormal_od_distribution.png** - Top origins and destinations in abnormal trajectories
-2. **abnormal_categories_summary.png** - Pattern type distribution
-3. **temporal_delay_analysis.png** - Temporal and spatial deviation characteristics
-4. **abnormal_od_heatmap.png** - Most frequent abnormal OD pairs
-5. **normal_od_heatmap.png** - Normal OD pairs for comparison
-6. **od_heatmap_comparison.png** - Side-by-side abnormal vs normal comparison
+## Performance Comparison
 
-These visualizations help understand:
-- Which OD pairs are most indicative of abnormal patterns
-- Spatial patterns that distinguish abnormal from normal behavior
-- Characteristics of abnormal trajectories (temporal delays, route deviations)
+### 1. Classification vs Generation
+```python
+def calculate_performance_retention(
+    teacher_f1: float,
+    student_abnormal_rate: float,
+    real_abnormal_rate: float
+) -> float:
+    """Calculate how much of teacher's capability student retains."""
+    teacher_capability = teacher_f1  # e.g., 0.911 (91.1%)
+    student_retention = student_abnormal_rate / real_abnormal_rate  # e.g., 0.034 (3.4%)
+    return (student_retention / teacher_capability) * 100  # As percentage
 
-## Metrics Alignment
+# Example: Porto dataset
+retention = calculate_performance_retention(
+    teacher_f1=0.911,        # 91.1% F1
+    student_abnormal_rate=0.0354,  # 3.54%
+    real_abnormal_rate=0.0986      # 9.86%
+)
+# Result: 3.73% retention
+```
 
-### Teacher Evaluation Metrics
-- **F1 Score**: Overall outlier detection performance
-- **Precision**: How many detected outliers are truly abnormal
-- **Recall**: How many true outliers are detected
-- **PR-AUC**: Precision-recall area under curve
+### 2. Pattern Analysis
+```python
+# Compare pattern distributions
+from tools.plot_lmtad_evaluation import plot_pattern_distribution
 
-### Student Evaluation Metrics
-- **Abnormality Reproduction Rate**: % of generated trajectories marked as abnormal
-- **Pattern Match Rate**: How well generated trajectories match specific abnormal patterns
-- **OD Pair Coverage**: How many abnormal OD pairs can student generate for
+plot_pattern_distribution(
+    teacher_results=teacher_results,
+    student_results=student_results,
+    output_dir=figures_dir,
+    real_distribution=real_distribution
+)
+```
 
-### Comparison Framework
-- **Teacher Detection Rate**: F1 score on abnormal OD pairs
-- **Student Reproduction Rate**: Abnormality rate in generated trajectories
-- **Target Ratio**: Student should achieve 85-95% of teacher's detection capability
+### 3. Performance Gap Analysis
+```python
+from tools.analyze_performance_gap import analyze_gap
 
-## Next Steps
+gap_analysis = analyze_gap(
+    teacher_results=teacher_results,
+    student_results=student_results,
+    real_baseline=real_baseline,
+    output_file=analysis_dir / "performance_gap_analysis.json"
+)
+```
 
-1. **Enable Generation for Abnormal OD Pairs**:
-   ```bash
-   # Modify config to disable skip_generation
-   # Run workflow to generate trajectories for abnormal OD pairs
-   ```
+## Current Results (Porto Dataset)
 
-2. **Evaluate Teacher on Abnormal OD Subset**:
-   - Filter teacher evaluation to trajectories with abnormal OD pairs
-   - Calculate teacher's detection accuracy on this subset
-   - Compare to overall teacher performance
+### Teacher Performance
+- F1 Score: 91.10%
+- Precision: 83.66%
+- Recall: 99.99%
+- Clear perplexity separation between normal (0.38 ± 0.14) and abnormal (8.41 ± 3.85)
 
-3. **Compare Teacher vs Student**:
-   - Teacher: Detection accuracy on abnormal OD pairs
-   - Student: Abnormality reproduction rate on same OD pairs
-   - Calculate performance retention: Student Rate / Teacher Rate
+### Student Performance
+- Best Model: vanilla_seed43 (3.54% abnormality rate)
+- Mean Performance: ~2.0% abnormality rate
+- Baseline: 9.86% real abnormality rate
+- Pattern Coverage: 100% temporal delays, 0% other patterns
 
-4. **Analyze Failure Modes**:
-   - Which abnormal OD pairs does teacher detect but student fails to reproduce?
-   - Are there patterns in failures (specific OD pairs, pattern types)?
-   - What characteristics distinguish successful vs failed cases?
+### Performance Gap
+1. **Retention Rate**: 3.73% of teacher capability (best case)
+2. **Pattern Coverage**: Limited to temporal delays only
+3. **Training Data**: Complete failure (0% abnormality rate)
+
+## Research Implications
+
+### 1. Knowledge Transfer
+- Need specialized training for abnormal patterns
+- Consider curriculum learning approaches
+- Balance normal vs abnormal examples
+
+### 2. Architecture Alignment
+- Grid tokenization vs road segment representation
+- Local vs global context modeling
+- Feature-level knowledge transfer strategies
+
+### 3. Evaluation Protocol
+- Common test set through abnormal OD pairs
+- Complementary metrics (detection vs generation)
+- Clear retention targets and baselines
+
+## Action Items
+
+### 1. Immediate Tasks
+- [ ] Implement direct outlier detection in student
+- [ ] Add pattern-specific loss functions
+- [ ] Enhance cross-task evaluation metrics
+
+### 2. Research Questions
+- How to improve pattern reproduction?
+- Why do students avoid abnormal patterns?
+- What architectural changes could help?
+
+### 3. Documentation Needs
+- [ ] Document failure modes and patterns
+- [ ] Create detailed pattern analysis guide
+- [ ] Update training recommendations
 
 ## References
 
-- **Teacher Baseline Comparison**: `docs/results/TEACHER_BASELINE_COMPARISON.md`
-- **Abnormal OD Analysis Report**: `hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/analysis_abnormal/porto_hoser/COMPREHENSIVE_ABNORMAL_TRAJECTORY_ANALYSIS_REPORT.md`
-- **Abnormal OD Workflow Guide**: `docs/ABNORMAL_OD_WORKFLOW_GUIDE.md`
-- **Abnormal OD Pairs File**: `hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/abnormal_od_pairs_porto_hoser.json`
+1. **Documentation**:
+   - `docs/ABNORMAL_OD_WORKFLOW_GUIDE.md`
+   - `docs/results/TEACHER_BASELINE_COMPARISON.md`
+
+2. **Implementation**:
+   - `tools/evaluate_with_lmtad.py`
+   - `tools/evaluate_abnormal_od.py`
+   - `tools/analyze_performance_gap.py`
+
+3. **Results**:
+   - `analysis_abnormal/porto_hoser/COMPREHENSIVE_ANALYSIS.md`
+   - `eval_abnormal_teacher/porto_hoser/TEACHER_EVALUATION.md`

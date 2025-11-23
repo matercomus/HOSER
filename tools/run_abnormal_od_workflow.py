@@ -47,10 +47,12 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import pandas as pd
 
 # Import programmatic interfaces
 from tools.analyze_abnormal import run_abnormal_analysis
@@ -563,6 +565,310 @@ class AbnormalODWorkflowRunner:
 
         return self.eval_output_dir
 
+    def _evaluate_lmtad(self) -> Optional[Path]:
+        """
+        Phase 6: Evaluate trajectories using LMTAD teacher model.
+
+        Evaluates both real baseline and generated trajectories, then compares results.
+
+        Returns:
+            Path to LMTAD evaluation results directory, or None if skipped
+        """
+        # Check if LMTAD evaluation is configured
+        if (
+            not hasattr(self.config, "lmtad_checkpoint")
+            or not self.config.lmtad_checkpoint
+        ):
+            logger.info(
+                "⏭️  Phase 6: Skipping LMTAD evaluation (no checkpoint configured)"
+            )
+            return None
+
+        lmtad_checkpoint = Path(self.config.lmtad_checkpoint)
+        if not lmtad_checkpoint.exists():
+            logger.warning(f"⚠️  LMTAD checkpoint not found: {lmtad_checkpoint}")
+            logger.info("⏭️  Phase 6: Skipping LMTAD evaluation")
+            return None
+
+        logger.info("=" * 80)
+        logger.info("🎓 Phase 6: Evaluating with LMTAD Teacher Model")
+        logger.info("=" * 80)
+        logger.info(f"LMTAD checkpoint: {lmtad_checkpoint}")
+
+        # Create LMTAD evaluation directory
+        lmtad_eval_dir = self.eval_dir / "eval_lmtad" / self.dataset
+        lmtad_eval_dir.mkdir(parents=True, exist_ok=True)
+
+        # Evaluate real baseline trajectories
+        logger.info("Evaluating real baseline trajectories with LMTAD...")
+        real_results = self._evaluate_lmtad_real_baseline(lmtad_eval_dir)
+
+        # Evaluate generated trajectories for each model
+        if not getattr(self.config, "skip_generation", False):
+            logger.info("Evaluating generated trajectories with LMTAD...")
+            generated_results = self._evaluate_lmtad_generated(lmtad_eval_dir)
+
+            # Compare results
+            logger.info("Comparing LMTAD evaluation results...")
+            self._compare_lmtad_results(real_results, generated_results, lmtad_eval_dir)
+
+            logger.info(
+                f"✅ Phase 6 complete: LMTAD evaluation results saved to {lmtad_eval_dir}"
+            )
+            logger.info(
+                f"   - Real baseline perplexity: {real_results.get('mean_perplexity', 'N/A'):.4f}"
+            )
+            logger.info(f"   - Models evaluated: {len(generated_results)}")
+        else:
+            logger.info("✅ Phase 6 complete: Real baseline LMTAD evaluation saved")
+            logger.info(
+                f"   - Real baseline perplexity: {real_results.get('mean_perplexity', 'N/A'):.4f}"
+            )
+
+        return lmtad_eval_dir
+
+    def _evaluate_lmtad_real_baseline(self, output_dir: Path) -> pd.DataFrame:
+        """
+        Evaluate real data using pre-converted LM-TAD format.
+
+        Uses the pre-converted datasets from LM-TAD data directory to establish
+        a baseline for perplexity scores on real trajectory data.
+
+        Args:
+            output_dir: Directory to save LMTAD evaluation results
+
+        Returns:
+            DataFrame with perplexity scores and outlier classifications
+        """
+        from tools.evaluate_with_lmtad import evaluate_with_lmtad
+
+        # Get pre-converted LM-TAD real data path
+        lmtad_real_data_path = self.config.get_lmtad_real_data_path()
+        if lmtad_real_data_path is None:
+            raise ValueError("LM-TAD real data path not configured")
+
+        real_lmtad_csv = lmtad_real_data_path / f"{self.dataset}_processed.csv"
+        real_vocab = lmtad_real_data_path / "vocab.json"
+
+        # Verify files exist
+        if not real_lmtad_csv.exists():
+            raise FileNotFoundError(
+                f"Pre-converted LM-TAD real data not found: {real_lmtad_csv}\n"
+                f"Expected location: {lmtad_real_data_path}\n"
+                f"Please ensure LM-TAD data is available for dataset: {self.dataset}"
+            )
+
+        if not real_vocab.exists():
+            raise FileNotFoundError(f"Vocab file not found: {real_vocab}")
+
+        logger.info(f"Using pre-converted LM-TAD data: {real_lmtad_csv}")
+
+        # Get LM-TAD checkpoint and repo path
+        lmtad_checkpoint = self.config.get_lmtad_checkpoint()
+        lmtad_repo_path = Path(self.config.get("lmtad_repo", "/home/matt/Dev/LMTAD"))
+
+        # Create real data output directory
+        real_output_dir = output_dir / "real_data"
+        real_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Run evaluation using evaluate_with_lmtad module
+        device = (
+            f"cuda:{self.config.cuda_device}"
+            if hasattr(self.config, "cuda_device")
+            else "cuda:0"
+        )
+
+        results_df = evaluate_with_lmtad(
+            trajectory_file=real_lmtad_csv,
+            vocab_file=real_vocab,
+            lmtad_checkpoint=lmtad_checkpoint,
+            lmtad_repo_path=lmtad_repo_path,
+            dataset=self.dataset,
+            output_dir=real_output_dir,
+            device=device,
+            batch_size=128,
+        )
+
+        logger.info(f"   Real data: {len(results_df)} trajectories evaluated")
+        logger.info(f"   Outlier rate: {results_df['is_outlier'].mean():.2%}")
+
+        return results_df
+
+    def _evaluate_lmtad_generated(self, output_dir: Path) -> Dict[str, pd.DataFrame]:
+        """
+        Convert and evaluate generated trajectories using LM-TAD teacher model.
+
+        This method:
+        1. Finds all generated trajectory files
+        2. Converts each to LM-TAD format using convert_to_lmtad_format
+        3. Evaluates using evaluate_with_lmtad module
+        4. Returns results per model
+
+        Args:
+            output_dir: Directory to save LMTAD evaluation results
+
+        Returns:
+            Dictionary mapping model names to evaluation DataFrames
+        """
+        from tools.evaluate_with_lmtad import evaluate_with_lmtad
+        from tools.convert_to_lmtad_format import convert_hoser_to_lmtad_format
+
+        # Find all generated trajectory files
+        generated_files = list(self.gene_dir.glob("*_abnormal_od.csv"))
+        logger.info(f"Found {len(generated_files)} generated trajectory files")
+
+        # Get LM-TAD paths
+        lmtad_repo_path = Path(self.config.get("lmtad_repo", "/home/matt/Dev/LMTAD"))
+        lmtad_checkpoint = self.config.get_lmtad_checkpoint()
+
+        # Load vocab file from real data directory (for consistent grid mapping)
+        real_data_path = self.config.get_lmtad_real_data_path()
+        vocab_file = real_data_path / "vocab.json"
+
+        # Setup device
+        device = (
+            f"cuda:{self.config.cuda_device}"
+            if hasattr(self.config, "cuda_device")
+            else "cuda:0"
+        )
+
+        model_results = {}
+
+        for gen_file in generated_files:
+            # Extract model name
+            model_name = gen_file.stem.replace("_abnormal_od", "")
+            logger.info(f"Evaluating {model_name}...")
+
+            # Create model output directory
+            model_output_dir = output_dir / "generated" / model_name
+            model_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Convert to LM-TAD format first
+            roadmap_file = self.config.get_data_dir() / "roadmap.geo"
+            lmtad_csv = model_output_dir / "trajectories_lmtad_format.csv"
+
+            convert_hoser_to_lmtad_format(
+                trajectory_file=gen_file,
+                roadmap_file=roadmap_file,
+                output_file=lmtad_csv,
+                vocab_file=vocab_file,
+                dataset=self.dataset,
+            )
+
+            # Run evaluation
+            results_df = evaluate_with_lmtad(
+                trajectory_file=lmtad_csv,
+                vocab_file=vocab_file,
+                lmtad_checkpoint=lmtad_checkpoint,
+                lmtad_repo_path=lmtad_repo_path,
+                dataset=self.dataset,
+                output_dir=model_output_dir,
+                device=device,
+                batch_size=128,
+            )
+
+            model_results[model_name] = results_df
+            logger.info(f"   Outlier rate: {results_df['is_outlier'].mean():.2%}")
+            logger.info(f"   Mean perplexity: {results_df['perplexity'].mean():.4f}")
+
+        return model_results
+
+    def _compare_lmtad_results(
+        self,
+        real_results: pd.DataFrame,
+        generated_results: Dict[str, pd.DataFrame],
+        output_dir: Path,
+    ) -> dict:
+        """
+        Compare LMTAD evaluation results between real and generated trajectories.
+
+        Args:
+            real_results: DataFrame with real baseline evaluation results
+            generated_results: Dict mapping model names to evaluation DataFrames
+            output_dir: Directory to save comparison results
+
+        Returns:
+            Dictionary with comparison metrics
+        """
+        comparison = {
+            "real_baseline": {
+                "num_trajectories": len(real_results),
+                "outlier_rate": float(real_results["is_outlier"].mean()),
+                "mean_perplexity": float(real_results["perplexity"].mean()),
+                "median_perplexity": float(real_results["perplexity"].median()),
+                "std_perplexity": float(real_results["perplexity"].std()),
+            },
+            "models": {},
+        }
+
+        real_mean_perplexity = comparison["real_baseline"]["mean_perplexity"]
+
+        for model_name, results_df in generated_results.items():
+            model_mean_perplexity = float(results_df["perplexity"].mean())
+
+            # Calculate relative difference
+            relative_diff = (
+                (model_mean_perplexity - real_mean_perplexity) / real_mean_perplexity
+                if real_mean_perplexity > 0
+                else 0.0
+            )
+
+            comparison["models"][model_name] = {
+                "metrics": {
+                    "num_trajectories": len(results_df),
+                    "outlier_rate": float(results_df["is_outlier"].mean()),
+                    "mean_perplexity": model_mean_perplexity,
+                    "median_perplexity": float(results_df["perplexity"].median()),
+                    "std_perplexity": float(results_df["perplexity"].std()),
+                },
+                "vs_real_baseline": {
+                    "perplexity_diff": model_mean_perplexity - real_mean_perplexity,
+                    "perplexity_ratio": (
+                        model_mean_perplexity / real_mean_perplexity
+                        if real_mean_perplexity > 0
+                        else 0.0
+                    ),
+                    "relative_diff_pct": relative_diff * 100,
+                    "outlier_rate_diff": (
+                        float(results_df["is_outlier"].mean())
+                        - float(real_results["is_outlier"].mean())
+                    ),
+                },
+            }
+
+        # Save comparison
+        comparison_file = output_dir / "lmtad_comparison.json"
+        with open(comparison_file, "w") as f:
+            json.dump(comparison, f, indent=2)
+
+        logger.info("=== LM-TAD Evaluation Summary ===")
+        logger.info("Real baseline:")
+        logger.info(f"  - Mean perplexity: {real_mean_perplexity:.4f}")
+        logger.info(
+            f"  - Outlier rate: {comparison['real_baseline']['outlier_rate']:.2%}"
+        )
+        logger.info("\nGenerated models:")
+        for model_name, model_data in comparison["models"].items():
+            metrics = model_data["metrics"]
+            vs_baseline = model_data["vs_real_baseline"]
+            logger.info(f"\n{model_name}:")
+            logger.info(f"  - Mean perplexity: {metrics['mean_perplexity']:.4f}")
+            logger.info(f"  - Outlier rate: {metrics['outlier_rate']:.2%}")
+            logger.info("  - vs baseline:")
+            logger.info(
+                f"    • Perplexity difference: {vs_baseline['perplexity_diff']:.4f}"
+            )
+            logger.info(
+                f"    • Relative difference: {vs_baseline['relative_diff_pct']:.1f}%"
+            )
+            logger.info(
+                f"    • Outlier rate difference: {vs_baseline['outlier_rate_diff']:.2%}"
+            )
+
+        logger.info(f"\n✅ LMTAD comparison saved: {comparison_file}")
+
+        return comparison
+
     def run_analysis_and_visualization(self):
         """
         Analyze and visualize abnormal OD workflow results using programmatic interfaces.
@@ -593,6 +899,33 @@ class AbnormalODWorkflowRunner:
         )
 
         logger.info(f"✅ Wang visualizations generated: {wang_figures_dir}")
+
+        # Generate LM-TAD visualizations if Phase 6 was run
+        lmtad_eval_dir = self.eval_dir / "eval_lmtad" / self.dataset
+        if lmtad_eval_dir.exists():
+            logger.info("Generating LM-TAD evaluation visualizations...")
+            lmtad_figures_dir = self.figures_dir / "lmtad_evaluation"
+            lmtad_figures_dir.mkdir(parents=True, exist_ok=True)
+
+            from tools.plot_lmtad_evaluation import plot_lmtad_evaluation_from_files
+
+            # Find result files in the evaluation directory
+            real_results_file = lmtad_eval_dir / "real_data" / "evaluation_results.json"
+            generated_results_file = lmtad_eval_dir / "generated_data" / "evaluation_results.json"
+
+            if real_results_file.exists() and generated_results_file.exists():
+                plot_lmtad_evaluation_from_files(
+                    real_results_file=real_results_file,
+                    generated_results_file=generated_results_file,
+                    output_dir=lmtad_figures_dir,
+                    dataset=self.dataset,
+                )
+                logger.info(f"✅ LM-TAD visualizations generated: {lmtad_figures_dir}")
+            elif real_results_file.exists():
+                logger.info("✅ Real baseline LMTAD evaluation completed")
+                logger.info("   Generated data evaluation not found (generation skipped)")
+            else:
+                logger.warning(f"LM-TAD result files not found in {lmtad_eval_dir}")
 
         # Generate abnormal OD analysis plots
         if getattr(self.config, "skip_generation", False):
@@ -667,6 +1000,9 @@ class AbnormalODWorkflowRunner:
                 "od_pairs": str(self.od_pairs_file),
                 "generated_trajectories": str(self.gene_dir),
                 "evaluation_results": str(self.eval_output_dir),
+                "lmtad_evaluation": str(self.eval_dir / "eval_lmtad" / self.dataset)
+                if hasattr(self.config, "lmtad_checkpoint")
+                else None,
                 "analysis": str(self.analysis_dir),
                 "figures": str(self.figures_dir),
             },
@@ -676,6 +1012,30 @@ class AbnormalODWorkflowRunner:
                     self.eval_dir / "figures" / "wang_abnormality" / self.dataset
                 ),
                 "abnormal_od_plots": str(self.figures_dir),
+                "lmtad_comparison": str(
+                    self.eval_dir
+                    / "eval_lmtad"
+                    / self.dataset
+                    / "lmtad_comparison.json"
+                )
+                if hasattr(self.config, "lmtad_checkpoint")
+                else None,
+                "lmtad_real_baseline": str(
+                    self.eval_dir
+                    / "eval_lmtad"
+                    / self.dataset
+                    / "lmtad_real_baseline.json"
+                )
+                if hasattr(self.config, "lmtad_checkpoint")
+                else None,
+                "lmtad_generated_models": str(
+                    self.eval_dir
+                    / "eval_lmtad"
+                    / self.dataset
+                    / "lmtad_generated_models.json"
+                )
+                if hasattr(self.config, "lmtad_checkpoint")
+                else None,
             },
             "plots_generated": [
                 "abnormality_reproduction_rates.png/svg",
@@ -692,7 +1052,7 @@ class AbnormalODWorkflowRunner:
 
     def run_complete_workflow(self):
         """
-        Execute the complete abnormal OD workflow (Phases 0-5 + Analysis).
+        Execute the complete abnormal OD workflow (Phases 0-6 + Analysis).
 
         This is the main entry point for running the entire workflow.
         """
@@ -749,6 +1109,9 @@ class AbnormalODWorkflowRunner:
 
                 # Phase 5: Evaluate
                 self.evaluate_trajectories()
+
+                # Phase 6: LMTAD Teacher Evaluation
+                self._evaluate_lmtad()
 
             # Analysis and visualization
             self.run_analysis_and_visualization()

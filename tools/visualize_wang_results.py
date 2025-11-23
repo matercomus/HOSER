@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Import model detection utility
-from tools.model_detection import MODEL_COLORS, get_model_color
+from tools.model_detection import MODEL_COLORS
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"

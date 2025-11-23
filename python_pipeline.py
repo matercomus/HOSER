@@ -127,6 +127,7 @@ class PipelineConfig:
             "abnormal_od_generate",
             "abnormal_od_evaluate",
             "wang_abnormality",
+            "lmtad_spatial_abnormality",
             "scenarios",
         }
 
@@ -151,6 +152,18 @@ class PipelineConfig:
             False  # NEW: Run Wang statistical abnormality detection
         )
         self.wang_config = None  # NEW: Path to Wang statistical detection config
+        self.run_lmtad_spatial_detection = (
+            False  # NEW: Run LM-TAD spatial abnormality detection
+        )
+        self.lmtad_spatial_config = None  # NEW: Path to LM-TAD spatial config file
+        self.lmtad_source_eval_dir = None  # NEW: Path to LM-TAD source eval directory
+        self.lmtad_num_trajectories_per_od = (
+            None  # NEW: Override num trajectories per OD pair
+        )
+        self.lmtad_max_od_pairs = None  # NEW: Override max OD pairs to sample
+        self.lmtad_max_duplicate_ratio = (
+            0.1  # NEW: Duplicate threshold for LM-TAD validation
+        )
 
         # Load from YAML if provided
         if config_path:
@@ -2075,41 +2088,157 @@ class EvaluationPipeline:
             return
 
         # Import the pipeline runner
-        import subprocess
+        from tools.run_wang_detection_pipeline import run_wang_detection_pipeline
 
         # Run the Wang detection pipeline
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            str(PROJECT_ROOT / "tools" / "run_wang_detection_pipeline.py"),
-            "--eval-dir",
-            str(self.eval_dir),
-            "--dataset",
-            self.config.dataset,
-        ]
-
-        logger.info(f"Executing: {' '.join(cmd)}")
-
         try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=False,
-                text=True,
-                cwd=PROJECT_ROOT,
+            success = run_wang_detection_pipeline(
+                eval_dir=self.eval_dir,
+                dataset=self.config.dataset,
+                skip_real=False,
+                skip_generated=False,
+                skip_aggregation=False,
+                skip_visualization=False,
             )
-            logger.info("✅ Wang statistical detection pipeline completed successfully")
-
-        except subprocess.CalledProcessError as e:
-            logger.error(
-                f"❌ Wang detection pipeline failed with exit code {e.returncode}"
-            )
-            raise
+            if success:
+                logger.info(
+                    "✅ Wang statistical detection pipeline completed successfully"
+                )
+            else:
+                logger.error("❌ Wang detection pipeline completed with failures")
+                raise RuntimeError("Wang detection pipeline failed")
 
         except Exception as e:
             logger.error(f"❌ Wang detection pipeline failed: {e}")
             raise
+
+    @phase("lmtad_spatial_abnormality", critical=False)
+    def run_lmtad_spatial_abnormality(self):
+        """Run LM-TAD spatial abnormality detection pipeline"""
+        if not self.config.run_lmtad_spatial_detection:
+            logger.info("LM-TAD spatial detection not configured, skipping")
+            return
+
+        logger.info("📊 Running LM-TAD spatial abnormality detection pipeline...")
+
+        # Auto-detect LM-TAD source eval directory if not provided
+        lmtad_source_eval_dir = self._detect_lmtad_source_eval_dir()
+
+        if not lmtad_source_eval_dir:
+            logger.error("Could not find LM-TAD source evaluation directory")
+            return
+
+        # Find LM-TAD checkpoint
+        lmtad_checkpoint = self._find_lmtad_checkpoint(lmtad_source_eval_dir)
+        if not lmtad_checkpoint:
+            logger.error("Could not find LM-TAD checkpoint file")
+            return
+
+        # Import the pipeline runner
+        from tools.run_lmtad_spatial_pipeline import run_lmtad_spatial_pipeline
+
+        # Run the LM-TAD spatial detection pipeline
+        try:
+            # Load evaluation config for Porto grid configuration
+            eval_config = None
+            config_path = self.eval_dir / "config" / "evaluation.yaml"
+            if config_path.exists():
+                import yaml
+
+                with open(config_path, "r") as f:
+                    eval_config = yaml.safe_load(f)
+
+            success = run_lmtad_spatial_pipeline(
+                eval_dir=self.eval_dir,
+                dataset=self.config.dataset,
+                lmtad_source_eval_dir=lmtad_source_eval_dir,
+                lmtad_checkpoint=lmtad_checkpoint,
+                skip_extraction=False,
+                skip_generation=False,
+                skip_evaluation=False,
+                skip_aggregation=False,
+                skip_visualization=False,
+                seed=self.config.seed,
+                num_traj_per_od=self.config.lmtad_num_trajectories_per_od,
+                max_od_pairs=self.config.lmtad_max_od_pairs,
+                lmtad_repo=None,  # Auto-detect from checkpoint
+                force=self.config.force,
+                eval_config=eval_config,
+                max_duplicate_ratio=(
+                    getattr(self.config, "lmtad_max_duplicate_ratio", 0.1)
+                ),
+            )
+            if success:
+                logger.info(
+                    "✅ LM-TAD spatial detection pipeline completed successfully"
+                )
+            else:
+                logger.error("❌ LM-TAD spatial pipeline completed with failures")
+                raise RuntimeError("LM-TAD spatial pipeline failed")
+        except Exception as e:
+            logger.error(f"❌ LM-TAD spatial pipeline failed: {e}")
+            raise
+
+    def _detect_lmtad_source_eval_dir(self) -> Optional[Path]:
+        """Auto-detect LM-TAD source evaluation directory"""
+        if self.config.lmtad_source_eval_dir:
+            return Path(self.config.lmtad_source_eval_dir)
+
+        # Auto-detect: /home/matt/Dev/LMTAD/code/results/LMTAD/{dataset}/run_*/.../eval/
+        lmtad_repo = Path("/home/matt/Dev/LMTAD")
+        dataset_eval_base = (
+            lmtad_repo / "code" / "results" / "LMTAD" / self.config.dataset
+        )
+
+        if not dataset_eval_base.exists():
+            return None
+
+        # Find most recent run directory
+        run_dirs = sorted(
+            dataset_eval_base.glob("run_*"),
+            key=lambda x: x.stat().st_mtime,
+            reverse=True,
+        )
+
+        for run_dir in run_dirs:
+            # Look for eval directory with TSV files
+            eval_dir = (
+                run_dir
+                / "outlier_False"
+                / "n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False"
+                / "eval"
+            )
+            if eval_dir.exists():
+                tsv_files = list(eval_dir.glob("ckpt_best_outliers_*.tsv"))
+                if tsv_files:
+                    return eval_dir
+
+        return None
+
+    def _find_lmtad_checkpoint(self, eval_dir: Path) -> Optional[Path]:
+        """Find LM-TAD checkpoint file from evaluation directory"""
+        # Checkpoint is typically in parent directory
+        checkpoint_dir = eval_dir.parent / "checkpoints"
+        if checkpoint_dir.exists():
+            # Try common checkpoint names
+            for name in ["ckpt_best.pt", "best_model.pt", "checkpoint.pt"]:
+                checkpoint = checkpoint_dir / name
+                if checkpoint.exists():
+                    return checkpoint
+
+        # Also check parent directory directly (common location)
+        for name in ["ckpt_best.pt", "best_model.pt"]:
+            checkpoint = eval_dir.parent / name
+            if checkpoint.exists():
+                return checkpoint
+
+        # Also check eval_dir itself
+        for name in ["ckpt_best.pt", "best_model.pt"]:
+            checkpoint = eval_dir / name
+            if checkpoint.exists():
+                return checkpoint
+
+        return None
 
     @phase("scenarios", critical=False)
     def run_scenarios(self):
@@ -2419,6 +2548,7 @@ class EvaluationPipeline:
             "abnormal_od_generate",
             "abnormal_od_evaluate",
             "wang_abnormality",
+            "lmtad_spatial_abnormality",
             "scenarios",
         ]
         extras = [phase for phase in self.config.phases if phase not in default_order]
@@ -2475,7 +2605,8 @@ def main():
         help=(
             "Run only these phases (comma-separated). Available: "
             "generation,base_eval,paired_analysis,cross_dataset,road_network_translate,abnormal,"
-            "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,wang_abnormality,scenarios."
+            "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,wang_abnormality,"
+            "lmtad_spatial_abnormality,scenarios."
         ),
     )
     parser.add_argument(
@@ -2548,6 +2679,36 @@ def main():
         "--wang-config",
         type=str,
         help="Path to Wang detection config YAML (default: config/abnormal_detection_statistical.yaml)",
+    )
+    parser.add_argument(
+        "--run-lmtad-spatial",
+        action="store_true",
+        help="Run LM-TAD spatial abnormality detection and visualization",
+    )
+    parser.add_argument(
+        "--lmtad-spatial-config",
+        type=str,
+        help="Path to LM-TAD spatial config YAML (optional)",
+    )
+    parser.add_argument(
+        "--lmtad-source-eval-dir",
+        type=str,
+        help="Path to LM-TAD source evaluation directory (auto-detected if not provided)",
+    )
+    parser.add_argument(
+        "--lmtad-num-trajectories-per-od",
+        type=int,
+        help="Number of trajectories per OD pair for LM-TAD spatial evaluation (default: 20, for testing use smaller values)",
+    )
+    parser.add_argument(
+        "--lmtad-max-od-pairs",
+        type=int,
+        help="Maximum OD pairs to sample for LM-TAD spatial evaluation (default: 250, for testing use smaller values)",
+    )
+    parser.add_argument(
+        "--lmtad-max-duplicate-ratio",
+        type=float,
+        help="Maximum duplicate ratio allowed for trajectories during LM-TAD validation (default: 0.1)",
     )
 
     args = parser.parse_args()
@@ -2636,6 +2797,21 @@ def main():
         config.run_wang_detection = True
     if args.wang_config:
         config.wang_config = args.wang_config
+    if args.run_lmtad_spatial:
+        config.run_lmtad_spatial_detection = True
+    if args.lmtad_spatial_config:
+        config.lmtad_spatial_config = args.lmtad_spatial_config
+    if (
+        hasattr(args, "lmtad_max_duplicate_ratio")
+        and args.lmtad_max_duplicate_ratio is not None
+    ):
+        config.lmtad_max_duplicate_ratio = args.lmtad_max_duplicate_ratio
+    if args.lmtad_source_eval_dir:
+        config.lmtad_source_eval_dir = args.lmtad_source_eval_dir
+    if args.lmtad_num_trajectories_per_od is not None:
+        config.lmtad_num_trajectories_per_od = args.lmtad_num_trajectories_per_od
+    if args.lmtad_max_od_pairs is not None:
+        config.lmtad_max_od_pairs = args.lmtad_max_od_pairs
 
     # Run pipeline
     try:

@@ -28,10 +28,9 @@ Usage:
 
 import argparse
 import logging
-import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 # Add parent directory to path for imports when run as script
 _parent_dir = Path(__file__).parent.parent
@@ -41,37 +40,15 @@ if str(_parent_dir) not in sys.path:
 # Import shared model detection utility (after path setup)
 from tools.model_detection import detect_model_files  # noqa: E402
 
+# Import programmatic interfaces (after path setup)
+from tools.analyze_abnormal import run_abnormal_analysis  # noqa: E402
+from tools.analyze_wang_results import analyze_wang_results  # noqa: E402
+from tools.visualize_wang_results import generate_wang_visualizations  # noqa: E402
+
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-
-def run_command(cmd: List[str], description: str) -> bool:
-    """Run a command and return success status
-
-    Args:
-        cmd: Command to run as list of strings
-        description: Description for logging
-
-    Returns:
-        True if successful, False otherwise
-    """
-    logger.info(f"{'=' * 70}")
-    logger.info(f"Step: {description}")
-    logger.info(f"{'=' * 70}")
-    logger.info(f"Command: {' '.join(cmd)}")
-
-    try:
-        subprocess.run(cmd, check=True, capture_output=False, text=True)
-        logger.info(f"✅ {description} completed successfully")
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"❌ {description} failed with exit code {e.returncode}")
-        return False
-    except Exception as e:
-        logger.error(f"❌ {description} failed: {e}")
-        return False
 
 
 def find_generated_models(eval_dir: Path, dataset: str) -> Dict[str, Path]:
@@ -172,23 +149,23 @@ def run_wang_detection_pipeline(
         total_steps += 1
         real_test_file = data_dir / "test.csv"
         if real_test_file.exists():
-            cmd = [
-                "uv",
-                "run",
-                "python",
-                str(project_root / "tools" / "analyze_abnormal.py"),
-                "--real_file",
-                str(real_test_file),
-                "--dataset",
-                dataset,
-                "--config",
-                str(config_file),
-                "--output_dir",
-                str(abnormal_dir / "test" / "real_data"),
-            ]
-            if run_command(cmd, "Real data detection (test split)"):
+            logger.info(f"{'=' * 70}")
+            logger.info("Step: Real data detection (test split)")
+            logger.info(f"{'=' * 70}")
+            try:
+                run_abnormal_analysis(
+                    real_file=real_test_file,
+                    dataset=dataset,
+                    config_path=config_file,
+                    output_dir=abnormal_dir / "test" / "real_data",
+                    is_real_data=True,
+                )
+                logger.info(
+                    "✅ Real data detection (test split) completed successfully"
+                )
                 success_count += 1
-            else:
+            except Exception as e:
+                logger.error(f"❌ Real data detection (test split) failed: {e}")
                 failed_steps.append("Real data (test)")
         else:
             logger.warning(f"Real test file not found: {real_test_file}, skipping")
@@ -198,23 +175,23 @@ def run_wang_detection_pipeline(
         total_steps += 1
         real_train_file = data_dir / "train.csv"
         if real_train_file.exists():
-            cmd = [
-                "uv",
-                "run",
-                "python",
-                str(project_root / "tools" / "analyze_abnormal.py"),
-                "--real_file",
-                str(real_train_file),
-                "--dataset",
-                dataset,
-                "--config",
-                str(config_file),
-                "--output_dir",
-                str(abnormal_dir / "train" / "real_data"),
-            ]
-            if run_command(cmd, "Real data detection (train split)"):
+            logger.info(f"{'=' * 70}")
+            logger.info("Step: Real data detection (train split)")
+            logger.info(f"{'=' * 70}")
+            try:
+                run_abnormal_analysis(
+                    real_file=real_train_file,
+                    dataset=dataset,
+                    config_path=config_file,
+                    output_dir=abnormal_dir / "train" / "real_data",
+                    is_real_data=True,
+                )
+                logger.info(
+                    "✅ Real data detection (train split) completed successfully"
+                )
                 success_count += 1
-            else:
+            except Exception as e:
+                logger.error(f"❌ Real data detection (train split) failed: {e}")
                 failed_steps.append("Real data (train)")
         else:
             logger.warning(f"Real train file not found: {real_train_file}, skipping")
@@ -227,24 +204,25 @@ def run_wang_detection_pipeline(
                 total_steps += 1
 
                 if model_file.exists():
-                    cmd = [
-                        "uv",
-                        "run",
-                        "python",
-                        str(project_root / "tools" / "analyze_abnormal.py"),
-                        "--real_file",
-                        str(model_file),
-                        "--dataset",
-                        dataset,
-                        "--config",
-                        str(config_file),
-                        "--output_dir",
-                        str(abnormal_dir / "test" / "generated" / model_name),
-                        "--is-generated",  # Flag for generated trajectory format
-                    ]
-                    if run_command(cmd, f"Generated model detection: {model_name}"):
+                    logger.info(f"{'=' * 70}")
+                    logger.info(f"Step: Generated model detection: {model_name}")
+                    logger.info(f"{'=' * 70}")
+                    try:
+                        run_abnormal_analysis(
+                            real_file=model_file,
+                            dataset=dataset,
+                            config_path=config_file,
+                            output_dir=abnormal_dir / "test" / "generated" / model_name,
+                            is_real_data=False,  # Generated trajectory format
+                        )
+                        logger.info(
+                            f"✅ Generated model detection: {model_name} completed successfully"
+                        )
                         success_count += 1
-                    else:
+                    except Exception as e:
+                        logger.error(
+                            f"❌ Generated model detection: {model_name} failed: {e}"
+                        )
                         failed_steps.append(f"Generated: {model_name}")
                 else:
                     logger.warning(f"Model file not found: {model_file}, skipping")
@@ -255,19 +233,15 @@ def run_wang_detection_pipeline(
     if not skip_aggregation:
         total_steps += 1
         output_file = eval_dir / "wang_results_aggregated.json"
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            str(project_root / "tools" / "analyze_wang_results.py"),
-            "--eval-dir",
-            str(eval_dir),
-            "--output",
-            str(output_file),
-        ]
-        if run_command(cmd, "Aggregate Wang results"):
+        logger.info(f"{'=' * 70}")
+        logger.info("Step: Aggregate Wang results")
+        logger.info(f"{'=' * 70}")
+        try:
+            analyze_wang_results(eval_dirs=[eval_dir], output_file=output_file)
+            logger.info("✅ Aggregate Wang results completed successfully")
             success_count += 1
-        else:
+        except Exception as e:
+            logger.error(f"❌ Aggregate Wang results failed: {e}")
             failed_steps.append("Aggregation")
 
     # Step 5: Generate visualizations
@@ -277,19 +251,17 @@ def run_wang_detection_pipeline(
         output_dir = eval_dir / "figures" / "wang_abnormality"
 
         if results_file.exists():
-            cmd = [
-                "uv",
-                "run",
-                "python",
-                str(project_root / "tools" / "visualize_wang_results.py"),
-                "--input",
-                str(results_file),
-                "--output-dir",
-                str(output_dir),
-            ]
-            if run_command(cmd, "Generate visualizations"):
+            logger.info(f"{'=' * 70}")
+            logger.info("Step: Generate visualizations")
+            logger.info(f"{'=' * 70}")
+            try:
+                generate_wang_visualizations(
+                    results_file=results_file, output_dir=output_dir
+                )
+                logger.info("✅ Generate visualizations completed successfully")
                 success_count += 1
-            else:
+            except Exception as e:
+                logger.error(f"❌ Generate visualizations failed: {e}")
                 failed_steps.append("Visualization")
         else:
             logger.warning(

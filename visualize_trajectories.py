@@ -37,7 +37,6 @@ except ImportError:
     cx = None
 
 # Import shared model detection utility
-from tools.model_detection import detect_model_files
 
 # Configure logging
 logging.basicConfig(
@@ -641,18 +640,18 @@ class TrajectoryComparisonPlotter:
         self.model_colors = {}
         self.model_linestyles = {}
         self.model_labels = {}
-        
+
         # Pre-populate with known models
         for model in ["vanilla", "distilled", "distilled_seed44", "real"]:
             self.model_colors[model] = get_model_color(model)
             self.model_linestyles[model] = get_model_line_style(model)
             self.model_labels[model] = get_display_name(model)
-        
+
         # Real trajectory special case
         self.model_colors["real"] = "#f39c12"  # Orange/Gold for real
         self.model_linestyles["real"] = "--"  # Dashed for real
         self.model_labels["real"] = "Real Trajectory"
-    
+
     def _ensure_model_in_dicts(self, model_name: str):
         """Ensure model is in visualization dicts, adding dynamically if needed."""
         if model_name not in self.model_colors:
@@ -691,7 +690,7 @@ class TrajectoryComparisonPlotter:
         for model_name in sorted(trajectories.keys(), key=lambda x: (x != "real", x)):
             # Ensure model is in visualization dicts
             self._ensure_model_in_dicts(model_name)
-            
+
             traj = trajectories[model_name]
             if not traj.coords:
                 continue
@@ -1628,7 +1627,7 @@ class TrajectoryVisualizer:
             od_type = None
 
             model = extract_model_name(filename)
-            
+
             # Skip if model is unknown
             if model == "unknown":
                 continue
@@ -1638,17 +1637,26 @@ class TrajectoryVisualizer:
             elif "test" in filename:
                 od_type = "test"
 
-        # Convert to legacy format for backward compatibility
-        gene_files = []
-        for model_file in model_files:
+            # Add to gene_files list
             gene_files.append(
                 {
-                    "path": model_file.path,
-                    "model": model_file.model,
-                    "od_type": model_file.od_type,
+                    "path": csv_file,
+                    "model": model,
+                    "od_type": od_type,
                 }
             )
-            logger.info(f"  Found: {model_file.model} - {model_file.od_type} OD")
+            logger.info(f"  Found: {model} - {od_type} OD")
+
+        # Convert to legacy format for backward compatibility
+        legacy_gene_files = []
+        for gene_file in gene_files:
+            legacy_gene_files.append(
+                {
+                    "path": gene_file["path"],
+                    "model": gene_file["model"],
+                    "od_type": gene_file["od_type"],
+                }
+            )
 
         return gene_files
 

@@ -1,0 +1,113 @@
+# LM-TAD Teacher Baseline Evaluation Configuration Example
+#
+# This configuration file demonstrates how to set up evaluation for the
+# LM-TAD teacher model using the same evaluation pipeline as HOSER student models.
+#
+# Usage:
+#   1. Copy this file to your evaluation directory: eval_dir/config/evaluation.yaml
+#   2. Update paths to match your LM-TAD installation
+#   3. Run evaluation workflow (e.g., run_abnormal_od_workflow.py)
+
+# ============================================================================
+# Dataset Configuration
+# ============================================================================
+
+# Dataset name (must match LM-TAD training dataset)
+dataset: Beijing
+
+# Data directory containing train.csv and test.csv
+# For LM-TAD: Use the LM-TAD format data (grid-tokenized trajectories)
+# Note: This is different from HOSER data_dir (which uses road network graphs)
+data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+
+# ============================================================================
+# LM-TAD Teacher Evaluation Configuration
+# ============================================================================
+
+# Enable LM-TAD teacher evaluation mode
+lmtad_evaluation: true
+
+# Path to LM-TAD repository root
+lmtad_repo: /home/matt/Dev/LMTAD
+
+# Path to LM-TAD checkpoint (.pt file from train_LMTAD.py)
+# Can be absolute or relative to lmtad_repo
+lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
+
+# Optional: Real data directory for teacher evaluation
+# If not specified, will auto-detect from lmtad_repo + dataset name
+# lmtad_real_data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+
+# ============================================================================
+# Evaluation Settings (Same as HOSER Student Evaluation)
+# ============================================================================
+
+# Number of trajectories to generate per OD pair
+num_gene: 5000
+
+# Beam search parameters
+beam_width: 4
+beam_search: true  # Use beam search (false = A* search)
+
+# Random seed for reproducibility
+seed: 42
+
+# CUDA device for GPU acceleration
+cuda_device: 0
+
+# Grid size for spatial discretization (must match LM-TAD training)
+grid_size: 0.001
+
+# EDR epsilon parameter for trajectory similarity
+edr_eps: 100.0
+
+# ============================================================================
+# Optional: Cross-Dataset Translation (OD Pair Mapping)
+# ============================================================================
+
+# Uncomment to enable cross-dataset evaluation
+# source_dataset: porto_hoser      # Source dataset (where OD pairs come from)
+# target_dataset: Beijing          # Target dataset (where model is trained)
+# translation_max_distance: 20.0   # Max distance for quality filtering (meters)
+
+# ============================================================================
+# Optional: Analysis-Focused Workflow
+# ============================================================================
+
+# Set to true to skip trajectory generation and focus on analysis of real data
+skip_generation: false
+
+# ============================================================================
+# Example Configurations by Dataset
+# ============================================================================
+
+# Beijing Dataset:
+#   dataset: Beijing
+#   lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/.../weights_only.pt
+#   data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+
+# Porto Dataset:
+#   dataset: porto_hoser
+#   lmtad_checkpoint: code/results/LMTAD/porto_hoser/run_20251010_212829/.../weights_only.pt
+#   data_dir: /home/matt/Dev/LMTAD/data/porto_hoser
+
+# ============================================================================
+# Notes
+# ============================================================================
+
+# Teacher vs Student Data Formats:
+# - Teacher (LM-TAD): Uses grid-based tokenization (trajectories as token sequences)
+# - Student (HOSER): Uses road network graphs (trajectories as road sequences)
+# - Both formats can be generated from the same raw trajectory data
+
+# Checkpoint Resolution:
+# - Absolute paths: Used as-is
+# - Relative paths: Searched in order:
+#   1. lmtad_repo + checkpoint path
+#   2. eval_dir + checkpoint path
+#   3. CWD + checkpoint path
+
+# Backward Compatibility:
+# - All LM-TAD fields are optional (defaults to HOSER student evaluation)
+# - Existing HOSER configs work without modification
+# - lmtad_evaluation: false (or omitted) = standard HOSER evaluation

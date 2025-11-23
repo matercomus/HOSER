@@ -98,7 +98,19 @@ Step-by-step guide for running statistical abnormality detection based on Wang e
 - Baseline computation for OD pairs
 - Statistical abnormality detection configuration
 - Cross-dataset evaluation workflow
-- Quality filtering and interpretation
+
+### LM-TAD Spatial Abnormality Analysis
+
+**[guides/RUN_LMTAD_SPATIAL_ABNORMALITY_ANALYSIS.md](guides/RUN_LMTAD_SPATIAL_ABNORMALITY_ANALYSIS.md)**
+
+Complete guide for evaluating spatial abnormalities (route switches and detours) using LM-TAD teacher model:
+
+- Extract spatial abnormal OD pairs from LM-TAD source evaluation
+- Generate trajectories for spatial abnormal patterns
+- Evaluate and classify spatial abnormality types
+- Aggregate results with statistical comparisons
+- Generate visualizations and combined reports
+- Integration with main pipeline
 
 ### Abnormal OD Pair Workflow
 
@@ -364,6 +376,7 @@ HOSER/
 │   ├── guides/
 │   │   ├── WANDB_CLI_EXAMPLES.md
 │   │   ├── RUN_WANG_ABNORMALITY_ANALYSIS.md
+│   │   ├── RUN_LMTAD_SPATIAL_ABNORMALITY_ANALYSIS.md
 │   │   └── ABNORMAL_OD_WORKFLOW.md
 │   ├── reference/
 │   │   ├── PREPROCESSING_ANALYSIS.md
