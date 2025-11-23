@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Evaluate Generated Trajectories with LM-TAD and Classify Spatial Abnormality Types
+Evaluate Generated Trajectories with LM-TAD (perplexity-based analysis)
 
-This script evaluates generated trajectories using LM-TAD and classifies them into
-spatial abnormality types (route switch, detour, non-outlier) based on perplexity thresholds.
+This script evaluates generated trajectories using the LM-TAD teacher model and
+computes per-trajectory and per-segment log-perplexity scores. Source OD-pair
+labels (if provided) are retained as contextual metadata for sampling and
+post-hoc analysis but the tool does not infer or assign spatial abnormality
+types to generated trajectories based on perplexity.
 
 Usage:
     uv run python tools/evaluate_lmtad_spatial_abnormal.py \\
@@ -847,7 +850,7 @@ def evaluate_spatial_abnormal_trajectories(
     max_duplicate_ratio: float = 0.1,
     road_to_token_override: Optional[np.ndarray] = None,
 ) -> Dict:
-    """Evaluate generated trajectories with LM-TAD and classify spatial abnormality types
+    """Evaluate generated trajectories with LM-TAD (perplexity-based analysis)
 
     Args:
         trajectory_file: Path to generated trajectory CSV file
@@ -861,7 +864,8 @@ def evaluate_spatial_abnormal_trajectories(
         eval_config: Evaluation configuration dictionary with grid settings (optional)
 
     Returns:
-        Dictionary with evaluation results and classifications
+        Dictionary with evaluation results (per-trajectory/per-segment perplexities).
+        No inferred spatial-abnormality label is assigned to generated trajectories.
     """
     logger.info(f"📂 Loading trajectories from {trajectory_file}")
 
@@ -870,7 +874,7 @@ def evaluate_spatial_abnormal_trajectories(
     logger.info(f"✅ Loaded {len(trajectories)} trajectories")
 
     # Load OD pairs file to get known labels (if available)
-    od_pair_labels = {}  # Maps (origin, dest) -> "route_switch" or "detour"
+    od_pair_labels = {}  # Maps (origin, dest) -> "route_switch" or "detour" (optional metadata)
     if not od_pair_labels and od_pairs_file is not None and od_pairs_file.exists():
         logger.info(f"📂 Loading OD pairs labels from {od_pairs_file}")
         with open(od_pairs_file, "r") as f:
@@ -887,7 +891,8 @@ def evaluate_spatial_abnormal_trajectories(
         )
     else:
         logger.info(
-            "⚠️  OD pairs file not provided - will use perplexity thresholds for classification"
+            "⚠️  OD pairs file not provided - source labels will be absent. "
+            "Evaluation will compute perplexity only; no label inference or classification will be performed."
         )
 
     # Load source statistics (still needed for perplexity-based fallback)
@@ -1300,7 +1305,7 @@ def evaluate_spatial_abnormal_trajectories(
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
-        description="Evaluate generated trajectories with LM-TAD and classify spatial abnormality types",
+        description="Evaluate generated trajectories with LM-TAD (perplexity-based analysis)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

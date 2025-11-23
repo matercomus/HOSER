@@ -399,10 +399,14 @@ def create_combined_report(
     )
     report_lines.append("")
     report_lines.append("### LM-TAD Spatial Detection")
-    report_lines.append("- Method: Perplexity-based classification")
-    report_lines.append("- Detects: Route switches, detours")
     report_lines.append(
-        "- Classification: Based on log perplexity thresholds from source evaluation"
+        "- Method: Perplexity-based analysis (no automatic label inference)"
+    )
+    report_lines.append(
+        "- Detects: Per-trajectory and per-segment perplexity patterns (used as indicators of abnormality)"
+    )
+    report_lines.append(
+        "- Notes: Perplexity is an indicator only — the pipeline does not infer spatial-abnormality types from perplexity. Source labels (route_switch/detour) are retained as metadata when present."
     )
     report_lines.append("")
 
