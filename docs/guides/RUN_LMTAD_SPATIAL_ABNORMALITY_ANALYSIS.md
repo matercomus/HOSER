@@ -566,6 +566,33 @@ uv run python python_pipeline.py \
 - If `--lmtad-source-eval-dir` is not provided, the pipeline will auto-detect the most recent LM-TAD evaluation directory
 - Checkpoint is auto-detected from the evaluation directory (checks parent directory for `ckpt_best.pt`)
 
+### CI-friendly LM‑TAD Spatial Abnormality Runs
+
+For CI or quick validation runs you can reduce workload by limiting OD pairs and trajectories per OD, and optionally disable the duplicate-trajectory validator. This is useful to shorten runtime and GPU usage while keeping the pipeline behavior identical to full runs.
+
+- **CI-friendly example** (the command you're running):
+
+```bash
+cd /home/matt/Dev/HOSER
+uv run python python_pipeline.py \
+  --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
+  --run-lmtad-spatial \
+  --only lmtad_spatial_abnormality \
+  --lmtad-max-od-pairs 100 \
+  --lmtad-num-trajectories-per-od 2 \
+  --force \
+  --lmtad-max-duplicate-ratio 1.0
+```
+
+- **`--lmtad-max-od-pairs`**: maximum number of OD pairs to sample for generation (use a small number like `100` for CI).
+- **`--lmtad-num-trajectories-per-od`**: number of generated trajectories per OD pair (set to `2` or small values for CI).
+- **`--lmtad-max-duplicate-ratio`**: controls duplicate-segment tolerance. Setting this to `1.0` effectively disables the duplicate check for quick runs; set it lower (e.g., `0.05`) for stricter validation.
+
+- **Notes:**
+  - The pipeline maps HOSER road IDs to LM‑TAD token IDs before token-level validation to avoid token-bounds errors.
+  - When seeded variants exist (e.g., `vanilla_seed42`, `vanilla_seed43`), the pipeline and aggregation will prefer seeded variants and ignore a plain base model name (`vanilla`) to avoid mixing stale results.
+
+
 ## Cross-Model OD Pair Comparison
 
 The evaluation pipeline now includes **cross-model comparison** that analyzes how different models perform on the same OD pairs. This provides a more robust assessment than per-model statistics alone.
