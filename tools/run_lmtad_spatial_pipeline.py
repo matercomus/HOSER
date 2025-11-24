@@ -191,6 +191,9 @@ def run_lmtad_spatial_pipeline(
         logger.error(f"Evaluation directory not found: {eval_dir}")
         return False
 
+    # Canonical OD pairs file for this evaluation (may be created in extraction step)
+    od_pairs_file = eval_dir / f"abnormal_od_pairs_lmtad_spatial_{dataset}.json"
+
     if not lmtad_source_eval_dir.exists():
         logger.error(f"LM-TAD source eval directory not found: {lmtad_source_eval_dir}")
         return False
@@ -409,6 +412,10 @@ def run_lmtad_spatial_pipeline(
                         )
                         logger.info(f"{'=' * 70}")
                         try:
+                            # Forward the canonical OD pairs file into evaluation when available
+                            od_pairs_arg = (
+                                od_pairs_file if od_pairs_file.exists() else None
+                            )
                             result = evaluate_spatial_abnormal_trajectories(
                                 trajectory_file=trajectory_file,
                                 lmtad_checkpoint=lmtad_checkpoint,
@@ -420,6 +427,7 @@ def run_lmtad_spatial_pipeline(
                                 eval_config=eval_config,
                                 max_duplicate_ratio=max_duplicate_ratio,
                                 road_to_token_override=road_to_token_override,
+                                od_pairs_file=od_pairs_arg,
                             )
                             # Save results
                             output_file.parent.mkdir(parents=True, exist_ok=True)
