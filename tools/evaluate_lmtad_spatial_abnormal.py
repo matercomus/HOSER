@@ -968,7 +968,35 @@ def evaluate_spatial_abnormal_trajectories(
             PathLib(__file__).parent.parent / "data" / dataset / "roadmap.geo"
         )
 
-    if not roadmap_file.exists():
+    # Before failing on a missing roadmap, attempt to auto-load a canonical
+    # `road_to_token.json` mapping from nearby locations. This supports the
+    # common workflow where mapping is precomputed and stored in the eval
+    # workspace (avoids recomputing via the potentially expensive GridMapper).
+    if road_to_token_override is None:
+        try:
+            from critics.mapping_utils import load_road_to_token_mapping  # noqa: E402
+
+            candidate_paths = [
+                Path(trajectory_file).parent / "road_to_token.json",
+                Path(trajectory_file).parent.parent / "road_to_token.json",
+                Path(__file__).parent.parent / "data" / dataset / "road_to_token.json",
+            ]
+            for cand in candidate_paths:
+                if cand.exists():
+                    try:
+                        road_to_token_override = load_road_to_token_mapping(cand)
+                        logger.info(
+                            "🔁 Auto-loaded road_id->token mapping from %s",
+                            cand,
+                        )
+                        break
+                    except Exception as e:
+                        logger.warning("Failed to parse mapping file %s: %s", cand, e)
+        except Exception:
+            # If mapping_utils import or parsing fails, continue to normal flow
+            pass
+
+    if not roadmap_file.exists() and road_to_token_override is None:
         raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
 
     # Get expected grid dimensions from teacher (matches training process)

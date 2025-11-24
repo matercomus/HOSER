@@ -350,32 +350,72 @@ def run_lmtad_spatial_pipeline(
                     roadmap_file = Path("data") / dataset / "roadmap.geo"
 
                 road_to_token_override = None
-                if roadmap_file.exists():
-                    road_centroids, boundary_from_roadmap = extract_road_centroids(
-                        roadmap_file
-                    )
-                    grid_config = GridConfig(
-                        min_lat=boundary_from_roadmap["min_lat"],
-                        max_lat=boundary_from_roadmap["max_lat"],
-                        min_lng=boundary_from_roadmap["min_lng"],
-                        max_lng=boundary_from_roadmap["max_lng"],
-                        grid_size=0.001,
-                        downsample_factor=1,
-                    )
-                    mapper = GridMapper(
-                        boundary=grid_config,
-                        road_centroids=road_centroids,
-                        verify_hw=None,
-                    )
-                    road_to_token_override = mapper.map_all()
-                    logger.info(
-                        "🔁 Pipeline: precomputed road_id->token mapping for dataset %s",
-                        dataset,
-                    )
-                else:
-                    logger.warning(
-                        "Pipeline: roadmap file not found; skipping precompute mapping"
-                    )
+                # First, attempt to auto-load a canonical mapping file from the
+                # evaluation workspace or data directory. This allows users to
+                # provide a precomputed `road_to_token.json` without requiring
+                # the pipeline to recompute mappings from the roadmap.
+                try:
+                    from critics.mapping_utils import load_road_to_token_mapping  # noqa: E402
+
+                    candidate_paths = [
+                        eval_dir / "road_to_token.json",
+                        eval_dir / "analysis_abnormal" / dataset / "road_to_token.json",
+                        Path(__file__).parent.parent
+                        / "data"
+                        / dataset
+                        / "road_to_token.json",
+                    ]
+                    for cand in candidate_paths:
+                        if cand.exists():
+                            try:
+                                road_to_token_override = load_road_to_token_mapping(
+                                    cand
+                                )
+                                logger.info(
+                                    "🔁 Pipeline: auto-loaded road_id->token mapping from %s",
+                                    cand,
+                                )
+                                break
+                            except Exception as e:
+                                logger.warning(
+                                    "Pipeline: failed to parse mapping file %s: %s",
+                                    cand,
+                                    e,
+                                )
+                except Exception:
+                    # Conservative: if the mapping_utils import fails for any reason,
+                    # fall back to precompute below.
+                    pass
+
+                # If we didn't find/parse a canonical mapping file, fall back to
+                # computing the mapping from the dataset roadmap (existing behavior).
+                if road_to_token_override is None:
+                    if roadmap_file.exists():
+                        road_centroids, boundary_from_roadmap = extract_road_centroids(
+                            roadmap_file
+                        )
+                        grid_config = GridConfig(
+                            min_lat=boundary_from_roadmap["min_lat"],
+                            max_lat=boundary_from_roadmap["max_lat"],
+                            min_lng=boundary_from_roadmap["min_lng"],
+                            max_lng=boundary_from_roadmap["max_lng"],
+                            grid_size=0.001,
+                            downsample_factor=1,
+                        )
+                        mapper = GridMapper(
+                            boundary=grid_config,
+                            road_centroids=road_centroids,
+                            verify_hw=None,
+                        )
+                        road_to_token_override = mapper.map_all()
+                        logger.info(
+                            "🔁 Pipeline: precomputed road_id->token mapping for dataset %s",
+                            dataset,
+                        )
+                    else:
+                        logger.warning(
+                            "Pipeline: roadmap file not found; skipping precompute mapping"
+                        )
             except Exception as e:
                 logger.warning(
                     "Pipeline: failed to precompute road->token mapping: %s", e

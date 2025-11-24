@@ -14,7 +14,27 @@ sys.path.insert(0, str(project_root))
 
 import pytest  # noqa: E402
 from unittest.mock import MagicMock  # noqa: E402
-from critics.lmtad_teacher import LMTADTeacher  # noqa: E402
+
+# Import the real LMTADTeacher when available; tests that don't need it
+# (e.g., pure unit tests for mapping) should still be runnable when heavy
+# dependencies like `torch` are not installed. Fall back to a minimal
+# placeholder class to keep fixtures working in lightweight environments.
+try:
+    from critics.lmtad_teacher import LMTADTeacher  # noqa: E402
+except Exception:
+
+    class LMTADTeacher:  # minimal placeholder used only for spec in mocks
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def vocab_size(self):
+            return 0
+
+        def get_grid_size_hw(self):
+            return None
+
+        def predict_next_distribution(self, *args, **kwargs):
+            return None
 
 
 def make_fake_lmtad_teacher(vocab_size=6167, grid_hw=(64, 64)):
