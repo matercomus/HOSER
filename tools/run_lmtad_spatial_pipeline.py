@@ -521,7 +521,9 @@ def run_lmtad_spatial_pipeline(
             logger.info("Step: Aggregate LM-TAD perplexity-based results")
             logger.info(f"{'=' * 70}")
             try:
-                # For backward compatibility, call aggregate_lmtad_spatial_results
+                # For backward compatibility (tests patch this symbol), call the
+                # wrapper `aggregate_lmtad_spatial_results` which delegates to the
+                # new aggregator internally.
                 result = analyze_lmtad_spatial_results.aggregate_lmtad_spatial_results(
                     eval_dir=eval_dir,
                     dataset=dataset,
@@ -567,8 +569,9 @@ def run_lmtad_spatial_pipeline(
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 # Generate all plots (perplexity-based approach)
-                # Note: route_switch/detour plots removed in favor of perplexity-based analysis
-                # Call backwards-compatible wrappers (old names) so tests can patch them
+                # Call the backward-compatible wrappers (old names) so tests that
+                # patch those functions will observe the calls. The wrappers
+                # themselves delegate to the new plotting functions.
                 viz.plot_spatial_abnormality_rates_comparison(
                     results, output_dir, dataset
                 )
