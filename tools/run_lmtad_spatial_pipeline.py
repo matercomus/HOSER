@@ -521,13 +521,14 @@ def run_lmtad_spatial_pipeline(
             logger.info("Step: Aggregate LM-TAD perplexity-based results")
             logger.info(f"{'=' * 70}")
             try:
-                # For backward compatibility (tests patch this symbol), call the
-                # wrapper `aggregate_lmtad_spatial_results` which delegates to the
-                # new aggregator internally.
-                result = analyze_lmtad_spatial_results.aggregate_lmtad_spatial_results(
-                    eval_dir=eval_dir,
-                    dataset=dataset,
-                    source_eval_dir=lmtad_source_eval_dir,
+                # Call the new, perplexity-focused aggregator directly to avoid
+                # deprecation warnings in production runs.
+                result = (
+                    analyze_lmtad_spatial_results.aggregate_lmtad_perplexity_results(
+                        eval_dir=eval_dir,
+                        dataset=dataset,
+                        source_eval_dir=lmtad_source_eval_dir,
+                    )
                 )
                 # Save results (ensure JSON serializable for extra safety)
                 output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -569,18 +570,16 @@ def run_lmtad_spatial_pipeline(
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 # Generate all plots (perplexity-based approach)
-                # Call the backward-compatible wrappers (old names) so tests that
-                # patch those functions will observe the calls. The wrappers
-                # themselves delegate to the new plotting functions.
-                viz.plot_spatial_abnormality_rates_comparison(
-                    results, output_dir, dataset
-                )
-                viz.plot_route_switch_vs_detour_breakdown(results, output_dir, dataset)
+                # Call the new plotting functions directly to avoid deprecation
+                # warnings at runtime.
                 viz.plot_perplexity_distribution_comparison(
                     results, output_dir, dataset
                 )
-                viz.plot_model_rankings_spatial(results, output_dir, dataset)
-                viz.plot_statistical_significance_spatial(results, output_dir, dataset)
+                viz.plot_per_od_pair_perplexity_comparison(results, output_dir, dataset)
+                viz.plot_model_rankings_by_perplexity(results, output_dir, dataset)
+                viz.plot_statistical_significance_perplexity(
+                    results, output_dir, dataset
+                )
 
                 logger.info("✅ Generate visualizations completed successfully")
                 logger.info(f"Visualizations saved to {output_dir}/")

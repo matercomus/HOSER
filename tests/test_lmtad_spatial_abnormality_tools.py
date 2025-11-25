@@ -14,13 +14,22 @@ from tools.extract_lmtad_spatial_abnormal_od import (
     extract_od_from_trajectory,
 )
 from tools.analyze_lmtad_spatial_results import (
+    # Backward-compatible wrapper
     aggregate_lmtad_spatial_results,
+    # New perplexity-based aggregator
     load_source_real_rates,
     compute_statistical_test,
 )
 from tools.visualize_lmtad_spatial_results import (
     load_aggregated_results,
+    # Backward-compatible wrappers
     plot_spatial_abnormality_rates_comparison,
+    plot_statistical_significance_spatial,
+    # New perplexity-focused functions
+    plot_perplexity_distribution_comparison,
+    plot_per_od_pair_perplexity_comparison,
+    plot_model_rankings_by_perplexity,
+    plot_statistical_significance_perplexity,
 )
 
 
@@ -826,9 +835,6 @@ class TestVisualizeLMTADSpatialResults:
 
     def test_plot_statistical_significance_with_invalid_data(self, tmp_path):
         """Test that statistical significance plotting fails fast with invalid data."""
-        from tools.visualize_lmtad_spatial_results import (
-            plot_statistical_significance_spatial,
-        )
         import numpy as np
 
         results = {
@@ -864,9 +870,6 @@ class TestVisualizeLMTADSpatialResults:
 
     def test_plot_statistical_significance_with_valid_data(self, tmp_path):
         """Test that statistical significance plotting works with valid data."""
-        from tools.visualize_lmtad_spatial_results import (
-            plot_statistical_significance_spatial,
-        )
 
         results = {
             "summary_statistics": {
@@ -1176,7 +1179,10 @@ class TestLMTADSpatialFunctionSignatures:
     def test_visualize_functions_have_docstrings(self):
         """Test that visualization functions have docstrings."""
         assert load_aggregated_results.__doc__ is not None
-        assert plot_spatial_abnormality_rates_comparison.__doc__ is not None
+        assert plot_perplexity_distribution_comparison.__doc__ is not None
+        assert plot_per_od_pair_perplexity_comparison.__doc__ is not None
+        assert plot_model_rankings_by_perplexity.__doc__ is not None
+        assert plot_statistical_significance_perplexity.__doc__ is not None
 
 
 class TestLMTADSpatialPipeline:
@@ -1185,30 +1191,26 @@ class TestLMTADSpatialPipeline:
     @patch("tools.run_lmtad_spatial_pipeline.extract_spatial_abnormal_od_pairs")
     @patch("tools.run_lmtad_spatial_pipeline.generate_spatial_abnormal_trajectories")
     @patch("tools.run_lmtad_spatial_pipeline.evaluate_spatial_abnormal_trajectories")
-    @patch("tools.analyze_lmtad_spatial_results.aggregate_lmtad_spatial_results")
+    @patch("tools.analyze_lmtad_spatial_results.aggregate_lmtad_perplexity_results")
     @patch("tools.run_lmtad_spatial_pipeline.load_aggregated_results")
     @patch(
-        "tools.visualize_lmtad_spatial_results.plot_spatial_abnormality_rates_comparison"
-    )
-    @patch(
-        "tools.visualize_lmtad_spatial_results.plot_route_switch_vs_detour_breakdown"
-    )
-    @patch("tools.visualize_lmtad_spatial_results.plot_model_rankings_spatial")
-    @patch(
-        "tools.visualize_lmtad_spatial_results.plot_statistical_significance_spatial"
-    )
-    @patch(
         "tools.visualize_lmtad_spatial_results.plot_perplexity_distribution_comparison"
+    )
+    @patch(
+        "tools.visualize_lmtad_spatial_results.plot_per_od_pair_perplexity_comparison"
+    )
+    @patch("tools.visualize_lmtad_spatial_results.plot_model_rankings_by_perplexity")
+    @patch(
+        "tools.visualize_lmtad_spatial_results.plot_statistical_significance_perplexity"
     )
     @patch("tools.run_lmtad_spatial_pipeline.find_generated_models")
     def test_pipeline_full_workflow(
         self,
         mock_find_models,
         mock_plot_perplexity,
-        mock_plot_significance,
+        mock_plot_per_od_pair,
         mock_plot_rankings,
-        mock_plot_breakdown,
-        mock_plot_rates,
+        mock_plot_significance,
         mock_load_results,
         mock_aggregate,
         mock_evaluate,
@@ -1286,11 +1288,10 @@ class TestLMTADSpatialPipeline:
         assert mock_load_results.called
         assert all(
             [
-                mock_plot_rates.called,
-                mock_plot_breakdown.called,
+                mock_plot_perplexity.called,
+                mock_plot_per_od_pair.called,
                 mock_plot_rankings.called,
                 mock_plot_significance.called,
-                mock_plot_perplexity.called,
             ]
         )
 
