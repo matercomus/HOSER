@@ -1341,6 +1341,8 @@ def evaluate_spatial_abnormal_trajectories(
         "log_perplexity_stats": log_perplexity_stats,
         "segment_stats": segment_stats,
         "trajectories": trajectory_records,
+        # Backwards-compatible field expected by analyzers
+        "trajectories_with_perplexity": trajectory_records,
         "od_pair_label_counts": dict(od_label_counts),
         "source_statistics": source_stats,
     }

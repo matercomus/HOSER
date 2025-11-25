@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Tuple
 
 import numpy as np
-from scipy import stats
+import scipy.stats as sps
 from statsmodels.stats.multitest import multipletests
 import re
 
@@ -246,7 +246,7 @@ def compute_statistical_test(
         # Build contingency table
         table = np.array([[count_1, total_1 - count_1], [count_2, total_2 - count_2]])
         try:
-            chi2, p_value, dof, expected = stats.chi2_contingency(table)
+            chi2, p_value, dof, expected = sps.chi2_contingency(table)
         except Exception:
             # Fallback to Fisher's exact if chi-square fails (small counts)
             from scipy.stats import fisher_exact
@@ -350,16 +350,32 @@ def build_od_pair_data(evaluation_results: List[Dict]) -> Dict[str, Dict]:
 
     for result in evaluation_results:
         model_name = result.get("model", "unknown")
-        trajectories = result.get("trajectories_with_perplexity", [])
+        # Support both new and older eval JSON formats
+        trajectories = (
+            result.get("trajectories_with_perplexity")
+            or result.get("trajectories")
+            or []
+        )
 
         for trajectory in trajectories:
-            # Get first and last road ID for OD pair
-            road_sequence = trajectory.get("road_sequence", [])
-            if not road_sequence or len(road_sequence) < 2:
-                continue
+            # Get road sequence from different possible keys or fallback to origin/destination
+            road_sequence = trajectory.get("road_sequence") or trajectory.get(
+                "trajectory"
+            )
+            origin = trajectory.get("origin")
+            destination = trajectory.get("destination")
 
-            # Create OD pair key as "first_road-last_road"
-            od_key = f"{road_sequence[0]}-{road_sequence[-1]}"
+            if (
+                road_sequence
+                and isinstance(road_sequence, (list, tuple))
+                and len(road_sequence) >= 2
+            ):
+                od_key = f"{road_sequence[0]}-{road_sequence[-1]}"
+            elif origin is not None and destination is not None:
+                od_key = f"{origin}-{destination}"
+            else:
+                # Not enough information to create OD key
+                continue
 
             # Initialize OD pair if not exists
             if od_key not in od_pair_data:
@@ -507,14 +523,14 @@ def compare_perplexity_distributions(
 
     # Kolmogorov-Smirnov test
     try:
-        ks_statistic, ks_p_value = stats.ks_2samp(perplexities_1, perplexities_2)
+        ks_statistic, ks_p_value = sps.ks_2samp(perplexities_1, perplexities_2)
     except Exception as e:
         logger.warning(f"Kolmogorov-Smirnov test failed: {e}")
         ks_statistic, ks_p_value = float("nan"), float("nan")
 
     # Mann-Whitney U test
     try:
-        mw_statistic, mw_p_value = stats.mannwhitneyu(
+        mw_statistic, mw_p_value = sps.mannwhitneyu(
             perplexities_1, perplexities_2, alternative="two-sided"
         )
     except Exception as e:
@@ -584,7 +600,7 @@ def paired_perplexity_test(
 
             # Perform paired t-test
             try:
-                t_statistic, p_value = stats.ttest_rel(perplexities_1, perplexities_2)
+                t_statistic, p_value = sps.ttest_rel(perplexities_1, perplexities_2)
             except Exception as e:
                 logger.warning(f"Paired t-test failed for {model_1} vs {model_2}: {e}")
                 t_statistic, p_value = float("nan"), float("nan")
@@ -743,6 +759,22 @@ def aggregate_lmtad_perplexity_results(
     # Build OD pair comparison structure
     od_pair_data = build_od_pair_data(generated_results)
 
+    # Diagnostic logging: report how many OD pairs each model provides and how
+    # many OD pairs are shared across at least two models. This helps debug
+    # cases where per-OD-pair comparisons are not possible because there are
+    # no overlapping OD pairs.
+    try:
+        per_model_od_counts = {
+            model: sum(1 for od_key, md in od_pair_data.items() if model in md)
+            for model in model_names
+        }
+        shared_od_pairs_count = sum(1 for md in od_pair_data.values() if len(md) >= 2)
+        logger.info(
+            f"✅ OD pair data summary: per_model_od_counts={per_model_od_counts}, shared_od_pairs={shared_od_pairs_count}"
+        )
+    except Exception:
+        logger.debug("Could not compute OD pair diagnostic summary", exc_info=True)
+
     # Compute per-OD-pair statistics if we have multiple models
     per_od_statistics = {}
     if len(model_names) >= 2:
@@ -818,7 +850,7 @@ def aggregate_lmtad_perplexity_results(
                             count1 = len(arr1)
                             # Use Welch t-test from summary stats
                             try:
-                                _, p_value = stats.ttest_ind_from_stats(
+                                _, p_value = sps.ttest_ind_from_stats(
                                     mean1,
                                     std1,
                                     count1,
@@ -875,7 +907,7 @@ def aggregate_lmtad_perplexity_results(
                             std2 = float(np.std(arr2, ddof=1)) if len(arr2) > 1 else 0.0
                             count2 = len(arr2)
                             try:
-                                _, p_value = stats.ttest_ind_from_stats(
+                                _, p_value = sps.ttest_ind_from_stats(
                                     float(mean1),
                                     float(std1),
                                     int(count1),
@@ -1018,6 +1050,8 @@ def aggregate_lmtad_perplexity_results(
         "generated_data": generated_data,
         "od_pair_data": od_pair_data,
         "per_od_pair_statistics": per_od_statistics,
+        # Backwards-compat alias for visualization
+        "od_pair_perplexities": {dataset: {}},
         "statistical_analysis": {
             "perplexity_comparisons": perplexity_comparisons,
             "distribution_tests": distribution_tests,
@@ -1033,6 +1067,18 @@ def aggregate_lmtad_perplexity_results(
     logger.info(f"   Built data for {len(od_pair_data)} OD pairs")
 
     # Ensure all values are JSON serializable
+    # Fill od_pair_perplexities alias with per-od mean perplexities
+    try:
+        od_perp = {}
+        for od_key, stats in per_od_statistics.items():
+            od_perp[od_key] = {}
+            # Per-OD 'perplexities' is a dict: model -> log_perplexity
+            for model_name, perp in stats.get("perplexities", {}).items():
+                od_perp[od_key][model_name] = {"mean_log_perplexity": float(perp)}
+        result["od_pair_perplexities"] = {dataset: od_perp}
+    except Exception:
+        logger.debug("Failed to build od_pair_perplexities alias", exc_info=True)
+
     return ensure_json_serializable(result)
 
 
