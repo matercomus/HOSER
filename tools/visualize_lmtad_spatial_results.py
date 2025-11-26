@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Dict
 
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import numpy as np
+from matplotlib.lines import Line2D
 
 # Import model detection utility
 from tools.model_detection import get_model_color, get_display_name  # noqa: E402
@@ -328,7 +330,9 @@ def plot_perplexity_distribution_comparison(
         fontsize=14,
         fontweight="bold",
     )
-    ax1.set_xticks(models)
+    # Use numeric tick positions for models
+    x = np.arange(len(models))
+    ax1.set_xticks(x)
     ax1.set_xticklabels([get_display_name(m) for m in models], rotation=45, ha="right")
     ax1.grid(True, alpha=0.3, axis="y")
 
@@ -371,12 +375,36 @@ def plot_perplexity_distribution_comparison(
 
 
 def plot_per_od_pair_perplexity_comparison(
-    results: Dict, output_dir: Path, dataset: str
+    results: Dict,
+    output_dir: Path,
+    dataset: str,
+    vmin_pct: float = 5.0,
+    vmax_pct: float = 95.0,
+    clip_outliers: bool = True,
+    cmap: mpl.colors.Colormap | None = None,
+    inf_policy: str = "clip",  # options: 'clip', 'mask'
+    annotate_inf: bool = True,
+    return_fig: bool = False,
+    norm: str | None = None,  # 'linear', 'log', 'twoslope'
+    norm_center: float | None = None,
 ):
     """
     Plot per-OD-pair perplexity comparison across models.
 
     Creates a heatmap showing perplexity scores for different OD pairs across models.
+
+    Parameters:
+    - results (Dict): Aggregated results dict.
+    - output_dir (Path): Output directory where images are saved.
+    - dataset (str): Dataset key inside results.
+    - vmin_pct, vmax_pct (float): Percentiles to use for vmin/vmax to avoid outliers skew.
+    - clip_outliers (bool): If True, clip values outside vmin/vmax.
+    - cmap (mpl.colors.Colormap or None): Matplotlib colormap to use. Defaults to RdYlGn_r (green->yellow->red).
+    - inf_policy (str): How to handle `inf` values produced by evaluation. Options:
+        * 'clip' (default): Replace `inf` with `vmax` so they show as maximum (abnormal) color.
+        * 'mask': Replace `inf` with NaN and visualize as white mask.
+    - annotate_inf (bool): If True, annotate inf cells with `inf` text and red 'x' marker; disabled when clipped and annotate_inf False.
+    - return_fig (bool): If True, return the matplotlib Figure object for tests/inspection. Default False.
     """
     od_data = results.get("od_pair_perplexities", {}).get(dataset, {})
 
@@ -440,14 +468,122 @@ def plot_per_od_pair_perplexity_comparison(
         figsize=(max(10, len(models) * 1.5), max(8, len(valid_od_pairs) * 0.4))
     )
 
-    # Use viridis colormap for better visibility
-    im = ax.imshow(
-        perplexity_matrix,
-        cmap="viridis",
-        aspect="auto",
-        vmin=np.nanmin(perplexity_matrix),
-        vmax=np.nanmax(perplexity_matrix),
-    )
+    # Convert to numpy array and mask invalid values (NaN/inf)
+    matrix = np.array(perplexity_matrix, dtype=float)
+    mask = ~np.isfinite(matrix)
+    if not np.any(~mask):
+        logger.warning("No finite perplexity values found for OD pairs")
+        return
+    mtx_masked = np.ma.masked_invalid(matrix)
+
+    # Compute robust bounds (percentiles) to avoid color skew from outliers
+    finite_vals = matrix[~mask]
+    try:
+        vmin = float(np.nanpercentile(finite_vals, vmin_pct))
+        vmax = float(np.nanpercentile(finite_vals, vmax_pct))
+    except Exception:
+        # Fall back to min/max
+        vmin = float(np.nanmin(finite_vals))
+        vmax = float(np.nanmax(finite_vals))
+
+    if vmin == vmax:
+        # Avoid identical vmin/vmax which breaks coloring
+        vmin = vmin - 1e-6
+        vmax = vmax + 1e-6
+
+    # Choose default colormap appropriate for abnormality measures (green -> yellow -> red)
+    if cmap is None:
+        cmap = mpl.cm.RdYlGn_r
+    else:
+        cmap = mpl.cm.get_cmap(cmap)
+    cmap = cmap.copy()
+    cmap.set_bad("white")  # ensure NaN/invalid shown as white
+
+    # Optionally create normalization for the colormap
+    if norm == "log":
+        # LogNorm requires all positive values
+        try:
+            norm_obj = mpl.colors.LogNorm(vmin=max(1e-6, vmin), vmax=max(vmax, 1e-6))
+        except Exception:
+            norm_obj = None
+    elif norm == "twoslope":
+        center = (
+            norm_center
+            if norm_center is not None
+            else float(np.nanpercentile(finite_vals, 50))
+        )
+        try:
+            norm_obj = mpl.colors.TwoSlopeNorm(vmin=vmin, vcenter=center, vmax=vmax)
+        except Exception:
+            norm_obj = None
+    else:
+        norm_obj = None
+
+    # Optionally clip colors to the chosen percentiles
+    if clip_outliers:
+        # Norm with clip ensures values outside vmin/vmax are clipped in colormap
+        norm_clip = mpl.colors.Normalize(vmin=vmin, vmax=vmax, clip=True)
+    else:
+        norm_clip = None
+
+    # Prepare matrix to plot: handle Inf policy and outlier clipping
+    matrix_to_plot = np.array(perplexity_matrix, dtype=float)
+    inf_mask = np.isinf(matrix_to_plot)
+    nan_mask = np.isnan(matrix_to_plot)
+
+    # Count and report Inf/NaN
+    n_inf = int(np.sum(inf_mask))
+    n_nan = int(np.sum(nan_mask))
+    if n_inf > 0 or n_nan > 0:
+        logger.info(
+            f"  ⚠️ Found {n_inf} inf and {n_nan} NaN values in OD matrix for {dataset}"
+        )
+
+    if n_inf > 0:
+        for i, od in enumerate(valid_od_pairs):
+            row_inf = inf_mask[i]
+            if np.any(row_inf):
+                inf_models = [models[j] for j in range(len(models)) if row_inf[j]]
+                logger.info(
+                    f"  ⚠️ OD pair {od} has inf perplexity for models: {inf_models}"
+                )
+
+    if n_nan > 0:
+        for i, od in enumerate(valid_od_pairs):
+            row_nan = nan_mask[i]
+            if np.any(row_nan):
+                nan_models = [models[j] for j in range(len(models)) if row_nan[j]]
+                logger.info(
+                    f"  ⚠️ OD pair {od} has NaN perplexity for models: {nan_models}"
+                )
+
+    if inf_policy == "clip":
+        if np.isfinite(vmax):
+            matrix_to_plot[inf_mask] = vmax
+        else:
+            # If vmax not finite (degenerate), just set to large finite value
+            matrix_to_plot[inf_mask] = np.nanmax(
+                matrix_to_plot[np.isfinite(matrix_to_plot)]
+            )
+    elif inf_policy == "mask":
+        matrix_to_plot[inf_mask] = np.nan
+
+    # Optionally clip outliers in the matrix itself
+    # Count values that will be clipped for diagnostics
+    n_high_clip = int(np.sum(matrix > vmax))
+    n_low_clip = int(np.sum(matrix < vmin))
+    if (n_high_clip > 0) or (n_low_clip > 0):
+        logger.info(
+            f"  ⚠️ Clipping {n_high_clip} values above vmax and {n_low_clip} values below vmin for {dataset}"
+        )
+    if clip_outliers:
+        matrix_to_plot = np.clip(matrix_to_plot, vmin, vmax)
+
+    mtx_masked = np.ma.masked_invalid(matrix_to_plot)
+
+    # If user specified LogNorm/Twoslope, prefer those, otherwise use clip-normalize or no normalization
+    norm_to_use = norm_obj if norm_obj is not None else norm_clip
+    im = ax.imshow(mtx_masked, cmap=cmap, aspect="auto", norm=norm_to_use)
 
     # Set ticks and labels
     ax.set_xticks(np.arange(len(models)))
@@ -455,27 +591,56 @@ def plot_per_od_pair_perplexity_comparison(
     ax.set_xticklabels([get_display_name(m) for m in models], rotation=45, ha="right")
     ax.set_yticklabels(valid_od_pairs)
 
-    # Add text annotations
+    # Add text annotations and overlay markers for NaN/Inf
     for i in range(len(valid_od_pairs)):
         for j in range(len(models)):
-            value = perplexity_matrix[i, j]
-            if not np.isnan(value):
+            value = matrix_to_plot[i, j]
+            if np.isfinite(value):
                 ax.text(
                     j,
                     i,
                     f"{value:.2f}",
                     ha="center",
                     va="center",
-                    color="white"
-                    if value
-                    > (np.nanmax(perplexity_matrix) + np.nanmin(perplexity_matrix)) / 2
-                    else "black",
+                    color=("white" if value > (vmin + vmax) / 2 else "black"),
                     fontsize=8,
                 )
+            elif np.isinf(value):
+                # Show 'inf' explicitly when evaluation returned infinite logs
+                if annotate_inf:
+                    ax.text(
+                        j, i, "inf", ha="center", va="center", color="black", fontsize=8
+                    )
+                    # Add a red marker for visibility
+                    ax.plot(j, i, marker="x", color="red", markersize=6)
+            elif np.isnan(value):
+                # Show 'N/A' for missing values
+                ax.text(
+                    j, i, "N/A", ha="center", va="center", color="black", fontsize=8
+                )
+            else:
+                # NaN / missing - show as blank
+                pass
 
     # Add colorbar
-    cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label("Mean Log Perplexity", fontsize=12)
+    cbar = plt.colorbar(im, ax=ax, extend="both")
+    cbar.set_label("Mean Log Perplexity", fontsize=10)
+    cbar.ax.tick_params(labelsize=9)
+
+    # Log histogram and percentiles for diagnostics
+    try:
+        pct_vals = np.nanpercentile(finite_vals, [vmin_pct, 25, 50, 75, vmax_pct])
+        logger.info(
+            f"Per-OD heatmap percentiles ({vmin_pct},{vmax_pct}): {pct_vals.tolist()}"
+        )
+        # Log clipping counts
+        clipped_low = np.sum(finite_vals < vmin)
+        clipped_high = np.sum(finite_vals > vmax)
+        logger.info(
+            f"Per-OD heatmap clipping: low={clipped_low}, high={clipped_high}, total={len(finite_vals)}"
+        )
+    except Exception:
+        pass
 
     ax.set_xlabel("Model", fontsize=12)
     ax.set_ylabel("OD Pair (Origin → Destination)", fontsize=12)
@@ -485,14 +650,29 @@ def plot_per_od_pair_perplexity_comparison(
         fontweight="bold",
     )
 
+    # Add legend entry for Inf marker if present and annotated
+    if annotate_inf and n_inf > 0:
+        inf_handle = Line2D(
+            [0], [0], marker="x", color="red", linestyle="", markersize=6
+        )
+        # Keep existing legends from other axes if present; append our new handle
+        existing_handles, existing_labels = ax.get_legend_handles_labels()
+        handles = existing_handles + [inf_handle]
+        labels = existing_labels + ["inf"]
+        ax.legend(handles, labels, loc="upper right")
+
     plt.tight_layout()
     output_file = output_dir / f"per_od_pair_perplexity_{dataset}.png"
     output_dir.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_file, dpi=300, bbox_inches="tight")
     plt.savefig(output_file.with_suffix(".svg"), bbox_inches="tight")
-    plt.close()
 
     logger.info(f"  ✓ Saved to {output_file}")
+
+    if return_fig:
+        return fig
+
+    plt.close(fig)
 
 
 def plot_model_rankings_by_perplexity(results: Dict, output_dir: Path, dataset: str):
@@ -567,8 +747,9 @@ def plot_model_rankings_by_perplexity(results: Dict, output_dir: Path, dataset: 
     ax1.set_yticklabels([get_display_name(m) for m in models])
     ax1.set_xlabel("Mean Log Perplexity ± Std", fontsize=12)
     ax1.set_ylabel("Model (ranked by perplexity)", fontsize=12)
+    # Title for model ranking subplot
     ax1.set_title(
-        f"Model Rankings by Mean Perplexity: {dataset}\n(Lower is Better)",
+        "Model Rankings by Mean Log Perplexity",
         fontsize=14,
         fontweight="bold",
     )
@@ -800,6 +981,9 @@ def plot_segment_level_perplexity_aggregate(
     ax1.set_xlabel("Model", fontsize=12)
     ax1.set_ylabel("Mean Log Perplexity", fontsize=12)
     ax1.set_title("Segment-Level Mean Perplexity", fontsize=12, fontweight="bold")
+    # Use numeric tick positions for models
+    x = np.arange(len(models))
+    ax1.set_xticks(x)
     ax1.set_xticklabels([get_display_name(m) for m in models], rotation=45, ha="right")
     ax1.grid(True, alpha=0.3, axis="y")
 
@@ -848,6 +1032,9 @@ def plot_segment_level_perplexity_aggregate(
     ax3.set_xlabel("Model", fontsize=12)
     ax3.set_ylabel("Number of Segments", fontsize=12)
     ax3.set_title("Total Segments Evaluated", fontsize=12, fontweight="bold")
+    # Use numeric tick positions for models
+    x = np.arange(len(models))
+    ax3.set_xticks(x)
     ax3.set_xticklabels([get_display_name(m) for m in models], rotation=45, ha="right")
     ax3.grid(True, alpha=0.3, axis="y")
 
@@ -870,6 +1057,9 @@ def plot_segment_level_perplexity_aggregate(
     ax4.set_xlabel("Model", fontsize=12)
     ax4.set_ylabel("Coefficient of Variation", fontsize=12)
     ax4.set_title("Perplexity Variability (Std/Mean)", fontsize=12, fontweight="bold")
+    # Use numeric tick positions for models
+    x = np.arange(len(models))
+    ax4.set_xticks(x)
     ax4.set_xticklabels([get_display_name(m) for m in models], rotation=45, ha="right")
     ax4.grid(True, alpha=0.3, axis="y")
 
@@ -928,6 +1118,8 @@ def plot_comprehensive_perplexity_summary(
     ax1.set_xlabel("Model", fontsize=12)
     ax1.set_ylabel("Mean Log Perplexity", fontsize=12)
     ax1.set_title("Mean Perplexity Comparison", fontsize=12, fontweight="bold")
+    # Use numeric tick positions for models
+    ax1.set_xticks(np.arange(len(models)))
     ax1.set_xticklabels([get_display_name(m) for m in models], rotation=45, ha="right")
     ax1.grid(True, alpha=0.3, axis="y")
 
@@ -962,10 +1154,12 @@ def plot_comprehensive_perplexity_summary(
         for stats in perplexity_stats
     ]
 
-    ax3.bar(models, ranges, color=colors, alpha=0.8)
+    x = np.arange(len(models))
+    ax3.bar(x, ranges, color=colors, alpha=0.8)
     ax3.set_xlabel("Model", fontsize=12)
     ax3.set_ylabel("Perplexity Range (Max - Min)", fontsize=12)
     ax3.set_title("Perplexity Range", fontsize=12, fontweight="bold")
+    ax3.set_xticks(np.arange(len(models)))
     ax3.set_xticklabels([get_display_name(m) for m in models], rotation=45, ha="right")
     ax3.grid(True, alpha=0.3, axis="y")
 
@@ -1074,6 +1268,53 @@ Examples:
         required=True,
         help="Dataset name (e.g., porto_hoser, Beijing)",
     )
+    parser.add_argument(
+        "--viz-cmap",
+        type=str,
+        default=None,
+        help="Matplotlib colormap name for OD heatmap (e.g. RdYlGn_r, YlOrRd, viridis).",
+    )
+    parser.add_argument(
+        "--viz-inf-policy",
+        choices=["clip", "mask"],
+        default="clip",
+        help="How to handle inf values in heatmap: 'clip' (default) or 'mask' (white/NaN).",
+    )
+    parser.add_argument(
+        "--viz-no-annotate-inf",
+        dest="viz_annotate_inf",
+        action="store_false",
+        help="Disable annotation of inf cells (default: annotate)",
+    )
+    parser.add_argument(
+        "--viz-clip-outliers",
+        action="store_true",
+        help="Clip color values to percentile bounds (vmin_pct/vmax_pct).",
+    )
+    parser.add_argument(
+        "--viz-vmin-pct",
+        type=float,
+        default=5.0,
+        help="Vmin percentile for color clipping (default 5.0)",
+    )
+    parser.add_argument(
+        "--viz-vmax-pct",
+        type=float,
+        default=95.0,
+        help="Vmax percentile for color clipping (default 95.0)",
+    )
+    parser.add_argument(
+        "--viz-norm",
+        choices=["linear", "log", "twoslope"],
+        default="linear",
+        help="Color normalization: linear (default), log, or twoslope (requires center)",
+    )
+    parser.add_argument(
+        "--viz-norm-center",
+        type=float,
+        default=None,
+        help="Center value for TwoSlopeNorm (default median)",
+    )
 
     args = parser.parse_args()
 
@@ -1089,7 +1330,19 @@ Examples:
     logger.info(f"📊 Generating perplexity visualizations for {args.dataset}...")
 
     plot_perplexity_distribution_comparison(results, args.output_dir, args.dataset)
-    plot_per_od_pair_perplexity_comparison(results, args.output_dir, args.dataset)
+    plot_per_od_pair_perplexity_comparison(
+        results,
+        args.output_dir,
+        args.dataset,
+        vmin_pct=args.viz_vmin_pct,
+        vmax_pct=args.viz_vmax_pct,
+        clip_outliers=args.viz_clip_outliers,
+        cmap=args.viz_cmap,
+        inf_policy=args.viz_inf_policy,
+        annotate_inf=args.viz_annotate_inf,
+        norm=(args.viz_norm if args.viz_norm != "linear" else None),
+        norm_center=args.viz_norm_center,
+    )
     plot_model_rankings_by_perplexity(results, args.output_dir, args.dataset)
     plot_statistical_significance_perplexity(results, args.output_dir, args.dataset)
     plot_segment_level_perplexity_aggregate(results, args.output_dir, args.dataset)

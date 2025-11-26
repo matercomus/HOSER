@@ -156,6 +156,16 @@ def run_lmtad_spatial_pipeline(
     max_duplicate_ratio: float = 1.0,
     force: bool = False,
     eval_config: Dict | None = None,
+    # Visualization options
+    viz_cmap: str | None = None,
+    viz_inf_policy: str = "clip",
+    viz_annotate_inf: bool = True,
+    viz_clip_outliers: bool = False,
+    viz_vmin_pct: float = 5.0,
+    viz_vmax_pct: float = 95.0,
+    viz_norm: str | None = None,
+    viz_norm_center: float | None = None,
+    lmtad_min_prob: float = 1e-6,
 ) -> bool:
     """Run complete LM-TAD perplexity-based evaluation pipeline
 
@@ -468,6 +478,7 @@ def run_lmtad_spatial_pipeline(
                                 max_duplicate_ratio=max_duplicate_ratio,
                                 road_to_token_override=road_to_token_override,
                                 od_pairs_file=od_pairs_arg,
+                                min_prob=lmtad_min_prob,
                             )
                             # Save results
                             output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -575,7 +586,19 @@ def run_lmtad_spatial_pipeline(
                 viz.plot_perplexity_distribution_comparison(
                     results, output_dir, dataset
                 )
-                viz.plot_per_od_pair_perplexity_comparison(results, output_dir, dataset)
+                viz.plot_per_od_pair_perplexity_comparison(
+                    results,
+                    output_dir,
+                    dataset,
+                    vmin_pct=viz_vmin_pct,
+                    vmax_pct=viz_vmax_pct,
+                    clip_outliers=viz_clip_outliers,
+                    cmap=viz_cmap,
+                    inf_policy="mask",
+                    annotate_inf=False,
+                    norm=(viz_norm if viz_norm != "linear" else None),
+                    norm_center=viz_norm_center,
+                )
                 viz.plot_model_rankings_by_perplexity(results, output_dir, dataset)
                 viz.plot_statistical_significance_perplexity(
                     results, output_dir, dataset
@@ -725,6 +748,51 @@ Prerequisites:
         action="store_true",
         help="Skip visualization generation",
     )
+    # Visualization options: forwarded to the plotting utils
+    parser.add_argument(
+        "--viz-cmap", type=str, default=None, help="Colormap for per-OD heatmap"
+    )
+    parser.add_argument(
+        "--viz-inf-policy",
+        choices=["clip", "mask"],
+        default="clip",
+        help="How to handle inf values: clip or mask",
+    )
+    parser.add_argument(
+        "--viz-no-annotate-inf",
+        dest="viz_annotate_inf",
+        action="store_false",
+        help="Do not annotate inf cells (default: annotated)",
+    )
+    parser.add_argument(
+        "--viz-clip-outliers",
+        action="store_true",
+        help="Clip outlier colors to percentile bounds",
+    )
+    parser.add_argument(
+        "--viz-vmin-pct",
+        type=float,
+        default=5.0,
+        help="Vmin percentile for color clipping",
+    )
+    parser.add_argument(
+        "--viz-vmax-pct",
+        type=float,
+        default=95.0,
+        help="Vmax percentile for color clipping",
+    )
+    parser.add_argument(
+        "--viz-norm",
+        choices=["linear", "log", "twoslope"],
+        default="linear",
+        help="Color normalization: linear, log, twoslope",
+    )
+    parser.add_argument(
+        "--viz-norm-center",
+        type=float,
+        default=None,
+        help="Center value for twoslope normalization",
+    )
     parser.add_argument(
         "--seed",
         type=int,
@@ -759,6 +827,12 @@ Prerequisites:
         type=Path,
         default=None,
         help="Path to evaluation configuration YAML file (optional)",
+    )
+    parser.add_argument(
+        "--lmtad-min-prob",
+        type=float,
+        default=1e-6,
+        help="Minimum predicted probability clamp for log calculations (default: 1e-6)",
     )
     parser.add_argument(
         "--lmtad-max-duplicate-ratio",
@@ -806,6 +880,15 @@ Prerequisites:
             force=args.force,
             eval_config=eval_config,
             max_duplicate_ratio=args.lmtad_max_duplicate_ratio,
+            viz_cmap=args.viz_cmap,
+            viz_inf_policy=args.viz_inf_policy,
+            viz_annotate_inf=args.viz_annotate_inf,
+            viz_clip_outliers=args.viz_clip_outliers,
+            viz_vmin_pct=args.viz_vmin_pct,
+            viz_vmax_pct=args.viz_vmax_pct,
+            viz_norm=(args.viz_norm if args.viz_norm != "linear" else None),
+            viz_norm_center=args.viz_norm_center,
+            lmtad_min_prob=args.lmtad_min_prob,
         )
         sys.exit(0 if success else 1)
     except Exception as e:
