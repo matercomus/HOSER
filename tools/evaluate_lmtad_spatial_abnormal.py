@@ -849,6 +849,7 @@ def evaluate_spatial_abnormal_trajectories(
     eval_config: Dict | None = None,
     max_duplicate_ratio: float = 1.0,
     road_to_token_override: Optional[np.ndarray] = None,
+    min_prob: float = 1e-6,
 ) -> Dict:
     """Evaluate generated trajectories with LM-TAD (perplexity-based analysis)
 
@@ -1267,14 +1268,19 @@ def evaluate_spatial_abnormal_trajectories(
 
     # Evaluate trajectories
     logger.info("🔍 Evaluating trajectories with LM-TAD...")
-    log_perplexities, _, segment_log_perplexities = evaluate_trajectories_direct(
-        trajectories=trajectories,
-        model=model,
-        road_to_token=road_to_token,
-        device=device,
-        batch_size=batch_size,
-        vocab_size=vocab_size,
-        return_segment_perplexity=True,
+    # Use collect_stats=True to obtain clamp/inf statistics for diagnostics
+    log_perplexities, _, segment_log_perplexities, eval_stats = (
+        evaluate_trajectories_direct(
+            trajectories=trajectories,
+            model=model,
+            road_to_token=road_to_token,
+            device=device,
+            batch_size=batch_size,
+            vocab_size=vocab_size,
+            return_segment_perplexity=True,
+            min_prob=min_prob,
+            collect_stats=True,
+        )
     )
 
     if segment_log_perplexities is None:
@@ -1345,6 +1351,7 @@ def evaluate_spatial_abnormal_trajectories(
         "trajectories_with_perplexity": trajectory_records,
         "od_pair_label_counts": dict(od_label_counts),
         "source_statistics": source_stats,
+        "inf_handling": eval_stats,
     }
 
     logger.info("✅ Evaluation complete:")
@@ -1435,6 +1442,12 @@ Examples:
         default=None,
         help="Path to evaluation configuration YAML file (optional)",
     )
+    parser.add_argument(
+        "--lmtad-min-prob",
+        type=float,
+        default=1e-6,
+        help="Minimum predicted probability clamp for log calculations (default: 1e-6)",
+    )
 
     args = parser.parse_args()
 
@@ -1479,6 +1492,7 @@ Examples:
             lmtad_repo=args.lmtad_repo,
             eval_config=eval_config,
             max_duplicate_ratio=args.max_duplicate_ratio,
+            min_prob=args.lmtad_min_prob,
         )
 
         # Save results

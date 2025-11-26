@@ -1,5 +1,6 @@
 import csv
 from pathlib import Path
+import ast
 
 import numpy as np
 
@@ -64,19 +65,38 @@ def test_evaluate_spatial_abnormal_e2e_monkeypatched(tmp_path, monkeypatch):
         "tools.evaluate_lmtad_spatial_abnormal.LMTADTeacher", FakeTeacher
     )
 
-    # Monkeypatch the heavy evaluation function to return deterministic perplexities
-    def fake_evaluate_trajectories_direct(
-        trajectories,
-        model,
-        road_to_token,
-        device,
-        batch_size,
-        vocab_size,
-        return_segment_perplexity,
-    ):
-        # Return a finite log-perplexity per trajectory and empty segment lists
-        log_perp = [float(np.log(1.0 + i + 1.0)) for i in range(len(trajectories))]
-        return log_perp, None, [[] for _ in trajectories]
+    def fake_evaluate_trajectories_direct(*args, **kwargs):
+        # Return a finite log-perplexity per trajectory and empty segment lists.
+        # Accept either positional trajectories or keyword 'trajectories' or 'trajectory_file'.
+        trajs = None
+        if args and len(args) > 0:
+            trajs = args[0]
+        elif "trajectories" in kwargs:
+            trajs = kwargs["trajectories"]
+        elif "trajectory_file" in kwargs:
+            # Fallback: read CSV and parse the gene_trace_road_id column
+            p = Path(kwargs["trajectory_file"])
+            trajs = []
+            with p.open() as f:
+                r = csv.reader(f)
+                next(r, None)  # skip header
+                for row in r:
+                    s = row[4]  # gene_trace_road_id column as written by make_csv
+                    try:
+                        parsed = ast.literal_eval(s)
+                    except Exception:
+                        parsed = []
+                        for tok in s.strip("[] ").split(","):
+                            tok = tok.strip()
+                            if tok:
+                                parsed.append(int(tok))
+                    trajs.append(parsed)
+        else:
+            trajs = []
+
+        n = len(trajs)
+        log_perp = [float(np.log(1.0 + i + 1.0)) for i in range(n)]
+        return log_perp, None, [[] for _ in range(n)], None
 
     monkeypatch.setattr(
         "tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct",
@@ -142,7 +162,7 @@ def test_no_od_pairs_does_not_infer_labels(tmp_path, monkeypatch):
     def fake_evaluate_trajectories_direct(*args, **kwargs):
         import numpy as np
 
-        return np.array([2.0, 3.5, 2.1]), None, [[] for _ in range(3)]
+        return np.array([2.0, 3.5, 2.1]), None, [[] for _ in range(3)], None
 
     monkeypatch.setattr(
         "tools.evaluate_lmtad_spatial_abnormal.evaluate_trajectories_direct",

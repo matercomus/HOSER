@@ -7,6 +7,9 @@ including distribution comparisons, rankings, and segment-level analysis.
 
 import json
 import tempfile
+import matplotlib.pyplot as plt
+import numpy as np
+import matplotlib as mpl
 from pathlib import Path
 
 import pytest
@@ -468,6 +471,133 @@ def test_segment_perplexity_percentiles():
 
         output_file = output_dir / "segment_level_perplexity_test_dataset.png"
         assert output_file.exists()
+
+
+def test_per_od_pair_heatmap_inf_policy_mask():
+    """Test that inf values are annotated when inf_policy='mask'"""
+    od_data = {
+        "test_dataset": {
+            "od_pair_1": {
+                "model_a": {"mean_log_perplexity": 1.0, "count": 3},
+                "model_b": {"mean_log_perplexity": float("inf"), "count": 2},
+            }
+        }
+    }
+
+    results = {"od_pair_perplexities": od_data}
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = Path(tmpdir) / "output"
+        fig = plot_per_od_pair_perplexity_comparison(
+            results,
+            output_dir,
+            "test_dataset",
+            inf_policy="mask",
+            annotate_inf=True,
+            return_fig=True,
+        )
+        assert fig is not None
+        ax = fig.get_axes()[0]
+        texts = [t.get_text() for t in ax.texts]
+        assert "inf" in texts
+        # Clean up
+        plt.close(fig)
+
+
+def test_per_od_pair_heatmap_inf_policy_clip():
+    """Test that inf values are clipped to vmax when inf_policy='clip' and not annotated"""
+    od_data = {
+        "test_dataset": {
+            "od_pair_1": {
+                "model_a": {"mean_log_perplexity": 1.0, "count": 3},
+                "model_b": {"mean_log_perplexity": float("inf"), "count": 2},
+            }
+        }
+    }
+
+    results = {"od_pair_perplexities": od_data}
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = Path(tmpdir) / "output"
+        fig = plot_per_od_pair_perplexity_comparison(
+            results,
+            output_dir,
+            "test_dataset",
+            vmin_pct=0,
+            vmax_pct=100,
+            inf_policy="clip",
+            annotate_inf=False,
+            return_fig=True,
+        )
+        assert fig is not None
+        ax = fig.get_axes()[0]
+        texts = [t.get_text() for t in ax.texts]
+        # There should be no 'inf' annotation because we clipped the inf value
+        assert "inf" not in texts
+        # Check that the image array contains the clipped value (which should equal vmax)
+        im = ax.get_images()[0]
+        arr = im.get_array().data
+        # Since there are 1 row (od_pair_1), the clipped value for model_b is at index [0,1]
+        assert np.isfinite(arr[0, 1])
+        plt.close(fig)
+
+
+def test_per_od_pair_heatmap_log_norm():
+    """Test that LogNorm can be used and applied to the heatmap's normalization"""
+    od_data = {
+        "test_dataset": {
+            "od_pair_1": {
+                "model_a": {"mean_log_perplexity": 0.2, "count": 3},
+                "model_b": {"mean_log_perplexity": 20.0, "count": 2},
+            }
+        }
+    }
+
+    results = {"od_pair_perplexities": od_data}
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = Path(tmpdir) / "output"
+        fig = plot_per_od_pair_perplexity_comparison(
+            results,
+            output_dir,
+            "test_dataset",
+            inf_policy="clip",
+            norm="log",
+            return_fig=True,
+        )
+        ax = fig.get_axes()[0]
+        im = ax.get_images()[0]
+        assert isinstance(im.norm, mpl.colors.LogNorm)
+        plt.close(fig)
+
+
+def test_per_od_pair_heatmap_twoslope_norm():
+    """Test that TwoSlopeNorm is used when requested and center is applied"""
+    od_data = {
+        "test_dataset": {
+            "od_pair_1": {
+                "model_a": {"mean_log_perplexity": 1.0, "count": 3},
+                "model_b": {"mean_log_perplexity": 3.0, "count": 2},
+            },
+            "od_pair_2": {
+                "model_a": {"mean_log_perplexity": 0.9, "count": 2},
+                "model_b": {"mean_log_perplexity": 4.0, "count": 2},
+            },
+        }
+    }
+    results = {"od_pair_perplexities": od_data}
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = Path(tmpdir) / "output"
+        fig = plot_per_od_pair_perplexity_comparison(
+            results,
+            output_dir,
+            "test_dataset",
+            inf_policy="clip",
+            norm="twoslope",
+            norm_center=2.0,
+            return_fig=True,
+        )
+        ax = fig.get_axes()[0]
+        im = ax.get_images()[0]
+        assert isinstance(im.norm, mpl.colors.TwoSlopeNorm)
+        plt.close(fig)
 
 
 def test_plot_output_directory_creation(temp_results_file, tmp_path):

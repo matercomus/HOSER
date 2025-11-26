@@ -124,6 +124,7 @@ class TestEvaluateSpatialAbnormalTrajectories:
             np.array([7.0, 8.5]),  # log_perplexities
             np.array([False, True]),  # outliers
             [[0.5, 0.6], [0.7, 0.8]],
+            None,
         )
 
         # Create test files
@@ -249,6 +250,7 @@ class TestEvaluateSpatialAbnormalTrajectories:
                         np.array([7.0]),
                         np.array([False]),
                         [[0.25, 0.5]],
+                        None,
                     )
 
                     # Create roadmap file in proper location
@@ -431,6 +433,7 @@ class TestFailedEvaluationsAndEdgeCases:
             np.array([np.inf, np.inf]),  # All Infinity
             np.array([True, True]),
             [[], []],
+            None,
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -519,6 +522,7 @@ class TestFailedEvaluationsAndEdgeCases:
             np.array([np.inf, 7.5, np.inf]),  # Mixed results
             np.array([True, True, True]),
             [[], [0.2, 0.3], []],
+            None,
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -614,6 +618,7 @@ class TestFailedEvaluationsAndEdgeCases:
             np.array([np.inf, 7.5, 9.0, 3.0, np.inf]),
             np.array([True, False, False, False, True]),
             [[], [0.1, 0.2], [0.3, 0.4], [0.05], []],
+            None,
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -718,6 +723,7 @@ class TestFailedEvaluationsAndEdgeCases:
             np.array([np.inf]),
             np.array([True]),
             [[]],
+            None,
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -811,6 +817,7 @@ class TestGridMapperVerification:
             np.array([5.0]),
             np.array([False]),
             None,
+            None,
         )
 
         trajectory_file = tmp_path / "trajectories.csv"
@@ -899,6 +906,7 @@ class TestGridMapperVerification:
         mock_evaluate.return_value = (
             np.array([5.0]),
             np.array([False]),
+            None,
             None,
         )
 
@@ -989,6 +997,7 @@ class TestGridMapperVerification:
         mock_evaluate.return_value = (
             np.array([5.0]),
             np.array([False]),
+            None,
             None,
         )
 

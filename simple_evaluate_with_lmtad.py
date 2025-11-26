@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 
 import numpy as np
+import math
 import pandas as pd
 import torch
 from shapely.geometry import LineString
@@ -162,6 +163,8 @@ def evaluate_trajectories_direct(
     batch_size: int = 128,
     vocab_size: Optional[int] = None,
     return_segment_perplexity: bool = False,
+    min_prob: float = 1e-6,
+    collect_stats: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, Optional[List[List[float]]]]:
     """
     Evaluate trajectories using LM-TAD teacher by computing perplexity.
@@ -194,6 +197,11 @@ def evaluate_trajectories_direct(
 
     # Note: teacher's window size is used internally by the model
     sot_token = model.sot_token()
+
+    # Diagnostics
+    total_clipped = 0
+    total_nan = 0
+    total_zero = 0
 
     for traj_idx, road_ids in enumerate(trajectories):
         if traj_idx % 500 == 0 and traj_idx > 0:
@@ -293,10 +301,29 @@ def evaluate_trajectories_direct(
                     evaluation_failed = True
                     break
 
-                log_prob = torch.log(pred_dist[target_token] + 1e-10)
-                log_probs.append(log_prob.item())
+                # Extract scalar probability (numpy or torch scalar)
+                if isinstance(pred_dist, torch.Tensor):
+                    p_val = float(pred_dist[target_token].to(torch.float32).item())
+                else:
+                    p_val = float(pred_dist[target_token])
+
+                # Track zero/nan probabilities
+                if math.isnan(p_val):
+                    total_nan += 1
+                if p_val == 0.0:
+                    total_zero += 1
+
+                # Clamp to min_prob for numeric stability, convert to float32
+                safe_p = float(p_val if p_val >= min_prob else min_prob)
+                if p_val < min_prob:
+                    total_clipped += 1
+
+                # Use python math.log for consistent numeric behavior
+                log_prob_val = math.log(safe_p)
+                log_probs.append(log_prob_val)
                 if return_segment_perplexity:
-                    current_segment_logs.append(float(-log_prob.item()))
+                    current_segment_logs.append(float(-log_prob_val))
+                # (no-op) handled above via log_prob_val
 
             # Compute log perplexity = -average log prob (matches source dataset format)
             if evaluation_failed or len(log_probs) == 0:
@@ -332,6 +359,15 @@ def evaluate_trajectories_direct(
         )
     else:
         outliers = np.array([])
+
+    if collect_stats:
+        stats = {
+            "clipped_count": int(total_clipped),
+            "zero_count": int(total_zero),
+            "nan_count": int(total_nan),
+            "min_prob": float(min_prob),
+        }
+        return np.array(all_perplexities), outliers, segment_log_perplexities, stats
 
     return np.array(all_perplexities), outliers, segment_log_perplexities
 
