@@ -1884,7 +1884,8 @@ class EvaluationPipeline:
         # Generate for each model
         from gene import generate_trajectories_programmatic
 
-        num_traj_per_od = 50  # Reasonable default
+        # Use config value if set, otherwise default to 10 for faster testing
+        num_traj_per_od = getattr(self.config, "abnormal_num_traj_per_od", 10)
 
         for model_type in self.config.models:
             try:
@@ -2757,6 +2758,12 @@ def main():
         type=float,
         help="Maximum duplicate ratio allowed for trajectories during LM-TAD validation (default: 0.1)",
     )
+    parser.add_argument(
+        "--abnormal-num-traj-per-od",
+        type=int,
+        default=10,
+        help="Number of trajectories per OD pair for abnormal_od_generate phase (default: 10)",
+    )
 
     args = parser.parse_args()
 
@@ -2859,6 +2866,8 @@ def main():
         config.lmtad_num_trajectories_per_od = args.lmtad_num_trajectories_per_od
     if args.lmtad_max_od_pairs is not None:
         config.lmtad_max_od_pairs = args.lmtad_max_od_pairs
+    if args.abnormal_num_traj_per_od is not None:
+        config.abnormal_num_traj_per_od = args.abnormal_num_traj_per_od
 
     # Run pipeline
     try:
