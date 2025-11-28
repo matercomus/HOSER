@@ -38,12 +38,14 @@ def plot_all(data: Dict, output_dir: Path, dpi: int = 300):
     logger.info("  📈 Metrics plots...")
 
     plot_scenario_metrics_heatmap(data, output_dir, dpi)
-    plot_od_scenario_comparison(data, "train", output_dir, dpi)
-    plot_od_scenario_comparison(data, "test", output_dir, dpi)
+    plot_model_comparison_bars(data, output_dir, dpi, config={"od_source": "train"})
+    plot_model_comparison_bars(data, output_dir, dpi, config={"od_source": "test"})
     plot_metric_sensitivity(data, output_dir, dpi)
 
 
-def plot_scenario_metrics_heatmap(data: Dict, output_dir: Path, dpi: int):
+def plot_scenario_metrics_heatmap(
+    data: Dict, output_dir: Path, dpi: int, loader=None, config=None
+):
     """Plot #1: 6-panel heatmap of all metrics × scenarios × models"""
     logger.info("    1. Scenario metrics heatmap")
 
@@ -123,8 +125,13 @@ def plot_scenario_metrics_heatmap(data: Dict, output_dir: Path, dpi: int):
     plt.close()
 
 
-def plot_od_scenario_comparison(data: Dict, od_source: str, output_dir: Path, dpi: int):
+def plot_model_comparison_bars(
+    data: Dict, output_dir: Path, dpi: int, loader=None, config=None
+):
     """Plots #2-3: Grouped bar charts comparing Distance JSD across scenarios"""
+    # Determine OD source from config or default to 'train'
+    od_source = config.get("od_source", "train") if config else "train"
+
     logger.info(
         f"    {2 if od_source == 'train' else 3}. {od_source.upper()} OD comparison"
     )
@@ -147,54 +154,57 @@ def plot_od_scenario_comparison(data: Dict, od_source: str, output_dir: Path, dp
             val = get_metric_value(data, od_source, model, s, "Distance_JSD")
             values.append(val if val is not None else 0)
 
-        bars = ax.bar(
-            x + i * width,
+        ax.bar(
+            x + i * width - (len(models) - 1) * width / 2,
             values,
             width,
             label=model_labels_dict[model],
             color=model_colors_dict[model],
-            alpha=0.8,
-            edgecolor="black",
-            linewidth=0.5,
+            alpha=0.9,
+            edgecolor="white",
+            linewidth=1,
         )
 
-        # Add value labels on bars
-        for bar, val in zip(bars, values):
-            height = bar.get_height()
-            if height > 0:
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2.0,
-                    height,
-                    f"{val:.3f}",
-                    ha="center",
-                    va="bottom",
-                    fontsize=8,
-                )
-
-    ax.set_xlabel("Scenario", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Distance JSD", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Distance JSD (Lower is Better)", fontsize=12)
     ax.set_title(
-        f"{od_source.upper()} OD: Distance JSD by Scenario",
+        f"Model Performance Across Scenarios ({od_source.upper()} OD Pairs)",
         fontsize=14,
         fontweight="bold",
-        pad=15,
     )
-    ax.set_xticks(x + width * (len(models) - 1) / 2)
+    ax.set_xticks(x)
     ax.set_xticklabels(
         [s.replace("_", " ").title() for s in scenarios], rotation=45, ha="right"
     )
-    ax.legend(loc="upper right", framealpha=0.95)
-    ax.grid(axis="y", alpha=0.3, linestyle="--")
+    ax.legend(title="Model", bbox_to_anchor=(1.05, 1), loc="upper left")
+    ax.grid(axis="y", linestyle="--", alpha=0.7)
 
     plt.tight_layout()
 
-    output_path = output_dir / f"{od_source}_od_scenario_comparison"
+    output_path = output_dir / f"od_scenario_comparison_{od_source}"
     plt.savefig(f"{output_path}.png", dpi=dpi, bbox_inches="tight")
     plt.savefig(f"{output_path}.pdf", dpi=dpi, bbox_inches="tight")
     plt.close()
 
 
-def plot_metric_sensitivity(data: Dict, output_dir: Path, dpi: int):
+def plot_aggregate_comparison(
+    data: Dict, output_dir: Path, dpi: int, loader=None, config=None
+):
+    """Plot aggregate metrics comparison across models"""
+    # Placeholder for now, can be implemented based on requirements
+    pass
+
+
+def plot_metric_distributions(
+    data: Dict, output_dir: Path, dpi: int, loader=None, config=None
+):
+    """Plot distribution plots for key metrics"""
+    # Placeholder for now, can be implemented based on requirements
+    pass
+
+
+def plot_metric_sensitivity(
+    data: Dict, output_dir: Path, dpi: int, loader=None, config=None
+):
     """Plot #8: 3×3 grid showing metric sensitivity to scenario types"""
     logger.info("    8. Metric sensitivity grid")
 

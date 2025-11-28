@@ -32,11 +32,13 @@ def plot_all(data: Dict, output_dir: Path, dpi: int = 300):
     """Generate all temporal/spatial plots"""
     logger.info("  ⏰ Temporal/Spatial plots...")
 
-    plot_temporal_scenarios_comparison(data, output_dir, dpi)
-    plot_spatial_complexity_analysis(data, output_dir, dpi)
+    plot_temporal_patterns(data, output_dir, dpi)
+    plot_spatial_coverage(data, output_dir, dpi)
 
 
-def plot_temporal_scenarios_comparison(data: Dict, output_dir: Path, dpi: int):
+def plot_temporal_patterns(
+    data: Dict, output_dir: Path, dpi: int, loader=None, config=None
+):
     """Plot #4: 3-row line plot comparing temporal scenarios"""
     logger.info("    4. Temporal scenarios comparison")
 
@@ -114,7 +116,9 @@ def plot_temporal_scenarios_comparison(data: Dict, output_dir: Path, dpi: int):
     plt.close()
 
 
-def plot_spatial_complexity_analysis(data: Dict, output_dir: Path, dpi: int):
+def plot_spatial_coverage(
+    data: Dict, output_dir: Path, dpi: int, loader=None, config=None
+):
     """Plot #5: 2-panel spatial analysis (bar chart + scatter)"""
     logger.info("    5. Spatial complexity analysis")
 

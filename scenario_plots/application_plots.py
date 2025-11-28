@@ -8,7 +8,7 @@ Plots:
 
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -178,7 +178,7 @@ def plot_application_radars(
             # For JSD, Hausdorff, DTW, EDR: lower is better, so invert
             max_vals = [0.3, 0.3, 2.0, 50.0]  # Approximate max reasonable values
             norm_values = []
-            for v, max_v in zip[tuple[Any, float]](values, max_vals):
+            for v, max_v in zip(values, max_vals):
                 # Invert and normalize
                 norm = 1 - min(v / max_v, 1.0)
                 norm_values.append(norm)
@@ -289,7 +289,7 @@ def plot_improvement_heatmaps_individual(
                     scenario,
                     metric,
                 )
-                if value is not None:
+                if value is not None and isinstance(value, (int, float, np.number)):
                     distance_matrix[i, j] = value
                 else:
                     distance_matrix[i, j] = np.nan  # Use NaN for missing values
@@ -466,7 +466,7 @@ def plot_improvement_heatmap_grid(
                     scenario,
                     metric,
                 )
-                if value is not None:
+                if value is not None and isinstance(value, (int, float, np.number)):
                     distance_matrix[s_idx, m_idx] = value
                     all_distances.append(value)
                 else:
@@ -640,7 +640,7 @@ def plot_improvement_heatmap(
                 scenario,
                 metric,
             )
-            if value is not None:
+            if value is not None and isinstance(value, (int, float, np.number)):
                 distance_matrix[i, j] = value
             else:
                 distance_matrix[i, j] = np.nan
