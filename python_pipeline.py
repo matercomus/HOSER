@@ -1064,7 +1064,15 @@ class EvaluationPipeline:
             )
 
         # Also analyze cross-dataset if configured (BJUT_Beijing)
-        if self.config.cross_dataset_eval and self.config.cross_dataset_name:
+        # NOTE: only include cross-dataset analysis when the 'cross_dataset' phase
+        # is enabled. This ensures users can disable cross-dataset evaluation
+        # entirely (e.g., via --skip cross_dataset or config) and avoid mixing
+        # datasets into abnormal detection workflows.
+        if (
+            self.config.cross_dataset_eval
+            and self.config.cross_dataset_name
+            and "cross_dataset" in self.config.phases
+        ):
             cross_data_dir = Path(self.config.cross_dataset_eval)
             if not cross_data_dir.is_absolute():
                 cross_data_dir = self.eval_dir / cross_data_dir
@@ -2705,8 +2713,8 @@ def main():
     parser.add_argument(
         "--cross-dataset-name",
         type=str,
-        default="BJUT_Beijing",
-        help="Name of the cross-dataset (default: BJUT_Beijing)",
+        default=None,
+        help="Name of the cross-dataset (only set this when running cross-dataset eval)",
     )
     parser.add_argument(
         "--run-abnormal",
