@@ -15,18 +15,101 @@ Usage:
 import argparse
 import json
 import logging
+import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import pandas as pd
 
+# Add parent directory to path for imports when run as script
+_parent_dir = Path(__file__).parent.parent
+if str(_parent_dir) not in sys.path:
+    sys.path.insert(0, str(_parent_dir))
+
+from tools.convert_to_lmtad_format import (  # noqa: E402
+    extract_road_centroids,
+    create_grid_mapper,
+)
+
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # EOS token ID used in LM-TAD trajectories
 EOS_TOKEN = 6165
+
+
+def build_reverse_grid_mapping(
+    dataset: str,
+) -> Tuple[Optional[Dict[int, List[int]]], Optional[int]]:
+    """Build mapping from grid token to list of road IDs and find EOS token"""
+    # Map dataset name to config name
+    config_dataset = dataset
+    if dataset == "Beijing":
+        config_dataset = "beijing_hoser_reference"
+
+    # Find roadmap file
+    roadmap_path = Path("data") / dataset / "roadmap.geo"
+    if not roadmap_path.exists():
+        # Try alternative path for porto_hoser
+        if dataset == "porto_hoser":
+            roadmap_path = Path("data") / "porto_hoser" / "roadmap.geo"
+
+    if not roadmap_path.exists():
+        logger.warning(
+            f"Roadmap not found at {roadmap_path}, cannot build grid mapping. Assuming IDs are road IDs."
+        )
+        return None, None
+
+    logger.info(f"Building reverse grid mapping from {roadmap_path}...")
+
+    try:
+        # Extract centroids
+        road_centroids, boundary = extract_road_centroids(roadmap_path)
+
+        # Create mapper
+        mapper, vocab = create_grid_mapper(config_dataset, road_centroids, boundary)
+
+        # Inspect vocab
+        logger.debug(f"Vocab size: {len(vocab)}")
+        logger.debug(f"First 10 vocab keys: {list(vocab.keys())[:10]}")
+
+        # Find EOS token
+        eos_token = None
+        for token, tid in vocab.items():
+            if token in ["<eos>", "EOS", "[EOS]", "</s>"]:
+                eos_token = tid
+                break
+
+        if eos_token is None:
+            if dataset == "Beijing":
+                eos_token = 51661
+                logger.info(f"Using hardcoded EOS token for Beijing: {eos_token}")
+            elif dataset == "porto_hoser":
+                eos_token = 6165
+                logger.info(f"Using hardcoded EOS token for Porto: {eos_token}")
+            else:
+                logger.warning("EOS token not found in vocab and no hardcoded default")
+        else:
+            logger.info(f"Found EOS token in vocab: {eos_token}")
+
+        # Get forward mapping: road_id -> grid_token
+        road_to_grid = mapper.map_all()
+
+        # Build reverse mapping
+        grid_to_roads = {}
+        for road_id, grid_token in enumerate(road_to_grid):
+            grid_token = int(grid_token)
+            if grid_token not in grid_to_roads:
+                grid_to_roads[grid_token] = []
+            grid_to_roads[grid_token].append(road_id)
+
+        logger.info(f"✅ Built reverse mapping for {len(grid_to_roads)} grid tokens")
+        return grid_to_roads, eos_token
+    except Exception as e:
+        logger.error(f"Failed to build grid mapping: {e}")
+        return None, None
 
 
 def parse_trajectory_from_tsv(trajectory_str: str) -> List[int]:
@@ -62,11 +145,14 @@ def parse_trajectory_from_tsv(trajectory_str: str) -> List[int]:
         return []
 
 
-def extract_od_from_trajectory(road_ids: List[int]) -> Tuple[int, int]:
+def extract_od_from_trajectory(
+    road_ids: List[int], eos_token: int = EOS_TOKEN
+) -> Tuple[int, int]:
     """Extract origin and destination from trajectory
 
     Args:
-        road_ids: List of road IDs (last element should be EOS token 6165)
+        road_ids: List of road IDs (last element should be EOS token)
+        eos_token: EOS token ID (default: global EOS_TOKEN)
 
     Returns:
         Tuple of (origin, destination)
@@ -75,7 +161,7 @@ def extract_od_from_trajectory(road_ids: List[int]) -> Tuple[int, int]:
         raise ValueError("Empty trajectory")
 
     # Remove EOS token if present
-    if road_ids and road_ids[-1] == EOS_TOKEN:
+    if road_ids and road_ids[-1] == eos_token:
         road_ids = road_ids[:-1]
 
     if len(road_ids) < 1:
@@ -89,7 +175,11 @@ def extract_od_from_trajectory(road_ids: List[int]) -> Tuple[int, int]:
 
 
 def extract_spatial_abnormal_od_pairs(
-    tsv_file: Path, dataset: str, source_eval_dir: Path
+    tsv_file: Path,
+    dataset: str,
+    source_eval_dir: Path,
+    grid_to_roads: Optional[Dict[int, List[int]]] = None,
+    eos_token: Optional[int] = None,
 ) -> Dict:
     """Extract OD pairs from LM-TAD-identified spatial outliers
 
@@ -97,11 +187,16 @@ def extract_spatial_abnormal_od_pairs(
         tsv_file: Path to LM-TAD evaluation TSV file (or directory to process all TSV files)
         dataset: Dataset name
         source_eval_dir: Path to source evaluation directory (for metadata)
+        grid_to_roads: Optional mapping from grid token to list of road IDs
+        eos_token: Optional EOS token ID
 
     Returns:
         Dictionary with extracted OD pairs and metadata
     """
-    # If tsv_file is a directory, process all TSV files in it
+    # Use default EOS token if not provided
+    if eos_token is None:
+        eos_token = EOS_TOKEN
+
     if tsv_file.is_dir():
         # Prefer the canonical ckpt_best_outliers_* pattern used by LM-TAD
         tsv_files = sorted(tsv_file.glob("ckpt_best_outliers_*.tsv"))
@@ -185,7 +280,36 @@ def extract_spatial_abnormal_od_pairs(
                     continue
 
                 # Extract OD pair
-                od_pair = extract_od_from_trajectory(road_ids)
+                od_pair_tokens = extract_od_from_trajectory(
+                    road_ids, eos_token=eos_token
+                )
+
+                # Map tokens to road IDs if mapping exists
+                if grid_to_roads:
+                    origin_token, dest_token = od_pair_tokens
+
+                    if origin_token not in grid_to_roads:
+                        if file_failed_count < 5:  # Log first few failures
+                            logger.debug(f"Origin token {origin_token} not in grid map")
+                        file_failed_count += 1
+                        continue
+
+                    if dest_token not in grid_to_roads:
+                        if file_failed_count < 5:
+                            logger.debug(
+                                f"Destination token {dest_token} not in grid map"
+                            )
+                        file_failed_count += 1
+                        continue
+
+                    # Pick first road ID for each token
+                    # Ideally we would pick the one closest to the center, but first is fine for now
+                    origin_road = grid_to_roads[origin_token][0]
+                    dest_road = grid_to_roads[dest_token][0]
+
+                    od_pair = (origin_road, dest_road)
+                else:
+                    od_pair = od_pair_tokens
 
                 # Add to appropriate category
                 # Normalize outlier type (handle both "route switch" and "route switch outlier")
@@ -361,12 +485,17 @@ Examples:
     if args.tsv_file.is_file() and not args.tsv_file.name.endswith(".tsv"):
         logger.warning(f"File {args.tsv_file} doesn't appear to be a TSV file")
 
+    # Build reverse grid mapping
+    grid_to_roads, eos_token = build_reverse_grid_mapping(args.dataset)
+
     # Extract OD pairs
     try:
         result = extract_spatial_abnormal_od_pairs(
             tsv_file=args.tsv_file,
             dataset=args.dataset,
             source_eval_dir=args.source_eval_dir,
+            grid_to_roads=grid_to_roads,
+            eos_token=eos_token,
         )
 
         # Save to JSON

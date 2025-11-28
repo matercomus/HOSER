@@ -90,12 +90,12 @@ translation_filtering:
   min_translation_rate: 95.0  # Minimum percentage of successfully translated road IDs (0-100%)
   require_quality_file: true  # Fail if quality file not found (false = skip filtering)
   
-# Cross-dataset evaluation (optional)
-cross_dataset:
-  enabled: true  # Set true when evaluating on different road network
-  source_network: "Beijing"  # Original training network
-  target_network: "BJUT_Beijing"  # Target evaluation network
-  use_translated_trajectories: true  # Use road ID translations
+# # Cross-dataset evaluation (optional)
+# cross_dataset:
+#   enabled: true  # Set true when evaluating on different road network
+#   source_network: "Beijing"  # Original training network
+#   target_network: "BJUT_Beijing"  # Target evaluation network
+#   use_translated_trajectories: true  # Use road ID translations
 
 # Logging and debugging
 logging:

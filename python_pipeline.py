@@ -34,7 +34,6 @@ Options:
 import os
 import sys
 import argparse
-import signal
 import threading
 from functools import wraps
 from pathlib import Path
@@ -516,10 +515,6 @@ class EvaluationPipeline:
         os.chdir(self.eval_dir)
         logger.info(f"Working directory: {self.eval_dir}")
 
-        # Setup signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-
         # Validate configuration
         self._validate_config()
 
@@ -529,12 +524,6 @@ class EvaluationPipeline:
         # Set PyTorch settings
         torch.set_num_threads(torch.get_num_threads())
         torch.backends.cudnn.benchmark = True
-
-    def _signal_handler(self, signum, frame):
-        """Handle Ctrl+C gracefully"""
-        logger.info("\n⚠️  Interrupt received. Cleaning up...")
-        self.interrupted = True
-        # Don't raise immediately - let the loop check self.interrupted
 
     def _validate_config(self):
         """Validate pipeline configuration"""
@@ -2827,12 +2816,6 @@ def main():
         config.phases -= skip_phases
         logger.info(f"Skipping phases: {skip_phases}")
 
-    # Backward compatibility shortcuts
-    if args.skip_gene:
-        config.phases.discard("generation")
-    if args.skip_eval:
-        config.phases -= {"base_eval", "cross_dataset", "abnormal", "scenarios"}
-
     # Override with command line arguments if provided
     if args.seed is not None:
         config.seed = args.seed
@@ -2899,13 +2882,6 @@ def main():
         else:
             logger.warning("⚠️  Pipeline completed with some failures")
             sys.exit(1)
-
-    except KeyboardInterrupt:
-        logger.info("\n🛑 Pipeline interrupted by user")
-        logger.info(
-            "   Partial results saved offline. Background sync will upload them."
-        )
-        sys.exit(130)
     except Exception as e:
         logger.error(f"Pipeline failed: {str(e)}")
         sys.exit(1)

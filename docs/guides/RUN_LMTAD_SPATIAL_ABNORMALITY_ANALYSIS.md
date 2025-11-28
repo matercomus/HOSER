@@ -26,6 +26,10 @@ The LM-TAD spatial abnormality evaluation complements the Wang temporal abnormal
 ✅ **HOSER Models**: Trained HOSER models in evaluation directory  
 ✅ **Integration**: Complete in `python_pipeline.py` (phase: `lmtad_spatial_abnormality`)
 
+### Dataset Naming Note
+- **Porto**: HOSER uses `porto_hoser`, LMTAD uses `porto_hoser`.
+- **Beijing**: HOSER uses `Beijing`, LMTAD uses `beijing_hoser_reference`.
+
 ## Key Concepts
 
 ### Perplexity as a Quality Metric
@@ -102,6 +106,15 @@ uv run python tools/extract_lmtad_spatial_abnormal_od.py \
     "detour": [[o3, d3], ...]
   }
 }
+```
+
+**Beijing Example:**
+```bash
+uv run python tools/extract_lmtad_spatial_abnormal_od.py \
+  --tsv-file /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval/final_model_outliers_config_ratio_0.05_level_3_prob_0.3.tsv \
+  --dataset Beijing \
+  --source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --output hoser-distill-beijing/abnormal_od_pairs_lmtad_spatial_Beijing.json
 ```
 
 ## Step 2: Generate Trajectories (Optional)
@@ -530,6 +543,19 @@ uv run python tools/run_lmtad_spatial_pipeline.py \
   --dataset porto_hoser \
   --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
   --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
+  --seed 42 \
+  --num-trajectories-per-od 20 \
+  --max-od-pairs 250 \
+  --cross-model-comparison
+```
+
+**Beijing Example:**
+```bash
+uv run python tools/run_lmtad_spatial_pipeline.py \
+  --eval-dir hoser-distill-beijing \
+  --dataset Beijing \
+  --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
   --seed 42 \
   --num-trajectories-per-od 20 \
   --max-od-pairs 250 \

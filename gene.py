@@ -2069,25 +2069,48 @@ def generate_trajectories_programmatic(
     # Validate custom OD pairs if provided
     if od_pairs is not None:
         print(f"🔍 Validating {len(od_pairs)} OD pairs...")
-        valid_destinations = {
+        # Nodes that have outgoing edges are valid origins
+        valid_origins = {
             i for i in range(num_roads) if len(data["reachable_road_id_dict"][i]) > 0
         }
-        print(f"✅ Found {len(valid_destinations)} valid destinations")
+        print(
+            f"✅ Found {len(valid_origins)} valid origins (nodes with outgoing edges)"
+        )
 
         valid_od_pairs = []
         invalid_count = 0
 
         for origin, dest in tqdm(od_pairs, desc="Validating OD pairs"):
-            if dest not in valid_destinations:
+            # Check 0: Bounds check
+            if not (0 <= origin < num_roads):
                 invalid_count += 1
-                # Only print first few errors to avoid spam
                 if invalid_count <= 5:
                     print(
-                        f"⚠️ Warning: Destination {dest} is not reachable from any origin. "
+                        f"⚠️ Warning: Origin {origin} is out of bounds (num_roads={num_roads}). "
                         f"OD pair ({origin}, {dest}) is invalid and will be skipped."
                     )
-            else:
-                valid_od_pairs.append((origin, dest))
+                continue
+
+            if not (0 <= dest < num_roads):
+                invalid_count += 1
+                if invalid_count <= 5:
+                    print(
+                        f"⚠️ Warning: Destination {dest} is out of bounds (num_roads={num_roads}). "
+                        f"OD pair ({origin}, {dest}) is invalid and will be skipped."
+                    )
+                continue
+
+            # Check 1: Origin must have outgoing edges
+            if origin not in valid_origins:
+                invalid_count += 1
+                if invalid_count <= 5:
+                    print(
+                        f"⚠️ Warning: Origin {origin} has no outgoing edges (dead end). "
+                        f"OD pair ({origin}, {dest}) is invalid and will be skipped."
+                    )
+                continue
+
+            valid_od_pairs.append((origin, dest))
 
         if invalid_count > 0:
             print(

@@ -7,7 +7,7 @@ data_dir: ../data/Beijing  # Will resolve symlink automatically
 
 # Model configuration
 models_dir: models
-beam_search: true
+beam_search: false
 beam_width: 4
 num_gene: 5000  # Reduced for testing, increase to 5000 for full evaluation
 
@@ -24,6 +24,8 @@ cuda_device: 0
 skip_gene: false
 skip_eval: false
 force: false  # Force regeneration even if files exist
+run_scenarios: true
+scenarios_config: config/scenarios_beijing.yaml
 
 # WandB configuration
 wandb:
@@ -44,10 +46,11 @@ performance:
   num_workers: 4
   pin_memory: false
 
-# Cross-dataset evaluation (optional)
-cross_dataset_eval: ../data/BJUT_Beijing  # Path to cross-dataset
-cross_dataset_name: BJUT_Beijing           # Name of cross-dataset
+# # Cross-dataset evaluation (optional)
+# cross_dataset_eval: ../data/BJUT_Beijing  # Path to cross-dataset
+# cross_dataset_name: BJUT_Beijing           # Name of cross-dataset
 
 # Abnormal trajectory detection (optional)
 run_abnormal_detection: true                      # Enable abnormal detection
-abnormal_config: config/abnormal_detection.yaml   # Path relative to eval_dir
+abnormal_config: config/abnormal_detection_statistical.yaml   # Path relative to eval_dir
+skip_generation: false
