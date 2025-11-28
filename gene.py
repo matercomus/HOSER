@@ -2073,13 +2073,34 @@ def generate_trajectories_programmatic(
             i for i in range(num_roads) if len(data["reachable_road_id_dict"][i]) > 0
         }
         print(f"✅ Found {len(valid_destinations)} valid destinations")
+
+        valid_od_pairs = []
+        invalid_count = 0
+
         for origin, dest in tqdm(od_pairs, desc="Validating OD pairs"):
             if dest not in valid_destinations:
-                raise ValueError(
-                    f"Destination {dest} is not reachable from any origin. "
-                    f"OD pair ({origin}, {dest}) is invalid."
-                )
-        print(f"✅ All {len(od_pairs)} OD pairs are valid")
+                invalid_count += 1
+                # Only print first few errors to avoid spam
+                if invalid_count <= 5:
+                    print(
+                        f"⚠️ Warning: Destination {dest} is not reachable from any origin. "
+                        f"OD pair ({origin}, {dest}) is invalid and will be skipped."
+                    )
+            else:
+                valid_od_pairs.append((origin, dest))
+
+        if invalid_count > 0:
+            print(
+                f"⚠️ Skipped {invalid_count} invalid OD pairs. Remaining: {len(valid_od_pairs)}"
+            )
+            od_pairs = valid_od_pairs
+            od_coords = valid_od_pairs
+            num_gene = len(valid_od_pairs)
+
+            if num_gene == 0:
+                raise ValueError("All provided OD pairs were invalid!")
+        else:
+            print(f"✅ All {len(od_pairs)} OD pairs are valid")
 
     with open(f"../config/{dataset}.yaml", "r") as file:
         config = yaml.safe_load(file)

@@ -1669,7 +1669,16 @@ class EvaluationPipeline:
 
         with open(mapping_file, "r") as f:
             mapping = json.load(f)
-        mapping_int = {int(k): int(v) for k, v in mapping.items()}
+
+        # Handle both old format (int->int) and new format (int->dict)
+        mapping_int = {}
+        for k, v in mapping.items():
+            if isinstance(v, dict):
+                # New format: {"target_road_id": 123, "distance_m": 5.0}
+                mapping_int[int(k)] = int(v["target_road_id"])
+            else:
+                # Old format: 123
+                mapping_int[int(k)] = int(v)
 
         # Translate all generated files
         from tools.translate_trajectories import translate_trajectory_file
@@ -1820,7 +1829,28 @@ class EvaluationPipeline:
             )
             return
 
-        od_pairs_file = od_pairs_files[0]
+        # Prefer cross-dataset OD pairs file if available
+        # Filter out lmtad_spatial files (different workflow)
+        non_lmtad_files = [f for f in od_pairs_files if "lmtad_spatial" not in f.name]
+        if non_lmtad_files:
+            # Prefer cross-dataset file if configured
+            if self.config.cross_dataset_name:
+                cross_dataset_pattern = self.config.cross_dataset_name.lower().replace(
+                    " ", "_"
+                )
+                matching = [
+                    f
+                    for f in non_lmtad_files
+                    if cross_dataset_pattern in f.name.lower()
+                ]
+                if matching:
+                    od_pairs_file = matching[0]
+                else:
+                    od_pairs_file = non_lmtad_files[0]
+            else:
+                od_pairs_file = non_lmtad_files[0]
+        else:
+            od_pairs_file = od_pairs_files[0]
         logger.info(f"  Using OD pairs: {od_pairs_file}")
 
         # Load OD pairs
@@ -1972,10 +2002,25 @@ class EvaluationPipeline:
                 detection_output = output_dir / model_name / "detection"
                 detection_output.mkdir(parents=True, exist_ok=True)
 
+                # Resolve config path
+                abnormal_config_path = Path("config/abnormal_detection.yaml")
+                if not abnormal_config_path.exists():
+                    # Fallback to project root config
+                    project_config = PROJECT_ROOT / "config" / "abnormal_detection.yaml"
+                    if project_config.exists():
+                        logger.info(
+                            f"    Using config from project root: {project_config}"
+                        )
+                        abnormal_config_path = project_config
+                    else:
+                        logger.warning(
+                            f"    ⚠️ Config not found: {abnormal_config_path} or {project_config}"
+                        )
+
                 detection_results = run_abnormal_analysis(
                     real_file=gen_file,
                     dataset=self.config.dataset,
-                    config_path=Path("config/abnormal_detection.yaml"),
+                    config_path=abnormal_config_path,
                     output_dir=detection_output,
                     is_real_data=False,  # Analyzing generated abnormal OD data
                 )
@@ -1997,11 +2042,13 @@ class EvaluationPipeline:
                 eval_output = output_dir / model_name / "metrics"
                 eval_output.mkdir(parents=True, exist_ok=True)
 
+                # Note: evaluate_trajectories_programmatic uses dataset/od_source to find real data
+                # For abnormal OD evaluation, we compare generated trajectories against the
+                # cross-dataset real data (e.g., BJUT_Beijing)
                 eval_results = evaluate_trajectories_programmatic(
-                    real_file=str(real_abnormal_file),
                     generated_file=str(gen_file),
-                    dataset=self.config.dataset,
-                    output_dir=str(eval_output),
+                    dataset=self.config.cross_dataset_name or self.config.dataset,
+                    od_source="train",  # Abnormal OD pairs come from train set
                 )
 
                 metrics = {}
