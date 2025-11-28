@@ -103,9 +103,24 @@ def extract_spatial_abnormal_od_pairs(
     """
     # If tsv_file is a directory, process all TSV files in it
     if tsv_file.is_dir():
+        # Prefer the canonical ckpt_best_outliers_* pattern used by LM-TAD
         tsv_files = sorted(tsv_file.glob("ckpt_best_outliers_*.tsv"))
+
+        # Fallback: some LM-TAD evaluation exports use different naming
+        # (e.g., final_model_outliers_config_*.tsv). Try broader patterns.
+        if not tsv_files:
+            logger.info(
+                "🔎 No files matching 'ckpt_best_outliers_*.tsv' found, trying '*outliers*.tsv'"
+            )
+            tsv_files = sorted(tsv_file.glob("*outliers*.tsv"))
+
+        if not tsv_files:
+            logger.info("🔎 No '*outliers*.tsv' files found, trying any '*.tsv' files")
+            tsv_files = sorted(tsv_file.glob("*.tsv"))
+
         if not tsv_files:
             raise FileNotFoundError(f"No TSV files found in {tsv_file}")
+
         logger.info(f"📂 Found {len(tsv_files)} TSV files, processing all...")
     else:
         tsv_files = [tsv_file]
