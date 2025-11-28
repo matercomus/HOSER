@@ -85,6 +85,15 @@ class EvaluationVisualizer:
             for results_file in eval_subdir.glob("*/results.json"):
                 with open(results_file, "r") as f:
                     data = json.load(f)
+                    # Skip abnormal-OD / gene_abnormal runs from standard analysis
+                    meta = data.get("metadata", {})
+                    gen = meta.get("generated_file", "") or ""
+                    # Skip abnormal-OD / gene_abnormal runs from standard analysis
+                    if "abnormal" in gen.lower() or "gene_abnormal" in gen.lower():
+                        continue
+                    # Skip cross-dataset evaluations (they compare across different real datasets)
+                    if meta.get("cross_dataset") or meta.get("cross_dataset_name"):
+                        continue
                     results.append(data)
         return results
 
@@ -149,20 +158,39 @@ class EvaluationVisualizer:
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
-        # Train OD
+        # Aggregate results per model for train/test so we plot one bar per model
+        models = self._get_unique_models()
+
+        # Build mapping (model, od_source) -> list of metrics
+        agg = {}
         for result in self.results:
             model_type, od_source = self._parse_model_info(result)
-            if od_source == "train":
-                dist_mean = result["Distance_gen_mean"]
-                jsd = result["Distance_JSD"]
+            key = (model_type, od_source)
+            agg.setdefault(key, []).append(result)
 
-                ax1.bar(
-                    model_type,
-                    dist_mean,
-                    color=COLORS.get(model_type, "gray"),
-                    alpha=0.8,
-                    label=f"{model_type}\n(JSD={jsd:.4f})",
+        # Prepare train values
+        train_means = []
+        train_jsds = []
+        train_colors = []
+        for m in models:
+            entries = agg.get((m, "train"), [])
+            if entries:
+                mean_val = float(
+                    np.mean([e.get("Distance_gen_mean", 0) for e in entries])
                 )
+                jsd_val = float(np.mean([e.get("Distance_JSD", 0) for e in entries]))
+            else:
+                mean_val = 0.0
+                jsd_val = 0.0
+            train_means.append(mean_val)
+            train_jsds.append(jsd_val)
+            train_colors.append(COLORS.get(m, "gray"))
+
+        # Plot train bars (one per model)
+        x = np.arange(len(models))
+        ax1.bar(x, train_means, color=train_colors, alpha=0.8)
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(models, rotation=15)
 
         ax1.axhline(
             y=5.16,
@@ -176,20 +204,27 @@ class EvaluationVisualizer:
         ax1.legend(loc="upper right")
         ax1.grid(axis="y", alpha=0.3)
 
-        # Test OD
-        for result in self.results:
-            model_type, od_source = self._parse_model_info(result)
-            if od_source == "test":
-                dist_mean = result["Distance_gen_mean"]
-                jsd = result["Distance_JSD"]
-
-                ax2.bar(
-                    model_type,
-                    dist_mean,
-                    color=COLORS.get(model_type, "gray"),
-                    alpha=0.8,
-                    label=f"{model_type}\n(JSD={jsd:.4f})",
+        # Prepare test values and plot
+        test_means = []
+        test_jsds = []
+        test_colors = []
+        for m in models:
+            entries = agg.get((m, "test"), [])
+            if entries:
+                mean_val = float(
+                    np.mean([e.get("Distance_gen_mean", 0) for e in entries])
                 )
+                jsd_val = float(np.mean([e.get("Distance_JSD", 0) for e in entries]))
+            else:
+                mean_val = 0.0
+                jsd_val = 0.0
+            test_means.append(mean_val)
+            test_jsds.append(jsd_val)
+            test_colors.append(COLORS.get(m, "gray"))
+
+        ax2.bar(x, test_means, color=test_colors, alpha=0.8)
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(models, rotation=15)
 
         ax2.axhline(
             y=5.16,

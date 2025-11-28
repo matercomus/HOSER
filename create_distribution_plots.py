@@ -244,9 +244,9 @@ class DistributionPlotter:
         real_test = self._load_real_data(self.data_dir / "test.csv")
 
         # Load generated data - handle both Beijing and Porto naming conventions
-        # Use rglob to search recursively (handles seed subdirectories)
+        # Search recursively so files in seed subdirectories are included
         generated_data = {}
-        for csv_file in sorted(self.gene_dir.glob("*.csv")):
+        for csv_file in sorted(self.gene_dir.rglob("*.csv")):
             # Extract model name and OD type
             model = extract_model_name(csv_file.name)
 
