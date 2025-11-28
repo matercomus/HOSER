@@ -1837,11 +1837,11 @@ class EvaluationPipeline:
             )
             return
 
-        # Prefer cross-dataset OD pairs file if available
+        # Prefer dataset-specific OD pairs file if available
         # Filter out lmtad_spatial files (different workflow)
         non_lmtad_files = [f for f in od_pairs_files if "lmtad_spatial" not in f.name]
         if non_lmtad_files:
-            # Prefer cross-dataset file if configured
+            # If cross-dataset evaluation was explicitly requested, prefer its file
             if self.config.cross_dataset_name:
                 cross_dataset_pattern = self.config.cross_dataset_name.lower().replace(
                     " ", "_"
@@ -1854,11 +1854,22 @@ class EvaluationPipeline:
                 if matching:
                     od_pairs_file = matching[0]
                 else:
+                    # Fall back to any non-lmtad file
                     od_pairs_file = non_lmtad_files[0]
             else:
-                od_pairs_file = non_lmtad_files[0]
+                # Prefer OD pairs that match the main dataset name to avoid accidentally
+                # picking up cross-dataset artifacts left on disk (e.g., BJUT_Beijing).
+                main_dataset_pattern = self.config.dataset.lower().replace(" ", "_")
+                matching_main = [
+                    f for f in non_lmtad_files if main_dataset_pattern in f.name.lower()
+                ]
+                if matching_main:
+                    od_pairs_file = matching_main[0]
+                else:
+                    od_pairs_file = non_lmtad_files[0]
         else:
             od_pairs_file = od_pairs_files[0]
+
         logger.info(f"  Using OD pairs: {od_pairs_file}")
 
         # Load OD pairs
