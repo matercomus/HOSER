@@ -56,12 +56,16 @@ MODEL_CONVENTIONS = [
     (r"distill_phase(\d+)_seed(\d+)", "distill_phase{}_seed{}"),
     # Porto distill_phase<N> pattern (no seed)
     (r"distill_phase(\d+)(?!_seed)", "distill_phase{}"),
+    # Beijing distilled_<N>epoch_seed<M> pattern (normalize to distilled_seed<M>)
+    (r"distilled_\d+epoch_seed(\d+)", "distilled_seed{}"),
     # Beijing distilled_seed<M> pattern
     (r"distilled_seed(\d+)", "distilled_seed{}"),
     # Beijing distilled_.*seed<M> pattern (handles intermediate text like _25epoch_)
     (r"distilled_.*seed(\d+)", "distilled_seed{}"),
     # Beijing distilled pattern (no seed)
     (r"distilled(?!_seed)", "distilled"),
+    # Vanilla_<N>epoch_seed<M> pattern (normalize to vanilla_seed<M>)
+    (r"vanilla_\d+epoch_seed(\d+)", "vanilla_seed{}"),
     # Vanilla_seed<M> pattern
     (r"vanilla_seed(\d+)", "vanilla_seed{}"),
     # Vanilla pattern (no seed)
@@ -83,11 +87,13 @@ KNOWN_MODEL_PATTERNS = [
     "distill_phase1_seed42",
     "distill_phase1",
     # Beijing distilled variants
+    "distilled_25epoch_seed44",
     "distilled_seed44",
     "distilled_seed43",
     "distilled_seed42",
     "distilled",
     # Vanilla variants
+    "vanilla_25epoch_seed44",
     "vanilla_seed44",
     "vanilla_seed43",
     "vanilla_seed42",

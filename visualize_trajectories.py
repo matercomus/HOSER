@@ -1223,29 +1223,20 @@ class TrajectoryPlotter:
         # Calculate overlap percentages
         overlaps = self._calculate_trajectory_overlap(trajectories)
 
-        # Color scheme for different models
-        model_colors = {
-            "vanilla": "#e74c3c",  # Red
-            "distilled": "#3498db",  # Blue
-            "distilled_seed44": "#2ecc71",  # Green
-            "real": "#f39c12",  # Orange/Gold
-        }
+        # Color scheme for different models - use centralized utility
+        model_colors = {}
+        model_linestyles = {}
+        model_labels = {}
 
-        # Line styles
-        model_linestyles = {
-            "vanilla": "-",
-            "distilled": "-",
-            "distilled_seed44": "-",
-            "real": "--",  # Dashed for real
-        }
-
-        # Display names
-        model_labels = {
-            "vanilla": "Vanilla",
-            "distilled": "Distilled (seed 42)",
-            "distilled_seed44": "Distilled (seed 44)",
-            "real": "Real Trajectory",
-        }
+        for model_name in trajectories.keys():
+            if model_name == "real":
+                model_colors[model_name] = "#f39c12"  # Orange/Gold for real
+                model_linestyles[model_name] = "--"
+                model_labels[model_name] = "Real Trajectory"
+            else:
+                model_colors[model_name] = get_model_color(model_name)
+                model_linestyles[model_name] = get_model_line_style(model_name)
+                model_labels[model_name] = get_display_name(model_name)
 
         fig, ax = plt.subplots(figsize=self.config.figsize, facecolor="white")
         ax.set_facecolor("white")
