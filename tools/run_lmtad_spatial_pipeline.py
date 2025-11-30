@@ -289,58 +289,56 @@ def run_lmtad_spatial_pipeline(
                 f"OD pairs file not found: {od_pairs_file}, skipping generation"
             )
         else:
-            gene_dir = (
-                eval_dir / "gene_abnormal_lmtad_spatial" / dataset / f"seed{seed}"
-            )
-            existing_files = (
-                list(gene_dir.glob("*_spatial_abnormal.csv"))
-                if gene_dir.exists()
-                else []
-            )
+            # gene_dir = (
+            #     eval_dir / "gene_abnormal_lmtad_spatial" / dataset / f"seed{seed}"
+            # )
+            # existing_files = (
+            #     list(gene_dir.glob("*_spatial_abnormal.csv"))
+            #     if gene_dir.exists()
+            #     else []
+            # )
 
-            if existing_files and not force:
-                logger.info(
-                    f"  ⏭️  Trajectories already generated in {gene_dir}, skipping"
-                )
-            else:
-                # Need to generate (either no files exist, or force is True)
-                if force and existing_files:
-                    logger.info(
-                        f"  🔄 Force flag set, regenerating trajectories in {gene_dir}"
-                    )
-                    # Remove existing trajectory files
-                    for csv_file in existing_files:
-                        csv_file.unlink()
-                        logger.debug(f"  Removed {csv_file.name}")
+            # if existing_files and not force:
+            #     logger.info(
+            #         f"  ⏭️  Trajectories already generated in {gene_dir}, skipping"
+            #     )
+            # else:
+            #     # Need to generate (either no files exist, or force is True)
+            #     if force and existing_files:
+            #         logger.info(
+            #             f"  🔄 Force flag set, regenerating trajectories in {gene_dir}"
+            #         )
+            #         # Remove existing trajectory files
+            #         for csv_file in existing_files:
+            #             csv_file.unlink()
+            #             logger.debug(f"  Removed {csv_file.name}")
 
-                logger.info(f"{'=' * 70}")
-                logger.info(
-                    "Step: Generate trajectories for perplexity-based evaluation"
+            logger.info(f"{'=' * 70}")
+            logger.info("Step: Generate trajectories for perplexity-based evaluation")
+            logger.info(f"{'=' * 70}")
+            try:
+                generate_spatial_abnormal_trajectories(
+                    od_pairs_file=od_pairs_file,
+                    eval_dir=eval_dir,
+                    dataset=dataset,
+                    models=[],  # Auto-detect all models
+                    seed=seed,
+                    num_traj_per_od=num_traj_per_od,
+                    max_od_pairs=max_od_pairs,
+                    stratified_sampling=True,  # Use stratified sampling to maintain ratio
+                    cuda_device=0,
+                    beam_search=False,  # Use A* by default
+                    beam_width=4,
                 )
-                logger.info(f"{'=' * 70}")
-                try:
-                    generate_spatial_abnormal_trajectories(
-                        od_pairs_file=od_pairs_file,
-                        eval_dir=eval_dir,
-                        dataset=dataset,
-                        models=[],  # Auto-detect all models
-                        seed=seed,
-                        num_traj_per_od=num_traj_per_od,
-                        max_od_pairs=max_od_pairs,
-                        stratified_sampling=True,  # Use stratified sampling to maintain ratio
-                        cuda_device=0,
-                        beam_search=False,  # Use A* by default
-                        beam_width=4,
-                    )
-                    logger.info(
-                        "✅ Generate trajectories for perplexity-based evaluation completed successfully"
-                    )
-                    success_count += 1
-                except Exception as e:
-                    logger.error(
-                        f"❌ Generate trajectories for perplexity-based evaluation failed: {e}"
-                    )
-                    failed_steps.append("Trajectory generation")
+                logger.info(
+                    "✅ Generate trajectories for perplexity-based evaluation completed successfully"
+                )
+                success_count += 1
+            except Exception as e:
+                logger.error(
+                    f"❌ Generate trajectories for perplexity-based evaluation failed: {e}"
+                )
+                failed_steps.append("Trajectory generation")
     else:
         logger.info("⏭️  Skipping trajectory generation")
 

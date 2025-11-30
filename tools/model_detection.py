@@ -58,6 +58,8 @@ MODEL_CONVENTIONS = [
     (r"distill_phase(\d+)(?!_seed)", "distill_phase{}"),
     # Beijing distilled_seed<M> pattern
     (r"distilled_seed(\d+)", "distilled_seed{}"),
+    # Beijing distilled_.*seed<M> pattern (handles intermediate text like _25epoch_)
+    (r"distilled_.*seed(\d+)", "distilled_seed{}"),
     # Beijing distilled pattern (no seed)
     (r"distilled(?!_seed)", "distilled"),
     # Vanilla_seed<M> pattern
