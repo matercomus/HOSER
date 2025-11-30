@@ -9,6 +9,7 @@ Usage:
     uv run python visualize_trajectories.py --sample_strategy length_based
 """
 
+import argparse
 import ast
 import json
 import logging
@@ -2242,3 +2243,137 @@ class TrajectoryVisualizer:
             self._generate_multi_scenario_comparisons(od_scenario_map, od_type)
 
         logger.info("\n✅ Scenario cross-model visualization complete!")
+
+    def _group_models_by_seed(self, models_data: Dict) -> Dict[str, List[str]]:
+        """Group models by their random seed"""
+        groups = {}
+
+        for model_name in models_data:
+            if model_name == "real":
+                continue
+
+            # Extract seed from model name (e.g., "distilled_seed42" -> "seed42")
+            parts = model_name.split("_")
+            seed = "default"
+            for part in parts:
+                if part.startswith("seed"):
+                    seed = part
+                    break
+
+            if seed not in groups:
+                groups[seed] = []
+            groups[seed].append(model_name)
+
+        return groups
+
+
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Visualize trajectories")
+
+    # Config arguments
+    parser.add_argument(
+        "--eval-dir", type=str, required=True, help="Evaluation directory"
+    )
+    parser.add_argument(
+        "--dataset", type=str, help="Dataset name (optional, auto-detected)"
+    )
+    parser.add_argument(
+        "--sample_strategy",
+        type=str,
+        default="length_based",
+        help="Sampling strategy",
+    )
+    parser.add_argument(
+        "--samples_per_type", type=int, default=1, help="Samples per type"
+    )
+    parser.add_argument("--random_seed", type=int, default=42, help="Random seed")
+
+    # Comparison flags
+    parser.add_argument(
+        "--no_separate", action="store_true", help="Disable separate plots"
+    )
+    parser.add_argument(
+        "--no_overlaid", action="store_true", help="Disable overlaid plots"
+    )
+    parser.add_argument(
+        "--cross_model", action="store_true", help="Enable cross-model comparison"
+    )
+    parser.add_argument(
+        "--scenario_cross_model",
+        action="store_true",
+        help="Enable scenario cross-model comparison",
+    )
+    parser.add_argument(
+        "--combine-seeds", action="store_true", help="Combine all seeds in one plot"
+    )
+
+    # Other flags
+    parser.add_argument(
+        "--show_road_network",
+        action="store_true",
+        default=True,
+        help="Show road network",
+    )
+    parser.add_argument(
+        "--basemap_style", type=str, default="none", help="Basemap style"
+    )
+
+    # Regenerate mode
+    parser.add_argument(
+        "--regenerate", action="store_true", help="Enable selective regeneration"
+    )
+    parser.add_argument(
+        "--target_od", type=str, nargs="+", help="Target OD pairs (origin,dest)"
+    )
+    parser.add_argument(
+        "--target_scenarios", type=str, nargs="+", help="Target scenarios"
+    )
+    parser.add_argument(
+        "--plot_types",
+        type=str,
+        default="both",
+        help="Plot types (single, multi, both)",
+    )
+
+    args = parser.parse_args()
+
+    # Parse target OD pairs
+    target_od_pairs = []
+    if args.target_od:
+        for od_str in args.target_od:
+            try:
+                origin, dest = map(int, od_str.split(","))
+                target_od_pairs.append((origin, dest))
+            except ValueError:
+                logger.warning(f"Invalid OD pair format: {od_str}")
+
+    config = VisualizationConfig(
+        eval_dir=Path(args.eval_dir),
+        dataset=args.dataset,
+        sample_strategy=args.sample_strategy,
+        samples_per_type=args.samples_per_type,
+        random_seed=args.random_seed,
+        generate_separate=not args.no_separate,
+        generate_overlaid=not args.no_overlaid,
+        generate_cross_model=args.cross_model,
+        generate_scenario_cross_model=args.scenario_cross_model,
+        combine_seeds=args.combine_seeds,
+        show_road_network=args.show_road_network,
+        basemap_style=args.basemap_style,
+        regenerate_mode=args.regenerate,
+        target_od_pairs=target_od_pairs,
+        target_scenarios=args.target_scenarios,
+        plot_types=args.plot_types,
+    )
+
+    visualizer = TrajectoryVisualizer(config)
+    visualizer.run()
+
+
+if __name__ == "__main__":
+    main()
