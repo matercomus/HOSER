@@ -1178,30 +1178,36 @@ class TrajectoryPlotter:
     def _calculate_trajectory_overlap(
         self, trajectories: Dict[str, Trajectory]
     ) -> Dict[str, float]:
-        """Calculate overlap percentage for each trajectory with others"""
+        """Calculate overlap percentage for each trajectory with REAL trajectory"""
         overlaps = {}
 
+        # Get real trajectory roads if available
+        real_roads = set()
+        if "real" in trajectories and trajectories["real"].road_ids:
+            real_roads = set(trajectories["real"].road_ids)
+
         for model_name, traj in trajectories.items():
+            # Skip real trajectory itself
+            if model_name == "real":
+                continue
+
             if not traj.road_ids:
+                overlaps[model_name] = 0.0
+                continue
+
+            # If no real trajectory to compare against, overlap is 0
+            if not real_roads:
                 overlaps[model_name] = 0.0
                 continue
 
             # Get road IDs for this trajectory
             traj_roads = set(traj.road_ids)
 
-            # Get all road IDs from other trajectories
-            other_roads = set()
-            for other_model, other_traj in trajectories.items():
-                if other_model != model_name and other_traj.road_ids:
-                    other_roads.update(other_traj.road_ids)
-
-            # Calculate overlap percentage
-            if traj_roads and other_roads:
-                overlap_count = len(traj_roads.intersection(other_roads))
-                overlap_pct = (overlap_count / len(traj_roads)) * 100
-                overlaps[model_name] = overlap_pct
-            else:
-                overlaps[model_name] = 0.0
+            # Calculate overlap percentage with REAL trajectory
+            # We calculate Precision: % of generated path that is on the real path
+            overlap_count = len(traj_roads.intersection(real_roads))
+            overlap_pct = (overlap_count / len(traj_roads)) * 100
+            overlaps[model_name] = overlap_pct
 
         return overlaps
 
