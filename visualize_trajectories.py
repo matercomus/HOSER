@@ -1341,7 +1341,7 @@ class TrajectoryPlotter:
                 label = base_label
             else:
                 overlap_pct = overlaps.get(model_name, 0.0)
-                label = f"{base_label} ({overlap_pct:.1f}% overlap)"
+                label = f"{base_label} ({overlap_pct:.1f}%)"
 
             legend_elements.append(
                 Line2D(
