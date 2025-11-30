@@ -9,7 +9,6 @@ Usage:
     uv run python visualize_trajectories.py --sample_strategy length_based
 """
 
-import argparse
 import ast
 import json
 import logging
@@ -74,7 +73,10 @@ class VisualizationConfig:
         True  # Include real trajectories in cross-model comparison
     )
     generate_scenario_cross_model: bool = (
-        False  # Compare models across scenarios (per-scenario OD matching)
+        False  # Compare all models for same OD pair within scenarios
+    )
+    combine_seeds: bool = (
+        False  # If True, combine all seeds in one plot. If False, group by seed.
     )
 
     # Background visualization
@@ -1844,8 +1846,24 @@ class TrajectoryVisualizer:
                 )
                 continue
 
-            # Find common OD pairs
-            self._plot_matching_od_pairs(models_data, od_type)
+            # 1. Generate per-seed plots (Default behavior)
+            groups = self._group_models_by_seed(models_data)
+            logger.info(f"  Grouping by seed: {list(groups.keys())}")
+
+            for seed, model_names in groups.items():
+                # Create subset of models_data for this seed
+                seed_models_data = {name: models_data[name] for name in model_names}
+                # Add real data if available
+                if "real" in models_data:
+                    seed_models_data["real"] = models_data["real"]
+
+                logger.info(f"  Generating plots for {seed}...")
+                self._plot_matching_od_pairs(seed_models_data, od_type, subfolder=seed)
+
+            # 2. Generate combined plot (if requested)
+            if self.config.combine_seeds:
+                logger.info("  Generating combined plot (all seeds)...")
+                self._plot_matching_od_pairs(models_data, od_type, subfolder="combined")
 
     def _load_all_models_for_od(
         self, gene_files: List[Dict], od_type: str
@@ -1892,6 +1910,7 @@ class TrajectoryVisualizer:
         od_type: str,
         scenario: str = None,
         max_plots: int = None,
+        subfolder: str = None,
     ):
         """Find and plot trajectories with matching OD pairs across models
 
@@ -1900,6 +1919,7 @@ class TrajectoryVisualizer:
             od_type: 'train' or 'test'
             scenario: Optional scenario name for scenario-based comparisons
             max_plots: Optional maximum number of plots to generate (default: 10 for scenarios, no limit otherwise)
+            subfolder: Optional subfolder for output (e.g., "seed42")
         """
 
         # Adjust output path and title based on scenario
@@ -1913,6 +1933,9 @@ class TrajectoryVisualizer:
         else:
             output_dir = self.config.output_dir / "cross_model" / od_type
             title_prefix = ""
+
+        if subfolder:
+            output_dir = output_dir / subfolder
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2085,6 +2108,7 @@ class TrajectoryVisualizer:
             return
 
         # Add to map
+
         for od_pair in all_od_pairs:
             if od_pair not in od_scenario_map:
                 od_scenario_map[od_pair] = {}
@@ -2192,179 +2216,29 @@ class TrajectoryVisualizer:
                     scenario_models_data, scenario, od_scenario_map
                 )
 
-                # Call existing cross-model logic with scenario parameter
-                self._plot_matching_od_pairs(
-                    scenario_models_data, od_type, scenario=scenario
-                )
+                # 1. Generate per-seed plots (Default behavior)
+                groups = self._group_models_by_seed(scenario_models_data)
+                for seed, model_names in groups.items():
+                    seed_models_data = {
+                        name: scenario_models_data[name] for name in model_names
+                    }
+                    if "real" in scenario_models_data:
+                        seed_models_data["real"] = scenario_models_data["real"]
+
+                    self._plot_matching_od_pairs(
+                        seed_models_data, od_type, scenario=scenario, subfolder=seed
+                    )
+
+                # 2. Generate combined plot (if requested)
+                if self.config.combine_seeds:
+                    self._plot_matching_od_pairs(
+                        scenario_models_data,
+                        od_type,
+                        scenario=scenario,
+                        subfolder="combined",
+                    )
 
             # Generate multi-scenario comparison plots for OD pairs appearing in 2+ scenarios
             self._generate_multi_scenario_comparisons(od_scenario_map, od_type)
 
         logger.info("\n✅ Scenario cross-model visualization complete!")
-
-
-def main():
-    """Main entry point with CLI interface"""
-    parser = argparse.ArgumentParser(
-        description="Trajectory Visualization System",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Visualize trajectories from an evaluation directory
-  uv run python visualize_trajectories.py --eval-dir hoser-distill-optuna-6
-  
-  # Use scenario-based sampling
-  uv run python visualize_trajectories.py --eval-dir eval_xyz --sample_strategy scenario
-  
-  # Generate cross-model comparisons
-  uv run python visualize_trajectories.py --eval-dir eval_xyz --cross_model
-  
-  # Only separate plots (no overlaid)
-  uv run python visualize_trajectories.py --eval-dir eval_xyz --no_overlaid
-        """,
-    )
-
-    parser.add_argument(
-        "--eval-dir", required=True, help="Evaluation directory containing results"
-    )
-    parser.add_argument(
-        "--dataset",
-        help="Dataset name (auto-detected from evaluation.yaml if not provided)",
-    )
-    parser.add_argument(
-        "--sample_strategy",
-        type=str,
-        default="length_based",
-        choices=["random", "length_based", "representative", "scenario"],
-        help="Sampling strategy for trajectory selection",
-    )
-    parser.add_argument(
-        "--samples_per_type",
-        type=int,
-        default=1,
-        help="Number of samples per trajectory type (for random strategy)",
-    )
-    parser.add_argument(
-        "--max_scenarios",
-        type=int,
-        default=5,
-        help="Maximum number of scenarios to plot (for scenario strategy)",
-    )
-    parser.add_argument(
-        "--random_seed", type=int, default=42, help="Random seed for reproducibility"
-    )
-    parser.add_argument(
-        "--no_separate", action="store_true", help="Skip generating separate plots"
-    )
-    parser.add_argument(
-        "--no_overlaid", action="store_true", help="Skip generating overlaid plots"
-    )
-    parser.add_argument(
-        "--cross_model",
-        action="store_true",
-        help="Generate cross-model comparisons for same OD pairs",
-    )
-    parser.add_argument(
-        "--no_real",
-        action="store_true",
-        help="Exclude real trajectories from cross-model comparison (compare generated models only)",
-    )
-    parser.add_argument(
-        "--scenario_cross_model",
-        action="store_true",
-        help="Generate scenario-based cross-model comparisons (OD-matched within scenarios)",
-    )
-    parser.add_argument(
-        "--basemap_style",
-        type=str,
-        default="none",
-        choices=["osm", "gaode", "cartodb", "none"],
-        help="Basemap style: gaode (China-friendly), cartodb, osm, none (default: none)",
-    )
-    parser.add_argument(
-        "--basemap_timeout",
-        type=int,
-        default=5,
-        help="Timeout for basemap requests in seconds (default: 5)",
-    )
-    parser.add_argument("--dpi", type=int, default=300, help="Output resolution (DPI)")
-
-    # Selective regeneration arguments
-    regen_group = parser.add_argument_group("Selective Regeneration")
-    regen_group.add_argument(
-        "--regenerate-od-pairs",
-        type=str,
-        help='Regenerate specific OD pairs (format: "origin1,dest1;origin2,dest2")',
-    )
-    regen_group.add_argument(
-        "--regenerate-scenarios",
-        type=str,
-        help='Regenerate all plots for specific scenarios (comma-separated: "city_center,peak")',
-    )
-    regen_group.add_argument(
-        "--plot-type",
-        choices=["single", "multi", "both"],
-        default="both",
-        help="Which plot types to regenerate: single-scenario, multi-scenario, or both",
-    )
-
-    args = parser.parse_args()
-
-    # Parse regeneration arguments
-    regenerate_mode = False
-    target_od_pairs = []
-    target_scenarios = []
-
-    if args.regenerate_od_pairs or args.regenerate_scenarios:
-        regenerate_mode = True
-
-        if args.regenerate_od_pairs:
-            # Parse "origin1,dest1;origin2,dest2" format
-            for pair_str in args.regenerate_od_pairs.split(";"):
-                origin, dest = map(int, pair_str.strip().split(","))
-                target_od_pairs.append((origin, dest))
-
-        if args.regenerate_scenarios:
-            target_scenarios = [s.strip() for s in args.regenerate_scenarios.split(",")]
-
-    # Create configuration
-    # In regenerate mode, only enable scenario cross-model generation
-    if regenerate_mode:
-        generate_separate = False
-        generate_overlaid = False
-        generate_cross_model = False
-        generate_scenario_cross_model = True
-    else:
-        generate_separate = not args.no_separate
-        generate_overlaid = not args.no_overlaid
-        generate_cross_model = args.cross_model
-        generate_scenario_cross_model = args.scenario_cross_model
-
-    config = VisualizationConfig(
-        eval_dir=args.eval_dir,
-        dataset=args.dataset,
-        sample_strategy=args.sample_strategy,
-        samples_per_type=args.samples_per_type,
-        max_scenarios_to_plot=args.max_scenarios,
-        random_seed=args.random_seed,
-        generate_separate=generate_separate,
-        generate_overlaid=generate_overlaid,
-        generate_cross_model=generate_cross_model,
-        include_real_in_cross_model=not args.no_real,
-        generate_scenario_cross_model=generate_scenario_cross_model,
-        basemap_style=args.basemap_style,
-        basemap_timeout=args.basemap_timeout,
-        dpi=args.dpi,
-        regenerate_mode=regenerate_mode,
-        target_od_pairs=target_od_pairs,
-        target_scenarios=target_scenarios,
-        plot_types=args.plot_type,
-    )
-
-    # Run visualizer
-    visualizer = TrajectoryVisualizer(config)
-    visualizer.run()
-
-
-if __name__ == "__main__":
-    main()
