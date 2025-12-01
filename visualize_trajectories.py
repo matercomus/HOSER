@@ -664,36 +664,55 @@ class TrajectoryComparisonPlotter:
         if model_name not in self.model_labels:
             self.model_labels[model_name] = get_display_name(model_name)
 
-    def _apply_coordinate_offset(
+    def _calculate_parallel_offset(
         self,
         lons: List[float],
         lats: List[float],
-        index: int,
-        total_models: int,
-        offset_step: float = 0.00003,
+        offset_distance: float,
     ) -> Tuple[List[float], List[float]]:
         """
-        Apply a slight spatial offset to coordinates to prevent visual overlap.
-        Shifts lines diagonally so they appear side-by-side.
+        Calculate parallel curve coordinates using vector math.
 
         Args:
             lons: List of longitudes
             lats: List of latitudes
-            index: Index of the current model in the sorted list
-            total_models: Total number of models being plotted
-            offset_step: Magnitude of the offset step (approx 3m)
+            offset_distance: Distance to offset (in degrees)
 
         Returns:
-            Tuple of (shifted_lons, shifted_lats)
+            Tuple of (offset_lons, offset_lats)
         """
-        # Center the group of lines around the original path
-        # Shift = (i - (N-1)/2) * step
-        shift = (index - (total_models - 1) / 2) * offset_step
+        if len(lons) < 2:
+            return lons, lats
 
-        shifted_lons = [coord + shift for coord in lons]
-        shifted_lats = [coord + shift for coord in lats]
+        points = np.column_stack([lons, lats])
 
-        return shifted_lons, shifted_lats
+        # Calculate segment vectors
+        diffs = points[1:] - points[:-1]
+
+        # Calculate normals (-dy, dx)
+        normals = np.column_stack([-diffs[:, 1], diffs[:, 0]])
+
+        # Normalize
+        norms = np.linalg.norm(normals, axis=1)
+        # Avoid division by zero
+        norms[norms == 0] = 1
+        normals = normals / norms[:, None]
+
+        # Calculate vertex normals (average of adjacent segment normals)
+        vertex_normals = np.zeros_like(points)
+        vertex_normals[0] = normals[0]
+        vertex_normals[-1] = normals[-1]
+        vertex_normals[1:-1] = (normals[:-1] + normals[1:]) / 2
+
+        # Re-normalize vertex normals
+        v_norms = np.linalg.norm(vertex_normals, axis=1)
+        v_norms[v_norms == 0] = 1
+        vertex_normals = vertex_normals / v_norms[:, None]
+
+        # Apply offset
+        offset_points = points + vertex_normals * offset_distance
+
+        return offset_points[:, 0].tolist(), offset_points[:, 1].tolist()
 
     def plot_comparison(
         self,
@@ -720,9 +739,25 @@ class TrajectoryComparisonPlotter:
         # Collect all coordinates for bounds
         all_lons, all_lats = [], []
 
-        # Plot each model's trajectory
-        sorted_models = sorted(trajectories.keys(), key=lambda x: (x != "real", x))
-        for i, model_name in enumerate(sorted_models):
+        # Determine offsets for parallel plotting (ribbon effect)
+        # Include real trajectory in the ribbon
+
+        models_to_plot = sorted(trajectories.keys())
+
+        # Calculate offset step based on map scale (approximate)
+        # 0.0001 degrees is roughly 10 meters
+        offset_step = 0.00015
+        total_width = (len(models_to_plot) - 1) * offset_step
+        start_offset = -total_width / 2
+
+        model_offsets = {}
+        for i, model_name in enumerate(models_to_plot):
+            model_offsets[model_name] = start_offset + (i * offset_step)
+
+        # Plot order: Just iterate through sorted models
+        plot_order = models_to_plot
+
+        for model_name in plot_order:
             # Ensure model is in visualization dicts
             self._ensure_model_in_dicts(model_name)
 
@@ -733,13 +768,15 @@ class TrajectoryComparisonPlotter:
             lons = [c[0] for c in traj.coords]
             lats = [c[1] for c in traj.coords]
 
-            # Apply spatial offset to prevent overlap
-            lons, lats = self._apply_coordinate_offset(
-                lons, lats, i, len(sorted_models)
-            )
+            # Apply parallel offset
+            offset = model_offsets.get(model_name, 0.0)
+            if abs(offset) > 1e-9:
+                lons, lats = self._calculate_parallel_offset(lons, lats, offset)
 
             all_lons.extend(lons)
             all_lats.extend(lats)
+
+            is_real = model_name == "real"
 
             # Plot trajectory
             ax.plot(
@@ -747,9 +784,10 @@ class TrajectoryComparisonPlotter:
                 lats,
                 color=self.model_colors.get(model_name, "#95a5a6"),
                 linestyle=self.model_linestyles.get(model_name, "-"),
-                linewidth=2.5 if model_name == "real" else 2,
-                alpha=0.8,
-                zorder=10 if model_name == "real" else 5,
+                linewidth=3.0 if is_real else 2.5,
+                alpha=1.0 if is_real else 0.9,
+                zorder=20 if is_real else 10,
+                solid_capstyle="round",
             )
 
             # Mark start and end
@@ -758,8 +796,8 @@ class TrajectoryComparisonPlotter:
                 lats[0],
                 c=self.model_colors.get(model_name, "#95a5a6"),
                 marker="o",
-                s=100,
-                zorder=15,
+                s=100 if is_real else 60,
+                zorder=25 if is_real else 15,
                 edgecolors="white",
                 linewidths=1.5,
             )
@@ -768,8 +806,8 @@ class TrajectoryComparisonPlotter:
                 lats[-1],
                 c=self.model_colors.get(model_name, "#95a5a6"),
                 marker="s",
-                s=100,
-                zorder=15,
+                s=100 if is_real else 60,
+                zorder=25 if is_real else 15,
                 edgecolors="white",
                 linewidths=1.5,
             )
@@ -1060,7 +1098,7 @@ class TrajectoryPlotter:
 
         # Plot trajectory line
         ax.plot(
-            lons, lats, "b-", linewidth=2.5, label="Trajectory", zorder=3, alpha=0.8
+            lons, lats, "b-", linewidth=2.5, label="Trajectory", zorder=3, alpha=1.0
         )
 
         # Start marker (green circle)
@@ -1135,8 +1173,19 @@ class TrajectoryPlotter:
         # Collect all coordinates for bounds calculation
         all_lons, all_lats = [], []
 
-        # Plot each trajectory
+        # Determine offsets for parallel plotting (ribbon effect)
         sorted_labels = sorted(trajectories.keys())
+
+        # Calculate offset step based on map scale (approximate)
+        offset_step = 0.00015
+        total_width = (len(sorted_labels) - 1) * offset_step
+        start_offset = -total_width / 2
+
+        label_offsets = {}
+        for i, label in enumerate(sorted_labels):
+            label_offsets[label] = start_offset + (i * offset_step)
+
+        # Plot each trajectory
         for i, label in enumerate(sorted_labels):
             traj = trajectories[label]
             if not traj.coords:
@@ -1146,10 +1195,10 @@ class TrajectoryPlotter:
             plot_coords = self._convert_coords_for_basemap(traj.coords)
             lons, lats = zip(*plot_coords)
 
-            # Apply spatial offset to prevent overlap
-            lons, lats = self._apply_coordinate_offset(
-                lons, lats, i, len(sorted_labels)
-            )
+            # Apply parallel offset
+            offset = label_offsets.get(label, 0.0)
+            if abs(offset) > 1e-9:
+                lons, lats = self._calculate_parallel_offset(lons, lats, offset)
 
             all_lons.extend(lons)
             all_lats.extend(lats)
@@ -1165,7 +1214,8 @@ class TrajectoryPlotter:
                 label=f"{label.capitalize()}",
                 color=color,
                 zorder=3,
-                alpha=0.8,  # Increased alpha since we have offset
+                alpha=0.9,
+                solid_capstyle="round",
             )
 
             # Start marker
@@ -1173,7 +1223,7 @@ class TrajectoryPlotter:
                 lons[0],
                 lats[0],
                 c=color,
-                s=100,
+                s=80,
                 marker="o",
                 zorder=4,
                 edgecolors="black",
@@ -1186,7 +1236,7 @@ class TrajectoryPlotter:
                 lons[-1],
                 lats[-1],
                 c=color,
-                s=100,
+                s=80,
                 marker="s",
                 zorder=4,
                 edgecolors="black",
@@ -1259,36 +1309,55 @@ class TrajectoryPlotter:
 
         return overlaps
 
-    def _apply_coordinate_offset(
+    def _calculate_parallel_offset(
         self,
         lons: List[float],
         lats: List[float],
-        index: int,
-        total_models: int,
-        offset_step: float = 0.00003,
+        offset_distance: float,
     ) -> Tuple[List[float], List[float]]:
         """
-        Apply a slight spatial offset to coordinates to prevent visual overlap.
-        Shifts lines diagonally so they appear side-by-side.
+        Calculate parallel curve coordinates using vector math.
 
         Args:
             lons: List of longitudes
             lats: List of latitudes
-            index: Index of the current model in the sorted list
-            total_models: Total number of models being plotted
-            offset_step: Magnitude of the offset step (approx 3m)
+            offset_distance: Distance to offset (in degrees)
 
         Returns:
-            Tuple of (shifted_lons, shifted_lats)
+            Tuple of (offset_lons, offset_lats)
         """
-        # Center the group of lines around the original path
-        # Shift = (i - (N-1)/2) * step
-        shift = (index - (total_models - 1) / 2) * offset_step
+        if len(lons) < 2:
+            return lons, lats
 
-        shifted_lons = [coord + shift for coord in lons]
-        shifted_lats = [coord + shift for coord in lats]
+        points = np.column_stack([lons, lats])
 
-        return shifted_lons, shifted_lats
+        # Calculate segment vectors
+        diffs = points[1:] - points[:-1]
+
+        # Calculate normals (-dy, dx)
+        normals = np.column_stack([-diffs[:, 1], diffs[:, 0]])
+
+        # Normalize
+        norms = np.linalg.norm(normals, axis=1)
+        # Avoid division by zero
+        norms[norms == 0] = 1
+        normals = normals / norms[:, None]
+
+        # Calculate vertex normals (average of adjacent segment normals)
+        vertex_normals = np.zeros_like(points)
+        vertex_normals[0] = normals[0]
+        vertex_normals[-1] = normals[-1]
+        vertex_normals[1:-1] = (normals[:-1] + normals[1:]) / 2
+
+        # Re-normalize vertex normals
+        v_norms = np.linalg.norm(vertex_normals, axis=1)
+        v_norms[v_norms == 0] = 1
+        vertex_normals = vertex_normals / v_norms[:, None]
+
+        # Apply offset
+        offset_points = points + vertex_normals * offset_distance
+
+        return offset_points[:, 0].tolist(), offset_points[:, 1].tolist()
 
     def plot_cross_model_comparison(
         self,
@@ -1329,9 +1398,23 @@ class TrajectoryPlotter:
         # Collect all coordinates for bounds calculation
         all_lons, all_lats = [], []
 
-        # Plot each model's trajectory
-        sorted_models = sorted(trajectories.keys(), key=lambda x: (x != "real", x))
-        for i, model_name in enumerate(sorted_models):
+        # Determine offsets for parallel plotting (ribbon effect)
+        models_to_plot = sorted(trajectories.keys())
+
+        # Calculate offset step based on map scale (approximate)
+        # 0.0001 degrees is roughly 10 meters
+        offset_step = 0.00015
+        total_width = (len(models_to_plot) - 1) * offset_step
+        start_offset = -total_width / 2
+
+        model_offsets = {}
+        for i, model_name in enumerate(models_to_plot):
+            model_offsets[model_name] = start_offset + (i * offset_step)
+
+        # Plot order: Just iterate through sorted models
+        plot_order = models_to_plot
+
+        for model_name in plot_order:
             traj = trajectories[model_name]
             if not traj.coords:
                 continue
@@ -1340,10 +1423,10 @@ class TrajectoryPlotter:
             plot_coords = self._convert_coords_for_basemap(traj.coords)
             lons, lats = zip(*plot_coords)
 
-            # Apply spatial offset to prevent overlap
-            lons, lats = self._apply_coordinate_offset(
-                lons, lats, i, len(sorted_models)
-            )
+            # Apply parallel offset
+            offset = model_offsets.get(model_name, 0.0)
+            if abs(offset) > 1e-9:
+                lons, lats = self._calculate_parallel_offset(lons, lats, offset)
 
             all_lons.extend(lons)
             all_lats.extend(lats)
@@ -1352,19 +1435,19 @@ class TrajectoryPlotter:
             linestyle = model_linestyles.get(model_name, "-")
             label = model_labels.get(model_name, model_name)
 
-            # Different line width for real trajectory
-            linewidth = 3.5 if model_name == "real" else 2.5
+            is_real = model_name == "real"
 
             # Plot line with reduced opacity for visibility when overlapping
             ax.plot(
                 lons,
                 lats,
                 linestyle=linestyle,
-                linewidth=linewidth,
+                linewidth=3.0 if is_real else 2.5,
                 label=label,
                 color=color,
-                zorder=4 if model_name == "real" else 3,
-                alpha=0.8,  # Increased alpha since we have offset
+                zorder=20 if is_real else 10,
+                alpha=1.0 if is_real else 0.9,
+                solid_capstyle="round",
             )
 
             # Start marker
@@ -1372,9 +1455,9 @@ class TrajectoryPlotter:
                 lons[0],
                 lats[0],
                 c=color,
-                s=120,
+                s=100 if is_real else 60,
                 marker="o",
-                zorder=5,
+                zorder=25 if is_real else 15,
                 edgecolors="black",
                 linewidths=1.5,
                 alpha=0.9,
@@ -1385,9 +1468,9 @@ class TrajectoryPlotter:
                 lons[-1],
                 lats[-1],
                 c=color,
-                s=120,
+                s=100 if is_real else 60,
                 marker="s",
-                zorder=5,
+                zorder=25 if is_real else 15,
                 edgecolors="black",
                 linewidths=1.5,
                 alpha=0.9,
@@ -1451,7 +1534,7 @@ class TrajectoryPlotter:
                     [0],
                     color="#CCCCCC",
                     linewidth=2,
-                    alpha=0.6,
+                    alpha=1.0,
                     label="Road Network",
                 )
             )
@@ -1510,7 +1593,7 @@ class TrajectoryPlotter:
         bbox_props = dict(
             boxstyle="round",
             facecolor="lightyellow" if missing_models else "white",
-            alpha=0.9,
+            alpha=1.0,
             edgecolor="orange" if missing_models else "gray",
         )
         ax.text(
