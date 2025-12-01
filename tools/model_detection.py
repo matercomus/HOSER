@@ -164,7 +164,6 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         base_display="Distilled",
         palette_name="crest",
         palette_size=8,
-        mix_with_white=0.25,
         base_offset=2,
     ),
     "vanilla": ModelFamily(
@@ -172,7 +171,6 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         base_display="Vanilla",
         palette_name="flare",
         palette_size=8,
-        mix_with_white=0.2,
         base_offset=2,
     ),
     "distill_phase1": ModelFamily(
@@ -180,7 +178,6 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         base_display="Distill Phase 1",
         palette_name="mako",
         palette_size=8,
-        mix_with_white=0.45,
         base_offset=1,
     ),
     "distill_phase2": ModelFamily(
@@ -188,7 +185,6 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         base_display="Distill Phase 2",
         palette_name="rocket",
         palette_size=8,
-        mix_with_white=0.35,
         base_offset=2,
     ),
     "real": ModelFamily(
@@ -207,7 +203,6 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         palette_name="Greys",
         palette_size=3,
         variant_label=None,
-        mix_with_white=0.3,
         base_offset=1,
     ),
 }
