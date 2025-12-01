@@ -650,9 +650,7 @@ class TrajectoryComparisonPlotter:
             self.model_linestyles[model] = get_model_line_style(model)
             self.model_labels[model] = get_display_name(model)
 
-        # Real trajectory special case
-        self.model_colors["real"] = "#f39c12"  # Orange/Gold for real
-        self.model_linestyles["real"] = "-"  # Solid for real
+        # Real trajectory label stays consistent for clarity
         self.model_labels["real"] = "Real Trajectory"
 
     def _ensure_model_in_dicts(self, model_name: str):
@@ -721,14 +719,8 @@ class TrajectoryComparisonPlotter:
         title: str,
         scenario_labels: Dict[str, List[str]] = None,
     ):
-        """Core comparison plotting logic with enhanced scenario labels
+        """Core comparison plotting logic with enhanced scenario labels."""
 
-        Args:
-            trajectories: Dict mapping model_name -> Trajectory
-            output_path: Path for output files (without extension)
-            title: Plot title
-            scenario_labels: Dict mapping model_name -> list of scenario tags
-        """
         if not trajectories:
             logger.warning("No trajectories to plot")
             return
@@ -736,34 +728,20 @@ class TrajectoryComparisonPlotter:
         fig, ax = plt.subplots(figsize=self.config.figsize, facecolor="white")
         ax.set_facecolor("white")
 
-        # Collect all coordinates for bounds
         all_lons, all_lats = [], []
-
-        # Determine offsets for parallel plotting (ribbon effect)
-        # Include real trajectory in the ribbon
-
         models_to_plot = sorted(trajectories.keys())
-
-        # Calculate offset step dynamically based on zoom level
-        # Use slightly larger linewidth reference (3.0) and overlap factor
         offset_step = self._calculate_dynamic_offset_step(
             trajectories, linewidth=3.0, overlap_factor=0.75
         )
-
         total_width = (len(models_to_plot) - 1) * offset_step
         start_offset = -total_width / 2
+        model_offsets = {
+            model_name: start_offset + (idx * offset_step)
+            for idx, model_name in enumerate(models_to_plot)
+        }
 
-        model_offsets = {}
-        for i, model_name in enumerate(models_to_plot):
-            model_offsets[model_name] = start_offset + (i * offset_step)
-
-        # Plot order: Just iterate through sorted models
-        plot_order = models_to_plot
-
-        for model_name in plot_order:
-            # Ensure model is in visualization dicts
+        for model_name in models_to_plot:
             self._ensure_model_in_dicts(model_name)
-
             traj = trajectories[model_name]
             if not traj.coords:
                 continue
@@ -771,31 +749,33 @@ class TrajectoryComparisonPlotter:
             lons = [c[0] for c in traj.coords]
             lats = [c[1] for c in traj.coords]
 
-            # Apply parallel offset
             offset = model_offsets.get(model_name, 0.0)
             if abs(offset) > 1e-9:
-                lons, lats = self._calculate_parallel_offset(lons, lats, offset)
+                offset_coords = self._calculate_parallel_offset(lons, lats, offset)
+                if offset_coords:
+                    lons, lats = offset_coords
 
             all_lons.extend(lons)
             all_lats.extend(lats)
 
-            # Plot trajectory
+            color = self.model_colors.get(model_name, get_model_color(model_name))
+            linestyle = self.model_linestyles.get(model_name, "-")
+
             ax.plot(
                 lons,
                 lats,
-                color=self.model_colors.get(model_name, "#95a5a6"),
-                linestyle=self.model_linestyles.get(model_name, "-"),
+                color=color,
+                linestyle=linestyle,
                 linewidth=2.5,
                 alpha=1.0,
                 zorder=10,
                 solid_capstyle="round",
             )
 
-            # Mark start and end
             ax.scatter(
                 lons[0],
                 lats[0],
-                c=self.model_colors.get(model_name, "#95a5a6"),
+                c=color,
                 marker="o",
                 s=60,
                 zorder=15,
@@ -805,7 +785,7 @@ class TrajectoryComparisonPlotter:
             ax.scatter(
                 lons[-1],
                 lats[-1],
-                c=self.model_colors.get(model_name, "#95a5a6"),
+                c=color,
                 marker="s",
                 s=60,
                 zorder=15,
@@ -813,30 +793,30 @@ class TrajectoryComparisonPlotter:
                 linewidths=1.5,
             )
 
-        # Set bounds
         if all_lons and all_lats:
             margin = self.config.margin
             ax.set_xlim(min(all_lons) - margin, max(all_lons) + margin)
             ax.set_ylim(min(all_lats) - margin, max(all_lats) + margin)
 
-        # Build legend with scenario labels
         legend_elements = []
         for model_name in sorted(trajectories.keys(), key=lambda x: (x != "real", x)):
+            color = self.model_colors.get(model_name, get_model_color(model_name))
+            linestyle = self.model_linestyles.get(model_name, "-")
             label = self._build_legend_label(
-                model_name, scenario_labels.get(model_name) if scenario_labels else None
+                model_name,
+                scenario_labels.get(model_name) if scenario_labels else None,
             )
             legend_elements.append(
                 plt.Line2D(
                     [0],
                     [0],
-                    color=self.model_colors.get(model_name, "#95a5a6"),
-                    linestyle=self.model_linestyles.get(model_name, "-"),
+                    color=color,
+                    linestyle=linestyle,
                     linewidth=2.5 if model_name == "real" else 2,
                     label=label,
                 )
             )
 
-        # Position legend outside plot area
         ax.legend(
             handles=legend_elements,
             loc="center left",
@@ -852,7 +832,6 @@ class TrajectoryComparisonPlotter:
         ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
         ax.set_aspect("equal", adjustable="box")
 
-        # Save
         plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
         plt.savefig(f"{output_path}.png", dpi=self.config.dpi, bbox_inches="tight")
         plt.close()
@@ -1519,13 +1498,11 @@ class TrajectoryPlotter:
         model_labels = {}
 
         for model_name in trajectories.keys():
+            model_colors[model_name] = get_model_color(model_name)
+            model_linestyles[model_name] = get_model_line_style(model_name)
             if model_name == "real":
-                model_colors[model_name] = "#f39c12"  # Orange/Gold for real
-                model_linestyles[model_name] = "-"
                 model_labels[model_name] = "Real Trajectory"
             else:
-                model_colors[model_name] = get_model_color(model_name)
-                model_linestyles[model_name] = get_model_line_style(model_name)
                 model_labels[model_name] = get_display_name(model_name)
 
         fig, ax = plt.subplots(figsize=self.config.figsize, facecolor="white")
@@ -1569,7 +1546,7 @@ class TrajectoryPlotter:
             all_lons.extend(lons)
             all_lats.extend(lats)
 
-            color = model_colors.get(model_name, "#333333")
+            color = model_colors.get(model_name, get_model_color(model_name))
             linestyle = model_linestyles.get(model_name, "-")
             label = model_labels.get(model_name, model_name)
 
@@ -1636,7 +1613,7 @@ class TrajectoryPlotter:
 
         # Add model trajectories to legend with overlap percentages (except real)
         for model_name in sorted(trajectories.keys(), key=lambda x: (x != "real", x)):
-            color = model_colors.get(model_name, "#333333")
+            color = model_colors.get(model_name, get_model_color(model_name))
             linestyle = model_linestyles.get(model_name, "-")
             base_label = model_labels.get(model_name, model_name)
             linewidth = 3.5 if model_name == "real" else 2.5

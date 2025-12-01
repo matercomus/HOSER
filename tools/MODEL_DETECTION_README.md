@@ -56,7 +56,7 @@ display_name = get_display_name(model)  # Returns: "Distilled (seed 44)"
 display_name_new = get_display_name(model_new)  # Returns: "Distill Phase 3 (seed 99)"
 
 # Get color for visualizations (automatically assigned)
-color = get_model_color(model)  # Returns: "#27ae60"
+color = get_model_color(model)  # Returns: "#5782a3"
 color_new = get_model_color(model_new)  # Returns a color from phase family
 ```
 
@@ -251,9 +251,9 @@ Get color code for consistent visualization.
 **Examples:**
 ```python
 >>> get_model_color("distilled_seed44")
-'#27ae60'
+'#5782a3'
 >>> get_model_color("distill_phase2_seed43")
-'#8e44ad'
+'#f69785'
 ```
 
 #### `get_model_line_style(model_name: str) -> str`
@@ -408,7 +408,7 @@ python tools/model_detection.py eval_dir/gene/porto/seed42 --group-by model
 # 
 # distilled_seed44: Y files
 #   Display: Distilled (seed 44)
-#   Color: #27ae60
+#   Color: #5782a3
 #   - hoser_distilled_seed44_trainod_gene.csv
 #   ...
 ```
@@ -484,7 +484,7 @@ COLORS = {
     "distill_phase1_seed43": "#2980b9",
     "distill_phase1_seed44": "#1f618d",
     "distill_phase2": "#9b59b6",
-    "distill_phase2_seed43": "#8e44ad",
+    "distill_phase2_seed43": "#f69785",
     "distill_phase2_seed44": "#7d3c98",
 }
 ```

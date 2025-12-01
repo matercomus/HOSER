@@ -20,9 +20,12 @@ Usage as CLI:
 import argparse
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import Any, Dict, List, Optional
+
+import seaborn as sns
+from matplotlib.colors import to_hex
 
 
 @dataclass
@@ -47,6 +50,59 @@ class ModelFile:
     def __post_init__(self):
         if self.filename is None:
             self.filename = self.path.name
+
+
+@dataclass
+class ModelFamily:
+    """Encapsulate palette, display, and styling for a model family."""
+
+    name: str
+    base_display: str
+    line_style: str = "-"
+    palette_name: str = "husl"
+    palette_size: int = 5
+    variant_label: Optional[str] = "seed"
+    palette: List[str] = field(default_factory=list, init=False)
+    palette_kwargs: Optional[Dict[str, Any]] = None
+    mix_with_white: float = 0.0
+    base_offset: int = 0
+
+    def get_display_name(self, seed: Optional[str]) -> str:
+        """Return a human-friendly display name for this family/variant."""
+
+        if seed and self.variant_label:
+            seed_num = _extract_digits(seed)
+            return f"{self.base_display} ({self.variant_label} {seed_num})"
+        return self.base_display
+
+    def get_color(self, seed: Optional[str]) -> str:
+        """Return a deterministic color for the given variant."""
+
+        palette = self._get_palette()
+        index = _seed_to_index(seed)
+        return palette[(index + self.base_offset) % len(palette)]
+
+    def get_line_style(self) -> str:
+        """Return the preferred matplotlib line style for this family."""
+
+        return self.line_style
+
+    def _get_palette(self) -> List[str]:
+        if not self.palette:
+            kwargs = self.palette_kwargs or {}
+            colors = sns.color_palette(self.palette_name, self.palette_size, **kwargs)
+            if self.mix_with_white:
+                mix = self.mix_with_white
+                colors = [
+                    (
+                        min(1.0, c[0] + (1.0 - c[0]) * mix),
+                        min(1.0, c[1] + (1.0 - c[1]) * mix),
+                        min(1.0, c[2] + (1.0 - c[2]) * mix),
+                    )
+                    for c in colors
+                ]
+            self.palette = [to_hex(color) for color in colors]
+        return self.palette
 
 
 # Model naming convention patterns (using regex for automatic detection)
@@ -102,82 +158,58 @@ KNOWN_MODEL_PATTERNS = [
 
 # Keep MODEL_PATTERNS for backward compatibility
 MODEL_PATTERNS = KNOWN_MODEL_PATTERNS
-
-# Display names for visualizations
-DISPLAY_NAMES = {
-    # Beijing distilled models
-    "distilled": "Distilled",
-    "distilled_seed42": "Distilled (seed 42)",
-    "distilled_seed43": "Distilled (seed 43)",
-    "distilled_seed44": "Distilled (seed 44)",
-    # Porto phase 1 models
-    "distill_phase1": "Distill Phase 1",
-    "distill_phase1_seed42": "Distill Phase 1 (seed 42)",
-    "distill_phase1_seed43": "Distill Phase 1 (seed 43)",
-    "distill_phase1_seed44": "Distill Phase 1 (seed 44)",
-    # Porto phase 2 models
-    "distill_phase2": "Distill Phase 2",
-    "distill_phase2_seed42": "Distill Phase 2 (seed 42)",
-    "distill_phase2_seed43": "Distill Phase 2 (seed 43)",
-    "distill_phase2_seed44": "Distill Phase 2 (seed 44)",
-    # Vanilla models
-    "vanilla": "Vanilla",
-    "vanilla_seed42": "Vanilla (seed 42)",
-    "vanilla_seed43": "Vanilla (seed 43)",
-    "vanilla_seed44": "Vanilla (seed 44)",
-    # Special cases
-    "real": "Real",
-    "unknown": "Unknown",
-}
-
-# Color scheme for visualizations
-MODEL_COLORS = {
-    # Real data
-    "real": "#34495e",  # Dark gray
-    # Beijing distilled models (green family)
-    "distilled": "#2ecc71",  # Green
-    "distilled_seed42": "#2ecc71",  # Green
-    "distilled_seed43": "#27ae60",  # Medium green
-    "distilled_seed44": "#27ae60",  # Dark green
-    # Porto phase 1 models (blue family)
-    "distill_phase1": "#3498db",  # Blue
-    "distill_phase1_seed42": "#3498db",  # Blue
-    "distill_phase1_seed43": "#2980b9",  # Dark blue
-    "distill_phase1_seed44": "#1f618d",  # Darker blue
-    # Porto phase 2 models (purple family)
-    "distill_phase2": "#9b59b6",  # Purple
-    "distill_phase2_seed42": "#9b59b6",  # Purple
-    "distill_phase2_seed43": "#8e44ad",  # Dark purple
-    "distill_phase2_seed44": "#7d3c98",  # Darker purple
-    # Vanilla models (red family)
-    "vanilla": "#e74c3c",  # Red
-    "vanilla_seed42": "#e74c3c",  # Red
-    "vanilla_seed43": "#c0392b",  # Dark red
-    "vanilla_seed44": "#a93226",  # Darker red
-    # Unknown
-    "unknown": "#95a5a6",  # Gray
-}
-
-# Line styles for visualizations
-MODEL_LINE_STYLES = {
-    "real": "-",
-    "distilled": "-",
-    "distilled_seed42": "-",
-    "distilled_seed43": "-",
-    "distilled_seed44": "-",
-    "distill_phase1": "-",
-    "distill_phase1_seed42": "-",
-    "distill_phase1_seed43": "-",
-    "distill_phase1_seed44": "-",
-    "distill_phase2": "-",
-    "distill_phase2_seed42": "-",
-    "distill_phase2_seed43": "-",
-    "distill_phase2_seed44": "-",
-    "vanilla": "-",
-    "vanilla_seed42": "-",
-    "vanilla_seed43": "-",
-    "vanilla_seed44": "-",
-    "unknown": "--",
+MODEL_FAMILIES: Dict[str, ModelFamily] = {
+    "distilled": ModelFamily(
+        name="distilled",
+        base_display="Distilled",
+        palette_name="crest",
+        palette_size=8,
+        mix_with_white=0.25,
+        base_offset=2,
+    ),
+    "vanilla": ModelFamily(
+        name="vanilla",
+        base_display="Vanilla",
+        palette_name="flare",
+        palette_size=8,
+        mix_with_white=0.2,
+        base_offset=2,
+    ),
+    "distill_phase1": ModelFamily(
+        name="distill_phase1",
+        base_display="Distill Phase 1",
+        palette_name="mako",
+        palette_size=8,
+        mix_with_white=0.45,
+        base_offset=1,
+    ),
+    "distill_phase2": ModelFamily(
+        name="distill_phase2",
+        base_display="Distill Phase 2",
+        palette_name="rocket",
+        palette_size=8,
+        mix_with_white=0.35,
+        base_offset=2,
+    ),
+    "real": ModelFamily(
+        name="real",
+        base_display="Real",
+        palette_name="YlOrBr",
+        palette_size=6,
+        variant_label=None,
+        mix_with_white=0.1,
+        base_offset=1,
+    ),
+    "unknown": ModelFamily(
+        name="unknown",
+        base_display="Unknown",
+        line_style="--",
+        palette_name="Greys",
+        palette_size=3,
+        variant_label=None,
+        mix_with_white=0.3,
+        base_offset=1,
+    ),
 }
 
 
@@ -230,154 +262,27 @@ def extract_model_name(filename: str) -> str:
 
 
 def get_display_name(model_name: str) -> str:
-    """
-    Get human-readable display name for a model.
+    """Return human-readable display name for a model."""
 
-    Automatically generates display names for models following conventions,
-    even if not explicitly defined in DISPLAY_NAMES.
-
-    Args:
-        model_name: Model name from extract_model_name()
-
-    Returns:
-        Display name suitable for plots and visualizations
-
-    Examples:
-        >>> get_display_name("distilled_seed44")
-        'Distilled (seed 44)'
-        >>> get_display_name("distill_phase2_seed43")
-        'Distill Phase 2 (seed 43)'
-        >>> get_display_name("distill_phase3_seed45")
-        'Distill Phase 3 (seed 45)'
-    """
-    # Check if we have an explicit display name
-    if model_name in DISPLAY_NAMES:
-        return DISPLAY_NAMES[model_name]
-
-    # Generate display name dynamically based on pattern
-    # Handle distill_phase<N>_seed<M>
-    match = re.match(r"distill_phase(\d+)_seed(\d+)", model_name)
-    if match:
-        phase, seed = match.groups()
-        return f"Distill Phase {phase} (seed {seed})"
-
-    # Handle distill_phase<N>
-    match = re.match(r"distill_phase(\d+)", model_name)
-    if match:
-        phase = match.group(1)
-        return f"Distill Phase {phase}"
-
-    # Handle distilled_seed<M>
-    match = re.match(r"distilled_seed(\d+)", model_name)
-    if match:
-        seed = match.group(1)
-        return f"Distilled (seed {seed})"
-
-    # Handle vanilla_seed<M>
-    match = re.match(r"vanilla_seed(\d+)", model_name)
-    if match:
-        seed = match.group(1)
-        return f"Vanilla (seed {seed})"
-
-    # Default: title case with underscores replaced by spaces
-    return model_name.replace("_", " ").title()
+    components = parse_model_components(model_name)
+    family = _get_or_create_family(components["base_model"])
+    return family.get_display_name(components["seed"])
 
 
 def get_model_color(model_name: str) -> str:
-    """
-    Get color code for a model for consistent visualization.
+    """Return a hex color suitable for plotting the given model."""
 
-    Automatically assigns colors to models following conventions based on their
-    base model type (distilled = green, distill_phase1 = blue, distill_phase2 = purple,
-    vanilla = red). New models get colors from the same family as their base type.
-
-    Args:
-        model_name: Model name from extract_model_name()
-
-    Returns:
-        Hex color code
-
-    Examples:
-        >>> get_model_color("distilled_seed44")
-        '#27ae60'
-        >>> get_model_color("distill_phase2_seed43")
-        '#8e44ad'
-        >>> get_model_color("distill_phase3_seed45")  # New phase, gets purple family
-        '#9b59b6'
-    """
-    # Check if we have an explicit color
-    if model_name in MODEL_COLORS:
-        return MODEL_COLORS[model_name]
-
-    # Assign color based on model family
-    # distill_phase1 family -> blue
-    if model_name.startswith("distill_phase1"):
-        return MODEL_COLORS.get("distill_phase1", "#3498db")
-
-    # distill_phase2 family -> purple
-    if model_name.startswith("distill_phase2"):
-        return MODEL_COLORS.get("distill_phase2", "#9b59b6")
-
-    # distill_phase3+ (new phases) -> alternate colors
-    match = re.match(r"distill_phase(\d+)", model_name)
-    if match:
-        phase_num = int(match.group(1))
-        # Cycle through color families for new phases
-        colors = [
-            "#3498db",
-            "#9b59b6",
-            "#e67e22",
-            "#1abc9c",
-            "#f39c12",
-        ]  # blue, purple, orange, teal, yellow
-        return colors[phase_num % len(colors)]
-
-    # distilled family -> green
-    if model_name.startswith("distilled"):
-        return MODEL_COLORS.get("distilled", "#2ecc71")
-
-    # vanilla family -> red
-    if model_name.startswith("vanilla"):
-        return MODEL_COLORS.get("vanilla", "#e74c3c")
-
-    # Unknown -> gray
-    return MODEL_COLORS.get("unknown", "#95a5a6")
+    components = parse_model_components(model_name)
+    family = _get_or_create_family(components["base_model"])
+    return family.get_color(components["seed"])
 
 
 def get_model_line_style(model_name: str) -> str:
-    """
-    Get line style for a model for consistent visualization.
+    """Return matplotlib line style for the given model."""
 
-    Automatically assigns line styles to new models following conventions.
-    All known models get solid lines, unknown models get dashed lines.
-
-    Args:
-        model_name: Model name from extract_model_name()
-
-    Returns:
-        Matplotlib line style string
-
-    Examples:
-        >>> get_model_line_style("distilled_seed44")
-        '-'
-        >>> get_model_line_style("distill_phase3_seed45")
-        '-'
-        >>> get_model_line_style("unknown")
-        '--'
-    """
-    # Check explicit mapping first
-    if model_name in MODEL_LINE_STYLES:
-        return MODEL_LINE_STYLES[model_name]
-
-    # If model follows a known convention, use solid line
-    if (
-        model_name.startswith(("distill_phase", "distilled", "vanilla"))
-        or model_name == "real"
-    ):
-        return "-"
-
-    # Unknown models get dashed line
-    return "-"
+    components = parse_model_components(model_name)
+    family = _get_or_create_family(components["base_model"])
+    return family.get_line_style()
 
 
 def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
@@ -454,6 +359,93 @@ def detect_model_files(directory: Path, pattern: str = "*.csv") -> List[ModelFil
         model_files.append(model_file)
 
     return model_files
+
+
+def _get_or_create_family(base_model: str) -> ModelFamily:
+    """Return an existing family or create a dynamic one for new phases."""
+
+    if base_model in MODEL_FAMILIES:
+        return MODEL_FAMILIES[base_model]
+
+    match = re.match(r"distill_phase(\d+)", base_model)
+    if match:
+        phase = match.group(1)
+        family = ModelFamily(
+            name=base_model,
+            base_display=f"Distill Phase {phase}",
+            palette_name="husl",
+            palette_size=8,
+            mix_with_white=0.3,
+            base_offset=3,
+        )
+        MODEL_FAMILIES[base_model] = family
+        return family
+
+    return MODEL_FAMILIES["unknown"]
+
+
+def _extract_digits(seed: str) -> str:
+    """Return the numeric component of a seed string, if present."""
+
+    match = re.search(r"(\d+)", seed)
+    return match.group(1) if match else seed
+
+
+def _seed_to_index(seed: Optional[str]) -> int:
+    """Map a seed identifier to a stable palette index."""
+
+    if not seed:
+        return 0
+    match = re.search(r"(\d+)", seed)
+    if match:
+        return int(match.group(1))
+    return sum(ord(ch) for ch in seed)
+
+
+DEFAULT_MODEL_NAMES = [
+    "real",
+    "unknown",
+    "distilled",
+    "distilled_seed42",
+    "distilled_seed43",
+    "distilled_seed44",
+    "distill_phase1",
+    "distill_phase1_seed42",
+    "distill_phase1_seed43",
+    "distill_phase1_seed44",
+    "distill_phase2",
+    "distill_phase2_seed42",
+    "distill_phase2_seed43",
+    "distill_phase2_seed44",
+    "vanilla",
+    "vanilla_seed42",
+    "vanilla_seed43",
+    "vanilla_seed44",
+]
+
+
+def _build_display_names() -> Dict[str, str]:
+    """Build display-name lookup table for commonly referenced models."""
+
+    return {name: get_display_name(name) for name in DEFAULT_MODEL_NAMES}
+
+
+def _build_model_colors() -> Dict[str, str]:
+    """Build color lookup table for commonly referenced models."""
+
+    return {name: get_model_color(name) for name in DEFAULT_MODEL_NAMES}
+
+
+def _build_line_styles() -> Dict[str, str]:
+    """Build line-style lookup table for commonly referenced models."""
+
+    return {name: get_model_line_style(name) for name in DEFAULT_MODEL_NAMES}
+
+
+# Display/look-up tables for backward compatibility (exported via tools.__init__)
+DISPLAY_NAMES = _build_display_names()
+MODEL_COLORS = _build_model_colors()
+MODEL_LINE_STYLES = _build_line_styles()
 
 
 def main():
