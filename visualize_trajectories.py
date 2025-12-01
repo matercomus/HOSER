@@ -652,7 +652,7 @@ class TrajectoryComparisonPlotter:
 
         # Real trajectory special case
         self.model_colors["real"] = "#f39c12"  # Orange/Gold for real
-        self.model_linestyles["real"] = "--"  # Dashed for real
+        self.model_linestyles["real"] = "-"  # Solid for real
         self.model_labels["real"] = "Real Trajectory"
 
     def _ensure_model_in_dicts(self, model_name: str):
@@ -744,9 +744,12 @@ class TrajectoryComparisonPlotter:
 
         models_to_plot = sorted(trajectories.keys())
 
-        # Calculate offset step based on map scale (approximate)
-        # 0.0001 degrees is roughly 10 meters
-        offset_step = 0.00015
+        # Calculate offset step dynamically based on zoom level
+        # Use slightly larger linewidth reference (3.0) and overlap factor
+        offset_step = self._calculate_dynamic_offset_step(
+            trajectories, linewidth=3.0, overlap_factor=0.75
+        )
+
         total_width = (len(models_to_plot) - 1) * offset_step
         start_offset = -total_width / 2
 
@@ -776,17 +779,15 @@ class TrajectoryComparisonPlotter:
             all_lons.extend(lons)
             all_lats.extend(lats)
 
-            is_real = model_name == "real"
-
             # Plot trajectory
             ax.plot(
                 lons,
                 lats,
                 color=self.model_colors.get(model_name, "#95a5a6"),
                 linestyle=self.model_linestyles.get(model_name, "-"),
-                linewidth=3.0 if is_real else 2.5,
-                alpha=1.0 if is_real else 0.9,
-                zorder=20 if is_real else 10,
+                linewidth=2.5,
+                alpha=1.0,
+                zorder=10,
                 solid_capstyle="round",
             )
 
@@ -796,8 +797,8 @@ class TrajectoryComparisonPlotter:
                 lats[0],
                 c=self.model_colors.get(model_name, "#95a5a6"),
                 marker="o",
-                s=100 if is_real else 60,
-                zorder=25 if is_real else 15,
+                s=60,
+                zorder=15,
                 edgecolors="white",
                 linewidths=1.5,
             )
@@ -806,8 +807,8 @@ class TrajectoryComparisonPlotter:
                 lats[-1],
                 c=self.model_colors.get(model_name, "#95a5a6"),
                 marker="s",
-                s=100 if is_real else 60,
-                zorder=25 if is_real else 15,
+                s=60,
+                zorder=15,
                 edgecolors="white",
                 linewidths=1.5,
             )
@@ -867,6 +868,71 @@ class TrajectoryComparisonPlotter:
                 scenario_str += f" +{len(scenarios) - 3}"
             return f"{base_label}\n({scenario_str})"
         return base_label
+
+    def _calculate_dynamic_offset_step(
+        self,
+        trajectories: Dict[str, Trajectory],
+        linewidth: float = 2.5,
+        overlap_factor: float = 0.8,
+    ) -> float:
+        """
+        Calculate offset step dynamically based on trajectory bounds and figure size.
+        Ensures lines touch or slightly overlap regardless of zoom level.
+
+        Args:
+            trajectories: Dictionary of trajectories
+            linewidth: Target line width in points
+            overlap_factor: Factor to reduce offset to ensure overlap (0.0-1.0)
+
+        Returns:
+            Offset step in degrees
+        """
+        # 1. Calculate bounds of all trajectories
+        all_lons = []
+        all_lats = []
+        for t in trajectories.values():
+            if t.coords:
+                # Use raw coords for scale estimation
+                lons, lats = zip(*t.coords)
+                all_lons.extend(lons)
+                all_lats.extend(lats)
+
+        if not all_lons:
+            return 0.00015  # Fallback
+
+        min_lon, max_lon = min(all_lons), max(all_lons)
+        min_lat, max_lat = min(all_lats), max(all_lats)
+
+        span_lon = max_lon - min_lon
+        span_lat = max_lat - min_lat
+
+        # Handle zero span (single point)
+        if span_lon == 0:
+            span_lon = 0.001
+        if span_lat == 0:
+            span_lat = 0.001
+
+        # Add margin to span (similar to how plot sets limits)
+        margin = self.config.margin
+        span_lon += 2 * margin
+        span_lat += 2 * margin
+
+        # Figure dimensions in points
+        fig_w_pts = self.config.figsize[0] * 72
+        fig_h_pts = self.config.figsize[1] * 72
+
+        # Points per degree
+        scale_x = fig_w_pts / span_lon
+        scale_y = fig_h_pts / span_lat
+
+        # Use min scale (conservative, assumes aspect ratio adjustment shrinks one dim)
+        scale = min(scale_x, scale_y)
+
+        # Calculate offset in degrees
+        # We want the offset to be slightly less than linewidth to ensure overlap
+        offset_deg = (linewidth * overlap_factor) / scale
+
+        return offset_deg
 
 
 # =============================================================================
@@ -975,6 +1041,71 @@ class TrajectoryPlotter:
             )
 
         return True
+
+    def _calculate_dynamic_offset_step(
+        self,
+        trajectories: Dict[str, Trajectory],
+        linewidth: float = 2.5,
+        overlap_factor: float = 0.8,
+    ) -> float:
+        """
+        Calculate offset step dynamically based on trajectory bounds and figure size.
+        Ensures lines touch or slightly overlap regardless of zoom level.
+
+        Args:
+            trajectories: Dictionary of trajectories
+            linewidth: Target line width in points
+            overlap_factor: Factor to reduce offset to ensure overlap (0.0-1.0)
+
+        Returns:
+            Offset step in degrees
+        """
+        # 1. Calculate bounds of all trajectories
+        all_lons = []
+        all_lats = []
+        for t in trajectories.values():
+            if t.coords:
+                # Use raw coords for scale estimation
+                lons, lats = zip(*t.coords)
+                all_lons.extend(lons)
+                all_lats.extend(lats)
+
+        if not all_lons:
+            return 0.00015  # Fallback
+
+        min_lon, max_lon = min(all_lons), max(all_lons)
+        min_lat, max_lat = min(all_lats), max(all_lats)
+
+        span_lon = max_lon - min_lon
+        span_lat = max_lat - min_lat
+
+        # Handle zero span (single point)
+        if span_lon == 0:
+            span_lon = 0.001
+        if span_lat == 0:
+            span_lat = 0.001
+
+        # Add margin to span (similar to how plot sets limits)
+        margin = self.config.margin
+        span_lon += 2 * margin
+        span_lat += 2 * margin
+
+        # Figure dimensions in points
+        fig_w_pts = self.config.figsize[0] * 72
+        fig_h_pts = self.config.figsize[1] * 72
+
+        # Points per degree
+        scale_x = fig_w_pts / span_lon
+        scale_y = fig_h_pts / span_lat
+
+        # Use min scale (conservative, assumes aspect ratio adjustment shrinks one dim)
+        scale = min(scale_x, scale_y)
+
+        # Calculate offset in degrees
+        # We want the offset to be slightly less than linewidth to ensure overlap
+        offset_deg = (linewidth * overlap_factor) / scale
+
+        return offset_deg
 
     def _wgs84_to_gcj02(self, lon: float, lat: float) -> tuple[float, float]:
         """Convert WGS84 coordinates to GCJ-02 (for Chinese map providers like Gaode)
@@ -1176,8 +1307,11 @@ class TrajectoryPlotter:
         # Determine offsets for parallel plotting (ribbon effect)
         sorted_labels = sorted(trajectories.keys())
 
-        # Calculate offset step based on map scale (approximate)
-        offset_step = 0.00015
+        # Calculate offset step dynamically based on zoom level
+        offset_step = self._calculate_dynamic_offset_step(
+            trajectories, linewidth=3.0, overlap_factor=0.75
+        )
+
         total_width = (len(sorted_labels) - 1) * offset_step
         start_offset = -total_width / 2
 
@@ -1385,7 +1519,7 @@ class TrajectoryPlotter:
         for model_name in trajectories.keys():
             if model_name == "real":
                 model_colors[model_name] = "#f39c12"  # Orange/Gold for real
-                model_linestyles[model_name] = "--"
+                model_linestyles[model_name] = "-"
                 model_labels[model_name] = "Real Trajectory"
             else:
                 model_colors[model_name] = get_model_color(model_name)
@@ -1401,9 +1535,11 @@ class TrajectoryPlotter:
         # Determine offsets for parallel plotting (ribbon effect)
         models_to_plot = sorted(trajectories.keys())
 
-        # Calculate offset step based on map scale (approximate)
-        # 0.0001 degrees is roughly 10 meters
-        offset_step = 0.00015
+        # Calculate offset step dynamically based on zoom level
+        offset_step = self._calculate_dynamic_offset_step(
+            trajectories, linewidth=3.0, overlap_factor=0.75
+        )
+
         total_width = (len(models_to_plot) - 1) * offset_step
         start_offset = -total_width / 2
 
@@ -1435,18 +1571,16 @@ class TrajectoryPlotter:
             linestyle = model_linestyles.get(model_name, "-")
             label = model_labels.get(model_name, model_name)
 
-            is_real = model_name == "real"
-
             # Plot line with reduced opacity for visibility when overlapping
             ax.plot(
                 lons,
                 lats,
                 linestyle=linestyle,
-                linewidth=3.0 if is_real else 2.5,
+                linewidth=2.5,
                 label=label,
                 color=color,
-                zorder=20 if is_real else 10,
-                alpha=1.0 if is_real else 0.9,
+                zorder=10,
+                alpha=1.0,
                 solid_capstyle="round",
             )
 
@@ -1455,9 +1589,9 @@ class TrajectoryPlotter:
                 lons[0],
                 lats[0],
                 c=color,
-                s=100 if is_real else 60,
+                s=60,
                 marker="o",
-                zorder=25 if is_real else 15,
+                zorder=15,
                 edgecolors="black",
                 linewidths=1.5,
                 alpha=0.9,
@@ -1468,9 +1602,9 @@ class TrajectoryPlotter:
                 lons[-1],
                 lats[-1],
                 c=color,
-                s=100 if is_real else 60,
+                s=60,
                 marker="s",
-                zorder=25 if is_real else 15,
+                zorder=15,
                 edgecolors="black",
                 linewidths=1.5,
                 alpha=0.9,
