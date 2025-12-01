@@ -377,7 +377,7 @@ def get_model_line_style(model_name: str) -> str:
         return "-"
 
     # Unknown models get dashed line
-    return "--"
+    return "-"
 
 
 def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:

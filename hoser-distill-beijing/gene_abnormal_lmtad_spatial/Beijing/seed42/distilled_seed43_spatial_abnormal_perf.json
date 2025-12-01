@@ -1,0 +1,19 @@
+{
+  "total_time_mean": 2.37787711251406,
+  "total_time_std": 2.869260473381694,
+  "total_time_min": 0.08274632995016873,
+  "total_time_max": 20.01974871684797,
+  "total_time_median": 1.2178049579961225,
+  "total_time_p95": 8.509605189471042,
+  "forward_time_mean": 1.3797103876692056,
+  "forward_time_std": 1.6612935850872834,
+  "forward_count_mean": 394.8818,
+  "forward_count_std": 468.94754613790224,
+  "total_generation_time": 11889.3855625703,
+  "throughput_traj_per_sec": 0.4205431789293473,
+  "num_trajectories": 5000,
+  "forward_time_per_step_mean": 0.00346495832721114,
+  "beam_search_enabled": false,
+  "beam_width": 1,
+  "device": "cuda:0"
+}

@@ -28,6 +28,7 @@ import re
 
 # Import statistical functions from analyze_wang_results
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from tools.model_detection import extract_model_name
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -668,6 +669,13 @@ def aggregate_lmtad_perplexity_results(
     for result_file in result_files:
         result = load_evaluation_result(result_file)
         if result:
+            # Fix model name based on filename if needed (e.g. distilled_seed44 vs distilled)
+            # This handles cases where the internal JSON model name is generic (e.g. "distilled")
+            # but the filename contains specific seed info (e.g. "distilled_seed44")
+            detected_name = extract_model_name(result_file.name)
+            if detected_name != "unknown":
+                result["model"] = detected_name
+
             generated_results.append(result)
 
     if not generated_results:

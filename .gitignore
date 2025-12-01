@@ -141,3 +141,17 @@ scripts/*.log
 # Other evaluation directory outputs (keep only hoser-distill-beijing)
 hoser-distill-optuna-6/figures/**/*.pdf
 hoser-distill-optuna-6/models/*.pth
+hoser-distill-beijing/analysis_abnormal/Beijing/lmtad_spatial_results_aggregated.json
+hoser-distill-beijing/analysis_abnormal/Beijing/lmtad_spatial_results_aggregated.json.bak
+hoser-distill-beijing/eval_lmtad_spatial/Beijing/distilled_seed44_spatial_evaluation.json
+hoser-distill-beijing/eval_lmtad_spatial/Beijing/vanilla_seed42_spatial_evaluation.json
+hoser-distill-beijing/eval_lmtad_spatial/Beijing/vanilla_seed43_spatial_evaluation.json
+hoser-distill-beijing/eval_lmtad_spatial/Beijing/vanilla_seed44_spatial_evaluation.json
+hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/distilled_seed44_spatial_abnormal_perf.json
+hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/distilled_seed44_spatial_abnormal.csv
+hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/vanilla_seed42_spatial_abnormal_perf.json
+hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/vanilla_seed42_spatial_abnormal.csv
+hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/vanilla_seed43_spatial_abnormal_perf.json
+hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/vanilla_seed43_spatial_abnormal.csv
+hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/vanilla_seed44_spatial_abnormal_perf.json
+hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/vanilla_seed44_spatial_abnormal.csv

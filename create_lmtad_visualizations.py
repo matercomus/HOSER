@@ -4,23 +4,28 @@ LM-TAD Evaluation Results Visualization Script
 Creates comprehensive visualizations for teacher-student model comparison
 """
 
+import argparse
 import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-import time
 from datetime import datetime
 import re
-from typing import Dict
+from typing import Dict, List
 import warnings
 import sys
 
 # Add tools directory to path for model detection
 PROJECT_ROOT = Path(__file__).parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
-from tools.model_detection import extract_model_name, get_display_name, get_model_color  # noqa: E402
+from tools.model_detection import (  # noqa: E402
+    extract_model_name,
+    get_display_name,
+    get_model_color,
+    parse_model_components,
+)
 
 warnings.filterwarnings("ignore")
 
@@ -30,44 +35,57 @@ sns.set_palette("husl")
 
 # Configuration
 BASE_DIR = Path("/home/matt/Dev/HOSER")
-EVAL_DIR = (
+# Default, can be overridden by args
+DEFAULT_EVAL_DIR = (
     BASE_DIR
     / "hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732"
     / "eval_lmtad_simple"
     / "porto_hoser"
 )
-OUTPUT_DIR = EVAL_DIR / "figures"
-
-# Ensure output directory exists
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def monitor_for_results(max_wait_hours=3, check_interval_seconds=30) -> bool:
+def get_sorted_models(model_names: List[str]) -> List[str]:
     """
-    Monitor for evaluation results to become available
-    Returns True when results are found
+    Sort model names logically:
+    1. Vanilla
+    2. Distilled
+    3. Distill Phase 1
+    4. Distill Phase 2
+    ...
+    Within each group, sort by seed.
     """
-    print("Monitoring for evaluation results...")
-    print(f"Looking for: {EVAL_DIR}/evaluation_results.json")
-    print(f"Check interval: {check_interval_seconds}s")
-    print(f"Max wait time: {max_wait_hours} hours\n")
 
-    start_time = time.time()
-    max_wait_seconds = max_wait_hours * 3600
+    def sort_key(name):
+        components = parse_model_components(name)
+        base = components["base_model"]
+        seed = components["seed"] or ""
 
-    while (time.time() - start_time) < max_wait_seconds:
-        if (EVAL_DIR / "evaluation_results.json").exists():
-            print(
-                f"\n✓ Results found! Elapsed time: {(time.time() - start_time) / 60:.1f} minutes"
-            )
-            return True
+        # Define base order
+        base_order = {
+            "vanilla": 0,
+            "distilled": 1,
+            "distill_phase1": 2,
+            "distill_phase2": 3,
+            "distill_phase3": 4,
+        }
 
-        elapsed_min = (time.time() - start_time) / 60
-        print(f"  Waiting... ({elapsed_min:.1f} min elapsed)", end="\r")
-        time.sleep(check_interval_seconds)
+        # Get order index, default to 99 for unknown
+        order_idx = base_order.get(base, 99)
 
-    print(f"\n✗ Timeout after {max_wait_hours} hours")
-    return False
+        # If base not in map, try to guess based on string
+        if order_idx == 99:
+            if "vanilla" in base:
+                order_idx = 0
+            elif "distilled" in base:
+                order_idx = 1
+            elif "phase1" in base:
+                order_idx = 2
+            elif "phase2" in base:
+                order_idx = 3
+
+        return (order_idx, base, seed)
+
+    return sorted(model_names, key=sort_key)
 
 
 def parse_results_json(json_path: Path) -> Dict:
@@ -85,11 +103,49 @@ def organize_results_by_model(results: Dict) -> Dict:
     Converts keys like '2025-11-07_00-13-07_distill_phase1_train' into
     organized structure by model type and split.
 
+    Also handles aggregated results format (lmtad_spatial_results_aggregated.json).
+
     Returns:
         Dictionary with structure: {model_name: {split: data}}
     """
     organized = {}
 
+    # Check for aggregated format (Beijing style)
+    if "generated_data" in results:
+        print("  Detected aggregated results format")
+        for dataset, models in results["generated_data"].items():
+            for model_name, data in models.items():
+                if model_name == "real":
+                    continue
+
+                if model_name not in organized:
+                    organized[model_name] = {}
+
+                # Aggregated data is typically from generation/test phase
+                # We map it to "test" split for visualization compatibility
+                organized[model_name]["test"] = {
+                    "mean_log_perplexity": data.get("log_perplexity_stats", {}).get(
+                        "mean", 0
+                    ),
+                    "std_log_perplexity": data.get("log_perplexity_stats", {}).get(
+                        "std", 0
+                    ),
+                    "outlier_rate": 0,  # Not always available in this view
+                    "log_perplexity_values": [],
+                }
+
+                # Try to get raw values if available
+                if "trajectories_with_perplexity" in data:
+                    vals = [
+                        t.get("log_perplexity")
+                        for t in data["trajectories_with_perplexity"]
+                        if t.get("log_perplexity") is not None
+                    ]
+                    organized[model_name]["test"]["log_perplexity_values"] = vals
+
+        return organized
+
+    # Standard flat format (Porto style)
     for key, data in results.items():
         # Extract model name from key using centralized utility
         model_name = extract_model_name(key)
@@ -164,17 +220,7 @@ def create_model_comparison_plot(results: Dict, output_dir: Path):
     organized = organize_results_by_model(results)
 
     # Get all individual models (including seed variants) in logical order
-    all_model_keys = [
-        "vanilla",
-        "vanilla_seed43",
-        "vanilla_seed44",
-        "distill_phase1",
-        "distill_phase1_seed43",
-        "distill_phase1_seed44",
-        "distill_phase2",
-        "distill_phase2_seed43",
-        "distill_phase2_seed44",
-    ]
+    all_model_keys = get_sorted_models(list(organized.keys()))
 
     fig, ax1 = plt.subplots(figsize=(18, 8))
 
@@ -411,30 +457,19 @@ def create_perplexity_distribution_plot(results: Dict, output_dir: Path):
     x_range = np.linspace(min_perp - padding, max_perp + padding, 300)
 
     # Use different line styles for seed variants
-    linestyles = {
-        "vanilla": "-",
-        "vanilla_seed43": "--",
-        "vanilla_seed44": "-.",
-        "distill_phase1": "-",
-        "distill_phase1_seed43": "--",
-        "distill_phase1_seed44": "-.",
-        "distill_phase2": "-",
-        "distill_phase2_seed43": "--",
-        "distill_phase2_seed44": "-.",
-    }
+    def get_linestyle(name):
+        if "seed42" in name:
+            return "-"
+        if "seed43" in name:
+            return "--"
+        if "seed44" in name:
+            return "-."
+        if "seed" not in name:
+            return "-"
+        return ":"
 
     # All model keys
-    all_model_keys = [
-        "vanilla",
-        "vanilla_seed43",
-        "vanilla_seed44",
-        "distill_phase1",
-        "distill_phase1_seed43",
-        "distill_phase1_seed44",
-        "distill_phase2",
-        "distill_phase2_seed43",
-        "distill_phase2_seed44",
-    ]
+    all_model_keys = get_sorted_models(list(df["model"].unique()))
 
     for model_key in all_model_keys:
         # Get data for this model (combine train and test)
@@ -443,7 +478,7 @@ def create_perplexity_distribution_plot(results: Dict, output_dir: Path):
         if len(model_data) > 0:
             color = get_model_color(model_key)
             label = get_display_name(model_key)
-            linestyle = linestyles.get(model_key, "-")
+            linestyle = get_linestyle(model_key)
 
             # Calculate KDE
             kde = stats.gaussian_kde(model_data)
@@ -488,18 +523,8 @@ def create_outlier_rate_comparison(
 
     fig, ax1 = plt.subplots(figsize=(14, 8))
 
-    # From results.json - show all 9 individual models
-    all_model_keys = [
-        "vanilla",
-        "vanilla_seed43",
-        "vanilla_seed44",
-        "distill_phase1",
-        "distill_phase1_seed43",
-        "distill_phase1_seed44",
-        "distill_phase2",
-        "distill_phase2_seed43",
-        "distill_phase2_seed44",
-    ]
+    # From results.json - show all individual models
+    all_model_keys = get_sorted_models(list(organized.keys()))
 
     models = []
     model_labels = []
@@ -564,8 +589,26 @@ def create_distillation_progression_plot(results: Dict, output_dir: Path):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 
     # Treat all as separate models, not a progression
-    model_keys = ["vanilla", "distill_phase1", "distill_phase2"]
-    model_labels = ["Vanilla", "HParam Tuning Phase 1", "HParam Tuning Phase 2"]
+    # Dynamically identify base models
+    all_models = list(organized.keys())
+    base_models = set()
+    for m in all_models:
+        comp = parse_model_components(m)
+        base_models.add(comp["base_model"])
+
+    # Sort base models logically
+    model_keys = []
+    if "vanilla" in base_models:
+        model_keys.append("vanilla")
+    if "distilled" in base_models:
+        model_keys.append("distilled")
+
+    # Add phases
+    phases = [m for m in base_models if "phase" in m]
+    phases.sort()  # phase1, phase2...
+    model_keys.extend(phases)
+
+    model_labels = [get_display_name(m) for m in model_keys]
 
     # Train and test perplexity
     train_values = []
@@ -801,9 +844,43 @@ def main():
     print("LM-TAD Evaluation Results Visualization")
     print("=" * 80 + "\n")
 
-    # Check if results are available
-    if not monitor_for_results(max_wait_hours=3, check_interval_seconds=30):
-        print("\n⚠ Results not available yet. Exiting.")
+    parser = argparse.ArgumentParser(
+        description="LM-TAD Evaluation Results Visualization"
+    )
+    parser.add_argument("--eval-dir", type=Path, help="Path to evaluation directory")
+    args = parser.parse_args()
+
+    global EVAL_DIR, OUTPUT_DIR
+    if args.eval_dir:
+        EVAL_DIR = args.eval_dir
+    else:
+        EVAL_DIR = DEFAULT_EVAL_DIR
+
+    # Try to find results file
+    results_file = EVAL_DIR / "evaluation_results.json"
+    if not results_file.exists():
+        # Try Beijing style aggregated results
+        # Look in analysis_abnormal/*/lmtad_spatial_results_aggregated.json
+        candidates = list(
+            EVAL_DIR.glob("analysis_abnormal/*/lmtad_spatial_results_aggregated.json")
+        )
+        if candidates:
+            results_file = candidates[0]
+            print(f"Found aggregated results: {results_file}")
+        else:
+            # Try eval_lmtad_simple/dataset/evaluation_results.json (Porto style if eval-dir is root)
+            candidates = list(
+                EVAL_DIR.glob("eval_lmtad_simple/*/evaluation_results.json")
+            )
+            if candidates:
+                results_file = candidates[0]
+                print(f"Found results: {results_file}")
+
+    OUTPUT_DIR = EVAL_DIR / "figures"
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not results_file.exists():
+        print(f"\n⚠ Results not found in {EVAL_DIR}. Exiting.")
         return
 
     print("\n" + "-" * 80)
@@ -814,17 +891,16 @@ def main():
     results = {}
     csv_df = pd.DataFrame()
 
-    if (EVAL_DIR / "evaluation_results.json").exists():
-        results = parse_results_json(EVAL_DIR / "evaluation_results.json")
-        print(f"\n✓ Loaded {len(results)} metrics from results.json")
-    else:
-        print("\n⚠ evaluation_results.json not found")
+    if results_file.exists():
+        results = parse_results_json(results_file)
+        print(f"\n✓ Loaded metrics from {results_file.name}")
 
     if (EVAL_DIR / "evaluation_summary.csv").exists():
         csv_df = pd.read_csv(EVAL_DIR / "evaluation_summary.csv")
         print(f"✓ Loaded summary CSV with {len(csv_df)} rows")
     else:
         # Try to load all CSV files
+        # For Beijing, CSVs might be in gene_abnormal_lmtad_spatial/Beijing/seedXX/
         csv_df = parse_csv_files(EVAL_DIR)
 
     print("\n" + "=" * 80)
