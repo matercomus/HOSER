@@ -1271,6 +1271,7 @@ class TrajectoryPlotter:
         ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
         ax.set_xlabel("Longitude", fontsize=12)
         ax.set_ylabel("Latitude", fontsize=12)
+        ax.set_aspect("equal", adjustable="box")
 
         # Save both formats
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1398,6 +1399,7 @@ class TrajectoryPlotter:
         ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
         ax.set_xlabel("Longitude", fontsize=12)
         ax.set_ylabel("Latitude", fontsize=12)
+        ax.set_aspect("equal", adjustable="box")
 
         # Save both formats
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1716,6 +1718,7 @@ class TrajectoryPlotter:
 
         ax.set_xlabel("Longitude", fontsize=12)
         ax.set_ylabel("Latitude", fontsize=12)
+        ax.set_aspect("equal", adjustable="box")
 
         # Add info box with missing models warning if applicable
         info_lines = [f"Trajectories: {len(trajectories)}/{len(model_labels)}"]
