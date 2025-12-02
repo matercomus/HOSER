@@ -13,6 +13,7 @@ import argparse
 import ast
 import json
 import logging
+import math
 import random
 import yaml
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 import numpy as np
 import polars as pl
 
@@ -43,6 +45,39 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def place_bottom_legend(
+    ax: Axes,
+    handles: Optional[List] = None,
+    title: Optional[str] = None,
+    fontsize: int = 11,
+    title_fontsize: Optional[int] = None,
+    bottom_padding: float = 0.1,
+) -> None:
+    """Render a shared legend style below the plot area.
+
+    The legend is always two columns, frameless, and centered beneath the
+    x-axis tick labels so every visualization reads consistently.
+    """
+
+    legend_kwargs = {
+        "loc": "upper center",
+        "bbox_to_anchor": (0.5, -0.09),
+        "ncol": 2,
+        "frameon": False,
+        "fontsize": fontsize,
+        "title": title,
+        "title_fontsize": title_fontsize,
+    }
+
+    if handles is None:
+        ax.legend(**legend_kwargs)
+    else:
+        ax.legend(handles=handles, **legend_kwargs)
+
+    # Ensure there is room for the legend beneath the axes.
+    ax.figure.subplots_adjust(bottom=max(bottom_padding, ax.figure.subplotpars.bottom))
 
 
 # =============================================================================
@@ -815,12 +850,11 @@ class TrajectoryComparisonPlotter:
                 )
             )
 
-        ax.legend(
+        place_bottom_legend(
+            ax,
             handles=legend_elements,
-            loc="best",
-            frameon=True,
-            fontsize=9,
             title="Models" if not scenario_labels else "Models (Scenarios)",
+            fontsize=9,
         )
 
         ax.set_title(title, fontsize=14, pad=15)
@@ -1088,7 +1122,6 @@ class TrajectoryPlotter:
 
         Algorithm based on: https://github.com/wandergis/coordtransform
         """
-        import math
 
         # Constants
         a = 6378245.0  # Semi-major axis
@@ -1244,7 +1277,7 @@ class TrajectoryPlotter:
                 f"{trajectory.model} - {trajectory.od_type} OD - {trajectory.source}"
             )
         ax.set_title(title, fontsize=16, fontweight="bold", pad=20)
-        ax.legend(loc="best", fontsize=12, framealpha=0.9)
+        place_bottom_legend(ax, fontsize=12)
         ax.set_xlabel("Longitude", fontsize=12)
         ax.set_ylabel("Latitude", fontsize=12)
         ax.set_aspect("equal", adjustable="box")
@@ -1370,7 +1403,7 @@ class TrajectoryPlotter:
             first_traj = next(iter(trajectories.values()))
             title = f"{first_traj.model} - {first_traj.od_type} OD - All Lengths"
         ax.set_title(title, fontsize=16, fontweight="bold", pad=20)
-        ax.legend(loc="best", fontsize=12, framealpha=0.9)
+        place_bottom_legend(ax, fontsize=12)
         ax.set_xlabel("Longitude", fontsize=12)
         ax.set_ylabel("Latitude", fontsize=12)
         ax.set_aspect("equal", adjustable="box")
@@ -1628,9 +1661,6 @@ class TrajectoryPlotter:
                 )
             )
 
-        # Add separator
-        legend_elements.append(Line2D([0], [0], color="none", label=""))
-
         # Add road network
         if self.road_network:
             legend_elements.append(
@@ -1674,13 +1704,11 @@ class TrajectoryPlotter:
             )
         )
 
-        # Place legend outside plot area to avoid obstructing trajectories
-        ax.legend(
+        place_bottom_legend(
+            ax,
             handles=legend_elements,
-            loc="best",
-            fontsize=11,
-            framealpha=0.95,
             title="Legend",
+            fontsize=11,
             title_fontsize=12,
         )
 
