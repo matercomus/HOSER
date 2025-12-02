@@ -730,9 +730,7 @@ class TrajectoryComparisonPlotter:
 
         all_lons, all_lats = [], []
         models_to_plot = sorted(trajectories.keys())
-        offset_step = self._calculate_dynamic_offset_step(
-            trajectories, linewidth=3.0, overlap_factor=0.75
-        )
+        offset_step = self._calculate_dynamic_offset_step(trajectories)
         total_width = (len(models_to_plot) - 1) * offset_step
         start_offset = -total_width / 2
         model_offsets = {
@@ -766,7 +764,7 @@ class TrajectoryComparisonPlotter:
                 lats,
                 color=color,
                 linestyle=linestyle,
-                linewidth=2.5,
+                linewidth=4.0,
                 alpha=1.0,
                 zorder=10,
                 solid_capstyle="round",
@@ -812,15 +810,14 @@ class TrajectoryComparisonPlotter:
                     [0],
                     color=color,
                     linestyle=linestyle,
-                    linewidth=2.5 if model_name == "real" else 2,
+                    linewidth=4.0,
                     label=label,
                 )
             )
 
         ax.legend(
             handles=legend_elements,
-            loc="center left",
-            bbox_to_anchor=(1.02, 0.5),
+            loc="best",
             frameon=True,
             fontsize=9,
             title="Models" if not scenario_labels else "Models (Scenarios)",
@@ -851,8 +848,8 @@ class TrajectoryComparisonPlotter:
     def _calculate_dynamic_offset_step(
         self,
         trajectories: Dict[str, Trajectory],
-        linewidth: float = 2.5,
-        overlap_factor: float = 0.8,
+        linewidth: float = 4.0,
+        overlap_factor: float = 0.1,
     ) -> float:
         """
         Calculate offset step dynamically based on trajectory bounds and figure size.
@@ -1024,8 +1021,8 @@ class TrajectoryPlotter:
     def _calculate_dynamic_offset_step(
         self,
         trajectories: Dict[str, Trajectory],
-        linewidth: float = 2.5,
-        overlap_factor: float = 0.8,
+        linewidth: float = 4.0,
+        overlap_factor: float = 0.99,
     ) -> float:
         """
         Calculate offset step dynamically based on trajectory bounds and figure size.
@@ -1208,7 +1205,7 @@ class TrajectoryPlotter:
 
         # Plot trajectory line
         ax.plot(
-            lons, lats, "b-", linewidth=2.5, label="Trajectory", zorder=3, alpha=1.0
+            lons, lats, "b-", linewidth=4.0, label="Trajectory", zorder=3, alpha=1.0
         )
 
         # Start marker (green circle)
@@ -1247,7 +1244,7 @@ class TrajectoryPlotter:
                 f"{trajectory.model} - {trajectory.od_type} OD - {trajectory.source}"
             )
         ax.set_title(title, fontsize=16, fontweight="bold", pad=20)
-        ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
+        ax.legend(loc="best", fontsize=12, framealpha=0.9)
         ax.set_xlabel("Longitude", fontsize=12)
         ax.set_ylabel("Latitude", fontsize=12)
         ax.set_aspect("equal", adjustable="box")
@@ -1288,9 +1285,7 @@ class TrajectoryPlotter:
         sorted_labels = sorted(trajectories.keys())
 
         # Calculate offset step dynamically based on zoom level
-        offset_step = self._calculate_dynamic_offset_step(
-            trajectories, linewidth=3.0, overlap_factor=0.75
-        )
+        offset_step = self._calculate_dynamic_offset_step(trajectories)
 
         total_width = (len(sorted_labels) - 1) * offset_step
         start_offset = -total_width / 2
@@ -1324,7 +1319,7 @@ class TrajectoryPlotter:
                 lons,
                 lats,
                 "-",
-                linewidth=2.5,
+                linewidth=4.0,
                 label=f"{label.capitalize()}",
                 color=color,
                 zorder=3,
@@ -1375,7 +1370,7 @@ class TrajectoryPlotter:
             first_traj = next(iter(trajectories.values()))
             title = f"{first_traj.model} - {first_traj.od_type} OD - All Lengths"
         ax.set_title(title, fontsize=16, fontweight="bold", pad=20)
-        ax.legend(loc="upper right", fontsize=12, framealpha=0.9)
+        ax.legend(loc="best", fontsize=12, framealpha=0.9)
         ax.set_xlabel("Longitude", fontsize=12)
         ax.set_ylabel("Latitude", fontsize=12)
         ax.set_aspect("equal", adjustable="box")
@@ -1515,9 +1510,7 @@ class TrajectoryPlotter:
         models_to_plot = sorted(trajectories.keys())
 
         # Calculate offset step dynamically based on zoom level
-        offset_step = self._calculate_dynamic_offset_step(
-            trajectories, linewidth=3.0, overlap_factor=0.75
-        )
+        offset_step = self._calculate_dynamic_offset_step(trajectories)
 
         total_width = (len(models_to_plot) - 1) * offset_step
         start_offset = -total_width / 2
@@ -1555,7 +1548,7 @@ class TrajectoryPlotter:
                 lons,
                 lats,
                 linestyle=linestyle,
-                linewidth=2.5,
+                linewidth=4.0,
                 label=label,
                 color=color,
                 zorder=10,
@@ -1616,8 +1609,7 @@ class TrajectoryPlotter:
             color = model_colors.get(model_name, get_model_color(model_name))
             linestyle = model_linestyles.get(model_name, "-")
             base_label = model_labels.get(model_name, model_name)
-            linewidth = 3.5 if model_name == "real" else 2.5
-
+            linewidth = 4.0
             # Add overlap percentage to label (skip for real trajectory)
             if model_name == "real":
                 label = base_label
@@ -1685,8 +1677,7 @@ class TrajectoryPlotter:
         # Place legend outside plot area to avoid obstructing trajectories
         ax.legend(
             handles=legend_elements,
-            loc="center left",
-            bbox_to_anchor=(1.02, 0.5),
+            loc="best",
             fontsize=11,
             framealpha=0.95,
             title="Legend",
@@ -1696,29 +1687,6 @@ class TrajectoryPlotter:
         ax.set_xlabel("Longitude", fontsize=12)
         ax.set_ylabel("Latitude", fontsize=12)
         ax.set_aspect("equal", adjustable="box")
-
-        # Add info box with missing models warning if applicable
-        info_lines = [f"Trajectories: {len(trajectories)}/{len(model_labels)}"]
-        if missing_models:
-            missing_names = [model_labels.get(m, m) for m in missing_models]
-            info_lines.append(f"⚠️  Missing: {', '.join(missing_names)}")
-
-        info_text = "\n".join(info_lines)
-        bbox_props = dict(
-            boxstyle="round",
-            facecolor="lightyellow" if missing_models else "white",
-            alpha=1.0,
-            edgecolor="orange" if missing_models else "gray",
-        )
-        ax.text(
-            0.02,
-            0.02,
-            info_text,
-            transform=ax.transAxes,
-            fontsize=10,
-            verticalalignment="bottom",
-            bbox=bbox_props,
-        )
 
         # Save both formats
         output_path.parent.mkdir(parents=True, exist_ok=True)
