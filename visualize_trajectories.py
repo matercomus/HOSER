@@ -52,6 +52,10 @@ logger = logging.getLogger(__name__)
 TRIO_REQUIRED_BASE_MODELS = frozenset({"vanilla", "distilled"})
 DEFAULT_SEED_LABEL = "default"
 
+# Shared legend placement constants ensure consistent spacing beneath plots.
+BOTTOM_LEGEND_Y_OFFSET = -0.14
+BOTTOM_LEGEND_PADDING = 0.22
+
 
 def place_bottom_legend(
     ax: Axes,
@@ -59,7 +63,7 @@ def place_bottom_legend(
     title: Optional[str] = None,
     fontsize: int = 11,
     title_fontsize: Optional[int] = None,
-    bottom_padding: float = 0.1,
+    bottom_padding: float = BOTTOM_LEGEND_PADDING,
 ) -> None:
     """Render a shared legend style below the plot area.
 
@@ -69,7 +73,7 @@ def place_bottom_legend(
 
     legend_kwargs = {
         "loc": "upper center",
-        "bbox_to_anchor": (0.5, -0.09),
+        "bbox_to_anchor": (0.5, BOTTOM_LEGEND_Y_OFFSET),
         "ncol": 2,
         "frameon": False,
         "fontsize": fontsize,
@@ -83,7 +87,10 @@ def place_bottom_legend(
         ax.legend(handles=handles, **legend_kwargs)
 
     # Ensure there is room for the legend beneath the axes.
-    ax.figure.subplots_adjust(bottom=max(bottom_padding, ax.figure.subplotpars.bottom))
+    if not ax.figure.get_constrained_layout():
+        padded_bottom = max(bottom_padding, BOTTOM_LEGEND_PADDING)
+        if padded_bottom > ax.figure.subplotpars.bottom:
+            ax.figure.subplots_adjust(bottom=padded_bottom)
 
 
 # =============================================================================
@@ -1288,6 +1295,8 @@ class TrajectoryPlotter:
         ax.set_ylabel("Latitude", fontsize=12)
         ax.set_aspect("equal", adjustable="box")
 
+        fig.tight_layout()
+
         # Save both formats
         output_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
@@ -1414,6 +1423,7 @@ class TrajectoryPlotter:
         ax.set_ylabel("Latitude", fontsize=12)
         ax.set_aspect("equal", adjustable="box")
 
+        fig.tight_layout()
         # Save both formats
         output_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
