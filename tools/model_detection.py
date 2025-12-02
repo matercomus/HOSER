@@ -27,6 +27,10 @@ from typing import Any, Dict, List, Optional
 import seaborn as sns
 from matplotlib.colors import to_hex
 
+DEFAULT_SEED_TOKEN = "default"
+DEFAULT_SEED_NUMBER = 42
+PHASE_ENABLED_PREFIXES = ("porto",)
+
 
 @dataclass
 class ModelFile:
@@ -206,6 +210,18 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         base_offset=1,
     ),
 }
+
+
+@dataclass(frozen=True)
+class ModelMetadata:
+    """Canonical metadata extracted from a model identifier."""
+
+    model_name: str
+    base_model: str
+    normalized_base: str
+    seed_label: Optional[str]
+    seed_number: Optional[int]
+    phase_label: Optional[str]
 
 
 def extract_model_name(filename: str) -> str:
@@ -395,6 +411,104 @@ def _seed_to_index(seed: Optional[str]) -> int:
     if match:
         return int(match.group(1))
     return sum(ord(ch) for ch in seed)
+
+
+def normalize_base_model(base_model: Optional[str]) -> str:
+    """Normalize base model aliases for trio validation and grouping."""
+
+    if not base_model:
+        return "unknown"
+    if base_model.startswith("distill"):
+        return "distilled"
+    return base_model
+
+
+def get_phase_label_from_base(base_model: Optional[str]) -> Optional[str]:
+    """Return a concise phase label derived from the base model name."""
+
+    if not base_model:
+        return None
+    if base_model.startswith("distill_phase"):
+        return base_model.replace("distill_", "")
+    if base_model == "distilled":
+        return "distilled"
+    return None
+
+
+def seed_label_to_number(seed_label: Optional[str]) -> Optional[int]:
+    """Convert canonical seed tokens (seed42/default) into integers."""
+
+    if not seed_label:
+        return None
+
+    digits = _extract_digits(seed_label)
+    if digits.isdigit():
+        return int(digits)
+
+    if seed_label.lower() == DEFAULT_SEED_TOKEN:
+        return DEFAULT_SEED_NUMBER
+
+    return None
+
+
+def format_seed_label(seed_label: Optional[str]) -> Optional[str]:
+    """Return a human-friendly seed display label."""
+
+    seed_number = seed_label_to_number(seed_label)
+    if seed_number is not None:
+        return f"Seed {seed_number}"
+
+    if not seed_label:
+        return None
+
+    display = seed_label.replace("_", " ").title()
+    return f"Seed {display}".strip()
+
+
+def format_phase_display(phase_label: Optional[str]) -> Optional[str]:
+    """Return a spaced, title-cased phase label for display."""
+
+    if not phase_label:
+        return None
+
+    text = phase_label.replace("_", " ").title()
+    chars: List[str] = []
+    for idx, char in enumerate(text):
+        if idx > 0 and char.isdigit() and text[idx - 1].isalpha():
+            chars.append(" ")
+        chars.append(char)
+
+    return "".join(chars).strip()
+
+
+def build_model_metadata(model_name: str) -> ModelMetadata:
+    """Build a reusable metadata snapshot for a model identifier."""
+
+    components = parse_model_components(model_name)
+    base_model = components.get("base_model") or "unknown"
+    normalized = normalize_base_model(base_model)
+    seed_label = components.get("seed")
+    phase_label = get_phase_label_from_base(base_model)
+    seed_number = seed_label_to_number(seed_label)
+
+    return ModelMetadata(
+        model_name=model_name,
+        base_model=base_model,
+        normalized_base=normalized,
+        seed_label=seed_label,
+        seed_number=seed_number,
+        phase_label=phase_label,
+    )
+
+
+def dataset_supports_phases(dataset_name: Optional[str]) -> bool:
+    """Return True if the dataset encodes distinct distillation phases."""
+
+    if not dataset_name:
+        return False
+
+    slug = dataset_name.lower()
+    return any(slug.startswith(prefix) for prefix in PHASE_ENABLED_PREFIXES)
 
 
 DEFAULT_MODEL_NAMES = [

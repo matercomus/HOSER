@@ -3,12 +3,16 @@
 import pytest
 from pathlib import Path
 from tools.model_detection import (
+    ModelFile,
+    build_model_metadata,
+    dataset_supports_phases,
     extract_model_name,
+    format_phase_display,
+    format_seed_label,
     get_display_name,
     get_model_color,
     get_model_line_style,
     parse_model_components,
-    ModelFile,
 )
 
 
@@ -226,36 +230,36 @@ class TestGetModelColor:
 
     def test_beijing_models_colors(self):
         """Test colors for Beijing models (green family)."""
-        assert get_model_color("distilled") == "#7cb6ac"
-        assert get_model_color("distilled_seed42") == "#5f9da9"
-        assert get_model_color("distilled_seed43") == "#5690a7"
-        assert get_model_color("distilled_seed44") == "#5782a3"
+        assert get_model_color("distilled") == "#509e90"
+        assert get_model_color("distilled_seed42") == "#2a7d8c"
+        assert get_model_color("distilled_seed43") == "#1d6c8a"
+        assert get_model_color("distilled_seed44") == "#1f5985"
 
     def test_porto_phase1_colors(self):
         """Test colors for Porto phase 1 models (blue family)."""
-        assert get_model_color("distill_phase1") == "#938ca6"
-        assert get_model_color("distill_phase1_seed42") == "#91adca"
-        assert get_model_color("distill_phase1_seed43") == "#8fbfce"
-        assert get_model_color("distill_phase1_seed44") == "#92d0d1"
+        assert get_model_color("distill_phase1") == "#3b2e5d"
+        assert get_model_color("distill_phase1_seed42") == "#366a9f"
+        assert get_model_color("distill_phase1_seed43") == "#348ba6"
+        assert get_model_color("distill_phase1_seed44") == "#38aaac"
 
     def test_porto_phase2_colors(self):
         """Test colors for Porto phase 2 models (purple family)."""
-        assert get_model_color("distill_phase2") == "#af6d94"
-        assert get_model_color("distill_phase2_seed42") == "#e97686"
-        assert get_model_color("distill_phase2_seed43") == "#f69785"
-        assert get_model_color("distill_phase2_seed44") == "#f9b99f"
+        assert get_model_color("distill_phase2") == "#841e5a"
+        assert get_model_color("distill_phase2_seed42") == "#dd2c45"
+        assert get_model_color("distill_phase2_seed43") == "#f06043"
+        assert get_model_color("distill_phase2_seed44") == "#f5946b"
 
     def test_vanilla_colors(self):
         """Test colors for vanilla models (red family)."""
-        assert get_model_color("vanilla") == "#e57d7c"
-        assert get_model_color("vanilla_seed42") == "#c36489"
-        assert get_model_color("vanilla_seed43") == "#ae5e8d"
-        assert get_model_color("vanilla_seed44") == "#99588d"
+        assert get_model_color("vanilla") == "#de5d5c"
+        assert get_model_color("vanilla_seed42") == "#b43d6b"
+        assert get_model_color("vanilla_seed43") == "#9a3670"
+        assert get_model_color("vanilla_seed44") == "#7f2f70"
 
     def test_special_colors(self):
         """Test colors for special cases."""
         assert get_model_color("real") == "#fede8b"
-        assert get_model_color("unknown") == "#b5b5b5"
+        assert get_model_color("unknown") == "#959595"
 
     def test_color_format(self):
         """Test that all colors are valid hex codes."""
@@ -382,6 +386,37 @@ class TestModelFile:
         assert mf.filename == "test.csv"
 
 
+class TestMetadataHelpers:
+    """Tests for metadata helper utilities."""
+
+    def test_build_model_metadata_porto(self):
+        """Verify metadata extraction for Porto distillation models."""
+
+        metadata = build_model_metadata("distill_phase2_seed43")
+
+        assert metadata.base_model == "distill_phase2"
+        assert metadata.normalized_base == "distilled"
+        assert metadata.seed_label == "seed43"
+        assert metadata.seed_number == 43
+        assert metadata.phase_label == "phase2"
+
+    def test_format_seed_label_default_seed(self):
+        """Default seed token should map to Seed 42 label."""
+
+        assert format_seed_label("default") == "Seed 42"
+
+    def test_format_phase_display_spacing(self):
+        """Phase labels should insert space before digits."""
+
+        assert format_phase_display("phase2") == "Phase 2"
+
+    def test_dataset_supports_phases(self):
+        """Only Porto-family datasets report phase support."""
+
+        assert dataset_supports_phases("porto_hoser") is True
+        assert dataset_supports_phases("Beijing") is False
+
+
 class TestIntegration:
     """Integration tests combining multiple functions."""
 
@@ -399,7 +434,7 @@ class TestIntegration:
 
         # Get color
         color = get_model_color(model)
-        assert color == "#5782a3"
+        assert color == "#1f5985"
 
         # Parse components
         components = parse_model_components(model)
@@ -415,9 +450,9 @@ class TestIntegration:
         ]
 
         expected = [
-            ("distilled_seed44", "Distilled (seed 44)", "#5782a3"),
-            ("distill_phase2_seed43", "Distill Phase 2 (seed 43)", "#f69785"),
-            ("vanilla", "Vanilla", "#e57d7c"),
+            ("distilled_seed44", "Distilled (seed 44)", "#1f5985"),
+            ("distill_phase2_seed43", "Distill Phase 2 (seed 43)", "#f06043"),
+            ("vanilla", "Vanilla", "#de5d5c"),
         ]
 
         for filename, (exp_model, exp_display, exp_color) in zip(filenames, expected):

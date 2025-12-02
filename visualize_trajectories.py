@@ -27,12 +27,16 @@ import polars as pl
 
 # Import model detection utility
 from tools.model_detection import (
-    ModelFile,
+    ModelMetadata,
+    DEFAULT_SEED_TOKEN,
+    build_model_metadata,
+    dataset_supports_phases,
+    format_phase_display,
+    format_seed_label,
     get_model_color,
     get_model_line_style,
     get_display_name,
     extract_model_name,
-    parse_model_components,
 )
 
 try:
@@ -50,7 +54,6 @@ logger = logging.getLogger(__name__)
 
 # Require full vanilla/distilled/real trios before rendering cross-model plots
 TRIO_REQUIRED_BASE_MODELS = frozenset({"vanilla", "distilled"})
-DEFAULT_SEED_LABEL = "default"
 
 # Shared legend placement constants ensure consistent spacing beneath plots.
 BOTTOM_LEGEND_Y_OFFSET = -0.14
@@ -1756,7 +1759,8 @@ class TrajectoryVisualizer:
         self.generated_plots = []
 
         # Cache model detection metadata for trio validation
-        self.model_metadata: Dict[str, ModelFile] = {}
+        self.model_metadata: Dict[str, ModelMetadata] = {}
+        self.dataset_has_phases = dataset_supports_phases(self.config.dataset)
 
         # Load road network
         road_loader = RoadNetworkLoader(config.roadmap_path)
@@ -1920,16 +1924,7 @@ class TrajectoryVisualizer:
             if model == "unknown":
                 continue
 
-            components = parse_model_components(model)
-            model_file = ModelFile(
-                path=csv_file,
-                model_name=model,
-                seed=components.get("seed"),
-                base_model=components.get("base_model"),
-            )
-
-            if model not in self.model_metadata:
-                self.model_metadata[model] = model_file
+            self._get_model_metadata(model)
 
             if "train" in filename:
                 od_type = "train"
@@ -1942,7 +1937,6 @@ class TrajectoryVisualizer:
                     "path": csv_file,
                     "model": model,
                     "od_type": od_type,
-                    "model_file": model_file,
                 }
             )
             logger.info(f"  Found: {model} - {od_type} OD")
@@ -2174,27 +2168,35 @@ class TrajectoryVisualizer:
             phase_label: Optional phase identifier for distillation variants
         """
 
-        # Adjust output path and title based on scenario
+        scenario_display: Optional[str] = None
+
+        # Adjust output path and title lead-in based on scenario context
         if scenario:
             output_dir = (
                 self.config.output_dir / "scenario_cross_model" / od_type / scenario
             )
-            title_prefix = f"{scenario.replace('_', ' ').title()} Scenario - "
+            scenario_display = f"{scenario.replace('_', ' ').title()} Scenario"
             if max_plots is None:
                 max_plots = 10  # Default limit for scenario-based comparisons
         else:
             output_dir = self.config.output_dir / "cross_model" / od_type
-            title_prefix = ""
 
         if phase_label:
             output_dir = output_dir / phase_label
-            phase_display = phase_label.replace("_", " ").title()
-            title_prefix = f"{phase_display} - {title_prefix}"
 
         if subfolder:
             output_dir = output_dir / subfolder
 
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        phase_for_display = phase_label if self.dataset_has_phases else None
+
+        title_lead = self._build_cross_model_title_lead(
+            od_type,
+            models_data,
+            phase_for_display,
+            scenario_display,
+        )
 
         # Build OD pair index for each model
         od_indices = {}
@@ -2271,7 +2273,7 @@ class TrajectoryVisualizer:
                 output_dir
                 / f"{od_type}_od_comparison_{i + 1}_origin{origin}_dest{destination}"
             )
-            title = f"{title_prefix}{od_type.upper()} OD: All Models - Origin {origin} → Destination {destination}"
+            title = f"{title_lead} • OD: {origin} -> {destination}"
 
             self.plotter.plot_cross_model_comparison(
                 comparison_trajs,
@@ -2283,6 +2285,56 @@ class TrajectoryVisualizer:
             self.generated_plots.append(f"{output_path}.pdf")
             self.generated_plots.append(f"{output_path}.png")
             logger.info(f"  ✅ Saved comparison {i + 1}/{len(sampled_od_pairs)}")
+
+    def _build_cross_model_title_lead(
+        self,
+        od_type: str,
+        models_data: Dict[str, List[Trajectory]],
+        phase_label: Optional[str],
+        scenario_display: Optional[str],
+    ) -> str:
+        """Compose the reusable leading segment for cross-model titles."""
+
+        parts = [od_type.upper()]
+
+        group_label = self._build_group_label(models_data, phase_label)
+        if group_label:
+            parts.append(group_label)
+
+        if scenario_display:
+            parts.append(scenario_display)
+
+        return " • ".join(parts)
+
+    def _build_group_label(
+        self,
+        models_data: Dict[str, List[Trajectory]],
+        phase_label: Optional[str],
+    ) -> Optional[str]:
+        """Summarize whether the plot covers one seed or all seeds."""
+
+        seed_labels: Set[str] = set()
+        for model_name in models_data:
+            if model_name == "real":
+                continue
+            metadata = self._get_model_metadata(model_name)
+            seed_labels.add(metadata.seed_label or DEFAULT_SEED_TOKEN)
+
+        phase_display = format_phase_display(phase_label)
+
+        if len(seed_labels) == 1:
+            sole_seed = next(iter(seed_labels))
+            seed_display = format_seed_label(sole_seed)
+            if seed_display and phase_display:
+                return f"{seed_display} ({phase_display})"
+            return seed_display or phase_display
+
+        if len(seed_labels) > 1:
+            if phase_display:
+                return f"All Seeds ({phase_display})"
+            return "All Seeds"
+
+        return phase_display
 
     def _sample_od_pairs_for_comparison(
         self, od_pairs: List[Tuple[int, int]], od_indices: Dict, models_data: Dict
@@ -2531,54 +2583,13 @@ class TrajectoryVisualizer:
 
         logger.info("\n✅ Scenario cross-model visualization complete!")
 
-    def _get_model_metadata(self, model_name: str) -> Optional[ModelFile]:
+    def _get_model_metadata(self, model_name: str) -> ModelMetadata:
         """Return cached model detection metadata for a model name."""
 
-        return self.model_metadata.get(model_name)
+        if model_name not in self.model_metadata:
+            self.model_metadata[model_name] = build_model_metadata(model_name)
 
-    def _get_model_seed(self, model_name: str) -> str:
-        """Extract seed label using cached metadata when available."""
-
-        metadata = self._get_model_metadata(model_name)
-        if metadata and metadata.seed:
-            return metadata.seed
-
-        components = parse_model_components(model_name)
-        return components.get("seed") or DEFAULT_SEED_LABEL
-
-    def _get_model_base(self, model_name: str) -> str:
-        """Extract base model name for trio normalization."""
-
-        metadata = self._get_model_metadata(model_name)
-        if metadata and metadata.base_model:
-            return metadata.base_model
-
-        components = parse_model_components(model_name)
-        return components.get("base_model") or "unknown"
-
-    def _normalize_base_model(self, base_model: str) -> str:
-        """Map distillation variants to the distilled family for trio checks."""
-
-        if not base_model:
-            return "unknown"
-
-        if base_model.startswith("distill"):
-            return "distilled"
-
-        return base_model
-
-    def _get_phase_label(self, model_name: str) -> Optional[str]:
-        """Return a human-friendly phase label for distillation models."""
-
-        base_model = self._get_model_base(model_name)
-        if not base_model:
-            return None
-
-        if base_model.startswith("distill_phase"):
-            return base_model.replace("distill_", "")
-        if base_model == "distilled":
-            return "distilled"
-        return None
+        return self.model_metadata[model_name]
 
     def _collect_models_by_base(
         self, models_data: Dict[str, List[Trajectory]], target_base: str
@@ -2590,11 +2601,11 @@ class TrajectoryVisualizer:
             if model_name == "real":
                 continue
 
-            normalized = self._normalize_base_model(self._get_model_base(model_name))
-            if normalized != target_base:
+            metadata = self._get_model_metadata(model_name)
+            if metadata.normalized_base != target_base:
                 continue
 
-            seed = self._get_model_seed(model_name)
+            seed = metadata.seed_label or DEFAULT_SEED_TOKEN
             collection.setdefault(seed, []).append(model_name)
 
         return collection
@@ -2614,8 +2625,8 @@ class TrajectoryVisualizer:
 
         if seed in vanilla_by_seed:
             return vanilla_by_seed[seed]
-        if DEFAULT_SEED_LABEL in vanilla_by_seed:
-            return vanilla_by_seed[DEFAULT_SEED_LABEL]
+        if DEFAULT_SEED_TOKEN in vanilla_by_seed:
+            return vanilla_by_seed[DEFAULT_SEED_TOKEN]
         return []
 
     def _collect_phase_seed_groups(
@@ -2632,15 +2643,15 @@ class TrajectoryVisualizer:
             if model_name == "real":
                 continue
 
-            normalized = self._normalize_base_model(self._get_model_base(model_name))
-            if normalized != "distilled":
+            metadata = self._get_model_metadata(model_name)
+            if metadata.normalized_base != "distilled":
                 continue
 
-            phase_label = self._get_phase_label(model_name)
+            phase_label = metadata.phase_label
             if not phase_label:
                 continue
 
-            seed = self._get_model_seed(model_name)
+            seed = metadata.seed_label or DEFAULT_SEED_TOKEN
             distill_phase_map.setdefault(phase_label, {}).setdefault(seed, []).append(
                 model_name
             )
