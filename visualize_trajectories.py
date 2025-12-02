@@ -2060,45 +2060,50 @@ class TrajectoryVisualizer:
                 )
                 continue
 
-            groups = self._group_models_by_seed(models_data)
-            eligible_groups = self._filter_groups_with_required_models(
-                groups, context=f"{od_type.upper()} OD"
-            )
-
-            if not eligible_groups:
+            phase_groups = self._collect_phase_seed_groups(models_data)
+            if not phase_groups:
                 logger.warning(
-                    f"⚠️  No vanilla+distilled trios available for {od_type} OD"
+                    f"⚠️  No vanilla/distill pairs available for {od_type} OD"
                 )
                 continue
 
-            logger.info(f"  Grouping by seed: {list(eligible_groups.keys())}")
-            eligible_seeds = set(eligible_groups.keys())
+            for phase_label, seed_map in phase_groups.items():
+                seed_list = ", ".join(sorted(seed_map.keys())) or "none"
+                logger.info(f"  Phase {phase_label}: seeds {seed_list}")
 
-            for seed, model_names in eligible_groups.items():
-                # Create subset of models_data for this seed
-                seed_models_data = {name: models_data[name] for name in model_names}
-                # Add real data if available
-                if "real" in models_data:
-                    seed_models_data["real"] = models_data["real"]
+                for seed, pair in seed_map.items():
+                    models_to_plot = {
+                        pair["distill"]: models_data[pair["distill"]],
+                        pair["vanilla"]: models_data[pair["vanilla"]],
+                    }
 
-                logger.info(f"  Generating plots for {seed}...")
-                self._plot_matching_od_pairs(seed_models_data, od_type, subfolder=seed)
+                    if "real" in models_data:
+                        models_to_plot["real"] = models_data["real"]
 
-            # 2. Generate combined plot (if requested)
-            if self.config.combine_seeds:
-                logger.info("  Generating combined plot (all seeds)...")
-                combined_models = self._filter_models_by_seeds(
-                    models_data, eligible_seeds
-                )
-
-                if len(combined_models) <= 1:
-                    logger.warning(
-                        "⚠️  Combined plot skipped - no eligible vanilla+distilled trios"
-                    )
-                else:
+                    logger.info(f"    Generating plots for seed {seed}...")
                     self._plot_matching_od_pairs(
-                        combined_models, od_type, subfolder="combined"
+                        models_to_plot,
+                        od_type,
+                        subfolder=seed,
+                        phase_label=phase_label,
                     )
+
+                if self.config.combine_seeds and seed_map:
+                    combined_models = self._build_combined_phase_models(
+                        models_data, seed_map
+                    )
+
+                    if len(combined_models) <= 1:
+                        logger.info(
+                            f"    Skipping combined plot for {phase_label} (insufficient models)"
+                        )
+                    else:
+                        self._plot_matching_od_pairs(
+                            combined_models,
+                            od_type,
+                            subfolder="combined",
+                            phase_label=phase_label,
+                        )
 
     def _load_all_models_for_od(
         self, gene_files: List[Dict], od_type: str
@@ -2146,6 +2151,7 @@ class TrajectoryVisualizer:
         scenario: str = None,
         max_plots: int = None,
         subfolder: str = None,
+        phase_label: Optional[str] = None,
     ):
         """Find and plot trajectories with matching OD pairs across models
 
@@ -2155,6 +2161,7 @@ class TrajectoryVisualizer:
             scenario: Optional scenario name for scenario-based comparisons
             max_plots: Optional maximum number of plots to generate (default: 10 for scenarios, no limit otherwise)
             subfolder: Optional subfolder for output (e.g., "seed42")
+            phase_label: Optional phase identifier for distillation variants
         """
 
         # Adjust output path and title based on scenario
@@ -2168,6 +2175,11 @@ class TrajectoryVisualizer:
         else:
             output_dir = self.config.output_dir / "cross_model" / od_type
             title_prefix = ""
+
+        if phase_label:
+            output_dir = output_dir / phase_label
+            phase_display = phase_label.replace("_", " ").title()
+            title_prefix = f"{phase_display} - {title_prefix}"
 
         if subfolder:
             output_dir = output_dir / subfolder
@@ -2452,60 +2464,57 @@ class TrajectoryVisualizer:
                     )
                     continue
 
-                groups = self._group_models_by_seed(scenario_models_data)
-                eligible_groups = self._filter_groups_with_required_models(
-                    groups,
-                    context=f"{od_type.upper()} OD scenario '{scenario}'",
-                )
-
-                if not eligible_groups:
-                    logger.info(
-                        f"    Skipping {scenario} - missing vanilla+distilled trio"
-                    )
-                    continue
-
-                scenario_seeds = set(eligible_groups.keys())
-                filtered_models_data = self._filter_models_by_seeds(
-                    scenario_models_data, scenario_seeds
-                )
-
                 if (
                     self.config.include_real_in_cross_model
-                    and "real" not in filtered_models_data
+                    and "real" not in scenario_models_data
                 ):
                     logger.info(
                         f"    Skipping {scenario} - missing real reference trajectories"
                     )
                     continue
 
+                phase_groups = self._collect_phase_seed_groups(scenario_models_data)
+                if not phase_groups:
+                    logger.info(
+                        f"    Skipping {scenario} - no vanilla/distill pairs present"
+                    )
+                    continue
+
                 # Track OD pairs in this scenario for multi-scenario plots
                 self._track_od_pairs_for_multi_scenario(
-                    filtered_models_data, scenario, od_scenario_map
+                    scenario_models_data, scenario, od_scenario_map
                 )
 
-                # 1. Generate per-seed plots (Default behavior)
-                for seed, model_names in eligible_groups.items():
-                    seed_models_data = {
-                        name: filtered_models_data[name]
-                        for name in model_names
-                        if name in filtered_models_data
-                    }
+                for phase_label, seed_map in phase_groups.items():
+                    for seed, pair in seed_map.items():
+                        seed_models_data = {
+                            pair["distill"]: scenario_models_data[pair["distill"]],
+                            pair["vanilla"]: scenario_models_data[pair["vanilla"]],
+                        }
 
-                    if "real" in filtered_models_data:
-                        seed_models_data["real"] = filtered_models_data["real"]
+                        if "real" in scenario_models_data:
+                            seed_models_data["real"] = scenario_models_data["real"]
 
-                    self._plot_matching_od_pairs(
-                        seed_models_data, od_type, scenario=scenario, subfolder=seed
-                    )
+                        self._plot_matching_od_pairs(
+                            seed_models_data,
+                            od_type,
+                            scenario=scenario,
+                            subfolder=seed,
+                            phase_label=phase_label,
+                        )
 
-                # 2. Generate combined plot (if requested)
-                if self.config.combine_seeds:
-                    self._plot_matching_od_pairs(
-                        filtered_models_data,
-                        od_type,
-                        scenario=scenario,
-                        subfolder="combined",
-                    )
+                    if self.config.combine_seeds and seed_map:
+                        combined_models = self._build_combined_phase_models(
+                            scenario_models_data, seed_map
+                        )
+
+                        self._plot_matching_od_pairs(
+                            combined_models,
+                            od_type,
+                            scenario=scenario,
+                            subfolder="combined",
+                            phase_label=phase_label,
+                        )
 
             # Generate multi-scenario comparison plots for OD pairs appearing in 2+ scenarios
             self._generate_multi_scenario_comparisons(od_scenario_map, od_type)
@@ -2548,63 +2557,126 @@ class TrajectoryVisualizer:
 
         return base_model
 
-    def _filter_groups_with_required_models(
-        self, groups: Dict[str, List[str]], context: str
+    def _get_phase_label(self, model_name: str) -> Optional[str]:
+        """Return a human-friendly phase label for distillation models."""
+
+        base_model = self._get_model_base(model_name)
+        if not base_model:
+            return None
+
+        if base_model.startswith("distill_phase"):
+            return base_model.replace("distill_", "")
+        if base_model == "distilled":
+            return "distilled"
+        return None
+
+    def _collect_models_by_base(
+        self, models_data: Dict[str, List[Trajectory]], target_base: str
     ) -> Dict[str, List[str]]:
-        """Keep only seed groups containing the full vanilla/distilled trio."""
+        """Index model names by seed for a given normalized base type."""
 
-        filtered = {}
-        for seed, model_names in groups.items():
-            normalized_bases = {
-                self._normalize_base_model(self._get_model_base(name))
-                for name in model_names
-            }
-
-            if TRIO_REQUIRED_BASE_MODELS.issubset(normalized_bases):
-                filtered[seed] = model_names
-            else:
-                missing = TRIO_REQUIRED_BASE_MODELS - normalized_bases
-                missing_str = ", ".join(sorted(missing)) or "models"
-                logger.info(
-                    f"  Skipping {context} seed '{seed}' due to missing: {missing_str}"
-                )
-
-        return filtered
-
-    def _filter_models_by_seeds(
-        self,
-        models_data: Dict[str, List[Trajectory]],
-        allowed_seeds: Set[str],
-    ) -> Dict[str, List[Trajectory]]:
-        """Return subset of models belonging to allowed seeds (always keep real)."""
-
-        filtered: Dict[str, List[Trajectory]] = {}
-        for model_name, trajectories in models_data.items():
+        collection: Dict[str, List[str]] = {}
+        for model_name in models_data:
             if model_name == "real":
-                filtered["real"] = trajectories
+                continue
+
+            normalized = self._normalize_base_model(self._get_model_base(model_name))
+            if normalized != target_base:
                 continue
 
             seed = self._get_model_seed(model_name)
-            if seed in allowed_seeds:
-                filtered[model_name] = trajectories
+            collection.setdefault(seed, []).append(model_name)
 
-        return filtered
+        return collection
 
-    def _group_models_by_seed(self, models_data: Dict) -> Dict[str, List[str]]:
-        """Group models by their random seed"""
-        groups = {}
+    @staticmethod
+    def _select_primary_model(model_names: List[str]) -> Optional[str]:
+        """Select a deterministic representative model from a list."""
+
+        if not model_names:
+            return None
+        return sorted(model_names)[0]
+
+    def _get_vanilla_candidates_for_seed(
+        self, vanilla_by_seed: Dict[str, List[str]], seed: str
+    ) -> List[str]:
+        """Return vanilla model names matching the seed or falling back to default."""
+
+        if seed in vanilla_by_seed:
+            return vanilla_by_seed[seed]
+        if DEFAULT_SEED_LABEL in vanilla_by_seed:
+            return vanilla_by_seed[DEFAULT_SEED_LABEL]
+        return []
+
+    def _collect_phase_seed_groups(
+        self, models_data: Dict[str, List[Trajectory]]
+    ) -> Dict[str, Dict[str, Dict[str, str]]]:
+        """Build mapping of phase -> seed -> {'distill': model, 'vanilla': model}."""
+
+        vanilla_by_seed = self._collect_models_by_base(
+            models_data, target_base="vanilla"
+        )
+        distill_phase_map: Dict[str, Dict[str, List[str]]] = {}
 
         for model_name in models_data:
             if model_name == "real":
                 continue
 
+            normalized = self._normalize_base_model(self._get_model_base(model_name))
+            if normalized != "distilled":
+                continue
+
+            phase_label = self._get_phase_label(model_name)
+            if not phase_label:
+                continue
+
             seed = self._get_model_seed(model_name)
+            distill_phase_map.setdefault(phase_label, {}).setdefault(seed, []).append(
+                model_name
+            )
 
-            if seed not in groups:
-                groups[seed] = []
-            groups[seed].append(model_name)
+        phase_groups: Dict[str, Dict[str, Dict[str, str]]] = {}
+        for phase_label, seed_map in distill_phase_map.items():
+            for seed, distill_models in seed_map.items():
+                distill_model = self._select_primary_model(distill_models)
+                if not distill_model:
+                    continue
 
-        return groups
+                vanilla_candidates = self._get_vanilla_candidates_for_seed(
+                    vanilla_by_seed, seed
+                )
+                vanilla_model = self._select_primary_model(vanilla_candidates)
+                if not vanilla_model:
+                    continue
+
+                phase_groups.setdefault(phase_label, {})[seed] = {
+                    "distill": distill_model,
+                    "vanilla": vanilla_model,
+                }
+
+        return phase_groups
+
+    def _build_combined_phase_models(
+        self,
+        models_data: Dict[str, List[Trajectory]],
+        seed_map: Dict[str, Dict[str, str]],
+    ) -> Dict[str, List[Trajectory]]:
+        """Aggregate unique models (plus real) for a given phase."""
+
+        subset: Dict[str, List[Trajectory]] = {}
+        seen: Set[str] = set()
+
+        for pair in seed_map.values():
+            for role in ("distill", "vanilla"):
+                model_name = pair[role]
+                if model_name not in seen:
+                    subset[model_name] = models_data[model_name]
+                    seen.add(model_name)
+
+        if "real" in models_data:
+            subset["real"] = models_data["real"]
+
+        return subset
 
 
 # =============================================================================
