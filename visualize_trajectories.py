@@ -18,7 +18,7 @@ import random
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Set
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
@@ -27,10 +27,12 @@ import polars as pl
 
 # Import model detection utility
 from tools.model_detection import (
+    ModelFile,
     get_model_color,
     get_model_line_style,
     get_display_name,
     extract_model_name,
+    parse_model_components,
 )
 
 try:
@@ -45,6 +47,10 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Require full vanilla/distilled/real trios before rendering cross-model plots
+TRIO_REQUIRED_BASE_MODELS = frozenset({"vanilla", "distilled"})
+DEFAULT_SEED_LABEL = "default"
 
 
 def place_bottom_legend(
@@ -1739,6 +1745,9 @@ class TrajectoryVisualizer:
         # Track generated plots for reporting
         self.generated_plots = []
 
+        # Cache model detection metadata for trio validation
+        self.model_metadata: Dict[str, ModelFile] = {}
+
         # Load road network
         road_loader = RoadNetworkLoader(config.roadmap_path)
         self.road_network = road_loader.load()
@@ -1895,18 +1904,22 @@ class TrajectoryVisualizer:
             # Parse filename to extract model and OD type
             filename = csv_file.name
 
-            # Skip old unnamed files
-            if not any(m in filename for m in ["distilled", "vanilla"]):
-                continue
-
-            model = None
-            od_type = None
-
             model = extract_model_name(filename)
 
             # Skip if model is unknown
             if model == "unknown":
                 continue
+
+            components = parse_model_components(model)
+            model_file = ModelFile(
+                path=csv_file,
+                model_name=model,
+                seed=components.get("seed"),
+                base_model=components.get("base_model"),
+            )
+
+            if model not in self.model_metadata:
+                self.model_metadata[model] = model_file
 
             if "train" in filename:
                 od_type = "train"
@@ -1919,6 +1932,7 @@ class TrajectoryVisualizer:
                     "path": csv_file,
                     "model": model,
                     "od_type": od_type,
+                    "model_file": model_file,
                 }
             )
             logger.info(f"  Found: {model} - {od_type} OD")
@@ -2034,17 +2048,33 @@ class TrajectoryVisualizer:
                         f"  ✅ Loaded {len(real_trajectories)} real trajectories"
                     )
 
+            if self.config.include_real_in_cross_model and "real" not in models_data:
+                logger.warning(
+                    f"⚠️  Missing real reference trajectories for {od_type} OD"
+                )
+                continue
+
             if len(models_data) < 2:
                 logger.warning(
                     f"⚠️  Not enough models loaded for {od_type} OD comparison"
                 )
                 continue
 
-            # 1. Generate per-seed plots (Default behavior)
             groups = self._group_models_by_seed(models_data)
-            logger.info(f"  Grouping by seed: {list(groups.keys())}")
+            eligible_groups = self._filter_groups_with_required_models(
+                groups, context=f"{od_type.upper()} OD"
+            )
 
-            for seed, model_names in groups.items():
+            if not eligible_groups:
+                logger.warning(
+                    f"⚠️  No vanilla+distilled trios available for {od_type} OD"
+                )
+                continue
+
+            logger.info(f"  Grouping by seed: {list(eligible_groups.keys())}")
+            eligible_seeds = set(eligible_groups.keys())
+
+            for seed, model_names in eligible_groups.items():
                 # Create subset of models_data for this seed
                 seed_models_data = {name: models_data[name] for name in model_names}
                 # Add real data if available
@@ -2057,7 +2087,18 @@ class TrajectoryVisualizer:
             # 2. Generate combined plot (if requested)
             if self.config.combine_seeds:
                 logger.info("  Generating combined plot (all seeds)...")
-                self._plot_matching_od_pairs(models_data, od_type, subfolder="combined")
+                combined_models = self._filter_models_by_seeds(
+                    models_data, eligible_seeds
+                )
+
+                if len(combined_models) <= 1:
+                    logger.warning(
+                        "⚠️  Combined plot skipped - no eligible vanilla+distilled trios"
+                    )
+                else:
+                    self._plot_matching_od_pairs(
+                        combined_models, od_type, subfolder="combined"
+                    )
 
     def _load_all_models_for_od(
         self, gene_files: List[Dict], od_type: str
@@ -2352,6 +2393,12 @@ class TrajectoryVisualizer:
                 logger.warning(f"⚠️  Not enough models loaded for {od_type} OD")
                 continue
 
+            if self.config.include_real_in_cross_model and "real" not in models_data:
+                logger.warning(
+                    f"⚠️  Missing real reference trajectories for {od_type} OD"
+                )
+                continue
+
             # Get all scenarios from trajectory mapping
             all_scenarios = set()
             for traj_info in trajectory_mapping:
@@ -2405,19 +2452,47 @@ class TrajectoryVisualizer:
                     )
                     continue
 
+                groups = self._group_models_by_seed(scenario_models_data)
+                eligible_groups = self._filter_groups_with_required_models(
+                    groups,
+                    context=f"{od_type.upper()} OD scenario '{scenario}'",
+                )
+
+                if not eligible_groups:
+                    logger.info(
+                        f"    Skipping {scenario} - missing vanilla+distilled trio"
+                    )
+                    continue
+
+                scenario_seeds = set(eligible_groups.keys())
+                filtered_models_data = self._filter_models_by_seeds(
+                    scenario_models_data, scenario_seeds
+                )
+
+                if (
+                    self.config.include_real_in_cross_model
+                    and "real" not in filtered_models_data
+                ):
+                    logger.info(
+                        f"    Skipping {scenario} - missing real reference trajectories"
+                    )
+                    continue
+
                 # Track OD pairs in this scenario for multi-scenario plots
                 self._track_od_pairs_for_multi_scenario(
-                    scenario_models_data, scenario, od_scenario_map
+                    filtered_models_data, scenario, od_scenario_map
                 )
 
                 # 1. Generate per-seed plots (Default behavior)
-                groups = self._group_models_by_seed(scenario_models_data)
-                for seed, model_names in groups.items():
+                for seed, model_names in eligible_groups.items():
                     seed_models_data = {
-                        name: scenario_models_data[name] for name in model_names
+                        name: filtered_models_data[name]
+                        for name in model_names
+                        if name in filtered_models_data
                     }
-                    if "real" in scenario_models_data:
-                        seed_models_data["real"] = scenario_models_data["real"]
+
+                    if "real" in filtered_models_data:
+                        seed_models_data["real"] = filtered_models_data["real"]
 
                     self._plot_matching_od_pairs(
                         seed_models_data, od_type, scenario=scenario, subfolder=seed
@@ -2426,7 +2501,7 @@ class TrajectoryVisualizer:
                 # 2. Generate combined plot (if requested)
                 if self.config.combine_seeds:
                     self._plot_matching_od_pairs(
-                        scenario_models_data,
+                        filtered_models_data,
                         od_type,
                         scenario=scenario,
                         subfolder="combined",
@@ -2437,6 +2512,84 @@ class TrajectoryVisualizer:
 
         logger.info("\n✅ Scenario cross-model visualization complete!")
 
+    def _get_model_metadata(self, model_name: str) -> Optional[ModelFile]:
+        """Return cached model detection metadata for a model name."""
+
+        return self.model_metadata.get(model_name)
+
+    def _get_model_seed(self, model_name: str) -> str:
+        """Extract seed label using cached metadata when available."""
+
+        metadata = self._get_model_metadata(model_name)
+        if metadata and metadata.seed:
+            return metadata.seed
+
+        components = parse_model_components(model_name)
+        return components.get("seed") or DEFAULT_SEED_LABEL
+
+    def _get_model_base(self, model_name: str) -> str:
+        """Extract base model name for trio normalization."""
+
+        metadata = self._get_model_metadata(model_name)
+        if metadata and metadata.base_model:
+            return metadata.base_model
+
+        components = parse_model_components(model_name)
+        return components.get("base_model") or "unknown"
+
+    def _normalize_base_model(self, base_model: str) -> str:
+        """Map distillation variants to the distilled family for trio checks."""
+
+        if not base_model:
+            return "unknown"
+
+        if base_model.startswith("distill"):
+            return "distilled"
+
+        return base_model
+
+    def _filter_groups_with_required_models(
+        self, groups: Dict[str, List[str]], context: str
+    ) -> Dict[str, List[str]]:
+        """Keep only seed groups containing the full vanilla/distilled trio."""
+
+        filtered = {}
+        for seed, model_names in groups.items():
+            normalized_bases = {
+                self._normalize_base_model(self._get_model_base(name))
+                for name in model_names
+            }
+
+            if TRIO_REQUIRED_BASE_MODELS.issubset(normalized_bases):
+                filtered[seed] = model_names
+            else:
+                missing = TRIO_REQUIRED_BASE_MODELS - normalized_bases
+                missing_str = ", ".join(sorted(missing)) or "models"
+                logger.info(
+                    f"  Skipping {context} seed '{seed}' due to missing: {missing_str}"
+                )
+
+        return filtered
+
+    def _filter_models_by_seeds(
+        self,
+        models_data: Dict[str, List[Trajectory]],
+        allowed_seeds: Set[str],
+    ) -> Dict[str, List[Trajectory]]:
+        """Return subset of models belonging to allowed seeds (always keep real)."""
+
+        filtered: Dict[str, List[Trajectory]] = {}
+        for model_name, trajectories in models_data.items():
+            if model_name == "real":
+                filtered["real"] = trajectories
+                continue
+
+            seed = self._get_model_seed(model_name)
+            if seed in allowed_seeds:
+                filtered[model_name] = trajectories
+
+        return filtered
+
     def _group_models_by_seed(self, models_data: Dict) -> Dict[str, List[str]]:
         """Group models by their random seed"""
         groups = {}
@@ -2445,13 +2598,7 @@ class TrajectoryVisualizer:
             if model_name == "real":
                 continue
 
-            # Extract seed from model name (e.g., "distilled_seed42" -> "seed42")
-            parts = model_name.split("_")
-            seed = "default"
-            for part in parts:
-                if part.startswith("seed"):
-                    seed = part
-                    break
+            seed = self._get_model_seed(model_name)
 
             if seed not in groups:
                 groups[seed] = []
