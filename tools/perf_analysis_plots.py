@@ -36,6 +36,8 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for script execution
 PLOT_REGISTRY = {
     "efficiency": "plot_efficiency_tradeoff",
     "latency": "plot_latency_bars",
+    "latency_percentiles": "plot_latency_percentiles",
+    "speed_ranking": "plot_throughput_ranking",
     "heatmap": "plot_performance_heatmap",
     "slope": "plot_throughput_slope",
     "length_speed": "plot_length_vs_speed",
@@ -60,8 +62,8 @@ def parse_args() -> argparse.Namespace:
         "--plots",
         default="all",
         help=(
-            "Comma-separated list of plots: efficiency,latency,heatmap,slope,"
-            "length_speed,length_accuracy"
+            "Comma-separated list of plots: efficiency,latency,latency_percentiles,"
+            "speed_ranking,heatmap,slope,length_speed,length_accuracy"
         ),
     )
     parser.add_argument(
@@ -134,7 +136,7 @@ class PerformanceVisualizer:
 
     def plot_latency_bars(self) -> None:
         fig, ax = plt.subplots(figsize=(9, 5))
-        models = [f"{row['display_name']}\n({row['od_source']})" for row in self.rows]
+        models = [f"{row['display_name']} ({row['od_source']})" for row in self.rows]
         medians = [row.get("total_time_median") for row in self.rows]
         p95s = [row.get("total_time_p95") for row in self.rows]
         if not any(medians):
@@ -158,6 +160,74 @@ class PerformanceVisualizer:
         ax.set_xticklabels(models, rotation=20, ha="right")
         ax.grid(axis="y", alpha=0.3)
         self._save(fig, "latency_summary")
+
+    def plot_throughput_ranking(self) -> None:
+        data = [
+            (
+                row.get("throughput_traj_per_sec"),
+                f"{row['display_name']} ({row['od_source']})",
+                row.get("color") or "#333333",
+            )
+            for row in self.rows
+            if row.get("throughput_traj_per_sec") is not None
+        ]
+        if not data:
+            return
+        data.sort(key=lambda item: item[0], reverse=True)
+        speeds, labels, colors = zip(*data)
+        fig_height = max(4.5, 0.45 * len(labels) + 1.5)
+        fig, ax = plt.subplots(figsize=(9, fig_height))
+        y_pos = np.arange(len(labels))
+        ax.barh(y_pos, speeds, color=colors)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(labels)
+        ax.invert_yaxis()
+        for idx, value in enumerate(speeds):
+            ax.text(
+                value + max(speeds) * 0.01,
+                y_pos[idx],
+                f"{value:.2f}",
+                va="center",
+                fontsize=9,
+            )
+        ax.set_xlabel("Throughput (trajectories / second)")
+        ax.set_title("Generation Speed Ranking (highest to lowest)")
+        ax.grid(axis="x", alpha=0.3)
+        self._save(fig, "throughput_ranking")
+
+    def plot_latency_percentiles(self) -> None:
+        data = [
+            (
+                row.get("total_time_median"),
+                row.get("total_time_p95"),
+                f"{row['display_name']} ({row['od_source']})",
+                row.get("color") or "#333333",
+            )
+            for row in self.rows
+            if row.get("total_time_median") is not None
+            and row.get("total_time_p95") is not None
+        ]
+        if not data:
+            return
+        data.sort(key=lambda item: item[0])
+        medians, p95s, labels, colors = zip(*data)
+        fig_height = max(4.5, 0.45 * len(labels) + 1.5)
+        fig, ax = plt.subplots(figsize=(9, fig_height))
+        y_pos = np.arange(len(labels))
+        for idx, (median, p95, color) in enumerate(zip(medians, p95s, colors)):
+            ax.hlines(y_pos[idx], median, p95, color=color, linewidth=3)
+        ax.scatter(medians, y_pos, color="black", marker="o", label="Median")
+        ax.scatter(
+            p95s, y_pos, color="black", marker="|", s=120, label="95th percentile"
+        )
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(labels)
+        ax.invert_yaxis()
+        ax.set_xlabel("Latency per trajectory (seconds)")
+        ax.set_title("Latency Percentiles by Model")
+        ax.grid(axis="x", alpha=0.3)
+        ax.legend(loc="lower right")
+        self._save(fig, "latency_percentiles")
 
     def plot_performance_heatmap(self) -> None:
         columns = [

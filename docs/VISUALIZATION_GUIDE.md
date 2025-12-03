@@ -453,18 +453,24 @@ dedicated tool. This script reuses cached `_perf.json` data and does not rerun
 any pipeline phase.
 
 ```bash
-# Core plots (efficiency, latency, heatmap, slope, correlations)
+# Core plots (efficiency, latency, latency percentiles, speed ranking, heatmap, slope, correlations)
 uv run python tools/perf_analysis_plots.py \
   --eval-dir hoser-distill-beijing \
-  --plots efficiency,latency,heatmap
+  --plots efficiency,latency,latency_percentiles,speed_ranking,heatmap
 
 # Use all plots with default output directory (figures/performance)
 uv run python tools/perf_analysis_plots.py --eval-dir hoser-distill-beijing
 ```
 
 Key CLI flags:
-- `--plots` – comma list (efficiency, latency, heatmap, slope, length_speed,
-  length_accuracy) or `all`.
+- `--plots` – comma list (efficiency, latency, latency_percentiles,
+  speed_ranking, heatmap, slope, length_speed, length_accuracy) or `all`.
+- `latency_percentiles` visualizes the cached per-trajectory median and 95th
+  percentile latencies for each model so tail slowdowns can be inspected without
+  altering the throughput ranking.
+- `speed_ranking` now adds leftward error bars computed from the latency
+  percentiles (`total_time_median` vs `total_time_p95`) so tail slowdowns are
+  visible without dwarfing faster trajectories.
 - `--style` – Matplotlib style sheet for quick aesthetic tweaks.
 - `--include-cross` / `--include-abnormal` – opt-in for those run types.
 
