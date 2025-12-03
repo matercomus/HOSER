@@ -434,6 +434,7 @@ uv run python create_analysis_figures.py --eval-dir hoser-distill-optuna-6 --dat
 ```bash
 --eval-dir EVAL_DIR    # Required: evaluation directory
 --dataset DATASET      # Optional: override auto-detected dataset
+--skip-performance-plots   # Optional: disable generation-performance figures
 ```
 
 ### Output
@@ -444,6 +445,31 @@ uv run python create_analysis_figures.py --eval-dir hoser-distill-optuna-6 --dat
   - Metric comparisons
   - Performance radar charts
   - Model comparisons
+
+### Standalone Generation Performance Plots
+
+When you only need throughput/latency visuals (no trajectory metrics), run the
+dedicated tool. This script reuses cached `_perf.json` data and does not rerun
+any pipeline phase.
+
+```bash
+# Core plots (efficiency, latency, heatmap, slope, correlations)
+uv run python tools/perf_analysis_plots.py \
+  --eval-dir hoser-distill-beijing \
+  --plots efficiency,latency,heatmap
+
+# Use all plots with default output directory (figures/performance)
+uv run python tools/perf_analysis_plots.py --eval-dir hoser-distill-beijing
+```
+
+Key CLI flags:
+- `--plots` – comma list (efficiency, latency, heatmap, slope, length_speed,
+  length_accuracy) or `all`.
+- `--style` – Matplotlib style sheet for quick aesthetic tweaks.
+- `--include-cross` / `--include-abnormal` – opt-in for those run types.
+
+Performance plots now run by default when you call `create_analysis_figures.py`.
+Use `--skip-performance-plots` if you only need the trajectory-quality figures.
 
 ### Scenario Visualizations
 

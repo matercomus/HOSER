@@ -18,6 +18,8 @@ from typing import Dict, List, Tuple
 
 # Import model detection utility
 from tools.model_detection import extract_model_name, MODEL_COLORS
+from tools.eval_data_loader import load_eval_runs
+from tools.perf_analysis_plots import PerformanceVisualizer, resolve_plot_list
 
 # Set publication-quality defaults
 plt.rcParams.update(
@@ -1064,6 +1066,11 @@ Examples:
         "--dataset",
         help="Dataset name (auto-detected from evaluation.yaml if not provided)",
     )
+    parser.add_argument(
+        "--skip-performance-plots",
+        action="store_true",
+        help="Skip generation performance figures (enabled by default)",
+    )
 
     args = parser.parse_args()
 
@@ -1073,6 +1080,13 @@ Examples:
 
     visualizer = EvaluationVisualizer(eval_dir=args.eval_dir, dataset=args.dataset)
     visualizer.create_all_figures()
+
+    if not args.skip_performance_plots:
+        perf_runs = load_eval_runs(Path(args.eval_dir))
+        if perf_runs:
+            perf_output = Path(args.eval_dir) / "figures" / "performance"
+            perf_visualizer = PerformanceVisualizer(perf_runs, perf_output)
+            perf_visualizer.generate(resolve_plot_list("all"))
 
     print("\n" + "=" * 60)
     print("✅ Figure generation complete!")

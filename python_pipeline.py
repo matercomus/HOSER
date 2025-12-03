@@ -1478,23 +1478,29 @@ class EvaluationPipeline:
                 import json
 
                 astar_files = []
+                perf_metadata = {}
 
                 for csv_file in generated_files:
                     perf_file = csv_file.parent / f"{csv_file.stem}_perf.json"
 
-                    if perf_file.exists():
-                        try:
-                            with open(perf_file) as f:
-                                perf_data = json.load(f)
+                    if not perf_file.exists():
+                        continue
 
-                            beam_search_enabled = perf_data.get(
-                                "beam_search_enabled", True
-                            )
-                            if not beam_search_enabled:
-                                astar_files.append(csv_file)
-                        except (json.JSONDecodeError, KeyError):
-                            # Skip files with invalid perf.json
-                            continue
+                    try:
+                        with open(perf_file) as f:
+                            perf_data = json.load(f)
+
+                        perf_metadata[csv_file] = perf_data
+
+                        beam_search_enabled = perf_data.get("beam_search_enabled", True)
+                        if not beam_search_enabled:
+                            astar_files.append(csv_file)
+                    except (json.JSONDecodeError, KeyError):
+                        logger.warning(
+                            "Invalid perf metadata for %s, skipping A* detection",
+                            csv_file.name,
+                        )
+                        continue
 
                 if astar_files:
                     # Use most recent A* file
@@ -1512,13 +1518,15 @@ class EvaluationPipeline:
                         f"This may be a beam search file."
                     )
 
+                generation_performance = perf_metadata.get(generated_file)
+
                 # Evaluation phase
                 try:
                     eval_results = self.evaluator.evaluate_trajectories(
                         generated_file,
                         model_type,
                         od_source,
-                        None,  # generation_performance not available in standalone eval
+                        generation_performance,
                     )
 
                     # Log to WandB
