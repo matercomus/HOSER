@@ -11,10 +11,11 @@ import argparse
 import math
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 try:
     from tools.eval_data_loader import (
@@ -22,6 +23,7 @@ try:
         build_performance_table,
         load_eval_runs,
     )
+    from tools.model_detection import extract_model_name, get_model_color
 except ModuleNotFoundError:  # pragma: no cover - fallback for script execution
     PROJECT_ROOT = Path(__file__).resolve().parents[1]
     if str(PROJECT_ROOT) not in sys.path:
@@ -31,6 +33,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for script execution
         build_performance_table,
         load_eval_runs,
     )
+    from tools.model_detection import extract_model_name, get_model_color
 
 
 PLOT_REGISTRY = {
@@ -42,6 +45,8 @@ PLOT_REGISTRY = {
     "slope": "plot_throughput_slope",
     "length_speed": "plot_length_vs_speed",
     "length_accuracy": "plot_length_vs_accuracy",
+    "param_vs_throughput": "plot_parameter_count_vs_throughput",
+    "parameter_counts": "plot_parameter_counts",
 }
 
 
@@ -63,8 +68,14 @@ def parse_args() -> argparse.Namespace:
         default="all",
         help=(
             "Comma-separated list of plots: efficiency,latency,latency_percentiles,"
-            "speed_ranking,heatmap,slope,length_speed,length_accuracy"
+            "speed_ranking,heatmap,slope,length_speed,length_accuracy,param_vs_throughput,parameter_counts"
         ),
+    )
+    parser.add_argument(
+        "--model-dir",
+        action="append",
+        dest="model_dirs",
+        help="Directories containing .pth checkpoints for parameter counting (can repeat)",
     )
     parser.add_argument(
         "--style",
@@ -86,11 +97,17 @@ def parse_args() -> argparse.Namespace:
 class PerformanceVisualizer:
     """Generate performance-focused plots from evaluation runs."""
 
-    def __init__(self, runs: Sequence[EvalRun], output_dir: Path):
+    def __init__(
+        self,
+        runs: Sequence[EvalRun],
+        output_dir: Path,
+        param_counts: Optional[Dict[str, int]] = None,
+    ):
         self.runs = list(runs)
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.rows = build_performance_table(self.runs)
+        self.param_counts = param_counts or {}
 
     def generate(self, requested: Iterable[str]) -> None:
         for plot in requested:
@@ -350,6 +367,75 @@ class PerformanceVisualizer:
         ax.grid(alpha=0.3)
         self._save(fig, "length_vs_accuracy")
 
+    def plot_parameter_count_vs_throughput(self) -> None:
+        if not self.param_counts:
+            print(
+                "⚠️  Parameter counts unavailable; skipping model-size vs throughput plot"
+            )
+            return
+        points: List[tuple[float, float, str, str]] = []
+        for row in self.rows:
+            throughput = row.get("throughput_traj_per_sec")
+            if throughput is None:
+                continue
+            param_count = self._resolve_param_count_for_row(row)
+            if param_count is None:
+                continue
+            label = f"{row['display_name']} ({row['od_source']})"
+            color = row.get("color") or "#333333"
+            points.append((param_count, throughput, label, color))
+        if not points:
+            print("⚠️  No runs had both throughput and parameter counts; skipping plot")
+            return
+        fig, ax = plt.subplots(figsize=(8, 6))
+        for param_count, throughput, label, color in points:
+            x_val = param_count / 1_000_000.0
+            ax.scatter(
+                x_val,
+                throughput,
+                color=color,
+                s=80,
+                edgecolor="black",
+                linewidth=0.5,
+            )
+            ax.text(x_val, throughput, label, fontsize=8, ha="left", va="bottom")
+        ax.set_xlabel("Parameter count (millions)")
+        ax.set_ylabel("Throughput (traj/s)")
+        ax.set_title("Model Size vs Generation Speed")
+        ax.grid(alpha=0.3)
+        self._save(fig, "parameter_vs_throughput")
+
+    def plot_parameter_counts(self) -> None:
+        if not self.param_counts:
+            print("⚠️  Parameter counts unavailable; skipping parameter count summary")
+            return
+        items = sorted(
+            self.param_counts.items(), key=lambda pair: pair[1], reverse=True
+        )
+        names = [name for name, _ in items]
+        counts = [value for _, value in items]
+        counts_millions = [count / 1_000_000.0 for count in counts]
+        fig, ax = plt.subplots(figsize=(max(8, len(names) * 0.5), 5))
+        x = np.arange(len(names))
+        bar_colors = [get_model_color(name) for name in names]
+        bars = ax.bar(x, counts_millions, color=bar_colors)
+        for bar, value in zip(bars, counts_millions):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                value,
+                f"{value:.2f}M",
+                ha="center",
+                va="bottom",
+                fontsize=7,
+            )
+        ax.set_xticks(x)
+        ax.set_xticklabels(names, rotation=45, ha="right")
+        ax.set_ylabel("Parameters (millions)")
+        ax.set_title("Model Parameter Counts")
+        ax.grid(axis="y", alpha=0.3)
+        fig.tight_layout()
+        self._save(fig, "parameter_counts")
+
     def _save(self, fig: plt.Figure, stem: str) -> None:
         fig.tight_layout()
         png_path = self.output_dir / f"{stem}.png"
@@ -363,6 +449,93 @@ class PerformanceVisualizer:
             if row["model_name"] == model_name:
                 return row.get("color") or "#333333"
         return "#333333"
+
+    def _resolve_param_count_for_row(self, row: Dict[str, Any]) -> Optional[int]:
+        for candidate in self._candidate_model_names(row):
+            count = self.param_counts.get(candidate)
+            if count is not None:
+                return count
+        return None
+
+    def _candidate_model_names(self, row: Dict[str, Any]) -> List[str]:
+        metadata = row.get("metadata") or {}
+        candidates: List[str] = []
+        seen: set[str] = set()
+        base_names = []
+        model_name = row.get("model_name")
+        if model_name:
+            base_names.append(str(model_name))
+        metadata_model = metadata.get("model_type")
+        if metadata_model and metadata_model not in base_names:
+            base_names.append(str(metadata_model))
+        seed = metadata.get("seed")
+        for base in base_names:
+            normalized = extract_model_name(base) or base
+            if normalized not in seen:
+                seen.add(normalized)
+                candidates.append(normalized)
+            if seed is not None:
+                suffix = f"seed{seed}"
+                if not normalized.endswith(suffix):
+                    seeded = f"{normalized}_{suffix}"
+                    if seeded not in seen:
+                        seen.add(seeded)
+                        candidates.append(seeded)
+        return candidates
+
+
+def load_parameter_counts(model_dirs: Iterable[Path]) -> Dict[str, int]:
+    """Return normalized model names mapped to their parameter counts."""
+
+    counts: Dict[str, int] = {}
+    for directory in model_dirs:
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.pth")):
+            model_key = extract_model_name(path.stem)
+            if not model_key:
+                continue
+            try:
+                checkpoint = torch.load(path, map_location="cpu")
+            except Exception as exc:
+                print(f"⚠️  Failed to load {path.name}: {exc}")
+                continue
+            state = _extract_state_dict_from_checkpoint(checkpoint)
+            if not state:
+                continue
+            counts[model_key] = _count_parameters(state)
+    return counts
+
+
+def _extract_state_dict_from_checkpoint(
+    checkpoint: Any,
+) -> Optional[Dict[str, torch.Tensor]]:
+    """Find the underlying state dict inside a checkpoint payload."""
+
+    if isinstance(checkpoint, torch.nn.Module):
+        return checkpoint.state_dict()
+    if not isinstance(checkpoint, dict):
+        return None
+    for key in ("state_dict", "model", "network", "state"):
+        candidate = checkpoint.get(key)
+        if candidate is None:
+            continue
+        if isinstance(candidate, dict):
+            return _extract_state_dict_from_checkpoint(candidate)
+        if isinstance(candidate, torch.nn.Module):
+            return candidate.state_dict()
+    tensor_entries = {
+        name: value
+        for name, value in checkpoint.items()
+        if isinstance(value, torch.Tensor)
+    }
+    if tensor_entries:
+        return tensor_entries
+    return None
+
+
+def _count_parameters(state_dict: Dict[str, torch.Tensor]) -> int:
+    return sum(tensor.numel() for tensor in state_dict.values())
 
 
 def resolve_plot_list(arg_value: str) -> List[str]:
@@ -388,7 +561,32 @@ def main() -> None:
     )
     if not runs:
         raise SystemExit("No evaluation runs found; nothing to plot")
-    visualizer = PerformanceVisualizer(runs, output_dir)
+    model_dir_candidates: List[Path] = []
+    if args.model_dirs:
+        model_dir_candidates.extend(Path(d).resolve() for d in args.model_dirs)
+    inferred_dir = eval_dir / "models"
+    if inferred_dir.is_dir():
+        model_dir_candidates.append(inferred_dir)
+
+    resolved_model_dirs: List[Path] = []
+    seen_dirs = set()
+    for candidate in model_dir_candidates:
+        if not candidate.exists():
+            print(f"⚠️  Model directory {candidate} not found; skipping")
+            continue
+        if not candidate.is_dir():
+            print(f"⚠️  Model path {candidate} is not a directory; skipping")
+            continue
+        candidate_str = str(candidate)
+        if candidate_str in seen_dirs:
+            continue
+        seen_dirs.add(candidate_str)
+        resolved_model_dirs.append(candidate)
+
+    param_counts: Dict[str, int] = (
+        load_parameter_counts(resolved_model_dirs) if resolved_model_dirs else {}
+    )
+    visualizer = PerformanceVisualizer(runs, output_dir, param_counts)
     visualizer.generate(resolve_plot_list(args.plots))
 
 
