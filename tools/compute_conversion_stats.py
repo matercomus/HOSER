@@ -7,6 +7,9 @@ Key capabilities (aligned to the request):
 - Roads-per-cell distribution (min/max/mean/median and percentiles).
 - Grid occupancy, dense-cell counts, and compression ratios.
 - Candidate-set collision analysis (sampled) with severity bins and examples.
+ - Candidate-set collision analysis (sampled) with severity bins and examples.
+ - Optional simulated candidate sets (reachable neighbors from gene.py or k-NN)
+     when no candidate file is available.
 - Worst-case cells and example high-collision candidate sets.
 - Information-loss metrics during generation.
 - Optional plots: density histogram, spatial heatmap, collision histogram,
@@ -25,6 +28,9 @@ Example:
 
 Notes:
 - Candidate sets are optional; provide them to compute collision stats.
+- If no candidate file is available, use --simulate-from-trajectories or
+    --simulate-random to build synthetic candidate sets
+    (reachable neighbors or k-NN via --sim-candidate-mode).
 - Supports candidate formats: .npz with arrays `candidate_road_id` (N,T,K)
     and optional `candidate_len` (N,T); or CSV with `candidate_road_id` column
     of list/CSV strings (one candidate set per row).
@@ -42,12 +48,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-# Ensure repository root is on sys.path when invoked via uv or python
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from critics.grid_mapper import GridConfig, GridMapper  # noqa: E402
+try:
+    from critics.grid_mapper import GridConfig, GridMapper
+except ModuleNotFoundError:  # Fallback for direct script execution
+    ROOT = Path(__file__).resolve().parent.parent
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from critics.grid_mapper import GridConfig, GridMapper
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +62,158 @@ DATASET_CONFIGS = {
     "porto_hoser": {"grid_size": 0.001, "downsample_factor": 1},
     "beijing_hoser_reference": {"grid_size": 0.001, "downsample_factor": 1},
 }
+
+
+def empty_collision_section() -> Dict:
+    """Template collision section used when no candidates are available."""
+
+    return {
+        "sample_size": 0,
+        "collision_sets_pct": None,
+        "mean_collision_rate": None,
+        "mean_unique_cells": None,
+        "severity_hist": {},
+        "examples": [],
+        "info_loss_pct": None,
+        "collision_rates": [],
+        "unique_cells_list": [],
+        "total_candidates_list": [],
+        "source": None,
+        "candidate_mode": None,
+    }
+
+
+def load_reachable_dict(rel_file: Path, num_roads: int) -> Dict[int, List[int]]:
+    """Load reachable road ids from roadmap.rel (origin_id -> destination_id)."""
+
+    reachable: Dict[int, List[int]] = {i: [] for i in range(num_roads)}
+    if not rel_file.exists():
+        logger.warning(
+            "relation file %s not found; reachable candidates disabled", rel_file
+        )
+        return reachable
+
+    df = pd.read_csv(rel_file)
+    if "origin_id" not in df.columns or "destination_id" not in df.columns:
+        logger.warning("relation file %s missing origin_id/destination_id", rel_file)
+        return reachable
+
+    for o, d in zip(df["origin_id"], df["destination_id"]):
+        try:
+            reachable[int(o)].append(int(d))
+        except Exception:
+            continue
+    return reachable
+
+
+def build_knn_index(road_centroids: np.ndarray):
+    """Build a BallTree on lat/lng for fast k-NN queries (haversine metric)."""
+
+    from sklearn.neighbors import BallTree
+
+    coords_rad = np.radians(road_centroids)
+    tree = BallTree(coords_rad, metric="haversine")
+    return tree, coords_rad
+
+
+def knn_candidates(tree, coords_rad: np.ndarray, road_id: int, k: int) -> List[int]:
+    """Return k nearest neighbor road ids (excluding self)."""
+
+    if tree is None or coords_rad.size == 0:
+        return []
+
+    k_query = min(k + 1, coords_rad.shape[0])
+    _, indices = tree.query(coords_rad[road_id].reshape(1, -1), k=k_query)
+    result = [int(idx) for idx in indices[0].tolist() if int(idx) != road_id]
+    return result[:k]
+
+
+def extract_roads_from_trajectories(
+    df: pd.DataFrame,
+    rid_column: str,
+    max_samples: int,
+    seed: int,
+    max_road_id: int,
+) -> List[int]:
+    """Flatten trajectory road ids with optional sampling and range guard."""
+
+    roads: List[int] = []
+    for row in df.itertuples():
+        vals = parse_list_field(getattr(row, rid_column))
+        if not vals:
+            continue
+        for v in vals:
+            if isinstance(v, int) and 0 <= v < max_road_id:
+                roads.append(v)
+
+    if max_samples and len(roads) > max_samples:
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(len(roads), size=max_samples, replace=False)
+        roads = [roads[i] for i in idx]
+
+    return roads
+
+
+def build_simulated_candidate_sets(
+    road_ids: List[int],
+    candidate_mode: str,
+    reachable: Dict[int, List[int]],
+    tree,
+    coords_rad: np.ndarray,
+    k: int,
+) -> List[List[int]]:
+    """Create candidate sets for provided road ids using chosen mode."""
+
+    candidates: List[List[int]] = []
+    for road_id in road_ids:
+        if candidate_mode == "reachable":
+            cand = reachable.get(road_id, [])
+        else:
+            cand = knn_candidates(tree, coords_rad, road_id, k)
+        if cand:
+            candidates.append(cand)
+    return candidates
+
+
+def simulate_candidates_from_trajectories(
+    df: pd.DataFrame,
+    rid_column: str,
+    candidate_mode: str,
+    reachable: Dict[int, List[int]],
+    tree,
+    coords_rad: np.ndarray,
+    k: int,
+    max_samples: int,
+    seed: int,
+    num_roads: int,
+) -> List[List[int]]:
+    """Simulate candidate sets using real trajectories (option 1)."""
+
+    roads = extract_roads_from_trajectories(
+        df, rid_column, max_samples, seed, num_roads
+    )
+    return build_simulated_candidate_sets(
+        roads, candidate_mode, reachable, tree, coords_rad, k
+    )
+
+
+def simulate_candidates_random(
+    num_roads: int,
+    iterations: int,
+    candidate_mode: str,
+    reachable: Dict[int, List[int]],
+    tree,
+    coords_rad: np.ndarray,
+    k: int,
+    seed: int,
+) -> List[List[int]]:
+    """Simulate candidate sets using random road picks (option 2)."""
+
+    rng = np.random.default_rng(seed)
+    roads = rng.integers(0, num_roads, size=iterations).tolist()
+    return build_simulated_candidate_sets(
+        roads, candidate_mode, reachable, tree, coords_rad, k
+    )
 
 
 def parse_list_field(value: object) -> Optional[List[int]]:
@@ -559,6 +718,55 @@ def main() -> None:
         help="Optional candidate sets file (npz/npy/csv)",
     )
     parser.add_argument(
+        "--rel-file",
+        type=Path,
+        required=False,
+        help="Path to roadmap.rel (used for reachable-mode simulation)",
+    )
+    parser.add_argument(
+        "--simulate-from-trajectories",
+        action="store_true",
+        help=(
+            "Simulate candidate sets from trajectories when no candidate file is given"
+        ),
+    )
+    parser.add_argument(
+        "--simulate-random",
+        action="store_true",
+        help="Simulate candidate sets via random road picks",
+    )
+    parser.add_argument(
+        "--sim-candidate-mode",
+        type=str,
+        choices=["reachable", "knn"],
+        default="reachable",
+        help=("Candidate generator: reachable neighbors (gene.py) or k-NN by distance"),
+    )
+    parser.add_argument(
+        "--sim-k",
+        type=int,
+        default=64,
+        help="k for k-NN simulation (ignored for reachable mode)",
+    )
+    parser.add_argument(
+        "--sim-max-trajectories",
+        type=int,
+        default=5000,
+        help="Max trajectory road occurrences to sample for simulation",
+    )
+    parser.add_argument(
+        "--sim-random-iters",
+        type=int,
+        default=1000,
+        help="Random simulation iterations",
+    )
+    parser.add_argument(
+        "--sim-seed",
+        type=int,
+        default=42,
+        help="Random seed for simulation sampling",
+    )
+    parser.add_argument(
         "--sample-size",
         type=int,
         default=1000,
@@ -608,36 +816,102 @@ def main() -> None:
     collision_rates: List[float] = []
     unique_counts: List[int] = []
     total_sizes: List[int] = []
-    collision_section: Dict = {
-        "sample_size": 0,
-        "collision_sets_pct": None,
-        "mean_collision_rate": None,
-        "mean_unique_cells": None,
-        "severity_hist": {},
-        "examples": [],
-        "info_loss_pct": None,
-        "collision_rates": [],
-        "unique_cells_list": [],
-        "total_candidates_list": [],
-    }
+    collision_section: Dict = empty_collision_section()
+    simulated_collision: Optional[Dict] = None
 
+    # Primary source: explicit candidate file
     if args.candidate_file:
         candidates = load_candidate_sets(args.candidate_file)
         collision_section = candidate_collision_analysis(
             candidates, road_to_token, args.sample_size
         )
+        collision_section.update({"source": "candidate_file", "candidate_mode": None})
         collision_rates = collision_section.get("collision_rates", [])
         unique_counts = collision_section.get("unique_cells_list", [])
         total_sizes = collision_section.get("total_candidates_list", [])
+
+    # Optional simulation when no candidate file is provided or for comparison
+    need_sim = args.simulate_from_trajectories or args.simulate_random
+    if need_sim:
+        rel_path = args.rel_file
+        if rel_path is None:
+            rel_path = args.roadmap_file.with_name("roadmap.rel")
+
+        reachable: Dict[int, List[int]] = {i: [] for i in range(len(road_to_token))}
+        knn_tree = None
+        coords_rad = np.array([])
+
+        if args.sim_candidate_mode == "reachable":
+            reachable = load_reachable_dict(rel_path, len(road_to_token))
+        else:
+            knn_tree, coords_rad = build_knn_index(road_centroids)
+
+        sim_candidates: List[List[int]] = []
+
+        if args.simulate_from_trajectories:
+            sim_candidates.extend(
+                simulate_candidates_from_trajectories(
+                    df,
+                    rid_col,
+                    args.sim_candidate_mode,
+                    reachable,
+                    knn_tree,
+                    coords_rad,
+                    args.sim_k,
+                    args.sim_max_trajectories,
+                    args.sim_seed,
+                    len(road_to_token),
+                )
+            )
+
+        if args.simulate_random:
+            sim_candidates.extend(
+                simulate_candidates_random(
+                    len(road_to_token),
+                    args.sim_random_iters,
+                    args.sim_candidate_mode,
+                    reachable,
+                    knn_tree,
+                    coords_rad,
+                    args.sim_k,
+                    args.sim_seed,
+                )
+            )
+
+        if sim_candidates:
+            simulated_collision = candidate_collision_analysis(
+                sim_candidates, road_to_token, args.sample_size
+            )
+            simulated_collision.update(
+                {
+                    "source": "simulated",
+                    "candidate_mode": args.sim_candidate_mode,
+                }
+            )
+
+            # If no candidate file was supplied, use simulated stats as primary
+            if collision_section["source"] is None:
+                collision_section = simulated_collision
+                collision_rates = collision_section.get("collision_rates", [])
+                unique_counts = collision_section.get("unique_cells_list", [])
+                total_sizes = collision_section.get("total_candidates_list", [])
 
     report = {
         "metadata": {
             "dataset": args.dataset,
             "trajectory_file": str(args.trajectory_file),
             "roadmap_file": str(args.roadmap_file),
-            "candidate_file": str(args.candidate_file) if args.candidate_file else None,
+            "candidate_file": (
+                str(args.candidate_file) if args.candidate_file else None
+            ),
             "sample_size": args.sample_size,
             "grid_dims": {"grid_h": mapper.grid_h, "grid_w": mapper.grid_w},
+            "simulation": {
+                "simulate_from_trajectories": args.simulate_from_trajectories,
+                "simulate_random": args.simulate_random,
+                "candidate_mode": args.sim_candidate_mode if need_sim else None,
+                "sim_k": args.sim_k if need_sim else None,
+            },
         },
         "roads_per_cell": {
             "distribution": roads_stats,
@@ -660,6 +934,9 @@ def main() -> None:
         "token_distribution": token_stats,
         "trajectory_stats": traj_stats,
     }
+
+    if simulated_collision:
+        report["simulated_candidate_collision"] = simulated_collision
 
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output_json, "w") as f:
