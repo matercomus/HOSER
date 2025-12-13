@@ -1,8 +1,11 @@
 # --- Standard and third-party imports (PEP 8: at top of file) ---
 import os
 import argparse
+import csv
+import logging
 import polars as pl
 import numpy as np
+from typing import List, Sequence
 
 
 # --- Abnormality generation functions ---
@@ -31,6 +34,7 @@ def perturb_rids(rid_list, level, road_id_pool, rng):
 def route_switch(rid_list, other_rid_list, level, rng):
     # Replace a segment of rid_list with a segment from other_rid_list
     # Level controls the length of the replaced segment
+    # Ensure that the function has the correct context
     n = len(rid_list)
     m = len(other_rid_list)
     if n < 4 or m < 4:
@@ -41,6 +45,26 @@ def route_switch(rid_list, other_rid_list, level, rng):
     start1 = rng.integers(1, n - seg_len)
     start2 = rng.integers(1, m - seg_len)
     seg2 = other_rid_list[start2 : start2 + seg_len]
+    new_rid_list = rid_list[:start1] + seg2 + rid_list[start1 + seg_len :]
+    return new_rid_list, (start1, start1 + seg_len), seg2
+
+
+def route_switch_from_pool(rid_list, road_pool, level, rng):
+    """Route-switch that draws a replacement segment from the global road pool.
+
+    This variant is streaming-friendly (does not need another trajectory in memory).
+    """
+    n = len(rid_list)
+    if n < 4 or len(road_pool) < 4:
+        return rid_list, None, None
+    seg_len = {"low": 2, "medium": 3, "high": 4}.get(level, 3)
+    if n <= seg_len or len(road_pool) <= seg_len:
+        return rid_list, None, None
+    start1 = int(rng.integers(1, n - seg_len))
+    # pick a contiguous slice from the pool (wrap if necessary)
+    pool = list(road_pool)
+    start2 = int(rng.integers(0, max(1, len(pool) - seg_len)))
+    seg2 = pool[start2 : start2 + seg_len]
     new_rid_list = rid_list[:start1] + seg2 + rid_list[start1 + seg_len :]
     return new_rid_list, (start1, start1 + seg_len), seg2
 
@@ -120,84 +144,126 @@ def insert_detour(rid_list, level, road_id_pool, rng):
     return new_rid_list, detour_roads
 
 
+def build_road_pool_stream(path: str, rid_col: str) -> List[str]:
+    """Build a deterministic, sorted road id pool by streaming the CSV once.
+
+    Returns a sorted list of unique road ids as strings.
+    """
+    pool_set = set()
+    with open(path, "r", newline="") as fh:
+        reader = csv.DictReader(fh)
+        if rid_col not in reader.fieldnames:
+            raise ValueError(f"RID column '{rid_col}' not found in {path}")
+        for row in reader:
+            rids = row[rid_col].split(",") if row[rid_col] else []
+            for r in rids:
+                pool_set.add(r)
+    # return a deterministic ordering
+    return sorted(pool_set)
+
+
+def process_split_streaming(
+    input_path: str,
+    output_path: str,
+    seed: int,
+    level: str,
+    abnormal_types: Sequence[str],
+):
+    """Stream-process one CSV split deterministically and write output CSV.
+
+    Two-pass approach: first pass builds the global road pool deterministically,
+    second pass streams rows and writes originals + generated abnormal rows.
+    """
+    # detect rid column name by reading header
+    with open(input_path, "r", newline="") as fh:
+        reader = csv.reader(fh)
+        header = next(reader)
+    if "rid_list" in header:
+        rid_col = "rid_list"
+    else:
+        rid_col = next((c for c in header if "rid" in c.lower()), "rid_list")
+
+    logging.info("Building road pool for %s (rid_col=%s)", input_path, rid_col)
+    road_pool = build_road_pool_stream(input_path, rid_col)
+    logging.info("Road pool size=%d", len(road_pool))
+
+    # open reader and writer for streaming second pass
+    with (
+        open(input_path, "r", newline="") as infh,
+        open(output_path, "w", newline="") as outfh,
+    ):
+        reader = csv.DictReader(infh)
+        fieldnames = list(reader.fieldnames) + ["abnormality_info"]
+        writer = csv.DictWriter(outfh, fieldnames=fieldnames)
+        writer.writeheader()
+
+        global_seed = int(seed)
+        for idx, row in enumerate(reader):
+            if idx % 10000 == 0 and idx > 0:
+                logging.info("Processed %d rows", idx)
+            # write original row with 'normal' abnormality_info
+            out_row = dict(row)
+            out_row["abnormality_info"] = "normal"
+            writer.writerow(out_row)
+
+            # prepare common values
+            rid_list = row.get(rid_col, "")
+            rids = rid_list.split(",") if rid_list else []
+            # per-row deterministic RNG
+            rng = np.random.default_rng(global_seed + idx)
+
+            for a_type in abnormal_types:
+                if a_type == "detour":
+                    new_rids, detour = insert_detour(rids, level, road_pool, rng)
+                    if detour:
+                        info = {"type": "detour", "level": level, "detour": detour}
+                    else:
+                        info = {"type": "detour", "level": level}
+                elif a_type == "perturb":
+                    new_rids, perturbed = perturb_rids(rids, level, road_pool, rng)
+                    info = {"type": "perturb", "level": level, "perturbed": perturbed}
+                elif a_type == "route_switch":
+                    new_rids, seg_range, seg2 = route_switch_from_pool(
+                        rids, road_pool, level, rng
+                    )
+                    info = {"type": "route_switch", "level": level}
+                    if seg_range is not None:
+                        info["seg_range"] = seg_range
+                        info["seg2"] = seg2
+                else:
+                    continue
+
+                # write abnormal row
+                new_row = dict(row)
+                new_row[rid_col] = ",".join(new_rids)
+                # write abnormality_info as compact string
+                new_row["abnormality_info"] = str(info)
+                writer.writerow(new_row)
+
+
 def main():
     args = parse_args()
-    rng = np.random.default_rng(args.seed)
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     os.makedirs(args.output_dir, exist_ok=True)
 
     for split in args.splits:
         in_path = os.path.join(args.input_dir, f"{split}.csv")
         out_path = os.path.join(args.output_dir, f"{split}.csv")
         if not os.path.exists(in_path):
-            print(f"Warning: {in_path} does not exist, skipping.")
+            logging.warning("%s does not exist, skipping.", in_path)
             continue
-        df = load_csv_with_flexible_columns(in_path)
-        df = add_abnormality_info_column(df)
 
-        # Prepare pool of all road IDs in the split
-        all_rids = set()
-        for rids in df["rid_list"].to_list():
-            all_rids.update(map(int, rids.split(",")))
-        road_id_pool = list(all_rids)
-
-        abnormal_rows = []
-        # Detour abnormality
-        for row in df.iter_rows(named=True):
-            rid_list = list(map(int, row["rid_list"].split(",")))
-            new_rid_list, detour_roads = insert_detour(
-                rid_list, args.level, road_id_pool, rng
-            )
-            if detour_roads:
-                new_row = dict(row)
-                new_row["rid_list"] = ",".join(map(str, new_rid_list))
-                new_row["abnormality_info"] = (
-                    f"type=detour|level={args.level}|inserted_roads={','.join(map(str, detour_roads))}"
-                )
-                abnormal_rows.append(new_row)
-
-        # Route switch abnormality
-        rows = list(df.iter_rows(named=True))
-        for i, row in enumerate(rows):
-            rid_list = list(map(int, row["rid_list"].split(",")))
-            # Pick a different trajectory at random
-            candidates = [j for j in range(len(rows)) if j != i]
-            if not candidates:
-                continue
-            j = rng.choice(candidates)
-            other_row = rows[j]
-            other_rid_list = list(map(int, other_row["rid_list"].split(",")))
-            new_rid_list, seg_range, seg2 = route_switch(
-                rid_list, other_rid_list, args.level, rng
-            )
-            if seg_range and seg2:
-                new_row = dict(row)
-                new_row["rid_list"] = ",".join(map(str, new_rid_list))
-                new_row["abnormality_info"] = (
-                    f"type=route_switch|level={args.level}|from_traj={other_row['traj_id']}|segment={seg_range[0]}-{seg_range[1]}|inserted={','.join(map(str, seg2))}"
-                )
-                abnormal_rows.append(new_row)
-
-        # Perturb abnormality
-        for row in df.iter_rows(named=True):
-            rid_list = list(map(int, row["rid_list"].split(",")))
-            new_rid_list, perturbed = perturb_rids(
-                rid_list, args.level, road_id_pool, rng
-            )
-            if perturbed:
-                new_row = dict(row)
-                new_row["rid_list"] = ",".join(map(str, new_rid_list))
-                perturbed_str = ";".join(f"{i}:{o}->{n}" for i, o, n in perturbed)
-                new_row["abnormality_info"] = (
-                    f"type=perturb|level={args.level}|perturbed_indices={perturbed_str}"
-                )
-                abnormal_rows.append(new_row)
-
-        if abnormal_rows:
-            abnormal_df = pl.DataFrame(abnormal_rows)
-            df = pl.concat([df, abnormal_df], how="vertical")
-
-        save_with_abnormality_info(df, out_path)
-        print(f"Wrote {out_path}")
+        logging.info("Processing split=%s", split)
+        process_split_streaming(
+            input_path=in_path,
+            output_path=out_path,
+            seed=args.seed,
+            level=args.level,
+            abnormal_types=args.abnormality_types,
+        )
+        logging.info("Wrote %s", out_path)
 
 
 if __name__ == "__main__":
