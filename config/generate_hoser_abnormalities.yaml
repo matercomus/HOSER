@@ -1,0 +1,43 @@
+# Configuration for generate_hoser_abnormalities.py
+# CLI flags override values in this file when provided.
+
+# Which splits to process (relative to --input-dir)
+splits:
+  - train
+  - val
+  - test
+
+# Abnormality generation controls
+# If `total_rate` is null, the script uses legacy behavior (one abnormal row per type per input row).
+# Otherwise, the script will generate an abnormal row for a given input row with probability `total_rate`.
+total_rate: 0.75
+
+# Per-type relative weights. If empty, weights are equal across `types`.
+# The sum of these weights is normalized internally.
+types:
+  - detour
+  - route_switch
+  - perturb
+
+weights:
+  detour: 1.0
+  route_switch: 1.0
+  perturb: 1.0
+
+# If true, probabilistic mode will retry other types for a row until a generator
+# actually makes a change (or all types are tried). Can increase runtime slightly.
+ensure_change: false
+
+# Abnormality difficulty level: low | medium | high
+level: medium
+
+# RNG seed for deterministic outputs (CLI --seed overrides)
+seed: 42
+
+# Output formatting / performance
+# progress_interval: emit a log every this many rows during streaming
+progress_interval: 10000
+
+# Example: to override on the CLI, run:
+# uv run python generate_hoser_abnormalities.py --input-dir data/Beijing --output-dir data/Beijing_abnormal \
+#   --abnormality-rate 0.5 --abnormality-weights detour:0.6,perturb:0.4 --seed 123
