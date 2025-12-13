@@ -10,10 +10,16 @@ splits:
 # Abnormality generation controls
 # If `total_rate` is null, the script uses legacy behavior (one abnormal row per type per input row).
 # Otherwise, the script will generate an abnormal row for a given input row with probability `total_rate`.
-total_rate: 0.75
+#
+# The `convert_HOSER_to_LMTAD.py` pipeline generates outlier sets using a small ratio
+# (e.g. `ratio=0.05` in its `_generate_outlier_set` configuration). To mimic that
+# behavior by default we set the total abnormality rate to 5% and split weight between
+# `detour` and `route_switch` (these are the outlier types used by the converter).
+total_rate: 0.05
 
 # Per-type relative weights. If empty, weights are equal across `types`.
-# The sum of these weights is normalized internally.
+# The sum of these weights is normalized internally. Here we give zero default weight
+# to `perturb` because the converter primarily generates detour/route-switch outliers.
 types:
   - detour
   - route_switch
@@ -22,7 +28,7 @@ types:
 weights:
   detour: 1.0
   route_switch: 1.0
-  perturb: 1.0
+  perturb: 0.0
 
 # If true, probabilistic mode will retry other types for a row until a generator
 # actually makes a change (or all types are tried). Can increase runtime slightly.
