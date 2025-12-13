@@ -137,9 +137,36 @@ def load_hoser_trajectories(csv_file: Path) -> List[List[int]]:
                     logger.error(f"  Row {idx}: Failed to parse trajectory list: {e}")
                     raise
             else:
-                # Real format: list of [road_id, timestamp] pairs
+                # Real format: rid_list may be one of:
+                #  - list of [road_id, timestamp] pairs (common)
+                #  - list of road_id integers (some CSV exports)
                 rid_list = eval(row["rid_list"])  # Convert string to list
-                road_ids = [int(road[0]) for road in rid_list]  # Extract road IDs
+
+                # Defensive handling for multiple possible formats
+                if not rid_list:
+                    road_ids = []
+                else:
+                    first = rid_list[0]
+                    # Format: list of pairs/tuples like [[road_id, ts], ...]
+                    if isinstance(first, (list, tuple)) and len(first) > 0:
+                        try:
+                            road_ids = [int(item[0]) for item in rid_list]
+                        except Exception as e:
+                            raise ValueError(f"Unexpected rid_list pair format: {e}")
+                    # Format: simple list of ints like [road_id, road_id, ...]
+                    elif isinstance(first, (int,)):
+                        try:
+                            road_ids = [int(item) for item in rid_list]
+                        except Exception as e:
+                            raise ValueError(f"Unexpected rid_list int format: {e}")
+                    else:
+                        # Last resort: attempt to extract zeroth element for each entry
+                        try:
+                            road_ids = [int(item[0]) for item in rid_list]
+                        except Exception:
+                            raise ValueError(
+                                f"Unrecognized rid_list entry type: {type(first)}"
+                            )
 
             # Validate
             if len(road_ids) == 0:
