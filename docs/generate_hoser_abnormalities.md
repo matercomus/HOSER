@@ -85,3 +85,41 @@
 
 **Contact / next steps**
 - If you want, I can add a small integration test that runs the CLI twice on a tiny sample and asserts outputs are identical to prove determinism end-to-end.
+
+
+**Real-run examples (Porto & Beijing)**
+
+Below are excerpts and metrics from recent runs on real HOSER datasets (these are representative logs produced by `generate_hoser_abnormalities.py` when run with `--seed 42 --level medium --abnormality-types detour route_switch perturb`). Use these to validate expected behavior and to illustrate scale.
+
+Porto (example)
+- Sample log excerpt:
+
+  2025-12-13 17:18:14,490 INFO Processed 470000 rows
+  2025-12-13 17:19:51,796 INFO Processed 480000 rows
+  2025-12-13 17:20:03,848 INFO Wrote data/porto_hoser_abnormal/train.csv
+  2025-12-13 17:20:03,848 INFO Processing split=val
+  2025-12-13 17:20:03,861 INFO Building road pool for data/porto_hoser/val.csv (rid_col=rid_list)
+  2025-12-13 17:20:04,980 INFO Road pool size=9925
+  2025-12-13 17:21:32,613 INFO Processed 10000 rows
+
+- Notes:
+  - The Porto training split processed ~480k rows in this example run and wrote the abnormal output at `data/porto_hoser_abnormal/train.csv`.
+  - The `val` split's road pool contained 9,925 unique road IDs (used by pool-based generators).
+
+Beijing (example)
+- Sample log excerpt:
+
+  2025-12-13 16:05:11,203 INFO Processing split=train
+  2025-12-13 16:05:11,223 INFO Building road pool for data/Beijing/train.csv (rid_col=rid_list)
+  2025-12-13 16:05:24,017 INFO Road pool size=36862
+  2025-12-13 16:09:49,167 INFO Processed 10000 rows
+  2025-12-13 16:14:08,726 INFO Processed 20000 rows
+  2025-12-13 16:18:23,386 INFO Processed 30000 rows
+
+- Notes:
+  - The Beijing training split had a larger road pool (36,862 unique road IDs) indicating a denser candidate set for detours/perturbations.
+  - Progress logs are emitted every 10k rows (adjustable in code) so long runs can be monitored for throughput and progress.
+
+Using these examples
+- Road pool sizes directly affect the diversity of inserted/perturbed IDs: larger pools produce more diverse abnormalities.
+- The output files (for example `data/porto_hoser_abnormal/train.csv` and `data/Beijing_abnormal/train.csv`) contain original rows plus abnormal rows; compare file sizes or row counts to estimate how many abnormal rows were generated.
