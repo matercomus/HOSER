@@ -85,6 +85,30 @@
 
 **Contact / next steps**
 - If you want, I can add a small integration test that runs the CLI twice on a tiny sample and asserts outputs are identical to prove determinism end-to-end.
+ 
+**Verification & Plotting**
+
+We include a helper script `scripts/compute_abnormality_stats.py` that compares original and abnormal CSV splits and writes summary outputs suitable for plotting and reporting.
+
+What it produces
+- `OUT_DIR/<dataset>_abnormality_stats.json` — raw JSON per-split counters.
+- `OUT_DIR/<dataset>_abnormality_stats.csv` — flattened CSV with columns you can directly plot (total rows, abnormal rows, per-type counts, modified counts, fractions).
+
+Usage example
+
+  uv run python scripts/compute_abnormality_stats.py \
+    --original data/porto_hoser --abnormal data/porto_hoser_abnormal --out results/porto_stats
+
+  uv run python scripts/compute_abnormality_stats.py \
+    --original data/Beijing --abnormal data/Beijing_abnormal --out results/beijing_stats
+
+Notes
+- The script tries to match rows by `traj_id` (override with `--id-col` if your files use a different primary id). It then checks whether the `rid_list` in abnormal rows differs from the original to determine "actually modified" abnormal rows.
+- The CSV output includes `abnormal_fraction` (abnormal_rows / total_rows) and `modified_fraction_of_abnormal` (modified_abnormal_rows / abnormal_rows) which are useful research metrics.
+
+Plotting tips
+- Load the CSV into pandas or your plotting tool and visualize `abnormal_fraction` by split or dataset.
+- Plot per-type counts (columns that start with `count_`) to show the distribution of abnormality types.
 
 
 **Real-run examples (Porto & Beijing)**
