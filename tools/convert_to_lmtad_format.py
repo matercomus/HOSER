@@ -35,6 +35,12 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+# Ensure repository root is on sys.path so sibling packages (e.g. `critics`)
+# are importable when this script is run from `tools/` or other working dirs.
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from critics.grid_mapper import GridConfig, GridMapper
 
 logger = logging.getLogger(__name__)
