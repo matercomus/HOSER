@@ -5,7 +5,8 @@ import csv
 import logging
 import polars as pl
 import numpy as np
-from typing import List, Sequence
+import yaml
+from typing import List, Sequence, Optional, Dict
 
 
 # --- Abnormality generation functions ---
@@ -91,23 +92,106 @@ def parse_args():
     parser.add_argument(
         "--splits",
         nargs="*",
-        default=["train", "val", "test"],
-        help="Splits to process.",
+        default=None,
+        help="Splits to process (overrides config).",
     )
     parser.add_argument(
         "--abnormality-types",
         nargs="*",
-        default=["detour", "route_switch"],
-        help="Abnormality types to generate.",
+        default=None,
+        help="Abnormality types to generate (overrides config).",
     )
     parser.add_argument(
         "--level",
         type=str,
-        default="medium",
-        help="Abnormality level (e.g., low, medium, high)",
+        default=None,
+        help="Abnormality level (e.g., low, medium, high) (overrides config)",
     )
-    parser.add_argument("--seed", type=int, default=42, help="Random seed.")
+    parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed (overrides config)"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config/generate_hoser_abnormalities.yaml",
+        help="Path to YAML config file (defaults to config/generate_hoser_abnormalities.yaml)",
+    )
+    parser.add_argument(
+        "--abnormality-rate",
+        type=float,
+        default=None,
+        help="Total abnormality rate (0-1) across all types. Overrides config.",
+    )
+    parser.add_argument(
+        "--abnormality-weights",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated weights for abnormality types (same order as --abnormality-types), "
+            "or key:val pairs like detour:0.5,perturb:0.25. Overrides config."
+        ),
+    )
+    parser.add_argument(
+        "--ensure-change",
+        action="store_true",
+        help="If set, probabilistic mode will retry other types until a generator makes a change.",
+    )
+    parser.add_argument(
+        "--progress-interval",
+        type=int,
+        default=None,
+        help="Logging progress interval (overrides config).",
+    )
     return parser.parse_args()
+
+
+def load_yaml_config(path: str) -> Dict:
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r") as fh:
+        return yaml.safe_load(fh) or {}
+
+
+def parse_weights_arg(
+    weights_arg: Optional[str],
+    types: Sequence[str],
+    config_weights: Optional[Dict] = None,
+) -> List[float]:
+    """Return a list of weights aligned with `types`.
+
+    `weights_arg` formats supported:
+      - comma-separated values: "0.6,0.2,0.2"
+      - key:value pairs: "detour:0.6,perturb:0.4"
+    If `weights_arg` is None, `config_weights` (dict) is used if provided; otherwise equal weights.
+    """
+    if weights_arg:
+        # try key:val pairs
+        if ":" in weights_arg:
+            pairs = [p.strip() for p in weights_arg.split(",") if p.strip()]
+            weight_map = {}
+            for p in pairs:
+                if ":" in p:
+                    k, v = p.split(":", 1)
+                    try:
+                        weight_map[k.strip()] = float(v)
+                    except ValueError:
+                        weight_map[k.strip()] = 0.0
+            return [float(weight_map.get(t, 0.0)) for t in types]
+        else:
+            parts = [p.strip() for p in weights_arg.split(",") if p.strip()]
+            vals = []
+            for p in parts:
+                try:
+                    vals.append(float(p))
+                except ValueError:
+                    vals.append(0.0)
+            if len(vals) == len(types):
+                return vals
+            # otherwise fallback to config or equal
+    if config_weights:
+        return [float(config_weights.get(t, 0.0)) for t in types]
+    # equal weights
+    return [1.0 / len(types)] * len(types)
 
 
 def load_csv_with_flexible_columns(path: str) -> pl.DataFrame:
@@ -168,6 +252,10 @@ def process_split_streaming(
     seed: int,
     level: str,
     abnormal_types: Sequence[str],
+    abnormality_rate: Optional[float] = None,
+    abnormality_weights: Optional[Sequence[float]] = None,
+    ensure_change: bool = False,
+    progress_interval: int = 10000,
 ):
     """Stream-process one CSV split deterministically and write output CSV.
 
@@ -198,8 +286,22 @@ def process_split_streaming(
         writer.writeheader()
 
         global_seed = int(seed)
+        types = list(abnormal_types)
+        # prepare normalized probabilities if probabilistic mode
+        if abnormality_rate is not None:
+            probs = None
+            if abnormality_weights is not None:
+                probs = list(abnormality_weights)
+            else:
+                probs = [1.0 / len(types)] * len(types)
+            s = sum(probs)
+            if s <= 0:
+                probs = [1.0 / len(types)] * len(types)
+            else:
+                probs = [p / s for p in probs]
+
         for idx, row in enumerate(reader):
-            if idx % 10000 == 0 and idx > 0:
+            if idx % progress_interval == 0 and idx > 0:
                 logging.info("Processed %d rows", idx)
             # write original row with 'normal' abnormality_info
             out_row = dict(row)
@@ -212,33 +314,96 @@ def process_split_streaming(
             # per-row deterministic RNG
             rng = np.random.default_rng(global_seed + idx)
 
-            for a_type in abnormal_types:
-                if a_type == "detour":
-                    new_rids, detour = insert_detour(rids, level, road_pool, rng)
-                    if detour:
-                        info = {"type": "detour", "level": level, "detour": detour}
+            # legacy: write one abnormal row per requested type
+            if abnormality_rate is None:
+                for a_type in abnormal_types:
+                    if a_type == "detour":
+                        new_rids, detour = insert_detour(rids, level, road_pool, rng)
+                        if detour:
+                            info = {"type": "detour", "level": level, "detour": detour}
+                        else:
+                            info = {"type": "detour", "level": level}
+                    elif a_type == "perturb":
+                        new_rids, perturbed = perturb_rids(rids, level, road_pool, rng)
+                        info = {
+                            "type": "perturb",
+                            "level": level,
+                            "perturbed": perturbed,
+                        }
+                    elif a_type == "route_switch":
+                        new_rids, seg_range, seg2 = route_switch_from_pool(
+                            rids, road_pool, level, rng
+                        )
+                        info = {"type": "route_switch", "level": level}
+                        if seg_range is not None:
+                            info["seg_range"] = seg_range
+                            info["seg2"] = seg2
                     else:
-                        info = {"type": "detour", "level": level}
-                elif a_type == "perturb":
-                    new_rids, perturbed = perturb_rids(rids, level, road_pool, rng)
-                    info = {"type": "perturb", "level": level, "perturbed": perturbed}
-                elif a_type == "route_switch":
-                    new_rids, seg_range, seg2 = route_switch_from_pool(
-                        rids, road_pool, level, rng
-                    )
-                    info = {"type": "route_switch", "level": level}
-                    if seg_range is not None:
-                        info["seg_range"] = seg_range
-                        info["seg2"] = seg2
-                else:
-                    continue
+                        continue
 
-                # write abnormal row
-                new_row = dict(row)
-                new_row[rid_col] = ",".join(new_rids)
-                # write abnormality_info as compact string
-                new_row["abnormality_info"] = str(info)
-                writer.writerow(new_row)
+                    # write abnormal row
+                    new_row = dict(row)
+                    new_row[rid_col] = ",".join(new_rids)
+                    # write abnormality_info as compact string
+                    new_row["abnormality_info"] = str(info)
+                    writer.writerow(new_row)
+            else:
+                # probabilistic mode: decide whether this row gets an abnormality
+                u = rng.random()
+                if u < float(abnormality_rate):
+                    # sample a single abnormality type according to probs
+                    chosen = rng.choice(types, p=probs)
+
+                    # attempt to generate; optionally retry other types if ensure_change True
+                    tried = set()
+                    attempts = 0
+                    changed = False
+                    while True:
+                        attempts += 1
+                        tried.add(chosen)
+                        if chosen == "detour":
+                            new_rids, detour = insert_detour(
+                                rids, level, road_pool, rng
+                            )
+                            changed = bool(detour)
+                            info = {"type": "detour", "level": level}
+                            if detour:
+                                info["detour"] = detour
+                        elif chosen == "perturb":
+                            new_rids, perturbed = perturb_rids(
+                                rids, level, road_pool, rng
+                            )
+                            changed = bool(perturbed)
+                            info = {"type": "perturb", "level": level}
+                            if perturbed:
+                                info["perturbed"] = perturbed
+                        elif chosen == "route_switch":
+                            new_rids, seg_range, seg2 = route_switch_from_pool(
+                                rids, road_pool, level, rng
+                            )
+                            changed = seg_range is not None
+                            info = {"type": "route_switch", "level": level}
+                            if seg_range is not None:
+                                info["seg_range"] = seg_range
+                                info["seg2"] = seg2
+                        else:
+                            changed = False
+
+                        if changed or not ensure_change or attempts >= len(types):
+                            break
+
+                        # pick another type not yet tried
+                        remaining = [t for t in types if t not in tried]
+                        if not remaining:
+                            break
+                        # pick uniformly among remaining
+                        chosen = rng.choice(remaining)
+
+                    if changed:
+                        new_row = dict(row)
+                        new_row[rid_col] = ",".join(new_rids)
+                        new_row["abnormality_info"] = str(info)
+                        writer.writerow(new_row)
 
 
 def main():
@@ -246,9 +411,52 @@ def main():
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
+
+    # Load config file (if present) and merge with CLI args (CLI overrides config)
+    config = load_yaml_config(
+        args.config
+        if hasattr(args, "config")
+        else "config/generate_hoser_abnormalities.yaml"
+    )
+
+    splits = (
+        args.splits
+        if args.splits is not None
+        else config.get("splits", ["train", "val", "test"])
+    )
+    abnormal_types = (
+        args.abnormality_types
+        if args.abnormality_types is not None
+        else config.get("types", ABNORMALITY_TYPES)
+    )
+    level = args.level if args.level is not None else config.get("level", "medium")
+    seed = int(args.seed) if args.seed is not None else int(config.get("seed", 42))
+
+    abnormality_rate = (
+        args.abnormality_rate
+        if getattr(args, "abnormality_rate", None) is not None
+        else config.get("total_rate")
+    )
+    # parse weights from CLI or config
+    if getattr(args, "abnormality_weights", None):
+        weights_list = parse_weights_arg(
+            args.abnormality_weights, abnormal_types, config.get("weights")
+        )
+    else:
+        weights_list = parse_weights_arg(None, abnormal_types, config.get("weights"))
+
+    ensure_change = bool(
+        getattr(args, "ensure_change", False) or config.get("ensure_change", False)
+    )
+    progress_interval = (
+        int(args.progress_interval)
+        if getattr(args, "progress_interval", None) is not None
+        else int(config.get("progress_interval", 10000))
+    )
+
     os.makedirs(args.output_dir, exist_ok=True)
 
-    for split in args.splits:
+    for split in splits:
         in_path = os.path.join(args.input_dir, f"{split}.csv")
         out_path = os.path.join(args.output_dir, f"{split}.csv")
         if not os.path.exists(in_path):
@@ -259,9 +467,13 @@ def main():
         process_split_streaming(
             input_path=in_path,
             output_path=out_path,
-            seed=args.seed,
-            level=args.level,
-            abnormal_types=args.abnormality_types,
+            seed=seed,
+            level=level,
+            abnormal_types=abnormal_types,
+            abnormality_rate=abnormality_rate,
+            abnormality_weights=weights_list,
+            ensure_change=ensure_change,
+            progress_interval=progress_interval,
         )
         logging.info("Wrote %s", out_path)
 
