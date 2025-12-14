@@ -23,6 +23,7 @@ from typing import List, Optional
 
 import numpy as np
 import torch
+import polars as pl
 
 import sys
 
@@ -52,6 +53,8 @@ def evaluate_splits(
     batch_size: int = 128,
     splits: Optional[List[str]] = None,
     output_dir: Optional[Path] = None,
+    sample_frac: float = 0.1,
+    sample_seed: int = 42,
 ):
     if splits is None:
         splits = ["train", "val", "test"]
@@ -107,14 +110,41 @@ def evaluate_splits(
 
     all_results = {}
 
+    # Prepare streaming results file (JSON Lines). We'll append per-split results
+    results_file = output_dir / "evaluation_results.jsonl"
+
     for split in splits:
         csv_file = data_dir / f"{split}.csv"
         if not csv_file.exists():
             logger.warning(f"Split file not found, skipping: {csv_file}")
             continue
 
-        logger.info(f"Loading trajectories from {csv_file}...")
-        trajectories = load_hoser_trajectories(csv_file)
+        # Use polars to sample large CSVs efficiently (lazy + streaming collect).
+        # If sample_frac >= 1.0, read full file.
+        target_csv = csv_file
+        if sample_frac is not None and 0.0 < sample_frac < 1.0:
+            logger.info(
+                f"Sampling {sample_frac * 100:.1f}% of {csv_file.name} with polars (seed={sample_seed})"
+            )
+            try:
+                lf = pl.scan_csv(str(csv_file))
+                sampled = lf.sample(fraction=sample_frac, seed=sample_seed).collect(
+                    streaming=True
+                )
+                if sampled.height == 0:
+                    logger.warning(f"Sampled 0 rows from {csv_file}, skipping")
+                    continue
+
+                tmp_file = output_dir / f"{csv_file.stem}_sampled.csv"
+                sampled.write_csv(str(tmp_file))
+                target_csv = tmp_file
+            except Exception as e:
+                logger.error(f"Polars sampling failed for {csv_file}: {e}")
+                # Fall back to full file
+                target_csv = csv_file
+
+        logger.info(f"Loading trajectories from {target_csv}...")
+        trajectories = load_hoser_trajectories(target_csv)
         if len(trajectories) == 0:
             logger.warning(f"No valid trajectories in {csv_file}, skipping")
             continue
@@ -146,11 +176,33 @@ def evaluate_splits(
             f"Split '{split}': mean_log_perplexity={all_results[split]['mean_log_perplexity']:.4f}, outlier_rate={all_results[split]['outlier_rate']:.2%}"
         )
 
-    # Save results
-    results_file = output_dir / "evaluation_results.json"
-    with open(results_file, "w") as f:
-        json.dump(all_results, f, indent=2)
-    logger.info(f"Results saved to: {results_file}")
+        # Stream-save this split's results to a JSON Lines file (append).
+        try:
+            with open(results_file, "a") as f:
+                f.write(
+                    json.dumps({"split": split, "results": all_results[split]}) + "\n"
+                )
+        except Exception as e:
+            logger.error(f"Failed to append JSONL for split {split}: {e}")
+
+        # Also update aggregated JSON for convenience (small file, overwritten per-split).
+        agg_file = output_dir / "evaluation_results.json"
+        try:
+            if agg_file.exists():
+                with open(agg_file, "r") as f:
+                    agg = json.load(f)
+            else:
+                agg = {}
+            agg[split] = all_results[split]
+            with open(agg_file, "w") as f:
+                json.dump(agg, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to update aggregated results file: {e}")
+
+    logger.info(f"Streaming results appended to: {results_file}")
+    logger.info(
+        f"Aggregated results written to: {output_dir / 'evaluation_results.json'}"
+    )
 
 
 def main():
@@ -201,6 +253,18 @@ def main():
     parser.add_argument(
         "--output-dir", type=Path, default=None, help="Directory to write results"
     )
+    parser.add_argument(
+        "--sample-frac",
+        type=float,
+        default=0.1,
+        help="Fraction of rows to sample from each split (0.0-1.0); 1.0 = full",
+    )
+    parser.add_argument(
+        "--sample-seed",
+        type=int,
+        default=42,
+        help="Random seed used by polars sampling",
+    )
 
     args = parser.parse_args()
 
@@ -218,6 +282,8 @@ def main():
         batch_size=args.batch_size,
         splits=splits,
         output_dir=args.output_dir,
+        sample_frac=args.sample_frac,
+        sample_seed=args.sample_seed,
     )
 
 
