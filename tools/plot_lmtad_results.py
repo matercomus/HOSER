@@ -132,14 +132,53 @@ def plot_results(agg: dict, out_path: Path, show: bool = False):
             else len(data[s])
         )
 
-    fig3, ax3 = plt.subplots(figsize=(max(6, len(splits) * 0.8), 4))
-    sns.barplot(x=splits, y=abnormal_rates, palette="Reds_d", ax=ax3)
+    # Compute standard error (%) for proportion p: sqrt(p*(1-p)/n) * 100
+    se_percent = []
+    for pct, n in zip(abnormal_rates, counts):
+        if np.isnan(pct) or n <= 0:
+            se_percent.append(0.0)
+        else:
+            p = pct / 100.0
+            se = np.sqrt(p * (1.0 - p) / float(n)) * 100.0
+            se_percent.append(se)
+
+    fig3, ax3 = plt.subplots(figsize=(max(6, len(splits) * 0.9), 4))
+    x = np.arange(len(splits))
+    # Use matplotlib bar so we can draw errorbars using computed SE
+    bars = ax3.bar(
+        x,
+        abnormal_rates,
+        yerr=se_percent,
+        capsize=6,
+        color=sns.color_palette("Reds", len(splits)),
+    )
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(splits)
     ax3.set_ylabel("Abnormality rate (%)")
     ax3.set_xlabel("Split")
-    ax3.set_title("Abnormality (outlier) percentage per split")
-    for i, v in enumerate(abnormal_rates):
+    ax3.set_title("Abnormality (outlier) percentage per split", pad=14)
+
+    # Adjust y-limits to leave space above bars for annotations and errorbars
+    top = 0.0
+    for v, se in zip(abnormal_rates, se_percent):
         if not np.isnan(v):
-            ax3.text(i, v + 0.5, f"{v:.2f}%", ha="center")
+            top = max(top, v + se)
+    ax3.set_ylim(0, max(5.0, top * 1.25 + 1.0))
+
+    # Annotate bars above the errorbar (or inside if tall enough)
+    for i, (rect, v, se) in enumerate(zip(bars, abnormal_rates, se_percent)):
+        if np.isnan(v):
+            continue
+        # place the label just above the errorbar
+        y = v + se + 0.5
+        ax3.text(
+            rect.get_x() + rect.get_width() / 2.0,
+            y,
+            f"{v:.2f}%",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
 
     abnormal_file = out_dir / f"{base}_abnormality.png"
     fig3.tight_layout()
@@ -158,12 +197,13 @@ def plot_results(agg: dict, out_path: Path, show: bool = False):
                     "num_trajectories",
                     "outlier_rate_fraction",
                     "outlier_rate_percent",
+                    "outlier_rate_se_percent",
                 ]
             )
-            for s, cnt, r in zip(splits, counts, abnormal_rates):
+            for s, cnt, r, se in zip(splits, counts, abnormal_rates, se_percent):
                 frac = (r / 100.0) if not np.isnan(r) else ""
                 pct = r if not np.isnan(r) else ""
-                writer.writerow([s, cnt, frac, pct])
+                writer.writerow([s, cnt, frac, pct, se])
     except Exception:
         pass
 
