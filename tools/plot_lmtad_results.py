@@ -53,41 +53,66 @@ def plot_results(agg: dict, out_path: Path, show: bool = False):
     if len(splits) == 0:
         raise ValueError("No splits found in results to plot")
 
-    # Create figure with per-split histograms and a boxplot
     sns.set(style="whitegrid")
-    ncols = 2
-    nrows = int(np.ceil((len(splits) + 1) / ncols))
-    fig = plt.figure(figsize=(6 * ncols, 4 * nrows))
 
-    # Histograms
-    for idx, s in enumerate(splits, start=1):
-        ax = fig.add_subplot(nrows, ncols, idx)
+    # Determine output directory and base name. If out_path is a directory
+    # or has no suffix, treat it as a directory. Otherwise use parent and stem
+    # to build filenames.
+    if out_path.exists() and out_path.is_dir():
+        out_dir = out_path
+        base = "lmtad_eval"
+    else:
+        if out_path.suffix:
+            out_dir = out_path.parent
+            base = out_path.stem
+        else:
+            out_dir = out_path
+            base = "lmtad_eval"
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save one histogram per split
+    saved_files = []
+    for s in splits:
         vals = data[s]
+        fig, ax = plt.subplots(figsize=(8, 4.5))
         if vals.size == 0:
             ax.text(0.5, 0.5, "No finite values", ha="center")
             ax.set_title(s)
-            continue
+        else:
+            sns.histplot(vals, bins=50, kde=False, ax=ax)
+            thr = np.percentile(vals, 95)
+            ax.axvline(thr, color="red", linestyle="--", label=f"95th pct={thr:.3f}")
+            ax.set_title(f"{s} (N={len(vals)})")
+            ax.set_xlabel("Log perplexity")
+            ax.legend()
 
-        sns.histplot(vals, bins=50, kde=False, ax=ax)
-        thr = np.percentile(vals, 95)
-        ax.axvline(thr, color="red", linestyle="--", label=f"95th pct={thr:.3f}")
-        ax.set_title(f"{s} (N={len(vals)})")
-        ax.set_xlabel("Log perplexity")
-        ax.legend()
+        out_file = out_dir / f"{base}_{s}.png"
+        fig.tight_layout()
+        fig.savefig(out_file, dpi=150)
+        saved_files.append(out_file)
+        plt.close(fig)
 
-    # Boxplot across splits
-    ax_box = fig.add_subplot(nrows, ncols, nrows * ncols)
+    # Save a separate boxplot comparing splits
+    fig2, ax2 = plt.subplots(figsize=(max(6, len(splits) * 0.8), 5))
     ordered_vals = [data[s] for s in splits]
-    sns.boxplot(data=ordered_vals, orient="v", ax=ax_box)
-    ax_box.set_xticklabels(splits, rotation=45, ha="right")
-    ax_box.set_ylabel("Log perplexity")
-    ax_box.set_title("Per-split log perplexity distribution (boxplot)")
+    sns.boxplot(data=ordered_vals, orient="v", ax=ax2)
+    ax2.set_xticklabels(splits, rotation=45, ha="right")
+    ax2.set_ylabel("Log perplexity")
+    ax2.set_title("Per-split log perplexity distribution (boxplot)")
+    boxplot_file = out_dir / f"{base}_boxplot.png"
+    fig2.tight_layout()
+    fig2.savefig(boxplot_file, dpi=150)
+    saved_files.append(boxplot_file)
+    plt.close(fig2)
 
-    plt.tight_layout()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150)
-    print(f"Saved plot to: {out_path}")
+    for p in saved_files:
+        print(f"Saved plot to: {p}")
     if show:
+        # If user asked to show, open the boxplot
+        img = plt.imread(str(boxplot_file))
+        plt.imshow(img)
+        plt.axis("off")
         plt.show()
 
 
