@@ -12,6 +12,28 @@ from sklearn.metrics import (
     precision_recall_curve,
     auc,
 )
+import math
+
+
+def _compute_confusion_and_scores(gt, detected):
+    tp = int(sum(1 for a, b in zip(gt, detected) if a == 1 and b == 1))
+    fp = int(sum(1 for a, b in zip(gt, detected) if a == 0 and b == 1))
+    fn = int(sum(1 for a, b in zip(gt, detected) if a == 1 and b == 0))
+    tn = int(sum(1 for a, b in zip(gt, detected) if a == 0 and b == 0))
+    prec = precision_score(gt, detected, zero_division=0)
+    rec = recall_score(gt, detected, zero_division=0)
+    f1 = f1_score(gt, detected, zero_division=0)
+    acc = accuracy_score(gt, detected)
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "precision": float(prec),
+        "recall": float(rec),
+        "f1": float(f1),
+        "accuracy": float(acc),
+    }
 
 
 def find_csv_for_split(eval_dir: Path, dataset_name: str, split: str) -> Path:
@@ -152,6 +174,53 @@ def evaluate_dataset_eval_dirs(root: Path = Path("tools_eval_lmtad")):
                 }
             else:
                 porto_metrics = {}
+
+                # Experiment: compare multiple detection rules side-by-side
+                rules = []
+
+                # Percentile 95th (>)
+                th95 = float(np.quantile(scores_arr, 0.95))
+                det95_gt = (scores_arr > th95).astype(int)
+                rules.append(("pct95_gt", th95, det95_gt))
+
+                # Percentile 95th (>=)
+                det95_ge = (scores_arr >= th95).astype(int)
+                rules.append(("pct95_ge", th95, det95_ge))
+
+                # Porto 3-sigma (already computed as threshold_porto)
+                rules.append(("porto_3sigma", float(threshold_porto), detected_porto))
+
+                # Porto 2-sigma
+                if non_outlier_scores.size > 1:
+                    threshold_2sig = non_outlier_scores.mean() + (
+                        non_outlier_scores.std(ddof=0) * 2.0
+                    )
+                else:
+                    threshold_2sig = float(np.quantile(scores_arr, 0.90))
+                det_2sig = (scores_arr > threshold_2sig).astype(int)
+                rules.append(("porto_2sigma", float(threshold_2sig), det_2sig))
+
+                # top-k where k = ceil(n * 0.05)
+                k = max(1, int(math.ceil(len(scores_arr) * 0.05)))
+                topk_idx = np.argsort(scores_arr)[-k:]
+                det_topk = np.zeros_like(scores_arr, dtype=int)
+                det_topk[topk_idx] = 1
+                rules.append(("top_k_5pct", None, det_topk))
+
+                # compute metrics for each rule and save to porto_metrics as a list
+                rule_results = []
+                for name, th, det in rules:
+                    cm = _compute_confusion_and_scores(gt, det)
+                    cm.update(
+                        {
+                            "rule": name,
+                            "threshold": (None if th is None else float(th)),
+                            "n_detected": int(det.sum()),
+                        }
+                    )
+                    rule_results.append(cm)
+
+                porto_metrics["rule_comparison"] = rule_results
 
             tp = sum(1 for a, b in zip(gt, pred) if a == 1 and b == 1)
             fp = sum(1 for a, b in zip(gt, pred) if a == 0 and b == 1)
