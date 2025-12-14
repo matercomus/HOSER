@@ -15,6 +15,7 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import csv
 
 
 def load_results(eval_dir: Path):
@@ -114,6 +115,60 @@ def plot_results(agg: dict, out_path: Path, show: bool = False):
         plt.imshow(img)
         plt.axis("off")
         plt.show()
+
+    # Abnormality percentages bar chart (uses outlier_rate from results)
+    abnormal_rates = []
+    counts = []
+    for s in splits:
+        r = agg[s].get("outlier_rate")
+        # Expecting fraction in [0,1]; convert to percent for plotting
+        if r is None:
+            abnormal_rates.append(np.nan)
+        else:
+            abnormal_rates.append(float(r) * 100.0)
+        counts.append(
+            int(agg[s].get("num_trajectories", len(data[s])))
+            if agg[s].get("num_trajectories") is not None
+            else len(data[s])
+        )
+
+    fig3, ax3 = plt.subplots(figsize=(max(6, len(splits) * 0.8), 4))
+    sns.barplot(x=splits, y=abnormal_rates, palette="Reds_d", ax=ax3)
+    ax3.set_ylabel("Abnormality rate (%)")
+    ax3.set_xlabel("Split")
+    ax3.set_title("Abnormality (outlier) percentage per split")
+    for i, v in enumerate(abnormal_rates):
+        if not np.isnan(v):
+            ax3.text(i, v + 0.5, f"{v:.2f}%", ha="center")
+
+    abnormal_file = out_dir / f"{base}_abnormality.png"
+    fig3.tight_layout()
+    fig3.savefig(abnormal_file, dpi=150)
+    saved_files.append(abnormal_file)
+    plt.close(fig3)
+
+    # Also write a small CSV summary with counts and abnormality rates
+    summary_file = out_dir / f"{base}_abnormality.csv"
+    try:
+        with open(summary_file, "w", newline="") as cf:
+            writer = csv.writer(cf)
+            writer.writerow(
+                [
+                    "split",
+                    "num_trajectories",
+                    "outlier_rate_fraction",
+                    "outlier_rate_percent",
+                ]
+            )
+            for s, cnt, r in zip(splits, counts, abnormal_rates):
+                frac = (r / 100.0) if not np.isnan(r) else ""
+                pct = r if not np.isnan(r) else ""
+                writer.writerow([s, cnt, frac, pct])
+    except Exception:
+        pass
+
+    print(f"Saved abnormality plot to: {abnormal_file}")
+    print(f"Saved abnormality summary to: {summary_file}")
 
 
 def main():
