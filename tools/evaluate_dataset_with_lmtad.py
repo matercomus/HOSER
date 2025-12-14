@@ -23,7 +23,8 @@ from typing import List, Optional
 
 import numpy as np
 import torch
-import polars as pl
+import csv
+import random
 
 import sys
 
@@ -119,28 +120,42 @@ def evaluate_splits(
             logger.warning(f"Split file not found, skipping: {csv_file}")
             continue
 
-        # Use polars to sample large CSVs efficiently (lazy + streaming collect).
-        # If sample_frac >= 1.0, read full file.
+        # Stream-sample CSV rows using Bernoulli sampling to avoid loading the
+        # entire file into memory. This is best-effort: each input row is
+        # independently included with probability `sample_frac`.
         target_csv = csv_file
         if sample_frac is not None and 0.0 < sample_frac < 1.0:
             logger.info(
-                f"Sampling {sample_frac * 100:.1f}% of {csv_file.name} with polars (seed={sample_seed})"
+                f"Stream-sampling {sample_frac * 100:.1f}% of {csv_file.name} (seed={sample_seed})"
             )
+            tmp_file = output_dir / f"{csv_file.stem}_sampled.csv"
             try:
-                lf = pl.scan_csv(str(csv_file))
-                sampled = lf.sample(fraction=sample_frac, seed=sample_seed).collect(
-                    streaming=True
-                )
-                if sampled.height == 0:
+                random.seed(sample_seed)
+                with (
+                    open(csv_file, "r", newline="") as inf,
+                    open(tmp_file, "w", newline="") as outf,
+                ):
+                    reader = csv.reader(inf)
+                    writer = csv.writer(outf)
+                    # Copy header
+                    try:
+                        header = next(reader)
+                    except StopIteration:
+                        logger.warning(f"Empty CSV file: {csv_file}, skipping")
+                        continue
+                    writer.writerow(header)
+                    kept = 0
+                    for row in reader:
+                        if random.random() < float(sample_frac):
+                            writer.writerow(row)
+                            kept += 1
+
+                if kept == 0:
                     logger.warning(f"Sampled 0 rows from {csv_file}, skipping")
                     continue
-
-                tmp_file = output_dir / f"{csv_file.stem}_sampled.csv"
-                sampled.write_csv(str(tmp_file))
                 target_csv = tmp_file
             except Exception as e:
-                logger.error(f"Polars sampling failed for {csv_file}: {e}")
-                # Fall back to full file
+                logger.error(f"Streaming sampling failed for {csv_file}: {e}")
                 target_csv = csv_file
 
         logger.info(f"Loading trajectories from {target_csv}...")
@@ -263,7 +278,7 @@ def main():
         "--sample-seed",
         type=int,
         default=42,
-        help="Random seed used by polars sampling",
+        help="Random seed used for sampling",
     )
 
     args = parser.parse_args()
