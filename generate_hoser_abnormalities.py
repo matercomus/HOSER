@@ -7,15 +7,20 @@ import polars as pl
 import numpy as np
 import yaml
 from typing import List, Sequence, Optional, Dict
+import json
 
 
 # --- Abnormality generation functions ---
-def perturb_rids(rid_list, level, road_id_pool, rng):
+def perturb_rids(rid_list, level, road_id_pool, rng, strong: bool = False):
     # Replace a number of road IDs with random others from the pool
     n = len(rid_list)
+    # base perturbation count by level
     n_perturb = {"low": 1, "medium": max(1, n // 10), "high": max(1, n // 5)}.get(
         level, max(1, n // 10)
     )
+    if strong:
+        # stronger perturbations affect more indices (up to ~1/3 of trajectory)
+        n_perturb = max(n_perturb, min(n, max(1, n // 3)))
     if n < 2 or len(road_id_pool) < 2:
         return rid_list, []
     indices = rng.choice(range(n), size=n_perturb, replace=False)
@@ -32,7 +37,7 @@ def perturb_rids(rid_list, level, road_id_pool, rng):
     return new_rid_list, perturbed
 
 
-def route_switch(rid_list, other_rid_list, level, rng):
+def route_switch(rid_list, other_rid_list, level, rng, strong: bool = False):
     # Replace a segment of rid_list with a segment from other_rid_list
     # Level controls the length of the replaced segment
     # Ensure that the function has the correct context
@@ -41,16 +46,20 @@ def route_switch(rid_list, other_rid_list, level, rng):
     if n < 4 or m < 4:
         return rid_list, None, None
     seg_len = {"low": 2, "medium": 3, "high": 4}.get(level, 3)
+    # strengthen by increasing segment length when requested
+    if strong:
+        seg_len = min(max(3, seg_len * 2), n - 1)
     if n <= seg_len or m <= seg_len:
         return rid_list, None, None
-    start1 = rng.integers(1, n - seg_len)
-    start2 = rng.integers(1, m - seg_len)
+    # pick start positions; rng.integers high is exclusive so add +1
+    start1 = int(rng.integers(1, n - seg_len + 1))
+    start2 = int(rng.integers(1, m - seg_len + 1))
     seg2 = other_rid_list[start2 : start2 + seg_len]
     new_rid_list = rid_list[:start1] + seg2 + rid_list[start1 + seg_len :]
     return new_rid_list, (start1, start1 + seg_len), seg2
 
 
-def route_switch_from_pool(rid_list, road_pool, level, rng):
+def route_switch_from_pool(rid_list, road_pool, level, rng, strong: bool = False):
     """Route-switch that draws a replacement segment from the global road pool.
 
     This variant is streaming-friendly (does not need another trajectory in memory).
@@ -59,15 +68,26 @@ def route_switch_from_pool(rid_list, road_pool, level, rng):
     if n < 4 or len(road_pool) < 4:
         return rid_list, None, None
     seg_len = {"low": 2, "medium": 3, "high": 4}.get(level, 3)
+    if strong:
+        # choose a longer replacement segment for stronger anomalies
+        seg_len = min(max(3, seg_len * 2), n - 1, len(road_pool))
     if n <= seg_len or len(road_pool) <= seg_len:
         return rid_list, None, None
-    start1 = int(rng.integers(1, n - seg_len))
+    # pick a valid start index (1 .. n-seg_len) inclusive; add +1 to high
+    start1 = int(rng.integers(1, n - seg_len + 1))
     # pick a contiguous slice from the pool (wrap if necessary)
     pool = list(road_pool)
+    # when strong, pick a segment that is less likely to be local (uniform over pool)
     start2 = int(rng.integers(0, max(1, len(pool) - seg_len)))
     seg2 = pool[start2 : start2 + seg_len]
     new_rid_list = rid_list[:start1] + seg2 + rid_list[start1 + seg_len :]
     return new_rid_list, (start1, start1 + seg_len), seg2
+
+
+# NOTE: Previously a separate `make_strong_anomaly` function implemented a
+# set of strong strategies. To keep the codebase simpler and avoid duplicated
+# generation paths, the 'strong' behavior is integrated into the core
+# generators above (insert_detour, perturb_rids, route_switch_from_pool).
 
 
 ABNORMALITY_TYPES = ["detour", "route_switch", "perturb"]
@@ -135,6 +155,12 @@ def parse_args():
         "--ensure-change",
         action="store_true",
         help="If set, probabilistic mode will retry other types until a generator makes a change.",
+    )
+    parser.add_argument(
+        "--strong-prob",
+        type=float,
+        default=None,
+        help="Probability (0-1) that a chosen abnormality is generated in 'strong' mode (larger, more detectable changes).",
     )
     parser.add_argument(
         "--progress-interval",
@@ -215,16 +241,27 @@ def save_with_abnormality_info(df: pl.DataFrame, out_path: str):
     df.write_csv(out_path)
 
 
-def insert_detour(rid_list, level, road_id_pool, rng):
-    # Insert 1, 2, or 3 random road IDs depending on level
+def insert_detour(rid_list, level, road_id_pool, rng, strong: bool = False):
+    # Insert random road IDs depending on level. When `strong=True` the
+    # number of inserted roads increases to create a larger detour.
     n_insert = {"low": 1, "medium": 2, "high": 3}.get(level, 2)
+    if strong:
+        # amplify detour size for strong anomalies (bounded by pool size)
+        n_insert = min(len(road_id_pool), max(n_insert * 2 + 1, n_insert))
     if len(road_id_pool) == 0:
         return rid_list, []
-    detour_roads = rng.choice(road_id_pool, size=n_insert, replace=False).tolist()
-    insert_pos = rng.integers(1, len(rid_list), size=n_insert)
+    detour_roads = rng.choice(
+        road_id_pool, size=min(n_insert, len(road_id_pool)), replace=False
+    ).tolist()
+    # pick insertion positions; ensure positions are valid
+    if len(rid_list) == 0:
+        insert_pos = [0] * len(detour_roads)
+    else:
+        # allow insertion positions from 0..len(rid_list) inclusive; high bound is exclusive
+        insert_pos = rng.integers(0, max(1, len(rid_list) + 1), size=len(detour_roads))
     new_rid_list = rid_list.copy()
     for pos, road in sorted(zip(insert_pos, detour_roads)):
-        new_rid_list.insert(pos, road)
+        new_rid_list.insert(int(pos), road)
     return new_rid_list, detour_roads
 
 
@@ -256,6 +293,7 @@ def process_split_streaming(
     abnormality_weights: Optional[Sequence[float]] = None,
     ensure_change: bool = False,
     progress_interval: int = 10000,
+    strong_prob: float = 0.5,
 ):
     """Stream-process one CSV split deterministically and write output CSV.
 
@@ -314,17 +352,26 @@ def process_split_streaming(
             # per-row deterministic RNG
             rng = np.random.default_rng(global_seed + idx)
 
+            # prepare an injected index recorder file (append mode) for reproducibility
+            injected_index_file = output_path + ".injected_indices.jsonl"
+
             # legacy: write one abnormal row per requested type
             if abnormality_rate is None:
                 for a_type in abnormal_types:
+                    # determine strong flag per generated abnormality
+                    is_strong = rng.random() < float(strong_prob)
                     if a_type == "detour":
-                        new_rids, detour = insert_detour(rids, level, road_pool, rng)
+                        new_rids, detour = insert_detour(
+                            rids, level, road_pool, rng, strong=is_strong
+                        )
                         if detour:
                             info = {"type": "detour", "level": level, "detour": detour}
                         else:
                             info = {"type": "detour", "level": level}
                     elif a_type == "perturb":
-                        new_rids, perturbed = perturb_rids(rids, level, road_pool, rng)
+                        new_rids, perturbed = perturb_rids(
+                            rids, level, road_pool, rng, strong=is_strong
+                        )
                         info = {
                             "type": "perturb",
                             "level": level,
@@ -332,7 +379,7 @@ def process_split_streaming(
                         }
                     elif a_type == "route_switch":
                         new_rids, seg_range, seg2 = route_switch_from_pool(
-                            rids, road_pool, level, rng
+                            rids, road_pool, level, rng, strong=is_strong
                         )
                         info = {"type": "route_switch", "level": level}
                         if seg_range is not None:
@@ -341,18 +388,36 @@ def process_split_streaming(
                     else:
                         continue
 
+                    # annotate whether generated change was strong
+                    if is_strong:
+                        info["strength"] = "strong"
+
                     # write abnormal row
                     new_row = dict(row)
                     new_row[rid_col] = ",".join(new_rids)
                     # write abnormality_info as compact string
                     new_row["abnormality_info"] = str(info)
                     writer.writerow(new_row)
+                    # record injected index
+                    try:
+                        with open(injected_index_file, "a") as jf:
+                            jf.write(
+                                json.dumps(
+                                    {"idx": idx, "type": info.get("type"), "info": info}
+                                )
+                                + "\n"
+                            )
+                    except Exception:
+                        pass
             else:
                 # probabilistic mode: decide whether this row gets an abnormality
                 u = rng.random()
                 if u < float(abnormality_rate):
                     # sample a single abnormality type according to probs
                     chosen = rng.choice(types, p=probs)
+
+                    # determine strong flag for this attempt
+                    is_strong = rng.random() < float(strong_prob)
 
                     # attempt to generate; optionally retry other types if ensure_change True
                     tried = set()
@@ -363,7 +428,7 @@ def process_split_streaming(
                         tried.add(chosen)
                         if chosen == "detour":
                             new_rids, detour = insert_detour(
-                                rids, level, road_pool, rng
+                                rids, level, road_pool, rng, strong=is_strong
                             )
                             changed = bool(detour)
                             info = {"type": "detour", "level": level}
@@ -371,7 +436,7 @@ def process_split_streaming(
                                 info["detour"] = detour
                         elif chosen == "perturb":
                             new_rids, perturbed = perturb_rids(
-                                rids, level, road_pool, rng
+                                rids, level, road_pool, rng, strong=is_strong
                             )
                             changed = bool(perturbed)
                             info = {"type": "perturb", "level": level}
@@ -379,7 +444,7 @@ def process_split_streaming(
                                 info["perturbed"] = perturbed
                         elif chosen == "route_switch":
                             new_rids, seg_range, seg2 = route_switch_from_pool(
-                                rids, road_pool, level, rng
+                                rids, road_pool, level, rng, strong=is_strong
                             )
                             changed = seg_range is not None
                             info = {"type": "route_switch", "level": level}
@@ -400,10 +465,29 @@ def process_split_streaming(
                         chosen = rng.choice(remaining)
 
                     if changed:
+                        # annotate strength
+                        if is_strong:
+                            info["strength"] = "strong"
+
                         new_row = dict(row)
                         new_row[rid_col] = ",".join(new_rids)
                         new_row["abnormality_info"] = str(info)
                         writer.writerow(new_row)
+                        # record injected index
+                        try:
+                            with open(injected_index_file, "a") as jf:
+                                jf.write(
+                                    json.dumps(
+                                        {
+                                            "idx": idx,
+                                            "type": info.get("type"),
+                                            "info": info,
+                                        }
+                                    )
+                                    + "\n"
+                                )
+                        except Exception:
+                            pass
 
 
 def main():
@@ -464,6 +548,17 @@ def main():
             continue
 
         logging.info("Processing split=%s", split)
+        # Determine strong probability for the configured level.
+        # Priority: CLI `--strong-prob` > config `strong_prob_per_level[level]` > config `strong_prob` > default 0.0
+        if getattr(args, "strong_prob", None) is not None:
+            strong_prob = float(args.strong_prob)
+        else:
+            spp = config.get("strong_prob_per_level", {}) or {}
+            if isinstance(spp, dict) and level in spp:
+                strong_prob = float(spp.get(level, 0.0))
+            else:
+                strong_prob = float(config.get("strong_prob", 0.0))
+
         process_split_streaming(
             input_path=in_path,
             output_path=out_path,
@@ -474,6 +569,7 @@ def main():
             abnormality_weights=weights_list,
             ensure_change=ensure_change,
             progress_interval=progress_interval,
+            strong_prob=strong_prob,
         )
         logging.info("Wrote %s", out_path)
 

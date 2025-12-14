@@ -44,6 +44,17 @@ seed: 42
 # progress_interval: emit a log every this many rows during streaming
 progress_interval: 10000
 
+# Per-level probability of generating a "strong" variant when an abnormality
+# is produced. Keys: low|medium|high. Values: probability in [0,1].
+# If this mapping is absent, `strong_prob` fallback is used (default 0.0).
+strong_prob_per_level:
+  low: 0.0
+  medium: 0.3
+  high: 0.8
+
+# Backwards-compatible single value fallback (optional)
+strong_prob: 0.0
+
 # Example: to override on the CLI, run:
 # uv run python generate_hoser_abnormalities.py --input-dir data/Beijing --output-dir data/Beijing_abnormal \
 #   --abnormality-rate 0.5 --abnormality-weights detour:0.6,perturb:0.4 --seed 123

@@ -278,6 +278,54 @@ def evaluate_dataset_eval_dirs(root: Path = Path("tools_eval_lmtad")):
                     writer.writerow(r)
             print(f"Wrote {out_file}")
 
+            # If rule comparisons were computed, write a tidy CSV and produce a barplot
+            # collect rule rows
+            rule_rows = []
+            for r in out_rows:
+                rc = r.get("rule_comparison")
+                if not rc:
+                    continue
+                for entry in rc:
+                    row_copy = {k: v for k, v in r.items() if k != "rule_comparison"}
+                    # merge rule entry fields
+                    merged = {**row_copy, **entry}
+                    rule_rows.append(merged)
+
+            if rule_rows:
+                rule_keys = [k for k in rule_rows[0].keys()]
+                rules_file = eval_dir / "rule_comparison.csv"
+                with open(rules_file, "w", newline="") as rf:
+                    writer = csv.DictWriter(rf, fieldnames=rule_keys)
+                    writer.writeheader()
+                    for rr in rule_rows:
+                        writer.writerow(rr)
+                print(f"Wrote {rules_file}")
+
+                # produce a simple barplot comparing precision/recall/f1 per rule for this dataset
+                try:
+                    import matplotlib.pyplot as plt
+
+                    # group by rule and take mean of precision/recall/f1
+                    import pandas as pd
+
+                    df_rules = pd.DataFrame(rule_rows)
+                    metrics = df_rules.groupby("rule")[
+                        ["precision", "recall", "f1"]
+                    ].mean()
+                    ax = metrics.plot.bar(rot=0, figsize=(8, 4))
+                    ax.set_title(f"Rule comparison: {dataset_name}")
+                    ax.set_ylim(0, 1)
+                    ax.set_ylabel("Score")
+                    plt.tight_layout()
+                    plot_file = eval_dir / "rule_comparison.png"
+                    plt.savefig(plot_file)
+                    plt.close()
+                    print(f"Wrote {plot_file}")
+                except Exception as e:
+                    print(
+                        f"Could not produce rule comparison plot for {dataset_name}: {e}"
+                    )
+
     # write global summary
     all_file = root / "confusion_summary_all.csv"
     if summary_rows:
