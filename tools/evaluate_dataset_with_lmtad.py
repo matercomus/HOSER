@@ -15,13 +15,19 @@ Usage example:
         --roadmap data/Beijing/roadmap.geo \
         --lmtad-checkpoint /path/to/ckpt_best.pt
 
+First run on baseline (writes a baseline file you can reuse later):
+    uv run python tools/evaluate_dataset_with_lmtad.py \
+        --dataset Beijing \
+        --lmtad-checkpoint /path/to/ckpt_best.pt \
+        --write-baseline
+
 Baseline-calibrated outliers (recommended):
     uv run python tools/evaluate_dataset_with_lmtad.py \
         --dataset generated_beijing \
         --data-dir gene/Beijing \
         --roadmap data/Beijing/roadmap.geo \
         --lmtad-checkpoint /path/to/ckpt_best.pt \
-        --baseline-eval tools_eval_lmtad/Beijing/evaluation_results.json \
+        --baseline-eval tools_eval_lmtad/Beijing \
         --baseline-quantile 0.95
 """
 
@@ -76,7 +82,8 @@ class BaselineCalibrator:
         quantile: float,
         fallback_split: str,
     ) -> "BaselineCalibrator":
-        if baseline_eval is None:
+        resolved = _resolve_baseline_eval_path(baseline_eval)
+        if resolved is None:
             return cls(
                 baseline_eval=None,
                 scores_by_split=None,
@@ -84,10 +91,10 @@ class BaselineCalibrator:
                 fallback_split=str(fallback_split),
             )
 
-        _require_exists(baseline_eval, "Baseline eval JSON")
+        _require_exists(resolved, "Baseline eval JSON")
         return cls(
-            baseline_eval=baseline_eval,
-            scores_by_split=_load_eval_scores_by_split(baseline_eval),
+            baseline_eval=resolved,
+            scores_by_split=_load_eval_scores_by_split(resolved),
             quantile=float(quantile),
             fallback_split=str(fallback_split),
         )
@@ -123,6 +130,10 @@ class ResultsWriter:
     def agg_json_path(self) -> Path:
         return self.out_dir / "evaluation_results.json"
 
+    @property
+    def baseline_path(self) -> Path:
+        return self.out_dir / "baseline_eval.json"
+
     def write_split(self, *, split: str, payload: Dict[str, Any]) -> None:
         try:
             _append_jsonl(self.jsonl_path, {"split": split, "results": payload})
@@ -152,6 +163,54 @@ def _load_eval_scores_by_split(path: Path) -> ScoresBySplit:
     if not out:
         raise ValueError(f"No splits with 'log_perplexity_values' found in: {path}")
     return out
+
+
+def _resolve_baseline_eval_path(path: Optional[Path]) -> Optional[Path]:
+    """Resolve a baseline eval path.
+
+    Accepts:
+    - None
+    - a file path
+    - a directory containing `baseline_eval.json` or `evaluation_results.json`
+    """
+    if path is None:
+        return None
+
+    p = Path(path)
+    if p.is_dir():
+        candidate = p / "baseline_eval.json"
+        if candidate.exists():
+            return candidate
+        candidate = p / "evaluation_results.json"
+        if candidate.exists():
+            return candidate
+        raise FileNotFoundError(
+            "Baseline eval directory does not contain baseline_eval.json or evaluation_results.json: "
+            f"{p}"
+        )
+
+    return p
+
+
+def _write_baseline_eval_json(
+    *,
+    path: Path,
+    results_by_split: Dict[str, Dict[str, Any]],
+) -> None:
+    """Write a compact baseline file consumable by `--baseline-eval`.
+
+    The baseline loader expects a dict of split -> {'log_perplexity_values': [...]}
+    (it ignores extra keys).
+    """
+    payload: Dict[str, Dict[str, Any]] = {}
+    for split, res in results_by_split.items():
+        payload[str(split)] = {
+            "num_trajectories": int(res.get("num_trajectories", 0)),
+            "log_perplexity_values": list(res.get("log_perplexity_values", [])),
+        }
+
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2)
 
 
 def _pick_baseline_split(
@@ -522,6 +581,8 @@ def evaluate_splits(
     baseline_eval: Optional[Path] = None,
     baseline_quantile: float = 0.95,
     baseline_split: str = "train",
+    write_baseline: bool = False,
+    baseline_out: Optional[Path] = None,
 ):
     if splits is None:
         splits = ["train", "val", "test"]
@@ -635,6 +696,15 @@ def evaluate_splits(
     logger.info("Streaming results appended to: %s", writer.jsonl_path)
     logger.info("Aggregated results written to: %s", writer.agg_json_path)
 
+    if write_baseline:
+        out_path = baseline_out if baseline_out is not None else writer.baseline_path
+        _write_baseline_eval_json(path=out_path, results_by_split=all_results)
+        logger.info("Baseline eval written to: %s", out_path)
+        logger.info(
+            "Reuse it via: --baseline-eval %s --baseline-quantile <q>",
+            out_path.parent,
+        )
+
 
 def main():
     import argparse
@@ -657,11 +727,19 @@ def main():
     parser.add_argument(
         "--roadmap",
         type=Path,
-        required=True,
-        help="Path to roadmap.geo used for mapping roads to grid tokens",
+        default=None,
+        help=(
+            "Path to roadmap.geo used for mapping roads to grid tokens. "
+            "Default: <data-dir>/roadmap.geo if it exists."
+        ),
     )
     parser.add_argument(
-        "--lmtad-checkpoint", type=Path, required=True, help="LM-TAD checkpoint path"
+        "--lmtad-checkpoint",
+        "--ckpt",
+        dest="lmtad_checkpoint",
+        type=Path,
+        required=True,
+        help="LM-TAD checkpoint path",
     )
     parser.add_argument(
         "--lmtad-repo",
@@ -703,7 +781,8 @@ def main():
         type=Path,
         default=None,
         help=(
-            "Optional: path to baseline evaluator JSON (tools_eval_lmtad/<baseline>/evaluation_results.json). "
+            "Optional: baseline eval file or directory. If a directory is given, it should contain "
+            "baseline_eval.json (preferred) or evaluation_results.json. "
             "If provided, outliers are computed using a fixed baseline-calibrated threshold (recommended)."
         ),
     )
@@ -726,16 +805,44 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--write-baseline",
+        action="store_true",
+        help=(
+            "Write a compact baseline file (baseline_eval.json) into --output-dir after evaluation. "
+            "Use this on your first run over a normal baseline dataset."
+        ),
+    )
+    parser.add_argument(
+        "--baseline-out",
+        type=Path,
+        default=None,
+        help=(
+            "Optional: override where to write the baseline eval JSON when --write-baseline is set. "
+            "Defaults to <output-dir>/baseline_eval.json."
+        ),
+    )
+
     args = parser.parse_args()
 
     data_dir = (
         args.data_dir if args.data_dir is not None else Path("data") / args.dataset
     )
+    roadmap = args.roadmap
+    if roadmap is None:
+        candidate = Path(data_dir) / "roadmap.geo"
+        if candidate.exists():
+            roadmap = candidate
+        else:
+            raise SystemExit(
+                "--roadmap is required unless <data-dir>/roadmap.geo exists. "
+                f"Tried: {candidate}"
+            )
     splits = [s.strip() for s in args.splits.split(",") if s.strip()]
 
     evaluate_splits(
         data_dir=data_dir,
-        roadmap_file=args.roadmap,
+        roadmap_file=roadmap,
         lmtad_ckpt=args.lmtad_checkpoint,
         lmtad_repo=args.lmtad_repo,
         device=args.device,
@@ -747,6 +854,8 @@ def main():
         baseline_eval=args.baseline_eval,
         baseline_quantile=args.baseline_quantile,
         baseline_split=args.baseline_split,
+        write_baseline=bool(args.write_baseline),
+        baseline_out=args.baseline_out,
     )
 
 
