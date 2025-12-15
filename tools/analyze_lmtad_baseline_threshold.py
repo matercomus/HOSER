@@ -505,6 +505,37 @@ def analyze(
     return results
 
 
+def analyze_many_splits(
+    baseline_eval: Path,
+    target_eval: Path,
+    splits: Sequence[str],
+    quantiles: Sequence[float],
+    method: Literal["quantile", "zscore", "mad_z"] = "quantile",
+    z: Optional[float] = None,
+    report_baseline_splits: bool = True,
+    bootstrap: int = 0,
+    target_csv_by_split: Optional[Dict[str, Path]] = None,
+    seed: int = 0,
+) -> Dict[str, List[ThresholdResult]]:
+    out: Dict[str, List[ThresholdResult]] = {}
+    for split in splits:
+        out[split] = analyze(
+            baseline_eval=baseline_eval,
+            target_eval=target_eval,
+            split=split,
+            quantiles=quantiles,
+            method=method,
+            z=z,
+            report_baseline_splits=report_baseline_splits,
+            bootstrap=bootstrap,
+            target_csv=(
+                None if target_csv_by_split is None else target_csv_by_split.get(split)
+            ),
+            seed=seed,
+        )
+    return out
+
+
 def _format_markdown(
     baseline_name: str,
     target_name: str,
@@ -596,6 +627,30 @@ def _format_markdown(
     return "\n".join(lines)
 
 
+def _format_markdown_many_splits(
+    baseline_name: str,
+    target_name: str,
+    results_by_split: Dict[str, Sequence[ThresholdResult]],
+    labels_available_by_split: Dict[str, bool],
+) -> str:
+    # Stable ordering (train, val, test, then others)
+    preferred = {"train": 0, "val": 1, "test": 2}
+    splits = sorted(results_by_split.keys(), key=lambda s: (preferred.get(s, 99), s))
+
+    blocks: List[str] = []
+    for split in splits:
+        blocks.append(
+            _format_markdown(
+                baseline_name=baseline_name,
+                target_name=target_name,
+                split=split,
+                results=results_by_split[split],
+                labels_available=labels_available_by_split.get(split, False),
+            )
+        )
+    return "\n".join(blocks).rstrip() + "\n"
+
+
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
@@ -617,11 +672,22 @@ def main() -> None:
         required=True,
         help="Path to target evaluation_results.json",
     )
+    # Backward compatible: --split still works, but defaults now prefer train+val.
     parser.add_argument(
         "--split",
         type=str,
-        default="train",
-        help="Split key in the JSON (train/val/test)",
+        default=None,
+        help=(
+            "Single split key in the JSON (train/val/test). "
+            "Deprecated in favor of --splits. If provided, overrides --splits."
+        ),
+    )
+    parser.add_argument(
+        "--splits",
+        type=str,
+        nargs="+",
+        default=["train", "val"],
+        help="One or more splits to analyze (default: train val).",
     )
     parser.add_argument(
         "--quantiles",
@@ -673,6 +739,16 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--target-csv-template",
+        type=str,
+        default=None,
+        help=(
+            "Optional: template path for per-split CSV labels, e.g. "
+            "'tools_eval_lmtad/porto_hoser_abnormal_2/{split}_sampled.csv'. "
+            "If provided, it is used for each split in --splits."
+        ),
+    )
+    parser.add_argument(
         "--out-json",
         type=Path,
         default=None,
@@ -702,25 +778,51 @@ def main() -> None:
     baseline_name = args.baseline_name or args.baseline_eval.parent.name
     target_name = args.target_name or args.target_eval.parent.name
 
-    results = analyze(
+    splits = [str(s).strip() for s in (args.splits or []) if str(s).strip()]
+    if args.split is not None and str(args.split).strip():
+        splits = [str(args.split).strip()]
+    if not splits:
+        raise ValueError("No splits specified. Use --splits or --split.")
+
+    target_csv_by_split: Optional[Dict[str, Path]] = None
+    if len(splits) == 1:
+        if args.target_csv is not None:
+            target_csv_by_split = {splits[0]: args.target_csv}
+    else:
+        # Multi-split: use template if provided; otherwise we skip label-based metrics.
+        if args.target_csv is not None and args.target_csv_template is None:
+            raise ValueError(
+                "--target-csv is only supported with a single split. "
+                "For multiple splits, use --target-csv-template with '{split}'."
+            )
+        if args.target_csv_template is not None:
+            target_csv_by_split = {
+                s: Path(args.target_csv_template.format(split=s)) for s in splits
+            }
+
+    results_by_split = analyze_many_splits(
         baseline_eval=args.baseline_eval,
         target_eval=args.target_eval,
-        split=args.split,
+        splits=splits,
         quantiles=args.quantiles,
         method=args.method,  # type: ignore[arg-type]
         z=args.z,
         report_baseline_splits=not args.no_report_baseline_splits,
         bootstrap=args.bootstrap,
-        target_csv=args.target_csv,
+        target_csv_by_split=target_csv_by_split,
         seed=args.seed,
     )
 
-    md = _format_markdown(
+    labels_available_by_split = {
+        s: (target_csv_by_split is not None and target_csv_by_split.get(s) is not None)
+        for s in splits
+    }
+
+    md = _format_markdown_many_splits(
         baseline_name=baseline_name,
         target_name=target_name,
-        split=args.split,
-        results=results,
-        labels_available=args.target_csv is not None,
+        results_by_split=results_by_split,
+        labels_available_by_split=labels_available_by_split,
     )
     print(md)
 
@@ -733,7 +835,7 @@ def main() -> None:
             "generated_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(),
             "baseline_eval": str(args.baseline_eval),
             "target_eval": str(args.target_eval),
-            "split": args.split,
+            "splits": splits,
             "method": args.method,
             "z": args.z,
             "quantiles": list(args.quantiles),
@@ -741,26 +843,29 @@ def main() -> None:
             "seed": args.seed,
             "baseline_name": baseline_name,
             "target_name": target_name,
-            "results": [
-                {
-                    "method": r.method,
-                    "quantile": r.quantile,
-                    "threshold": r.threshold,
-                    "baseline_outlier_rate": r.baseline_outlier_rate,
-                    "target_outlier_rate": r.target_outlier_rate,
-                    "baseline_split_fprs": r.baseline_split_fprs,
-                    "tp": r.tp,
-                    "fp": r.fp,
-                    "fn": r.fn,
-                    "tn": r.tn,
-                    "precision": r.precision,
-                    "recall": r.recall,
-                    "auroc": r.auroc,
-                    "average_precision": r.average_precision,
-                    "ci": r.ci,
-                }
-                for r in results
-            ],
+            "results": {
+                split: [
+                    {
+                        "method": r.method,
+                        "quantile": r.quantile,
+                        "threshold": r.threshold,
+                        "baseline_outlier_rate": r.baseline_outlier_rate,
+                        "target_outlier_rate": r.target_outlier_rate,
+                        "baseline_split_fprs": r.baseline_split_fprs,
+                        "tp": r.tp,
+                        "fp": r.fp,
+                        "fn": r.fn,
+                        "tn": r.tn,
+                        "precision": r.precision,
+                        "recall": r.recall,
+                        "auroc": r.auroc,
+                        "average_precision": r.average_precision,
+                        "ci": r.ci,
+                    }
+                    for r in rs
+                ]
+                for split, rs in results_by_split.items()
+            },
         }
         _write_json(args.out_json, payload)
 
