@@ -18,8 +18,10 @@ Optional ROC curves (requires labels from the sampled CSV used for evaluation):
         --splits train,val \
         --labels-csv-template tools_eval_lmtad/porto_hoser_abnormal_2/{split}_sampled.csv
 
-When labels are provided, this script also outputs per-split Precision-Recall
-curves (PR) alongside ROC curves.
+When labels are provided, this script also outputs:
+- per-split ROC curves
+- per-split Precision-Recall (PR) curves
+- per-split normal-vs-abnormal density plots (overlaid histograms + KDE)
 """
 
 from pathlib import Path
@@ -275,6 +277,73 @@ def plot_results(
             finite_mask = np.isfinite(scores)
             scores = scores[finite_mask]
             labels = labels[finite_mask]
+
+            # Normal vs abnormal density plot (overlaid histograms + KDE).
+            # This complements ROC/PR by showing the score distribution separation.
+            normal_scores = scores[~labels]
+            abnormal_scores = scores[labels]
+            fig_den, ax_den = plt.subplots(figsize=(8, 4.5))
+            if scores.size == 0:
+                ax_den.text(0.5, 0.5, "No finite values", ha="center")
+            else:
+                thr = float(np.percentile(scores, 95))
+                # Use density so shapes are comparable even if class counts differ.
+                if normal_scores.size > 0:
+                    sns.histplot(
+                        normal_scores,
+                        bins=50,
+                        stat="density",
+                        element="step",
+                        fill=True,
+                        alpha=0.35,
+                        ax=ax_den,
+                        label=f"Normal (n={normal_scores.size})",
+                        color=sns.color_palette("Blues", 3)[1],
+                    )
+                    if normal_scores.size >= 2:
+                        sns.kdeplot(
+                            normal_scores,
+                            ax=ax_den,
+                            color=sns.color_palette("Blues", 3)[2],
+                            linewidth=2,
+                        )
+                if abnormal_scores.size > 0:
+                    sns.histplot(
+                        abnormal_scores,
+                        bins=50,
+                        stat="density",
+                        element="step",
+                        fill=True,
+                        alpha=0.35,
+                        ax=ax_den,
+                        label=f"Abnormal (n={abnormal_scores.size})",
+                        color=sns.color_palette("Reds", 3)[1],
+                    )
+                    if abnormal_scores.size >= 2:
+                        sns.kdeplot(
+                            abnormal_scores,
+                            ax=ax_den,
+                            color=sns.color_palette("Reds", 3)[2],
+                            linewidth=2,
+                        )
+
+                ax_den.axvline(
+                    thr,
+                    color="black",
+                    linestyle="--",
+                    linewidth=1,
+                    label=f"95th pct (all)={thr:.3f}",
+                )
+                ax_den.set_xlabel("Log perplexity")
+                ax_den.set_ylabel("Density")
+                ax_den.set_title(f"{s}: Normal vs abnormal (density)")
+                ax_den.legend()
+
+            den_file = out_dir / f"{base}_{s}_density.png"
+            fig_den.tight_layout()
+            fig_den.savefig(den_file, dpi=150)
+            saved_files.append(den_file)
+            plt.close(fig_den)
 
             fpr, tpr, auroc = _roc_curve_points(scores, labels)
             fig_roc, ax_roc = plt.subplots(figsize=(5.5, 5.5))
