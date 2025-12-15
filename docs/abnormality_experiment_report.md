@@ -4,33 +4,38 @@ Date: 2025-12-15
 
 This report summarizes the experiments where we injected ~15% HOSER-format abnormalities into existing datasets, evaluated them with the LM‑TAD teacher, and ran the confusion / rule-comparison analysis. It collects the key numbers, embedded diagnostic plots produced by the evaluation tooling, and the main observations and next steps.
 
+## TL;DR
+
+- Score scale and separability are now strong after conversion alignment.
+- Best default operating-point method: **baseline-calibrated quantile** with `q=0.95` (≈5% baseline FPR).
+- If you want a tighter alert budget: use `q=0.99` (≈1% baseline FPR).
+- Across methods (quantile / zscore / mad_z), **AUROC/AP are essentially unchanged** because they evaluate ranking; the main difference is how each method maps “one knob” (q or z) to an actual baseline FPR.
+
+## Inputs
+
 **Datasets evaluated**
-- `Beijing` (original)
-- `Beijing_abnormal_2` (generated with --abnormality-rate 0.15, level=high)
-- `porto_hoser` (original)
-- `porto_hoser_abnormal_2` (generated with --abnormality-rate 0.15, level=high)
-
-**Where to find evaluation outputs**
-- Per-dataset evaluation JSON: `tools_eval_lmtad/<dataset>/evaluation_results.json`
-  - Sampled CSV used for evaluation: `tools_eval_lmtad/<dataset>/<split>_sampled.csv`
-  - Baseline-threshold (multi-method) outputs + plots:
-    - `tools_eval_lmtad/_baseline_threshold_plots/<pair>/summary.md`
-    - `tools_eval_lmtad/_baseline_threshold_plots/<pair>/<split>/<method>/*_hist.png`
-    - `tools_eval_lmtad/_baseline_threshold_plots/<pair>/<split>/<method>/*_pr.png`
-
-## Results summary (post conversion-alignment)
-
-**Key takeaways**
-- The log-perplexity score scale is now consistent with LM-TAD native eval (means in ~0.4–1.3 range on these sampled splits).
-- The default evaluator rule (within-split 95th percentile) produces ~5% outliers by construction, so recall is capped (≈0.39–0.41 here), even when separability is strong.
-- Baseline-calibrated thresholds show strong separability on injected-vs-normal labels (val AUROC ≈ 0.98–0.997; val AP ≈ 0.91–0.98).
+- `Beijing` (baseline)
+- `Beijing_abnormal_2` (injected; requested rate 0.15)
+- `porto_hoser` (baseline)
+- `porto_hoser_abnormal_2` (injected; requested rate 0.15)
 
 **Injection bookkeeping (train split, full dataset)**
 - `data/Beijing_abnormal_2/train.csv.injected_indices.jsonl`: 94,253 injected entries
 - `data/Beijing_abnormal_2/train.csv`: 723,622 total rows
 - Observed injection fraction ≈ 94,253 / 723,622 = 0.12995 (~13.0%)
 
-### LM-TAD aggregated stats (sampled splits)
+## Where to find outputs
+
+- Per-dataset evaluation JSON: `tools_eval_lmtad/<dataset>/evaluation_results.json`
+- Sampled CSV used for evaluation (labels come from `abnormality_info`): `tools_eval_lmtad/<dataset>/<split>_sampled.csv`
+- Baseline-threshold multi-method summaries + plots:
+  - `tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/summary.md`
+  - `tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/summary.md`
+  - Plots: `tools_eval_lmtad/_baseline_threshold_plots/<pair>/<split>/<method>/*_hist.png` and `*_pr.png`
+
+## 1) LM-TAD aggregated stats (sampled splits)
+
+Score scale is now in the expected range (~0.4–1.3 means on these splits).
 
 | Dataset | Split | n | mean_log_perplexity | outlier_rate (within-split 95th) |
 |---|---:|---:|---:|---:|
@@ -47,7 +52,18 @@ This report summarizes the experiments where we injected ~15% HOSER-format abnor
 | `porto_hoser_abnormal_2` | val | 791 | 0.768835 | 0.05057 |
 | `porto_hoser_abnormal_2` | test | 1561 | 0.825648 | 0.04997 |
 
-### Default evaluator rule (within-split 95th percentile) confusion (sampled splits)
+## 2) Default evaluator rule (within-split 95th percentile)
+
+The default evaluator marks outliers by thresholding at the 95th percentile *within the evaluated split*:
+
+```python
+threshold = np.percentile(all_outlier_scores, 95)
+outliers = score > threshold
+```
+
+So the outlier rate stays ≈5% by construction.
+
+### Confusion vs injected labels (sampled splits)
 
 These numbers use the evaluator's within-split thresholding rule (top 5% of each evaluated split), compared against `abnormality_info != normal` in the corresponding `*_sampled.csv`.
 
@@ -60,104 +76,106 @@ These numbers use the evaluator's within-split thresholding rule (top 5% of each
 | `porto_hoser_abnormal_2` | val | 791 | 3.198837 | 0.0506 | 0.1239 | 1.0000 | 0.4082 | 40 | 0 | 58 | 693 |
 | `porto_hoser_abnormal_2` | test | 1561 | 3.600372 | 0.0500 | 0.1268 | 1.0000 | 0.3939 | 78 | 0 | 120 | 1363 |
 
-**Why reported outlier rate stays ≈5%**
+**What this tells us**
 
-- The LM‑TAD evaluation code (`evaluate_trajectories_direct` in `simple_evaluate_with_lmtad.py`) turns the continuous per-trajectory log-perplexity scores into binary outliers by selecting the 95th percentile threshold:
-  threshold = np.percentile(all_outlier_scores, 95)
-  outliers = score > threshold
-
-- By definition this yields approximately a 5% reported outlier rate regardless of how many anomalies you injected. That is the main reason the aggregated `outlier_rate` in the evaluation JSON stays ~5% even though the generator injected ~13% anomalies.
-
-**What the confusion results tell us**
-
-- The injections increase mean log-perplexity substantially on these sampled splits (e.g., train: `Beijing` 0.805 → 1.330; `porto_hoser` 0.447 → 0.815).
-- The default 95th-percentile rule yields high precision (~0.98–1.00) but recall is capped at ~0.39–0.41 because only ~5% can be flagged.
-- When you calibrate thresholds on a normal baseline (below), you can choose an operating point that trades precision/recall while keeping baseline FPR controlled.
+- Mean log-perplexity shifts upward on injected datasets.
+- Precision is very high here, but recall is capped because only ~5% can be flagged.
 
 ---
 
-## Baseline-calibrated thresholds (multi-method)
+## 3) Baseline-calibrated thresholding (recommended)
+
+This answers: “How abnormal is this dataset relative to a normal baseline?”
+
+- Compute threshold from the **baseline** split.
+- Apply the same threshold to the **target** split.
+
+### Multi-method testing summary (train + val)
+
+Methods evaluated:
+- `quantile`: threshold = baseline quantile q
+- `zscore`: threshold = mean + z * std
+- `mad_z`: threshold = median + z * 1.4826 * MAD
+
+**Findings**
+- Ranking metrics are consistently strong across methods:
+  - Beijing: val AUROC = 0.9804, val AP = 0.9057
+  - Porto: val AUROC = 0.9966, val AP = 0.9792
+- The main practical difference is **baseline FPR control**:
+  - `quantile` directly targets a baseline FPR budget (e.g., `q=0.95` ≈ 5%).
+  - `zscore`/`mad_z` produce baseline FPRs that can drift by split and dataset.
+
+**Recommended defaults**
+- Default: `quantile q=0.95` (≈5% baseline FPR) for a balanced precision/recall operating point.
+- Tighter budget: `quantile q=0.99` (≈1% baseline FPR) for higher precision.
+- If you want an approximate “mid-budget” without choosing q: `zscore z=3` often lands near a few-percent baseline FPR, but it’s less directly controllable.
+
+**Uncertainty (bootstrap CIs)**
+
+Bootstrap 95% confidence intervals are included in the per-pair summaries (generated with `--bootstrap 1000`, `--seed 0`):
+- `tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/summary.md`
+- `tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/summary.md`
 
 - Script: `tools/analyze_lmtad_baseline_threshold.py`
 - Full outputs (train + val):
   - `tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/summary.md`
   - `tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/summary.md`
 
-### Beijing vs `Beijing_abnormal_2` (val split)
+### Recommended operating points (val)
 
-#### Quantile (baseline-calibrated)
+These are compact “best-of” rows; full grids (train + val) are in the `summary.md` files listed above.
 
-| Baseline quantile | Threshold | Baseline outlier rate | Target outlier rate | Precision | Recall | AUROC | AP | TP | FP | FN | TN |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 0.90 | 1.507419 | 0.0999 | 0.2354 | 0.5388 | 0.9851 | 0.9804 | 0.9057 | 132 | 113 | 2 | 794 |
-| 0.95 | 2.090900 | 0.0499 | 0.1527 | 0.7044 | 0.8358 | 0.9804 | 0.9057 | 112 | 47 | 22 | 860 |
-| 0.99 | 3.216452 | 0.0100 | 0.0903 | 0.9468 | 0.6642 | 0.9804 | 0.9057 | 89 | 5 | 45 | 902 |
+#### Beijing vs `Beijing_abnormal_2`
 
-#### Z-score
+| Method | Setting | Baseline outlier rate | Target outlier rate | Precision | Recall | AUROC | AP |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| quantile | q=0.95 | 0.0499 | 0.1527 | 0.7044 | 0.8358 | 0.9804 | 0.9057 |
+| quantile | q=0.99 | 0.0100 | 0.0903 | 0.9468 | 0.6642 | 0.9804 | 0.9057 |
+| zscore | z=3 | 0.0222 | 0.1153 | 0.8417 | 0.7537 | 0.9804 | 0.9057 |
+| mad_z | z=3 | 0.1121 | 0.2392 | 0.5301 | 0.9851 | 0.9804 | 0.9057 |
 
-| Z | Threshold | Baseline outlier rate | Target outlier rate | Precision | Recall | AUROC | AP | TP | FP | FN | TN |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 2.00 | 2.009207 | 0.0533 | 0.1643 | 0.6784 | 0.8657 | 0.9804 | 0.9057 | 116 | 55 | 18 | 852 |
-| 3.00 | 2.608605 | 0.0222 | 0.1153 | 0.8417 | 0.7537 | 0.9804 | 0.9057 | 101 | 19 | 33 | 888 |
-| 4.00 | 3.208002 | 0.0111 | 0.0903 | 0.9468 | 0.6642 | 0.9804 | 0.9057 | 89 | 5 | 45 | 902 |
-
-#### MAD Z (robust)
-
-| Z | Threshold | Baseline outlier rate | Target outlier rate | Precision | Recall | AUROC | AP | TP | FP | FN | TN |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 2.00 | 1.162025 | 0.1809 | 0.2988 | 0.4309 | 1.0000 | 0.9804 | 0.9057 | 134 | 177 | 0 | 730 |
-| 3.00 | 1.451509 | 0.1121 | 0.2392 | 0.5301 | 0.9851 | 0.9804 | 0.9057 | 132 | 117 | 2 | 790 |
-| 4.00 | 1.740994 | 0.0755 | 0.2017 | 0.5905 | 0.9254 | 0.9804 | 0.9057 | 124 | 86 | 10 | 821 |
-
-**Val plots**
+**Val plots (examples)**
 
 ![Beijing val quantile q=0.95 histogram](../tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/val/quantile/quantile_q0p95_thr2p0909_hist.png)
 
 ![Beijing val quantile q=0.95 PR](../tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/val/quantile/quantile_q0p95_thr2p0909_pr.png)
 
+![Beijing val zscore z=3 histogram](../tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/val/zscore/zscore_z3_thr2p608605_hist.png)
+
 ![Beijing val zscore z=3 PR](../tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/val/zscore/zscore_z3_thr2p608605_pr.png)
+
+![Beijing val mad_z z=3 histogram](../tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/val/mad_z/mad_z_z3_thr1p451509_hist.png)
 
 ![Beijing val mad_z z=3 PR](../tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/val/mad_z/mad_z_z3_thr1p451509_pr.png)
 
-### Porto vs `porto_hoser_abnormal_2` (val split)
+#### Porto vs `porto_hoser_abnormal_2`
 
-#### Quantile (baseline-calibrated)
+| Method | Setting | Baseline outlier rate | Target outlier rate | Precision | Recall | AUROC | AP |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| quantile | q=0.95 | 0.0508 | 0.1631 | 0.7442 | 0.9796 | 0.9966 | 0.9792 |
+| quantile | q=0.99 | 0.0102 | 0.1239 | 0.9082 | 0.9082 | 0.9966 | 0.9792 |
+| zscore | z=3 | 0.0247 | 0.1391 | 0.8636 | 0.9694 | 0.9966 | 0.9792 |
+| mad_z | z=3 | 0.0668 | 0.1719 | 0.7132 | 0.9898 | 0.9966 | 0.9792 |
 
-| Baseline quantile | Threshold | Baseline outlier rate | Target outlier rate | Precision | Recall | AUROC | AP | TP | FP | FN | TN |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 0.90 | 0.659751 | 0.1001 | 0.2023 | 0.6125 | 1.0000 | 0.9966 | 0.9792 | 98 | 62 | 0 | 631 |
-| 0.95 | 0.965512 | 0.0508 | 0.1631 | 0.7442 | 0.9796 | 0.9966 | 0.9792 | 96 | 33 | 2 | 660 |
-| 0.99 | 1.492151 | 0.0102 | 0.1239 | 0.9082 | 0.9082 | 0.9966 | 0.9792 | 89 | 9 | 9 | 684 |
-
-#### Z-score
-
-| Z | Threshold | Baseline outlier rate | Target outlier rate | Precision | Recall | AUROC | AP | TP | FP | FN | TN |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 2.00 | 0.955243 | 0.0522 | 0.1631 | 0.7442 | 0.9796 | 0.9966 | 0.9792 | 96 | 33 | 2 | 660 |
-| 3.00 | 1.217137 | 0.0247 | 0.1391 | 0.8636 | 0.9694 | 0.9966 | 0.9792 | 95 | 15 | 3 | 678 |
-| 4.00 | 1.479032 | 0.0116 | 0.1239 | 0.9082 | 0.9082 | 0.9966 | 0.9792 | 89 | 9 | 9 | 684 |
-
-#### MAD Z (robust)
-
-| Z | Threshold | Baseline outlier rate | Target outlier rate | Precision | Recall | AUROC | AP | TP | FP | FN | TN |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 2.00 | 0.674372 | 0.0929 | 0.1960 | 0.6323 | 1.0000 | 0.9966 | 0.9792 | 98 | 57 | 0 | 636 |
-| 3.00 | 0.829314 | 0.0668 | 0.1719 | 0.7132 | 0.9898 | 0.9966 | 0.9792 | 97 | 39 | 1 | 654 |
-| 4.00 | 0.984256 | 0.0479 | 0.1606 | 0.7559 | 0.9796 | 0.9966 | 0.9792 | 96 | 31 | 2 | 662 |
-
-**Val plots**
+**Val plots (examples)**
 
 ![Porto val quantile q=0.95 histogram](../tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/val/quantile/quantile_q0p95_thr0p965512_hist.png)
 
 ![Porto val quantile q=0.95 PR](../tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/val/quantile/quantile_q0p95_thr0p965512_pr.png)
 
+![Porto val zscore z=3 histogram](../tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/val/zscore/zscore_z3_thr1p217137_hist.png)
+
 ![Porto val zscore z=3 PR](../tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/val/zscore/zscore_z3_thr1p217137_pr.png)
+
+![Porto val mad_z z=3 histogram](../tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/val/mad_z/mad_z_z3_thr0p829314_hist.png)
 
 ![Porto val mad_z z=3 PR](../tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/val/mad_z/mad_z_z3_thr0p829314_pr.png)
 
 ---
 
-## Reference-run comparison (LM-TAD native eval)
+## Appendix: Additional diagnostics
+
+### Reference-run comparison (LM-TAD native eval)
 
 We also have LM‑TAD’s own evaluation runs (native pipeline) under `results/LMTAD/.../eval/`.
 These runs show *very strong* separation of injected outliers using the same model family/checkpoints.
@@ -178,7 +196,7 @@ This is consistent with the conversion/mapping alignment work: after switching t
 
 ---
 
-## Conversion mismatch evidence (road→token mapping)
+### Conversion mismatch evidence (road→token mapping)
 
 This section is *historical context* explaining the root cause we observed earlier. The current evaluator conversion has been updated to match Method B.
 
@@ -207,9 +225,9 @@ Method definitions (as implemented):
 
 ---
 
-## Clamp diagnostic (train)
+### Clamp diagnostic (train)
 
-`simple_evaluate_with_lmtad.evaluate_trajectories_direct()` clamps per-step probabilities using `min_prob=1e-6`, which corresponds to a maximum possible log-perplexity of $-\log(10^{-6}) \approx 13.8155$.
+`simple_evaluate_with_lmtad.evaluate_trajectories_direct()` clamps per-step probabilities using `min_prob=1e-6`, which corresponds to a maximum possible log-perplexity of `-log(1e-6) ≈ 13.8155`.
 
 We checked how often trajectories hit this clamp exactly (using the saved `evaluation_results.json`):
 
@@ -221,14 +239,13 @@ We checked how often trajectories hit this clamp exactly (using the saved `evalu
 
 So “everything is clamped” is not a driver here.
 
-**Recommended next steps**
+## Recommended next steps
 
-1. Treat threshold choice as an operating point.
-  - Keep reporting AUROC/AP (separability) and then pick a threshold based on a target baseline FPR budget (e.g., 1%, 5%) or a downstream capacity constraint.
-2. Keep using baseline-calibrated thresholds by default.
-  - Use `tools/analyze_lmtad_baseline_threshold.py` to set the threshold on the normal baseline, then apply it to the target split.
-3. Hold out `test` for final reporting.
-  - Use `train`/`val` for method/parameter selection; use `test` only for the final summary tables.
+1. Standardize reporting around baseline-calibrated thresholds.
+  - Keep AUROC/AP for separability, and use `quantile q∈{0.95, 0.99}` to set a clear baseline FPR budget.
+2. Use `train`/`val` to select the operating point; reserve `test` for final reporting.
+3. If future injections become harder, focus on separability (AP) first.
+  - If AP collapses, threshold tuning won’t fix it; adjust the generator to enforce token-space “hardness”.
 
 **Where I put things**
 
