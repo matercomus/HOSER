@@ -9,24 +9,34 @@ pointing to a roadmap file from another dataset directory (for example
 `data/Beijing/roadmap.geo`).
 
 Usage example:
-  uv run python tools/evaluate_dataset_with_lmtad.py \
-    --dataset Beijing_abnormal \
-    --data-dir data/Beijing_abnormal \
-    --roadmap data/Beijing/roadmap.geo \
-    --lmtad-checkpoint /path/to/ckpt_best.pt
+    uv run python tools/evaluate_dataset_with_lmtad.py \
+        --dataset Beijing_abnormal \
+        --data-dir data/Beijing_abnormal \
+        --roadmap data/Beijing/roadmap.geo \
+        --lmtad-checkpoint /path/to/ckpt_best.pt
+
+Baseline-calibrated outliers (recommended):
+    uv run python tools/evaluate_dataset_with_lmtad.py \
+        --dataset generated_beijing \
+        --data-dir gene/Beijing \
+        --roadmap data/Beijing/roadmap.geo \
+        --lmtad-checkpoint /path/to/ckpt_best.pt \
+        --baseline-eval tools_eval_lmtad/Beijing/evaluation_results.json \
+        --baseline-quantile 0.95
 """
 
-import logging
-from pathlib import Path
-from typing import List, Optional
+from __future__ import annotations
 
+import csv
 import json
+import logging
+import random
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import torch
-import csv
-import random
-
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -44,10 +54,239 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+DEFAULT_GRID_SIZE = 0.001
+
+ScoresBySplit = Dict[str, List[float]]
+
+
+@dataclass(frozen=True)
+class BaselineCalibrator:
+    """Apply a fixed threshold calibrated on a baseline eval file."""
+
+    baseline_eval: Optional[Path]
+    scores_by_split: Optional[ScoresBySplit]
+    quantile: float
+    fallback_split: str
+
+    @classmethod
+    def from_optional_eval(
+        cls,
+        *,
+        baseline_eval: Optional[Path],
+        quantile: float,
+        fallback_split: str,
+    ) -> "BaselineCalibrator":
+        if baseline_eval is None:
+            return cls(
+                baseline_eval=None,
+                scores_by_split=None,
+                quantile=float(quantile),
+                fallback_split=str(fallback_split),
+            )
+
+        _require_exists(baseline_eval, "Baseline eval JSON")
+        return cls(
+            baseline_eval=baseline_eval,
+            scores_by_split=_load_eval_scores_by_split(baseline_eval),
+            quantile=float(quantile),
+            fallback_split=str(fallback_split),
+        )
+
+    def apply(
+        self,
+        *,
+        split: str,
+        perplexities: np.ndarray,
+        within_split_outliers: np.ndarray,
+    ) -> Tuple[np.ndarray, str, float, Optional[Dict[str, Any]]]:
+        """Return outliers, method name, within-split rate, and optional metadata."""
+        return _compute_outliers(
+            split=split,
+            perplexities=perplexities,
+            within_split_outliers=within_split_outliers,
+            baseline_eval=self.baseline_eval,
+            baseline_scores_by_split=self.scores_by_split,
+            baseline_quantile=self.quantile,
+            baseline_split_fallback=self.fallback_split,
+        )
+
+
+@dataclass(frozen=True)
+class ResultsWriter:
+    out_dir: Path
+
+    @property
+    def jsonl_path(self) -> Path:
+        return self.out_dir / "evaluation_results.jsonl"
+
+    @property
+    def agg_json_path(self) -> Path:
+        return self.out_dir / "evaluation_results.json"
+
+    def write_split(self, *, split: str, payload: Dict[str, Any]) -> None:
+        try:
+            _append_jsonl(self.jsonl_path, {"split": split, "results": payload})
+        except Exception as e:
+            logger.error("Failed to append JSONL for split %s: %s", split, e)
+
+        try:
+            _update_aggregated_json(self.agg_json_path, split, payload)
+        except Exception as e:
+            logger.error("Failed to update aggregated results file: %s", e)
+
+
+def _load_eval_scores_by_split(path: Path) -> ScoresBySplit:
+    """Load per-split log-perplexity scores from an evaluator JSON file."""
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid evaluation JSON structure: {path}")
+
+    out: ScoresBySplit = {}
+    for split, payload in data.items():
+        if not isinstance(payload, dict):
+            continue
+        scores = payload.get("log_perplexity_values")
+        if isinstance(scores, list) and scores:
+            out[str(split)] = [float(x) for x in scores]
+
+    if not out:
+        raise ValueError(f"No splits with 'log_perplexity_values' found in: {path}")
+    return out
+
+
+def _pick_baseline_split(
+    *,
+    split: str,
+    baseline_scores_by_split: Dict[str, List[float]],
+    fallback_split: str,
+) -> str:
+    """Pick a baseline split for calibrating the threshold.
+
+    Preference order:
+    1) Use the same split name if present in the baseline eval.
+    2) Otherwise, use the provided fallback split.
+    """
+    if split in baseline_scores_by_split:
+        return split
+    if fallback_split in baseline_scores_by_split:
+        return fallback_split
+    available = ", ".join(sorted(baseline_scores_by_split.keys()))
+    raise ValueError(
+        "Baseline eval does not contain a usable split. "
+        f"Requested='{split}', fallback='{fallback_split}', available=[{available}]"
+    )
+
+
+def _quantile_threshold(values: np.ndarray, q: float) -> float:
+    """Return the q-quantile threshold for baseline calibration."""
+    if not (0.0 < float(q) < 1.0):
+        raise ValueError(f"baseline_quantile must be in (0,1), got {q}")
+    if values.size == 0:
+        raise ValueError("Cannot compute quantile threshold on empty values")
+    return float(np.quantile(values, float(q)))
+
+
+def _require_exists(path: Path, what: str) -> None:
+    if not path.exists():
+        raise FileNotFoundError(f"{what} not found: {path}")
+
+
+def _stream_sample_csv(
+    *,
+    csv_file: Path,
+    out_file: Path,
+    sample_frac: float,
+    sample_seed: int,
+) -> Optional[Path]:
+    """Bernoulli stream sample a CSV to `out_file`.
+
+    Returns:
+        - `out_file` if sampling succeeded and >=1 row was kept.
+        - None if the input file was empty or 0 rows were kept.
+
+    Raises:
+        Any exception that occurs while reading/writing.
+    """
+    random.seed(sample_seed)
+    with (
+        open(csv_file, "r", newline="") as inf,
+        open(out_file, "w", newline="") as outf,
+    ):
+        reader = csv.reader(inf)
+        writer = csv.writer(outf)
+
+        header = next(reader, None)
+        if header is None:
+            return None
+        writer.writerow(header)
+
+        kept = 0
+        for row in reader:
+            if random.random() < float(sample_frac):
+                writer.writerow(row)
+                kept += 1
+
+    return out_file if kept > 0 else None
+
+
+def _append_jsonl(path: Path, payload: Dict[str, Any]) -> None:
+    """Append one JSON object per line."""
+    with open(path, "a") as f:
+        f.write(json.dumps(payload) + "\n")
+
+
+def _update_aggregated_json(
+    path: Path, split: str, split_payload: Dict[str, Any]
+) -> None:
+    """Update (overwrite) an aggregated JSON file with one split."""
+    if path.exists():
+        with open(path, "r") as f:
+            agg = json.load(f)
+            if not isinstance(agg, dict):
+                agg = {}
+    else:
+        agg = {}
+    agg[split] = split_payload
+    with open(path, "w") as f:
+        json.dump(agg, f, indent=2)
+
+
+def _iter_splits(data_dir: Path, splits: List[str]) -> Iterable[Tuple[str, Path]]:
+    for split in splits:
+        yield split, data_dir / f"{split}.csv"
+
+
+def _prepare_target_csv(
+    *,
+    csv_file: Path,
+    out_dir: Path,
+    sample_frac: Optional[float],
+    sample_seed: int,
+) -> Optional[Path]:
+    """Return a CSV path to evaluate (sampled or original)."""
+    if sample_frac is None or not (0.0 < float(sample_frac) < 1.0):
+        return csv_file
+
+    logger.info(
+        "Stream-sampling %.1f%% of %s (seed=%d)",
+        float(sample_frac) * 100.0,
+        csv_file.name,
+        int(sample_seed),
+    )
+
+    tmp_file = out_dir / f"{csv_file.stem}_sampled.csv"
+    sampled = _stream_sample_csv(
+        csv_file=csv_file,
+        out_file=tmp_file,
+        sample_frac=float(sample_frac),
+        sample_seed=int(sample_seed),
+    )
+    return sampled
+
 
 def _extract_road_centroids_and_boundary_from_roadmap(
     roadmap_file: Path,
-) -> tuple[np.ndarray, GridConfig]:
+) -> Tuple[np.ndarray, GridConfig]:
     """Extract road centroids and grid boundary using the preferred method.
 
     This matches the intent of `tools/convert_to_lmtad_format.py`:
@@ -57,8 +296,7 @@ def _extract_road_centroids_and_boundary_from_roadmap(
     Returns:
         (road_centroids_latlng, grid_config)
     """
-    if not roadmap_file.exists():
-        raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
+    _require_exists(roadmap_file, "Roadmap file")
 
     # Keep dtype overrides in sync with the converter to avoid pandas type churn.
     schema_overrides = {
@@ -152,9 +390,122 @@ def _extract_road_centroids_and_boundary_from_roadmap(
         max_lat=float(max_lat),
         min_lng=float(min_lng),
         max_lng=float(max_lng),
-        grid_size=0.001,
+        grid_size=DEFAULT_GRID_SIZE,
     )
     return road_centroids_latlng, grid_config
+
+
+def _create_grid_mapper(
+    *,
+    roadmap_file: Path,
+    device: str,
+) -> Tuple[torch.Tensor, Tuple[int, int]]:
+    road_centroids_latlng, grid_config = (
+        _extract_road_centroids_and_boundary_from_roadmap(roadmap_file)
+    )
+    mapper = GridMapper(
+        boundary=grid_config, road_centroids=road_centroids_latlng, verify_hw=None
+    )
+    road_to_token = torch.from_numpy(mapper.map_all()).to(device)
+    return road_to_token, (int(mapper.grid_h), int(mapper.grid_w))
+
+
+def _evaluate_csv(
+    *,
+    csv_path: Path,
+    model: LMTADTeacher,
+    road_to_token: torch.Tensor,
+    device: str,
+    batch_size: int,
+) -> Optional[Tuple[np.ndarray, np.ndarray, int]]:
+    logger.info("Loading trajectories from %s...", csv_path)
+    trajectories = load_hoser_trajectories(csv_path)
+    if len(trajectories) == 0:
+        return None
+
+    logger.info("Evaluating %d trajectories...", len(trajectories))
+    perplexities, within_split_outliers, _ = evaluate_trajectories_direct(
+        trajectories=trajectories,
+        model=model,
+        road_to_token=road_to_token,
+        device=device,
+        batch_size=batch_size,
+    )
+    return perplexities, within_split_outliers, len(trajectories)
+
+
+def _build_split_result(
+    *,
+    num_trajectories: int,
+    perplexities: np.ndarray,
+    outliers: np.ndarray,
+    outlier_method: str,
+    within_split_outliers: np.ndarray,
+    within_split_outlier_rate: float,
+    baseline_calibrated: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    return {
+        "num_trajectories": int(num_trajectories),
+        "mean_log_perplexity": float(perplexities.mean()),
+        "median_log_perplexity": float(np.median(perplexities)),
+        "std_log_perplexity": float(perplexities.std()),
+        "min_log_perplexity": float(perplexities.min()),
+        "max_log_perplexity": float(perplexities.max()),
+        "outlier_method": str(outlier_method),
+        "outlier_rate": float(outliers.mean()),
+        "log_perplexity_values": perplexities.tolist(),
+        "outlier_labels": outliers.tolist(),
+        "within_split_outlier_rate": float(within_split_outlier_rate),
+        "within_split_outlier_labels": within_split_outliers.tolist(),
+        "baseline_calibrated": baseline_calibrated,
+    }
+
+
+def _compute_outliers(
+    *,
+    split: str,
+    perplexities: np.ndarray,
+    within_split_outliers: np.ndarray,
+    baseline_eval: Optional[Path],
+    baseline_scores_by_split: Optional[ScoresBySplit],
+    baseline_quantile: float,
+    baseline_split_fallback: str,
+) -> Tuple[np.ndarray, str, float, Optional[Dict[str, Any]]]:
+    """Return outlier labels + metadata.
+
+    If `baseline_scores_by_split` is provided, we override the evaluator's
+    within-split outlier labels with a baseline-calibrated quantile threshold.
+    Otherwise we keep the evaluator output.
+    """
+    within_rate = float(within_split_outliers.mean())
+
+    if baseline_scores_by_split is None:
+        return within_split_outliers, "within_split_95th_percentile", within_rate, None
+
+    chosen_baseline_split = _pick_baseline_split(
+        split=split,
+        baseline_scores_by_split=baseline_scores_by_split,
+        fallback_split=baseline_split_fallback,
+    )
+    base_scores = np.asarray(
+        baseline_scores_by_split[chosen_baseline_split], dtype=np.float64
+    )
+    threshold = _quantile_threshold(base_scores, baseline_quantile)
+
+    baseline_outlier_rate = float((base_scores > threshold).mean())
+    calibrated_outliers = (perplexities > threshold).astype(np.float32)
+
+    baseline_calibrated = {
+        "method": "quantile",
+        "quantile": float(baseline_quantile),
+        "threshold": float(threshold),
+        "baseline_eval": str(baseline_eval) if baseline_eval is not None else None,
+        "baseline_split_used": str(chosen_baseline_split),
+        "baseline_outlier_rate": float(baseline_outlier_rate),
+        "target_outlier_rate": float(calibrated_outliers.mean()),
+    }
+
+    return calibrated_outliers, "baseline_quantile", within_rate, baseline_calibrated
 
 
 def evaluate_splits(
@@ -168,6 +519,9 @@ def evaluate_splits(
     output_dir: Optional[Path] = None,
     sample_frac: float = 0.1,
     sample_seed: int = 42,
+    baseline_eval: Optional[Path] = None,
+    baseline_quantile: float = 0.95,
+    baseline_split: str = "train",
 ):
     if splits is None:
         splits = ["train", "val", "test"]
@@ -177,14 +531,21 @@ def evaluate_splits(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Validate inputs
-    if not data_dir.exists():
-        raise FileNotFoundError(f"Data directory not found: {data_dir}")
-    if not roadmap_file.exists():
-        raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
-    if not lmtad_ckpt.exists():
-        raise FileNotFoundError(f"LM-TAD checkpoint not found: {lmtad_ckpt}")
-    if not lmtad_repo.exists():
-        raise FileNotFoundError(f"LM-TAD repo not found: {lmtad_repo}")
+    _require_exists(data_dir, "Data directory")
+    _require_exists(roadmap_file, "Roadmap file")
+    _require_exists(lmtad_ckpt, "LM-TAD checkpoint")
+    _require_exists(lmtad_repo, "LM-TAD repo")
+
+    calibrator = BaselineCalibrator.from_optional_eval(
+        baseline_eval=baseline_eval,
+        quantile=baseline_quantile,
+        fallback_split=baseline_split,
+    )
+    if calibrator.scores_by_split is not None:
+        logger.info(
+            "Using baseline-calibrated outliers: method=quantile, "
+            f"q={calibrator.quantile}, fallback_baseline_split={calibrator.fallback_split}"
+        )
 
     # Load model once
     logger.info(f"Loading LM-TAD teacher from {lmtad_ckpt}...")
@@ -200,124 +561,79 @@ def evaluate_splits(
     # Create grid mapper using the preferred conversion method:
     # - boundary from all polyline points
     # - centroid as mean-of-points
-    road_centroids_latlng, grid_config = (
-        _extract_road_centroids_and_boundary_from_roadmap(roadmap_file)
+    road_to_token, (grid_h, grid_w) = _create_grid_mapper(
+        roadmap_file=roadmap_file, device=device
     )
-    mapper = GridMapper(
-        boundary=grid_config, road_centroids=road_centroids_latlng, verify_hw=None
-    )
-    road_to_token = torch.from_numpy(mapper.map_all()).to(device)
-    logger.info(f"Created grid mapper: {mapper.grid_h}x{mapper.grid_w} cells")
+    logger.info("Created grid mapper: %dx%d cells", grid_h, grid_w)
 
-    all_results = {}
+    all_results: Dict[str, Dict[str, Any]] = {}
+    writer = ResultsWriter(output_dir)
 
-    # Prepare streaming results file (JSON Lines). We'll append per-split results
-    results_file = output_dir / "evaluation_results.jsonl"
-
-    for split in splits:
-        csv_file = data_dir / f"{split}.csv"
+    for split, csv_file in _iter_splits(data_dir, splits):
         if not csv_file.exists():
-            logger.warning(f"Split file not found, skipping: {csv_file}")
+            logger.warning("Split file not found, skipping: %s", csv_file)
             continue
 
         # Stream-sample CSV rows using Bernoulli sampling to avoid loading the
         # entire file into memory. This is best-effort: each input row is
         # independently included with probability `sample_frac`.
-        target_csv = csv_file
-        if sample_frac is not None and 0.0 < sample_frac < 1.0:
-            logger.info(
-                f"Stream-sampling {sample_frac * 100:.1f}% of {csv_file.name} (seed={sample_seed})"
+        try:
+            target_csv = _prepare_target_csv(
+                csv_file=csv_file,
+                out_dir=output_dir,
+                sample_frac=sample_frac,
+                sample_seed=sample_seed,
             )
-            tmp_file = output_dir / f"{csv_file.stem}_sampled.csv"
-            try:
-                random.seed(sample_seed)
-                with (
-                    open(csv_file, "r", newline="") as inf,
-                    open(tmp_file, "w", newline="") as outf,
-                ):
-                    reader = csv.reader(inf)
-                    writer = csv.writer(outf)
-                    # Copy header
-                    try:
-                        header = next(reader)
-                    except StopIteration:
-                        logger.warning(f"Empty CSV file: {csv_file}, skipping")
-                        continue
-                    writer.writerow(header)
-                    kept = 0
-                    for row in reader:
-                        if random.random() < float(sample_frac):
-                            writer.writerow(row)
-                            kept += 1
+        except Exception as e:
+            logger.error("Sampling failed for %s: %s", csv_file, e)
+            target_csv = csv_file
 
-                if kept == 0:
-                    logger.warning(f"Sampled 0 rows from {csv_file}, skipping")
-                    continue
-                target_csv = tmp_file
-            except Exception as e:
-                logger.error(f"Streaming sampling failed for {csv_file}: {e}")
-                target_csv = csv_file
-
-        logger.info(f"Loading trajectories from {target_csv}...")
-        trajectories = load_hoser_trajectories(target_csv)
-        if len(trajectories) == 0:
-            logger.warning(f"No valid trajectories in {csv_file}, skipping")
+        if target_csv is None:
+            logger.warning("Sampled 0 rows from %s, skipping", csv_file)
             continue
 
-        logger.info(
-            f"Evaluating {len(trajectories)} trajectories for split '{split}'..."
-        )
-        perplexities, outliers, _ = evaluate_trajectories_direct(
-            trajectories=trajectories,
+        eval_out = _evaluate_csv(
+            csv_path=target_csv,
             model=model,
             road_to_token=road_to_token,
             device=device,
             batch_size=batch_size,
         )
+        if eval_out is None:
+            logger.warning("No valid trajectories in %s, skipping", csv_file)
+            continue
 
-        all_results[split] = {
-            "num_trajectories": len(trajectories),
-            "mean_log_perplexity": float(perplexities.mean()),
-            "median_log_perplexity": float(np.median(perplexities)),
-            "std_log_perplexity": float(perplexities.std()),
-            "min_log_perplexity": float(perplexities.min()),
-            "max_log_perplexity": float(perplexities.max()),
-            "outlier_rate": float(outliers.mean()),
-            "log_perplexity_values": perplexities.tolist(),
-            "outlier_labels": outliers.tolist(),
-        }
-
-        logger.info(
-            f"Split '{split}': mean_log_perplexity={all_results[split]['mean_log_perplexity']:.4f}, outlier_rate={all_results[split]['outlier_rate']:.2%}"
+        perplexities, within_split_outliers, num_trajectories = eval_out
+        outliers, outlier_method, within_split_outlier_rate, baseline_calibrated = (
+            calibrator.apply(
+                split=split,
+                perplexities=perplexities,
+                within_split_outliers=within_split_outliers,
+            )
         )
 
-        # Stream-save this split's results to a JSON Lines file (append).
-        try:
-            with open(results_file, "a") as f:
-                f.write(
-                    json.dumps({"split": split, "results": all_results[split]}) + "\n"
-                )
-        except Exception as e:
-            logger.error(f"Failed to append JSONL for split {split}: {e}")
+        all_results[split] = _build_split_result(
+            num_trajectories=num_trajectories,
+            perplexities=perplexities,
+            outliers=outliers,
+            outlier_method=outlier_method,
+            within_split_outliers=within_split_outliers,
+            within_split_outlier_rate=within_split_outlier_rate,
+            baseline_calibrated=baseline_calibrated,
+        )
 
-        # Also update aggregated JSON for convenience (small file, overwritten per-split).
-        agg_file = output_dir / "evaluation_results.json"
-        try:
-            if agg_file.exists():
-                with open(agg_file, "r") as f:
-                    agg = json.load(f)
-            else:
-                agg = {}
-            agg[split] = all_results[split]
-            with open(agg_file, "w") as f:
-                json.dump(agg, f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to update aggregated results file: {e}")
+        logger.info(
+            "Split '%s': mean_log_perplexity=%.4f, outlier_rate=%.2f%% (%s)",
+            split,
+            all_results[split]["mean_log_perplexity"],
+            all_results[split]["outlier_rate"] * 100.0,
+            outlier_method,
+        )
 
-    logger.info(f"Streaming results appended to: {results_file}")
-    logger.info(
-        f"Aggregated results written to: {output_dir / 'evaluation_results.json'}"
-    )
+        writer.write_split(split=split, payload=all_results[split])
+
+    logger.info("Streaming results appended to: %s", writer.jsonl_path)
+    logger.info("Aggregated results written to: %s", writer.agg_json_path)
 
 
 def main():
@@ -381,6 +697,35 @@ def main():
         help="Random seed used for sampling",
     )
 
+    # Baseline-calibrated outlier thresholding.
+    parser.add_argument(
+        "--baseline-eval",
+        type=Path,
+        default=None,
+        help=(
+            "Optional: path to baseline evaluator JSON (tools_eval_lmtad/<baseline>/evaluation_results.json). "
+            "If provided, outliers are computed using a fixed baseline-calibrated threshold (recommended)."
+        ),
+    )
+    parser.add_argument(
+        "--baseline-quantile",
+        type=float,
+        default=0.95,
+        help=(
+            "Baseline quantile q used to set the threshold when --baseline-eval is provided. "
+            "Example: 0.95 targets ~5% baseline outliers."
+        ),
+    )
+    parser.add_argument(
+        "--baseline-split",
+        type=str,
+        default="train",
+        help=(
+            "Fallback split name used to calibrate the baseline threshold when the evaluated split "
+            "is not present in --baseline-eval."
+        ),
+    )
+
     args = parser.parse_args()
 
     data_dir = (
@@ -399,6 +744,9 @@ def main():
         output_dir=args.output_dir,
         sample_frac=args.sample_frac,
         sample_seed=args.sample_seed,
+        baseline_eval=args.baseline_eval,
+        baseline_quantile=args.baseline_quantile,
+        baseline_split=args.baseline_split,
     )
 
 
