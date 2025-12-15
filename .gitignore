@@ -156,3 +156,9 @@ hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/vanilla_seed43_
 hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/vanilla_seed44_spatial_abnormal_perf.json
 hoser-distill-beijing/gene_abnormal_lmtad_spatial/Beijing/seed42/vanilla_seed44_spatial_abnormal.csv
 hoser-distill-beijing-lambda-1/data
+
+# LM-TAD evaluation outputs (generated)
+tools_eval_lmtad/
+
+# Local symlink to external LM-TAD results
+results/LMTAD
