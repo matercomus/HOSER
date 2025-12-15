@@ -79,6 +79,10 @@ class ThresholdResult:
         return (self.tp / denom) if denom else None
 
 
+def _param_name_for_method(method: str) -> str:
+    return "q" if method == "quantile" else "z"
+
+
 def _read_scores(eval_json: Path, split: str) -> List[float]:
     """Load log-perplexity scores from an evaluator JSON file."""
     data = json.loads(eval_json.read_text())
@@ -484,6 +488,7 @@ def analyze(
     quantiles: Sequence[float],
     method: Literal["quantile", "zscore", "mad_z"] = "quantile",
     z: Optional[float] = None,
+    zs: Optional[Sequence[float]] = None,
     report_baseline_splits: bool = True,
     bootstrap: int = 0,
     target_csv: Optional[Path] = None,
@@ -511,26 +516,36 @@ def analyze(
 
     rng = np.random.default_rng(seed)
 
-    for q in quantiles:
-        if method == "quantile":
-            thr = _percentile(baseline_scores, q)
-        elif method == "zscore":
+    if method == "quantile":
+        settings: Sequence[float] = quantiles
+    else:
+        if zs is not None:
+            settings = zs
+        else:
             if z is None:
-                raise ValueError("--z is required when --method=zscore")
+                raise ValueError(
+                    "--z is required when --method is zscore/mad_z (or pass --zs for multiple values)"
+                )
+            settings = [z]
+
+    for setting in settings:
+        param_value = float(setting)
+
+        if method == "quantile":
+            thr = _percentile(baseline_scores, param_value)
+        elif method == "zscore":
             mu = float(np.mean(baseline_scores))
             sigma = float(np.std(baseline_scores, ddof=1))
             if sigma <= 0:
                 raise ValueError("Baseline std is zero; cannot use zscore method")
-            thr = mu + float(z) * sigma
+            thr = mu + param_value * sigma
         elif method == "mad_z":
-            if z is None:
-                raise ValueError("--z is required when --method=mad_z")
             med = _median(baseline_scores)
             mad = _mad(baseline_scores, center=med)
             if mad <= 0:
                 raise ValueError("Baseline MAD is zero; cannot use mad_z method")
             # Consistent scaling for normal distributions: sigma ~= 1.4826 * MAD
-            thr = float(med + float(z) * (1.4826 * mad))
+            thr = float(med + param_value * (1.4826 * mad))
         else:
             raise ValueError(f"Unknown method: {method}")
 
@@ -568,15 +583,15 @@ def analyze(
                 t = targ_arr[t_idx]
 
                 if method == "quantile":
-                    thr_b = float(np.quantile(b, q, method="linear"))
+                    thr_b = float(np.quantile(b, param_value, method="linear"))
                 elif method == "zscore":
                     mu_b = float(np.mean(b))
                     sigma_b = float(np.std(b, ddof=1))
-                    thr_b = mu_b + float(z) * sigma_b
+                    thr_b = mu_b + param_value * sigma_b
                 else:
                     med_b = float(np.median(b))
                     mad_b = float(np.median(np.abs(b - med_b)))
-                    thr_b = med_b + float(z) * (1.4826 * mad_b)
+                    thr_b = med_b + param_value * (1.4826 * mad_b)
 
                 thr_samples.append(thr_b)
                 base_rate_samples.append(float(np.mean(b > thr_b)))
@@ -615,7 +630,7 @@ def analyze(
             results.append(
                 ThresholdResult(
                     method=method,
-                    quantile=q,
+                    quantile=param_value,
                     threshold=float(thr),
                     baseline_outlier_rate=float(base_rate),
                     target_outlier_rate=float(targ_rate),
@@ -633,7 +648,7 @@ def analyze(
             results.append(
                 ThresholdResult(
                     method=method,
-                    quantile=q,
+                    quantile=param_value,
                     threshold=float(thr),
                     baseline_outlier_rate=float(base_rate),
                     target_outlier_rate=float(targ_rate),
@@ -652,6 +667,7 @@ def analyze_many_splits(
     quantiles: Sequence[float],
     method: Literal["quantile", "zscore", "mad_z"] = "quantile",
     z: Optional[float] = None,
+    zs: Optional[Sequence[float]] = None,
     report_baseline_splits: bool = True,
     bootstrap: int = 0,
     target_csv_by_split: Optional[Dict[str, Path]] = None,
@@ -666,6 +682,7 @@ def analyze_many_splits(
             quantiles=quantiles,
             method=method,
             z=z,
+            zs=zs,
             report_baseline_splits=report_baseline_splits,
             bootstrap=bootstrap,
             target_csv=(
@@ -688,11 +705,16 @@ def _format_markdown(
     lines.append("")
     lines.append(f"- Baseline: `{baseline_name}`")
     lines.append(f"- Target: `{target_name}`")
+    method = results[0].method if results else "(unknown)"
+    param = _param_name_for_method(method)
+    lines.append(f"- Method: `{method}`")
     lines.append("")
+
+    param_label = "Baseline quantile" if param == "q" else "Z"
 
     if labels_available:
         lines.append(
-            "| Baseline quantile | Threshold | Baseline outlier rate | "
+            f"| {param_label} | Threshold | Baseline outlier rate | "
             "Target outlier rate | Precision | Recall | AUROC | AP | TP | FP | FN | TN |"
         )
         lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
@@ -713,7 +735,7 @@ def _format_markdown(
             )
     else:
         lines.append(
-            "| Baseline quantile | Threshold | Baseline outlier rate | "
+            f"| {param_label} | Threshold | Baseline outlier rate | "
             "Target outlier rate |"
         )
         lines.append("|---:|---:|---:|---:|")
@@ -732,7 +754,7 @@ def _format_markdown(
         if r.baseline_split_fprs is None:
             continue
         for s, v in r.baseline_split_fprs.items():
-            split_fprs.setdefault(s, []).append(f"q={r.quantile:.2f}: {v:.4f}")
+            split_fprs.setdefault(s, []).append(f"{param}={r.quantile:.2f}: {v:.4f}")
     if split_fprs:
         lines.append(
             "Baseline FPR on each split (sanity check; should be near the target alpha only if the split distribution matches):"
@@ -750,7 +772,7 @@ def _format_markdown(
                 continue
             ci = r.ci
             parts = [
-                f"q={r.quantile:.2f}",
+                f"{param}={r.quantile:.2f}",
                 f"thr=[{ci['threshold'][0]:.6f}, {ci['threshold'][1]:.6f}]",
                 f"base_rate=[{ci['baseline_outlier_rate'][0]:.4f}, {ci['baseline_outlier_rate'][1]:.4f}]",
                 f"targ_rate=[{ci['target_outlier_rate'][0]:.4f}, {ci['target_outlier_rate'][1]:.4f}]",
@@ -820,14 +842,18 @@ def _write_plots(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     for r in results:
-        key = f"{r.method}_q{_format_float_for_path(r.quantile)}_thr{_format_float_for_path(r.threshold)}"
+        param = _param_name_for_method(r.method)
+        key = (
+            f"{r.method}_{param}{_format_float_for_path(r.quantile)}"
+            f"_thr{_format_float_for_path(r.threshold)}"
+        )
         hist_path = out_dir / f"{key}_hist.png"
         _plot_histogram_comparison(
             baseline_scores=baseline_scores,
             target_scores=target_scores,
             threshold=r.threshold,
             title=(
-                f"{split}: baseline vs target (method={r.method}, q={r.quantile:.2f})"
+                f"{split}: baseline vs target (method={r.method}, {param}={r.quantile:.2f})"
             ),
             out_path=hist_path,
         )
@@ -838,7 +864,7 @@ def _write_plots(
                 scores=target_scores,
                 labels=labels,
                 title=(
-                    f"{split}: PR curve on target (method={r.method}, q={r.quantile:.2f})"
+                    f"{split}: PR curve on target (method={r.method}, {param}={r.quantile:.2f})"
                 ),
                 out_path=pr_path,
             )
@@ -885,6 +911,17 @@ def main() -> None:
         help="One or more quantiles in (0,1), e.g. 0.95 0.99",
     )
     parser.add_argument(
+        "--methods",
+        type=str,
+        nargs="+",
+        default=None,
+        choices=["quantile", "zscore", "mad_z"],
+        help=(
+            "One or more thresholding methods to run in one invocation. "
+            "If provided, overrides --method."
+        ),
+    )
+    parser.add_argument(
         "--method",
         type=str,
         default="quantile",
@@ -899,6 +936,16 @@ def main() -> None:
         type=float,
         default=None,
         help="Z value used by zscore/mad_z methods (e.g., 3.0).",
+    )
+    parser.add_argument(
+        "--zs",
+        type=float,
+        nargs="+",
+        default=None,
+        help=(
+            "One or more Z values for zscore/mad_z. If provided, evaluates each z. "
+            "(Ignored for quantile.)"
+        ),
     )
     parser.add_argument(
         "--no-report-baseline-splits",
@@ -997,30 +1044,81 @@ def main() -> None:
                 s: Path(args.target_csv_template.format(split=s)) for s in splits
             }
 
-    results_by_split = analyze_many_splits(
-        baseline_eval=args.baseline_eval,
-        target_eval=args.target_eval,
-        splits=splits,
-        quantiles=args.quantiles,
-        method=args.method,  # type: ignore[arg-type]
-        z=args.z,
-        report_baseline_splits=not args.no_report_baseline_splits,
-        bootstrap=args.bootstrap,
-        target_csv_by_split=target_csv_by_split,
-        seed=args.seed,
-    )
+    methods = list(args.methods) if args.methods else [str(args.method)]
 
-    labels_available_by_split = {
-        s: (target_csv_by_split is not None and target_csv_by_split.get(s) is not None)
-        for s in splits
-    }
+    results_by_split: Optional[Dict[str, List[ThresholdResult]]] = None
+    results_by_method: Optional[Dict[str, Dict[str, List[ThresholdResult]]]] = None
 
-    md = _format_markdown_many_splits(
-        baseline_name=baseline_name,
-        target_name=target_name,
-        results_by_split=results_by_split,
-        labels_available_by_split=labels_available_by_split,
-    )
+    if args.methods:
+        results_by_method = {}
+        for m in methods:
+            results_by_method[m] = analyze_many_splits(
+                baseline_eval=args.baseline_eval,
+                target_eval=args.target_eval,
+                splits=splits,
+                quantiles=args.quantiles,
+                method=m,  # type: ignore[arg-type]
+                z=args.z,
+                zs=args.zs,
+                report_baseline_splits=not args.no_report_baseline_splits,
+                bootstrap=args.bootstrap,
+                target_csv_by_split=target_csv_by_split,
+                seed=args.seed,
+            )
+
+        preferred = {"train": 0, "val": 1, "test": 2}
+        split_order = sorted(splits, key=lambda s: (preferred.get(s, 99), s))
+
+        blocks: List[str] = []
+        for split in split_order:
+            blocks.append(f"# Split: {split}")
+            blocks.append("")
+            for m in methods:
+                rs = results_by_method[m][split]
+                labels_available = (
+                    target_csv_by_split is not None
+                    and target_csv_by_split.get(split) is not None
+                )
+                blocks.append(
+                    _format_markdown(
+                        baseline_name=baseline_name,
+                        target_name=target_name,
+                        split=split,
+                        results=rs,
+                        labels_available=labels_available,
+                    )
+                )
+            blocks.append("")
+        md = "\n".join(blocks).lstrip()
+    else:
+        results_by_split = analyze_many_splits(
+            baseline_eval=args.baseline_eval,
+            target_eval=args.target_eval,
+            splits=splits,
+            quantiles=args.quantiles,
+            method=args.method,  # type: ignore[arg-type]
+            z=args.z,
+            zs=args.zs,
+            report_baseline_splits=not args.no_report_baseline_splits,
+            bootstrap=args.bootstrap,
+            target_csv_by_split=target_csv_by_split,
+            seed=args.seed,
+        )
+
+        labels_available_by_split = {
+            s: (
+                target_csv_by_split is not None
+                and target_csv_by_split.get(s) is not None
+            )
+            for s in splits
+        }
+
+        md = _format_markdown_many_splits(
+            baseline_name=baseline_name,
+            target_name=target_name,
+            results_by_split=results_by_split,
+            labels_available_by_split=labels_available_by_split,
+        )
     print(md)
 
     if args.out_md is not None:
@@ -1033,53 +1131,101 @@ def main() -> None:
             "baseline_eval": str(args.baseline_eval),
             "target_eval": str(args.target_eval),
             "splits": splits,
-            "method": args.method,
+            "methods": methods,
             "z": args.z,
+            "zs": None if args.zs is None else list(args.zs),
             "quantiles": list(args.quantiles),
             "bootstrap": args.bootstrap,
             "seed": args.seed,
             "baseline_name": baseline_name,
             "target_name": target_name,
-            "results": {
-                split: [
-                    {
-                        "method": r.method,
-                        "quantile": r.quantile,
-                        "threshold": r.threshold,
-                        "baseline_outlier_rate": r.baseline_outlier_rate,
-                        "target_outlier_rate": r.target_outlier_rate,
-                        "baseline_split_fprs": r.baseline_split_fprs,
-                        "tp": r.tp,
-                        "fp": r.fp,
-                        "fn": r.fn,
-                        "tn": r.tn,
-                        "precision": r.precision,
-                        "recall": r.recall,
-                        "auroc": r.auroc,
-                        "average_precision": r.average_precision,
-                        "ci": r.ci,
+            "results": (
+                {
+                    m: {
+                        split: [
+                            {
+                                "method": r.method,
+                                "param": _param_name_for_method(r.method),
+                                "value": r.quantile,
+                                "threshold": r.threshold,
+                                "baseline_outlier_rate": r.baseline_outlier_rate,
+                                "target_outlier_rate": r.target_outlier_rate,
+                                "baseline_split_fprs": r.baseline_split_fprs,
+                                "tp": r.tp,
+                                "fp": r.fp,
+                                "fn": r.fn,
+                                "tn": r.tn,
+                                "precision": r.precision,
+                                "recall": r.recall,
+                                "auroc": r.auroc,
+                                "average_precision": r.average_precision,
+                                "ci": r.ci,
+                            }
+                            for r in results_by_method[m][split]
+                        ]
+                        for split in splits
                     }
-                    for r in rs
-                ]
-                for split, rs in results_by_split.items()
-            },
+                    for m in methods
+                }
+                if args.methods
+                else {
+                    split: [
+                        {
+                            "method": r.method,
+                            "param": _param_name_for_method(r.method),
+                            "value": r.quantile,
+                            "threshold": r.threshold,
+                            "baseline_outlier_rate": r.baseline_outlier_rate,
+                            "target_outlier_rate": r.target_outlier_rate,
+                            "baseline_split_fprs": r.baseline_split_fprs,
+                            "tp": r.tp,
+                            "fp": r.fp,
+                            "fn": r.fn,
+                            "tn": r.tn,
+                            "precision": r.precision,
+                            "recall": r.recall,
+                            "auroc": r.auroc,
+                            "average_precision": r.average_precision,
+                            "ci": r.ci,
+                        }
+                        for r in rs
+                    ]
+                    for split, rs in results_by_split.items()
+                }
+            ),
         }
         _write_json(args.out_json, payload)
 
     if args.out_dir is not None:
-        for split, rs in results_by_split.items():
-            _write_plots(
-                baseline_eval=args.baseline_eval,
-                target_eval=args.target_eval,
-                split=split,
-                results=rs,
-                target_csv=(
-                    None
-                    if target_csv_by_split is None
-                    else target_csv_by_split.get(split)
-                ),
-                out_dir=args.out_dir / split,
-            )
+        if args.methods:
+            for m in methods:
+                for split, rs in results_by_method[m].items():
+                    _write_plots(
+                        baseline_eval=args.baseline_eval,
+                        target_eval=args.target_eval,
+                        split=split,
+                        results=rs,
+                        target_csv=(
+                            None
+                            if target_csv_by_split is None
+                            else target_csv_by_split.get(split)
+                        ),
+                        out_dir=args.out_dir / split / m,
+                    )
+        else:
+            for split, rs in results_by_split.items():
+                _write_plots(
+                    baseline_eval=args.baseline_eval,
+                    target_eval=args.target_eval,
+                    split=split,
+                    results=rs,
+                    target_csv=(
+                        None
+                        if target_csv_by_split is None
+                        else target_csv_by_split.get(split)
+                    ),
+                    out_dir=args.out_dir / split,
+                )
 
 
 if __name__ == "__main__":
