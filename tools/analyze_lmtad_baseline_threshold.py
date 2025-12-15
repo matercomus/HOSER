@@ -212,6 +212,146 @@ def _average_precision(
     return float(ap)
 
 
+def _filter_finite(values: Sequence[float]) -> List[float]:
+    return [float(v) for v in values if math.isfinite(float(v))]
+
+
+def _format_float_for_path(x: float) -> str:
+    # Short, filesystem-friendly float formatting.
+    s = f"{float(x):.6f}".rstrip("0").rstrip(".")
+    return s.replace("-", "m").replace(".", "p")
+
+
+def _pr_curve_points(
+    scores: Sequence[float],
+    labels: Sequence[bool],
+) -> Optional[List[Tuple[float, float, float]]]:
+    """Return PR curve points as (recall, precision, threshold).
+
+    The curve is built by sorting by score descending and updating TP/FP.
+    Returns None if labels are degenerate.
+    """
+    if not scores or len(scores) != len(labels):
+        return None
+    n_pos = sum(bool(x) for x in labels)
+    if n_pos == 0:
+        return None
+
+    order = sorted(range(len(scores)), key=lambda i: float(scores[i]), reverse=True)
+    tp = 0
+    fp = 0
+    points: List[Tuple[float, float, float]] = []
+
+    last_thr: Optional[float] = None
+    for idx in order:
+        thr = float(scores[idx])
+        if labels[idx]:
+            tp += 1
+        else:
+            fp += 1
+
+        # Only keep a point when threshold changes to reduce file size.
+        if last_thr is None or thr != last_thr:
+            recall = tp / n_pos
+            precision = tp / (tp + fp)
+            points.append((float(recall), float(precision), thr))
+            last_thr = thr
+
+    # Ensure curve includes (0,1) style start if desired; here we keep computed points.
+    return points
+
+
+def _write_csv(
+    path: Path, rows: Sequence[Sequence[Any]], header: Sequence[str]
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(list(header))
+        for row in rows:
+            writer.writerow(list(row))
+
+
+def _plot_histogram_comparison(
+    baseline_scores: Sequence[float],
+    target_scores: Sequence[float],
+    threshold: float,
+    title: str,
+    out_path: Path,
+) -> None:
+    """Plot baseline vs target histograms with a fixed threshold line."""
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "matplotlib is required for plotting. Install it (and seaborn optionally) via uv."
+        ) from e
+
+    b = np.asarray(_filter_finite(baseline_scores), dtype=np.float64)
+    t = np.asarray(_filter_finite(target_scores), dtype=np.float64)
+    if b.size == 0 or t.size == 0:
+        return
+
+    combined = np.concatenate([b, t])
+    bins = np.histogram_bin_edges(combined, bins=60)
+
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    ax.hist(b, bins=bins, alpha=0.55, density=True, label=f"baseline (n={len(b)})")
+    ax.hist(t, bins=bins, alpha=0.55, density=True, label=f"target (n={len(t)})")
+    ax.axvline(float(threshold), color="black", linestyle="--", linewidth=1.5)
+    ax.set_title(title)
+    ax.set_xlabel("log perplexity")
+    ax.set_ylabel("density")
+    ax.legend()
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=160)
+    plt.close(fig)
+
+
+def _plot_pr_curve(
+    scores: Sequence[float],
+    labels: Sequence[bool],
+    title: str,
+    out_path: Path,
+) -> Optional[Path]:
+    """Plot a PR curve and write the underlying points to CSV."""
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "matplotlib is required for plotting. Install it via uv."
+        ) from e
+
+    points = _pr_curve_points(scores, labels)
+    if not points:
+        return None
+
+    recalls = [p[0] for p in points]
+    precisions = [p[1] for p in points]
+
+    fig, ax = plt.subplots(figsize=(5.6, 5.2))
+    ax.plot(recalls, precisions, linewidth=2)
+    ax.set_title(title)
+    ax.set_xlabel("recall")
+    ax.set_ylabel("precision")
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=160)
+    plt.close(fig)
+
+    csv_path = out_path.with_suffix(".csv")
+    _write_csv(
+        csv_path,
+        rows=[(r, p, thr) for (r, p, thr) in points],
+        header=("recall", "precision", "threshold"),
+    )
+    return csv_path
+
+
 def _safe_int_list_from_string(value: str) -> List[int]:
     """Parse road-id sequences from several formats without using eval().
 
@@ -656,6 +796,54 @@ def _write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
+def _write_plots(
+    *,
+    baseline_eval: Path,
+    target_eval: Path,
+    split: str,
+    results: Sequence[ThresholdResult],
+    target_csv: Optional[Path],
+    out_dir: Path,
+) -> None:
+    """Write comparison plots for each threshold setting."""
+    baseline_scores = _read_scores(baseline_eval, split=split)
+    target_scores = _read_scores(target_eval, split=split)
+
+    labels: Optional[List[bool]] = None
+    if target_csv is not None:
+        labels, _, _ = _labels_from_target_csv(target_csv)
+        if len(labels) != len(target_scores):
+            raise ValueError(
+                "Target CSV labels do not align with target scores for plotting. "
+                f"labels={len(labels)} scores={len(target_scores)} split={split}."
+            )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for r in results:
+        key = f"{r.method}_q{_format_float_for_path(r.quantile)}_thr{_format_float_for_path(r.threshold)}"
+        hist_path = out_dir / f"{key}_hist.png"
+        _plot_histogram_comparison(
+            baseline_scores=baseline_scores,
+            target_scores=target_scores,
+            threshold=r.threshold,
+            title=(
+                f"{split}: baseline vs target (method={r.method}, q={r.quantile:.2f})"
+            ),
+            out_path=hist_path,
+        )
+
+        if labels is not None:
+            pr_path = out_dir / f"{key}_pr.png"
+            _plot_pr_curve(
+                scores=target_scores,
+                labels=labels,
+                title=(
+                    f"{split}: PR curve on target (method={r.method}, q={r.quantile:.2f})"
+                ),
+                out_path=pr_path,
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Compute baseline-calibrated thresholds for LM-TAD log-perplexity",
@@ -759,6 +947,15 @@ def main() -> None:
         type=Path,
         default=None,
         help="Optional: write the markdown table/output to this path.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional: directory to write comparison plots (histograms + PR curves when labels exist). "
+            "Outputs are written under <out-dir>/<split>/."
+        ),
     )
     parser.add_argument(
         "--baseline-name",
@@ -868,6 +1065,21 @@ def main() -> None:
             },
         }
         _write_json(args.out_json, payload)
+
+    if args.out_dir is not None:
+        for split, rs in results_by_split.items():
+            _write_plots(
+                baseline_eval=args.baseline_eval,
+                target_eval=args.target_eval,
+                split=split,
+                results=rs,
+                target_csv=(
+                    None
+                    if target_csv_by_split is None
+                    else target_csv_by_split.get(split)
+                ),
+                out_dir=args.out_dir / split,
+            )
 
 
 if __name__ == "__main__":
