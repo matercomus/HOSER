@@ -193,83 +193,34 @@ Note: test split intentionally ignored.
 
 ![Porto train plot](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_train.png)
 
+![Porto train roc](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_train_roc.png)
+
+![Porto train pr](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_train_pr.png)
+
 ![Porto val plot](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_val.png)
 
+![Porto val roc](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_val_roc.png)
 
-## Appendix: Additional diagnostics
-
-### Reference-run comparison (LM-TAD native eval)
-
-We also have LM-TAD’s own evaluation runs (native pipeline) under `results/LMTAD/.../eval/`.
-These runs show very strong separation of injected outliers using the same model family/checkpoints.
-
-- Script: `tools/summarize_lmtad_reference_eval.py`
-
-| Dataset | Run | Non-outlier mean | Route-switch mean | Detour mean | AP | PR-AUC | Threshold |
-|---|---|---:|---:|---:|---:|---:|---:|
-| beijing_hoser_reference | run_20250928_202718 | 0.5325 | 3.5049 | 5.0796 | 0.7162 | 0.9654 | 0.9966 |
-| porto_hoser | run_20251010_212829 | 0.3822 | 7.0265 | 8.4132 | 0.8366 | 0.9999 | 0.7571 |
-
-Important observation: the score scale previously differed dramatically between the reference eval and the HOSER-side evaluation; after the conversion alignment, it is now consistent.
-
-- Reference non-outlier means are ~0.38–0.53.
-- HOSER-side `tools_eval_lmtad/*` means are now in the same ballpark on the sampled splits (~0.4–1.3 across the datasets above).
-
-This is consistent with the conversion/mapping alignment work: after switching to boundary-from-all-points and mean-of-points centroids in `tools/evaluate_dataset_with_lmtad.py`, the teacher score scale and separability match expectations.
+![Porto val pr](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_val_pr.png)
 
 ---
 
-### Conversion mismatch evidence (road→token mapping)
+**Beijing plots (from the latest run)**
 
-This section is historical context explaining the root cause we observed earlier. The current evaluator conversion has been updated to match Method B.
+![Beijing abnormality overview](../tools_eval_lmtad/Beijing_abnormal_2/lmtad_eval_abnormality.png)
 
-To make the conversion mismatch concrete, we compared the two conversion approaches directly on the same `roadmap.geo` files:
+![Beijing boxplot](../tools_eval_lmtad/Beijing_abnormal_2/lmtad_eval_boxplot.png)
 
-- Tool: `tools/compare_lmtad_conversion_methods.py`
-- Outputs:
-  - `tools_eval_lmtad/_conversion_compare/porto_hoser_full/`
-  - `tools_eval_lmtad/_conversion_compare/Beijing_full/`
+![Beijing train plot](../tools_eval_lmtad/Beijing_abnormal_2/lmtad_eval_train.png)
 
-Summary (full roadmaps, `grid_size=0.001`):
+![Beijing train roc](../tools_eval_lmtad/Beijing_abnormal_2/lmtad_eval_train_roc.png)
 
-| Dataset roadmap | Token mismatch rate | Grid dims (A) | Grid dims (B) |
-|---|---:|---:|---:|
-| `data/porto_hoser/roadmap.geo` | 99.88% | 45×132 | 46×134 |
-| `data/Beijing/roadmap.geo` | 100.00% | 201×251 | 205×252 |
+![Beijing train pr](../tools_eval_lmtad/Beijing_abnormal_2/lmtad_eval_train_pr.png)
 
-Interpretation:
-- The two methods disagree on grid boundaries and therefore on `(grid_h, grid_w)`.
-- Because token ids are computed as `token = gi * grid_w + gj`, differing `grid_w` alone is enough to re-index almost every token.
-- The observed ~100% road→token mismatch means the LM-TAD teacher is effectively being fed a different tokenization than it was trained/evaluated with in the reference pipeline.
+![Beijing val plot](../tools_eval_lmtad/Beijing_abnormal_2/lmtad_eval_val.png)
 
-Method definitions (as implemented):
-- Method A (`tools/evaluate_dataset_with_lmtad.py`): Shapely polyline centroid; boundary from centroid min/max.
-- Method B (`tools/convert_to_lmtad_format.py`): mean-of-points centroid; boundary from all polyline points.
+![Beijing val roc](../tools_eval_lmtad/Beijing_abnormal_2/lmtad_eval_val_roc.png)
+
+![Beijing val pr](../tools_eval_lmtad/Beijing_abnormal_2/lmtad_eval_val_pr.png)
 
 ---
-
-### Clamp diagnostic (train)
-
-`simple_evaluate_with_lmtad.evaluate_trajectories_direct()` clamps per-step probabilities using `min_prob=1e-6`, which corresponds to a maximum possible log-perplexity of `-log(1e-6) ≈ 13.8155`.
-We checked how often trajectories hit this clamp exactly (using the saved `evaluation_results.json`):
-
-- `Beijing` (train): 0 / 6279 (0.0%) at 13.8155
-- `Beijing_abnormal_2` (train): 0 / 7203 (0.0%) at 13.8155
-- `porto_hoser` (train): 0 / 4796 (0.0%) at 13.8155
-- `porto_hoser_abnormal_2` (train): 0 / 5520 (0.0%) at 13.8155
-
-So “everything is clamped” is not a driver here.
-
-## Recommended next steps
-
-1. Standardize reporting around baseline-calibrated thresholds.
-  - Keep AUROC/AP for separability, and use `quantile q∈{0.95, 0.99}` to set a clear baseline FPR budget.
-2. Use train/val to select the operating point; reserve test for final reporting.
-3. If future injections become harder, focus on separability (AP) first.
-  - If AP collapses, threshold tuning won’t fix it; adjust the generator to enforce token-space “hardness”.
-
-**Where I put things**
-
-- Per-dataset evaluation outputs (JSON / PNG / CSV) are in `tools_eval_lmtad/<dataset>/`.
-- Injection logs (exact indices and injected info) were written to the generated CSV directory as `<split>.csv.injected_indices.jsonl` (for example `data/Beijing_abnormal_2/train.csv.injected_indices.jsonl`) — use these for exact alignment if you want to compute synthetic ground-truth labels for different samplers.
-

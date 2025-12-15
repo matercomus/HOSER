@@ -17,6 +17,9 @@ Optional ROC curves (requires labels from the sampled CSV used for evaluation):
         --out tools_eval_lmtad/porto_hoser_abnormal_2 \
         --splits train,val \
         --labels-csv-template tools_eval_lmtad/porto_hoser_abnormal_2/{split}_sampled.csv
+
+When labels are provided, this script also outputs per-split Precision-Recall
+curves (PR) alongside ROC curves.
 """
 
 from pathlib import Path
@@ -88,6 +91,47 @@ def _roc_curve_points(
 
     auroc = float(np.trapezoid(tpr, fpr))
     return fpr, tpr, auroc
+
+
+def _precision_recall_curve_points(
+    scores: np.ndarray,
+    labels: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Compute Precision-Recall curve points and AUPRC (average precision).
+
+    Returns:
+        (recall, precision, auprc)
+
+    Notes:
+        - `labels=True` is treated as the positive class.
+        - `scores` should be higher for more-positive predictions.
+    """
+    if scores.size == 0 or scores.size != labels.size:
+        raise ValueError("scores/labels must be non-empty and same length")
+
+    y = labels.astype(bool)
+    n_pos = int(y.sum())
+    if n_pos == 0:
+        raise ValueError("PR curve requires at least one positive label")
+
+    order = np.argsort(-scores)
+    y_sorted = y[order]
+
+    tp = np.cumsum(y_sorted)
+    fp = np.cumsum(~y_sorted)
+
+    precision = tp / (tp + fp)
+    recall = tp / float(n_pos)
+
+    # Average precision: mean precision at each positive example.
+    # Equivalent to a step-wise area under the PR curve.
+    auprc = float(precision[y_sorted].sum() / float(n_pos))
+
+    # Add a (0,1) starting point for cleaner plots.
+    recall = np.concatenate(([0.0], recall))
+    precision = np.concatenate(([1.0], precision))
+
+    return recall, precision, auprc
 
 
 def _bootstrap_ci_percent(
@@ -215,13 +259,12 @@ def plot_results(
         saved_files.append(out_file)
         plt.close(fig)
 
-        # Optional: ROC curve if we have labels for this split.
+        # Optional: ROC/PR curves if we have labels for this split.
         if labels_csv_by_split is not None and s in labels_csv_by_split:
             labels_list = _read_bool_labels_from_csv(
                 labels_csv_by_split[s], label_col=label_col
             )
             scores = np.array(agg[s].get("log_perplexity_values", []), dtype=np.float64)
-            scores = scores[np.isfinite(scores)]
             labels = np.array(labels_list, dtype=bool)
             if scores.size != labels.size:
                 raise ValueError(
@@ -229,12 +272,19 @@ def plot_results(
                     "Use the exact sampled CSV used for evaluation, and ensure no rows were dropped."
                 )
 
+            finite_mask = np.isfinite(scores)
+            scores = scores[finite_mask]
+            labels = labels[finite_mask]
+
             fpr, tpr, auroc = _roc_curve_points(scores, labels)
             fig_roc, ax_roc = plt.subplots(figsize=(5.5, 5.5))
             ax_roc.plot(fpr, tpr, label=f"AUROC={auroc:.4f}")
             ax_roc.plot([0, 1], [0, 1], linestyle="--", color="gray", linewidth=1)
             ax_roc.set_xlabel("False Positive Rate")
             ax_roc.set_ylabel("True Positive Rate")
+            pad = 0.02
+            ax_roc.set_xlim(-pad, 1.0 + pad)
+            ax_roc.set_ylim(-pad, 1.0 + pad)
             ax_roc.set_title(f"{s}: ROC curve")
             ax_roc.legend(loc="lower right")
             roc_file = out_dir / f"{base}_{s}_roc.png"
@@ -242,6 +292,22 @@ def plot_results(
             fig_roc.savefig(roc_file, dpi=150)
             saved_files.append(roc_file)
             plt.close(fig_roc)
+
+            recall, precision, auprc = _precision_recall_curve_points(scores, labels)
+            fig_pr, ax_pr = plt.subplots(figsize=(5.5, 5.5))
+            ax_pr.plot(recall, precision, label=f"AUPRC={auprc:.4f}")
+            ax_pr.set_xlabel("Recall")
+            ax_pr.set_ylabel("Precision")
+            pad = 0.02
+            ax_pr.set_xlim(-pad, 1.0 + pad)
+            ax_pr.set_ylim(-pad, 1.0 + pad)
+            ax_pr.set_title(f"{s}: Precision-Recall curve")
+            ax_pr.legend(loc="lower left")
+            pr_file = out_dir / f"{base}_{s}_pr.png"
+            fig_pr.tight_layout()
+            fig_pr.savefig(pr_file, dpi=150)
+            saved_files.append(pr_file)
+            plt.close(fig_pr)
 
     # Save a separate boxplot comparing splits
     fig2, ax2 = plt.subplots(figsize=(max(6, len(splits) * 0.8), 5))
@@ -503,6 +569,18 @@ def main():
                 "--labels-csv requires exactly one split. Use --splits <one> or --labels-csv-template."
             )
         labels_csv_by_split = {splits[0]: args.labels_csv}
+    else:
+        # Default behavior: auto-detect per-split sampled CSVs in eval-dir.
+        # This keeps the CLI simple for common cases where the evaluation
+        # directory already contains `{split}_sampled.csv` files.
+        split_names = sorted(agg.keys()) if splits is None else splits
+        inferred: dict[str, Path] = {}
+        for s in split_names:
+            candidate = args.eval_dir / f"{s}_sampled.csv"
+            if candidate.exists():
+                inferred[s] = candidate
+        if inferred:
+            labels_csv_by_split = inferred
 
     plot_results(
         agg,
