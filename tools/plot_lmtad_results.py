@@ -10,6 +10,13 @@ Usage example:
 
 Exclude test split:
     python tools/plot_lmtad_results.py --eval-dir tools_eval_lmtad/Beijing_abnormal --out plots/ --splits train,val
+
+Optional ROC curves (requires labels from the sampled CSV used for evaluation):
+    python tools/plot_lmtad_results.py \
+        --eval-dir tools_eval_lmtad/porto_hoser_abnormal_2 \
+        --out tools_eval_lmtad/porto_hoser_abnormal_2 \
+        --splits train,val \
+        --labels-csv-template tools_eval_lmtad/porto_hoser_abnormal_2/{split}_sampled.csv
 """
 
 from pathlib import Path
@@ -19,6 +26,96 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import csv
+
+
+def _read_bool_labels_from_csv(
+    csv_path: Path,
+    *,
+    label_col: str,
+    abnormal_value: str = "normal",
+) -> list[bool]:
+    """Return abnormality labels from a sampled CSV.
+
+    Label rule (matches earlier analysis tooling):
+    - abnormal if `abnormality_info` exists and is not equal to `normal`.
+    """
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Labels CSV not found: {csv_path}")
+
+    labels: list[bool] = []
+    with open(csv_path, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None or label_col not in reader.fieldnames:
+            raise ValueError(
+                f"CSV missing column '{label_col}': {csv_path} (cols={reader.fieldnames})"
+            )
+        for row in reader:
+            raw = (row.get(label_col) or "").strip()
+            labels.append(raw != "" and raw != abnormal_value)
+    return labels
+
+
+def _roc_curve_points(
+    scores: np.ndarray,
+    labels: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Compute ROC curve points and AUROC.
+
+    Returns:
+        (fpr, tpr, auroc)
+    """
+    if scores.size == 0 or scores.size != labels.size:
+        raise ValueError("scores/labels must be non-empty and same length")
+
+    y = labels.astype(bool)
+    n_pos = int(y.sum())
+    n_neg = int((~y).sum())
+    if n_pos == 0 or n_neg == 0:
+        raise ValueError("ROC requires both positive and negative labels")
+
+    order = np.argsort(-scores)
+    y_sorted = y[order]
+
+    tp = np.cumsum(y_sorted)
+    fp = np.cumsum(~y_sorted)
+
+    tpr = tp / float(n_pos)
+    fpr = fp / float(n_neg)
+
+    # Add (0,0) start.
+    tpr = np.concatenate(([0.0], tpr))
+    fpr = np.concatenate(([0.0], fpr))
+
+    auroc = float(np.trapezoid(tpr, fpr))
+    return fpr, tpr, auroc
+
+
+def _bootstrap_ci_percent(
+    values01: np.ndarray,
+    *,
+    bootstrap: int,
+    seed: int,
+    ci: float,
+) -> tuple[float, float]:
+    """Bootstrap percentile CI for mean(values01) expressed in percent."""
+    if bootstrap <= 0:
+        raise ValueError("bootstrap must be > 0")
+    if not (0.0 < float(ci) < 1.0):
+        raise ValueError("ci must be in (0,1)")
+    if values01.size == 0:
+        return 0.0, 0.0
+
+    rng = np.random.default_rng(int(seed))
+    n = int(values01.size)
+    means = np.empty(int(bootstrap), dtype=np.float64)
+    for i in range(int(bootstrap)):
+        idx = rng.integers(0, n, size=n)
+        means[i] = float(values01[idx].mean()) * 100.0
+
+    alpha = (1.0 - float(ci)) / 2.0
+    lo = float(np.quantile(means, alpha))
+    hi = float(np.quantile(means, 1.0 - alpha))
+    return lo, hi
 
 
 def load_results(eval_dir: Path):
@@ -49,6 +146,11 @@ def plot_results(
     out_path: Path,
     show: bool = False,
     splits: list[str] | None = None,
+    labels_csv_by_split: dict[str, Path] | None = None,
+    label_col: str = "abnormality_info",
+    bootstrap: int = 0,
+    seed: int = 0,
+    ci: float = 0.95,
 ):
     # Prepare data
     if splits is None:
@@ -113,10 +215,39 @@ def plot_results(
         saved_files.append(out_file)
         plt.close(fig)
 
+        # Optional: ROC curve if we have labels for this split.
+        if labels_csv_by_split is not None and s in labels_csv_by_split:
+            labels_list = _read_bool_labels_from_csv(
+                labels_csv_by_split[s], label_col=label_col
+            )
+            scores = np.array(agg[s].get("log_perplexity_values", []), dtype=np.float64)
+            scores = scores[np.isfinite(scores)]
+            labels = np.array(labels_list, dtype=bool)
+            if scores.size != labels.size:
+                raise ValueError(
+                    f"Length mismatch for split '{s}': scores={scores.size} labels={labels.size}. "
+                    "Use the exact sampled CSV used for evaluation, and ensure no rows were dropped."
+                )
+
+            fpr, tpr, auroc = _roc_curve_points(scores, labels)
+            fig_roc, ax_roc = plt.subplots(figsize=(5.5, 5.5))
+            ax_roc.plot(fpr, tpr, label=f"AUROC={auroc:.4f}")
+            ax_roc.plot([0, 1], [0, 1], linestyle="--", color="gray", linewidth=1)
+            ax_roc.set_xlabel("False Positive Rate")
+            ax_roc.set_ylabel("True Positive Rate")
+            ax_roc.set_title(f"{s}: ROC curve")
+            ax_roc.legend(loc="lower right")
+            roc_file = out_dir / f"{base}_{s}_roc.png"
+            fig_roc.tight_layout()
+            fig_roc.savefig(roc_file, dpi=150)
+            saved_files.append(roc_file)
+            plt.close(fig_roc)
+
     # Save a separate boxplot comparing splits
     fig2, ax2 = plt.subplots(figsize=(max(6, len(splits) * 0.8), 5))
     ordered_vals = [data[s] for s in splits]
     sns.boxplot(data=ordered_vals, orient="v", ax=ax2)
+    ax2.set_xticks(np.arange(len(splits)))
     ax2.set_xticklabels(splits, rotation=45, ha="right")
     ax2.set_ylabel("Log perplexity")
     ax2.set_title("Per-split log perplexity distribution (boxplot)")
@@ -138,6 +269,7 @@ def plot_results(
     # Abnormality percentages bar chart (uses outlier_rate from results)
     abnormal_rates = []
     counts = []
+    outlier_labels_by_split: dict[str, np.ndarray] = {}
     for s in splits:
         r = agg[s].get("outlier_rate")
         # Expecting fraction in [0,1]; convert to percent for plotting
@@ -151,15 +283,50 @@ def plot_results(
             else len(data[s])
         )
 
-    # Compute standard error (%) for proportion p: sqrt(p*(1-p)/n) * 100
-    se_percent = []
-    for pct, n in zip(abnormal_rates, counts):
-        if np.isnan(pct) or n <= 0:
-            se_percent.append(0.0)
-        else:
+        labels = agg[s].get("outlier_labels")
+        if isinstance(labels, list) and labels:
+            outlier_labels_by_split[s] = np.asarray(labels, dtype=np.float64)
+
+    # Error bars: bootstrap percentile CI when enabled, else binomial SE.
+    if bootstrap and int(bootstrap) > 0:
+        yerr = np.zeros((2, len(splits)), dtype=np.float64)
+        ci_low: list[float] = []
+        ci_high: list[float] = []
+        for i, (s, pct, n) in enumerate(zip(splits, abnormal_rates, counts)):
+            if np.isnan(pct) or n <= 0:
+                ci_low.append(0.0)
+                ci_high.append(0.0)
+                continue
+            if s not in outlier_labels_by_split:
+                raise ValueError(
+                    f"Cannot bootstrap CI for split '{s}': missing outlier_labels in results."
+                )
+            lo, hi = _bootstrap_ci_percent(
+                outlier_labels_by_split[s],
+                bootstrap=int(bootstrap),
+                seed=int(seed) + i,
+                ci=float(ci),
+            )
+            ci_low.append(lo)
+            ci_high.append(hi)
+            yerr[0, i] = float(pct) - lo
+            yerr[1, i] = hi - float(pct)
+    else:
+        # Compute standard error (%) for proportion p: sqrt(p*(1-p)/n) * 100
+        yerr = np.zeros(len(splits), dtype=np.float64)
+        ci_low = []
+        ci_high = []
+        for pct, n in zip(abnormal_rates, counts):
+            if np.isnan(pct) or n <= 0:
+                yerr = yerr
+                ci_low.append(0.0)
+                ci_high.append(0.0)
+                continue
             p = pct / 100.0
             se = np.sqrt(p * (1.0 - p) / float(n)) * 100.0
-            se_percent.append(se)
+            ci_low.append(float(pct) - 1.96 * float(se))
+            ci_high.append(float(pct) + 1.96 * float(se))
+            yerr[len(ci_low) - 1] = float(se)
 
     fig3, ax3 = plt.subplots(figsize=(max(6, len(splits) * 0.9), 4))
     x = np.arange(len(splits))
@@ -167,7 +334,7 @@ def plot_results(
     bars = ax3.bar(
         x,
         abnormal_rates,
-        yerr=se_percent,
+        yerr=yerr,
         capsize=6,
         color=sns.color_palette("Reds", len(splits)),
     )
@@ -179,17 +346,26 @@ def plot_results(
 
     # Adjust y-limits to leave space above bars for annotations and errorbars
     top = 0.0
-    for v, se in zip(abnormal_rates, se_percent):
-        if not np.isnan(v):
-            top = max(top, v + se)
+    if isinstance(yerr, np.ndarray) and yerr.ndim == 2:
+        for v, up in zip(abnormal_rates, yerr[1, :]):
+            if not np.isnan(v):
+                top = max(top, float(v) + float(up))
+    else:
+        for v, se in zip(abnormal_rates, yerr):
+            if not np.isnan(v):
+                top = max(top, float(v) + float(se))
     ax3.set_ylim(0, max(5.0, top * 1.25 + 1.0))
 
     # Annotate bars above the errorbar (or inside if tall enough)
-    for i, (rect, v, se) in enumerate(zip(bars, abnormal_rates, se_percent)):
+    for i, (rect, v) in enumerate(zip(bars, abnormal_rates)):
         if np.isnan(v):
             continue
         # place the label just above the errorbar
-        y = v + se + 0.5
+        if isinstance(yerr, np.ndarray) and yerr.ndim == 2:
+            up = float(yerr[1, i])
+        else:
+            up = float(yerr[i])
+        y = float(v) + up + 0.5
         ax3.text(
             rect.get_x() + rect.get_width() / 2.0,
             y,
@@ -216,13 +392,21 @@ def plot_results(
                     "num_trajectories",
                     "outlier_rate_fraction",
                     "outlier_rate_percent",
-                    "outlier_rate_se_percent",
+                    "outlier_rate_errbar_percent",
+                    "outlier_rate_ci_low_percent",
+                    "outlier_rate_ci_high_percent",
                 ]
             )
-            for s, cnt, r, se in zip(splits, counts, abnormal_rates, se_percent):
+            if isinstance(yerr, np.ndarray) and yerr.ndim == 2:
+                errbars = [float(x) for x in yerr[1, :]]
+            else:
+                errbars = [float(x) for x in yerr]
+            for s, cnt, r, err, lo, hi in zip(
+                splits, counts, abnormal_rates, errbars, ci_low, ci_high
+            ):
                 frac = (r / 100.0) if not np.isnan(r) else ""
                 pct = r if not np.isnan(r) else ""
-                writer.writerow([s, cnt, frac, pct, se])
+                writer.writerow([s, cnt, frac, pct, err, lo, hi])
     except Exception:
         pass
 
@@ -250,6 +434,51 @@ def main():
             "Default: plot all splits found in the results."
         ),
     )
+    parser.add_argument(
+        "--labels-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Optional: labels CSV for a single split (must contain abnormality_info). "
+            "For multiple splits, use --labels-csv-template."
+        ),
+    )
+    parser.add_argument(
+        "--labels-csv-template",
+        type=str,
+        default=None,
+        help=(
+            "Optional: per-split labels CSV template containing '{split}', e.g. "
+            "tools_eval_lmtad/porto_hoser_abnormal_2/{split}_sampled.csv."
+        ),
+    )
+    parser.add_argument(
+        "--label-col",
+        type=str,
+        default="abnormality_info",
+        help="Column name used for ground-truth abnormal labels (default: abnormality_info).",
+    )
+    parser.add_argument(
+        "--bootstrap",
+        type=int,
+        default=0,
+        help=(
+            "Bootstrap resamples for abnormality-rate error bars (0 disables). "
+            "When enabled, error bars show percentile CI of outlier_rate."
+        ),
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed for bootstrap.",
+    )
+    parser.add_argument(
+        "--ci",
+        type=float,
+        default=0.95,
+        help="CI level for bootstrap (default: 0.95).",
+    )
     parser.add_argument("--show", action="store_true", help="Show plot after saving")
     args = parser.parse_args()
 
@@ -258,7 +487,34 @@ def main():
     if args.splits:
         splits = [s.strip() for s in args.splits.split(",") if s.strip()]
 
-    plot_results(agg, args.out, show=args.show, splits=splits)
+    labels_csv_by_split: dict[str, Path] | None = None
+    if args.labels_csv_template is not None:
+        if splits is None:
+            # Derive from agg keys to keep UX simple.
+            split_names = sorted(agg.keys())
+        else:
+            split_names = splits
+        labels_csv_by_split = {
+            s: Path(str(args.labels_csv_template).format(split=s)) for s in split_names
+        }
+    elif args.labels_csv is not None:
+        if splits is None or len(splits) != 1:
+            raise ValueError(
+                "--labels-csv requires exactly one split. Use --splits <one> or --labels-csv-template."
+            )
+        labels_csv_by_split = {splits[0]: args.labels_csv}
+
+    plot_results(
+        agg,
+        args.out,
+        show=args.show,
+        splits=splits,
+        labels_csv_by_split=labels_csv_by_split,
+        label_col=str(args.label_col),
+        bootstrap=int(args.bootstrap),
+        seed=int(args.seed),
+        ci=float(args.ci),
+    )
 
 
 if __name__ == "__main__":
