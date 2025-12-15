@@ -16,10 +16,11 @@ Usage example:
     --lmtad-checkpoint /path/to/ckpt_best.pt
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import List, Optional
+
+import json
 
 import numpy as np
 import torch
@@ -34,7 +35,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from simple_evaluate_with_lmtad import (  # noqa: E402
     load_hoser_trajectories,
     evaluate_trajectories_direct,
-    load_road_centroids,
 )  # noqa: E402
 from critics.lmtad_teacher import LMTADTeacher  # noqa: E402
 from critics.grid_mapper import GridMapper, GridConfig  # noqa: E402
@@ -43,6 +43,118 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def _extract_road_centroids_and_boundary_from_roadmap(
+    roadmap_file: Path,
+) -> tuple[np.ndarray, GridConfig]:
+    """Extract road centroids and grid boundary using the preferred method.
+
+    This matches the intent of `tools/convert_to_lmtad_format.py`:
+    - Centroid per road is the mean of polyline points (lat/lng).
+    - Boundary is computed from *all* polyline points (not from centroids).
+
+    Returns:
+        (road_centroids_latlng, grid_config)
+    """
+    if not roadmap_file.exists():
+        raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
+
+    # Keep dtype overrides in sync with the converter to avoid pandas type churn.
+    schema_overrides = {
+        "lanes": str,
+        "oneway": str,
+        "coordinates": str,
+        "name": str,
+        "highway": str,
+        "access": str,
+        "maxspeed": str,
+        "ref": str,
+        "tunnel": str,
+        "junction": str,
+        "width": str,
+        "bridge": str,
+    }
+
+    import pandas as pd
+
+    roadmap = pd.read_csv(roadmap_file, dtype=schema_overrides)
+    if "coordinates" not in roadmap.columns:
+        raise ValueError(
+            f"Required column 'coordinates' not found in {roadmap_file}. "
+            f"Available columns: {roadmap.columns.tolist()}"
+        )
+
+    min_lat, max_lat = float("inf"), float("-inf")
+    min_lng, max_lng = float("inf"), float("-inf")
+    centroids: list[list[float]] = []
+    invalid_rows: list[int] = []
+
+    for idx, coords_str in enumerate(roadmap["coordinates"].tolist()):
+        if not isinstance(coords_str, str) or not coords_str.strip():
+            invalid_rows.append(idx)
+            centroids.append([float("nan"), float("nan")])
+            continue
+
+        try:
+            coords = json.loads(coords_str)
+        except json.JSONDecodeError:
+            invalid_rows.append(idx)
+            centroids.append([float("nan"), float("nan")])
+            continue
+
+        if not isinstance(coords, list) or len(coords) == 0:
+            invalid_rows.append(idx)
+            centroids.append([float("nan"), float("nan")])
+            continue
+
+        try:
+            lngs = [float(c[0]) for c in coords]
+            lats = [float(c[1]) for c in coords]
+        except (TypeError, ValueError, IndexError):
+            invalid_rows.append(idx)
+            centroids.append([float("nan"), float("nan")])
+            continue
+
+        if any(lat < -90 or lat > 90 for lat in lats) or any(
+            lng < -180 or lng > 180 for lng in lngs
+        ):
+            invalid_rows.append(idx)
+            centroids.append([float("nan"), float("nan")])
+            continue
+
+        centroid_lat = float(sum(lats) / len(lats))
+        centroid_lng = float(sum(lngs) / len(lngs))
+        centroids.append([centroid_lat, centroid_lng])
+
+        # Boundary from *all* points.
+        min_lat = min(min_lat, min(lats))
+        max_lat = max(max_lat, max(lats))
+        min_lng = min(min_lng, min(lngs))
+        max_lng = max(max_lng, max(lngs))
+
+    if invalid_rows:
+        preview = ",".join(str(i) for i in invalid_rows[:10])
+        raise ValueError(
+            "Roadmap contains invalid 'coordinates' rows; refusing to proceed to avoid road-id/index mismatch. "
+            f"Invalid rows: {len(invalid_rows)} (first: {preview}{'...' if len(invalid_rows) > 10 else ''})."
+        )
+
+    if not (min_lat < max_lat and min_lng < max_lng):
+        raise ValueError(
+            f"Invalid boundary computed from roadmap points: "
+            f"lat=[{min_lat}, {max_lat}], lng=[{min_lng}, {max_lng}]"
+        )
+
+    road_centroids_latlng = np.asarray(centroids, dtype=np.float64)
+    grid_config = GridConfig(
+        min_lat=float(min_lat),
+        max_lat=float(max_lat),
+        min_lng=float(min_lng),
+        max_lng=float(max_lng),
+        grid_size=0.001,
+    )
+    return road_centroids_latlng, grid_config
 
 
 def evaluate_splits(
@@ -85,26 +197,14 @@ def evaluate_splits(
     )
     logger.info("LM-TAD teacher loaded successfully")
 
-    # Load roadmap centroids and create grid mapper
-    # Note: `load_road_centroids` returns [lng, lat] (x, y). GridMapper expects
-    # centroids in (lat, lng) order. Swap columns accordingly.
-    road_centroids = load_road_centroids(roadmap_file)
-    if road_centroids.shape[1] != 2:
-        raise ValueError("Road centroids must be shape (N,2)")
-
-    # Swap [lng, lat] -> [lat, lng]
-    road_centroids_swapped = road_centroids[:, [1, 0]]
-
-    grid_config = GridConfig(
-        min_lat=float(road_centroids_swapped[:, 0].min()),
-        max_lat=float(road_centroids_swapped[:, 0].max()),
-        min_lng=float(road_centroids_swapped[:, 1].min()),
-        max_lng=float(road_centroids_swapped[:, 1].max()),
-        grid_size=0.001,
+    # Create grid mapper using the preferred conversion method:
+    # - boundary from all polyline points
+    # - centroid as mean-of-points
+    road_centroids_latlng, grid_config = (
+        _extract_road_centroids_and_boundary_from_roadmap(roadmap_file)
     )
-
     mapper = GridMapper(
-        boundary=grid_config, road_centroids=road_centroids_swapped, verify_hw=None
+        boundary=grid_config, road_centroids=road_centroids_latlng, verify_hw=None
     )
     road_to_token = torch.from_numpy(mapper.map_all()).to(device)
     logger.info(f"Created grid mapper: {mapper.grid_h}x{mapper.grid_w} cells")

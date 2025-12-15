@@ -183,6 +183,33 @@ That mismatch strongly suggests our current HOSER→LM‑TAD conversion/mapping 
 
 ---
 
+## Conversion mismatch evidence (road→token mapping)
+
+To make the conversion mismatch concrete, we compared the two conversion approaches directly on the same `roadmap.geo` files:
+
+- Tool: `tools/compare_lmtad_conversion_methods.py`
+- Outputs:
+  - `tools_eval_lmtad/_conversion_compare/porto_hoser_full/`
+  - `tools_eval_lmtad/_conversion_compare/Beijing_full/`
+
+Summary (full roadmaps, `grid_size=0.001`):
+
+| Dataset roadmap | Token mismatch rate | Grid dims (A) | Grid dims (B) |
+|---|---:|---:|---:|
+| `data/porto_hoser/roadmap.geo` | 99.88% | 45×132 | 46×134 |
+| `data/Beijing/roadmap.geo` | 100.00% | 201×251 | 205×252 |
+
+Interpretation:
+- The two methods disagree on grid boundaries and therefore on `(grid_h, grid_w)`.
+- Because token ids are computed as `token = gi * grid_w + gj`, differing `grid_w` alone is enough to re-index almost every token.
+- The observed ~100% road→token mismatch means the LM‑TAD teacher is effectively being fed a different tokenization than it was trained/evaluated with in the reference pipeline.
+
+Method definitions (as implemented):
+- Method A (`tools/evaluate_dataset_with_lmtad.py`): Shapely polyline centroid; boundary from centroid min/max.
+- Method B (`tools/convert_to_lmtad_format.py`): mean-of-points centroid; boundary from all polyline points.
+
+---
+
 ## Clamp diagnostic (train)
 
 `simple_evaluate_with_lmtad.evaluate_trajectories_direct()` clamps per-step probabilities using `min_prob=1e-6`, which corresponds to a maximum possible log-perplexity of $-\log(10^{-6}) \approx 13.8155$.

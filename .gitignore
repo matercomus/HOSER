@@ -162,3 +162,6 @@ tools_eval_lmtad/
 
 # Local symlink to external LM-TAD results
 results/LMTAD
+
+# Archived LM-TAD evaluation outputs (generated)
+tools_eval_lmtad_old/
