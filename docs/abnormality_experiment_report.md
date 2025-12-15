@@ -28,6 +28,7 @@ This report summarizes the experiments where we injected ~15% HOSER-format abnor
 
 - Per-dataset evaluation JSON: `tools_eval_lmtad/<dataset>/evaluation_results.json`
 - Sampled CSV used for evaluation (labels come from `abnormality_info`): `tools_eval_lmtad/<dataset>/<split>_sampled.csv`
+- Baseline calibration file (written by `tools/evaluate_dataset_with_lmtad.py --write-baseline`): `tools_eval_lmtad/<baseline>/baseline_eval.json`
 - Baseline-threshold multi-method summaries + plots:
   - `tools_eval_lmtad/_baseline_threshold_plots/Beijing_vs_abnormal2/summary.md`
   - `tools_eval_lmtad/_baseline_threshold_plots/porto_vs_abnormal2/summary.md`
@@ -173,12 +174,34 @@ These are compact “best-of” rows; full grids (train + val) are in the `summa
 
 ---
 
+## 4) Quick baseline-calibrated run outputs (train + val only)
+
+These numbers are from `tools/evaluate_dataset_with_lmtad.py` using the baseline written by `--write-baseline` and then applying baseline-calibrated quantile outliers (`q=0.95`).
+
+Note: test split intentionally ignored.
+
+| Dataset | Split | n | outlier_method | outlier_rate (baseline q=0.95) |
+|---|---:|---:|---|---:|
+| `porto_hoser_abnormal_2` | train | 5520 | baseline_quantile | 0.1540 |
+| `porto_hoser_abnormal_2` | val | 791 | baseline_quantile | 0.1631 |
+
+**Porto plots (from the latest run)**
+
+![Porto abnormality overview](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_abnormality.png)
+
+![Porto boxplot](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_boxplot.png)
+
+![Porto train plot](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_train.png)
+
+![Porto val plot](../tools_eval_lmtad/porto_hoser_abnormal_2/lmtad_eval_val.png)
+
+
 ## Appendix: Additional diagnostics
 
 ### Reference-run comparison (LM-TAD native eval)
 
-We also have LM‑TAD’s own evaluation runs (native pipeline) under `results/LMTAD/.../eval/`.
-These runs show *very strong* separation of injected outliers using the same model family/checkpoints.
+We also have LM-TAD’s own evaluation runs (native pipeline) under `results/LMTAD/.../eval/`.
+These runs show very strong separation of injected outliers using the same model family/checkpoints.
 
 - Script: `tools/summarize_lmtad_reference_eval.py`
 
@@ -187,7 +210,7 @@ These runs show *very strong* separation of injected outliers using the same mod
 | beijing_hoser_reference | run_20250928_202718 | 0.5325 | 3.5049 | 5.0796 | 0.7162 | 0.9654 | 0.9966 |
 | porto_hoser | run_20251010_212829 | 0.3822 | 7.0265 | 8.4132 | 0.8366 | 0.9999 | 0.7571 |
 
-Important observation: the score *scale* previously differed dramatically between the reference eval and the HOSER-side evaluation; after the conversion alignment, it is now consistent.
+Important observation: the score scale previously differed dramatically between the reference eval and the HOSER-side evaluation; after the conversion alignment, it is now consistent.
 
 - Reference non-outlier means are ~0.38–0.53.
 - HOSER-side `tools_eval_lmtad/*` means are now in the same ballpark on the sampled splits (~0.4–1.3 across the datasets above).
@@ -198,7 +221,7 @@ This is consistent with the conversion/mapping alignment work: after switching t
 
 ### Conversion mismatch evidence (road→token mapping)
 
-This section is *historical context* explaining the root cause we observed earlier. The current evaluator conversion has been updated to match Method B.
+This section is historical context explaining the root cause we observed earlier. The current evaluator conversion has been updated to match Method B.
 
 To make the conversion mismatch concrete, we compared the two conversion approaches directly on the same `roadmap.geo` files:
 
@@ -217,7 +240,7 @@ Summary (full roadmaps, `grid_size=0.001`):
 Interpretation:
 - The two methods disagree on grid boundaries and therefore on `(grid_h, grid_w)`.
 - Because token ids are computed as `token = gi * grid_w + gj`, differing `grid_w` alone is enough to re-index almost every token.
-- The observed ~100% road→token mismatch means the LM‑TAD teacher is effectively being fed a different tokenization than it was trained/evaluated with in the reference pipeline.
+- The observed ~100% road→token mismatch means the LM-TAD teacher is effectively being fed a different tokenization than it was trained/evaluated with in the reference pipeline.
 
 Method definitions (as implemented):
 - Method A (`tools/evaluate_dataset_with_lmtad.py`): Shapely polyline centroid; boundary from centroid min/max.
@@ -228,9 +251,7 @@ Method definitions (as implemented):
 ### Clamp diagnostic (train)
 
 `simple_evaluate_with_lmtad.evaluate_trajectories_direct()` clamps per-step probabilities using `min_prob=1e-6`, which corresponds to a maximum possible log-perplexity of `-log(1e-6) ≈ 13.8155`.
-
 We checked how often trajectories hit this clamp exactly (using the saved `evaluation_results.json`):
-
 
 - `Beijing` (train): 0 / 6279 (0.0%) at 13.8155
 - `Beijing_abnormal_2` (train): 0 / 7203 (0.0%) at 13.8155
@@ -243,7 +264,7 @@ So “everything is clamped” is not a driver here.
 
 1. Standardize reporting around baseline-calibrated thresholds.
   - Keep AUROC/AP for separability, and use `quantile q∈{0.95, 0.99}` to set a clear baseline FPR budget.
-2. Use `train`/`val` to select the operating point; reserve `test` for final reporting.
+2. Use train/val to select the operating point; reserve test for final reporting.
 3. If future injections become harder, focus on separability (AP) first.
   - If AP collapses, threshold tuning won’t fix it; adjust the generator to enforce token-space “hardness”.
 
@@ -251,3 +272,4 @@ So “everything is clamped” is not a driver here.
 
 - Per-dataset evaluation outputs (JSON / PNG / CSV) are in `tools_eval_lmtad/<dataset>/`.
 - Injection logs (exact indices and injected info) were written to the generated CSV directory as `<split>.csv.injected_indices.jsonl` (for example `data/Beijing_abnormal_2/train.csv.injected_indices.jsonl`) — use these for exact alignment if you want to compute synthetic ground-truth labels for different samplers.
+

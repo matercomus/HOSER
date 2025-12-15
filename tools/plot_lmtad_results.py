@@ -7,6 +7,9 @@ an across-splits boxplot of log-perplexities.
 
 Usage example:
   python tools/plot_lmtad_results.py --eval-dir tools_eval_lmtad/Beijing_abnormal --out plots/lmtad_eval.png
+
+Exclude test split:
+    python tools/plot_lmtad_results.py --eval-dir tools_eval_lmtad/Beijing_abnormal --out plots/ --splits train,val
 """
 
 from pathlib import Path
@@ -41,9 +44,25 @@ def load_results(eval_dir: Path):
     raise FileNotFoundError(f"No results file found in {eval_dir}")
 
 
-def plot_results(agg: dict, out_path: Path, show: bool = False):
+def plot_results(
+    agg: dict,
+    out_path: Path,
+    show: bool = False,
+    splits: list[str] | None = None,
+):
     # Prepare data
-    splits = sorted(agg.keys())
+    if splits is None:
+        splits = sorted(agg.keys())
+    else:
+        requested = [s for s in splits if s]
+        missing = [s for s in requested if s not in agg]
+        if missing:
+            available = ", ".join(sorted(agg.keys()))
+            raise ValueError(
+                f"Requested splits not present in results: {missing}. Available: [{available}]"
+            )
+        splits = requested
+
     data = {}
     for s in splits:
         vals = np.array(agg[s].get("log_perplexity_values", []), dtype=np.float64)
@@ -222,11 +241,24 @@ def main():
     parser.add_argument(
         "--out", type=Path, required=True, help="Output image path (png/pdf)"
     )
+    parser.add_argument(
+        "--splits",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated split names to plot (e.g., train,val). "
+            "Default: plot all splits found in the results."
+        ),
+    )
     parser.add_argument("--show", action="store_true", help="Show plot after saving")
     args = parser.parse_args()
 
     agg = load_results(args.eval_dir)
-    plot_results(agg, args.out, show=args.show)
+    splits = None
+    if args.splits:
+        splits = [s.strip() for s in args.splits.split(",") if s.strip()]
+
+    plot_results(agg, args.out, show=args.show, splits=splits)
 
 
 if __name__ == "__main__":
