@@ -10,6 +10,79 @@ from generate_hoser_abnormalities import (
 import polars as pl
 
 
+def test_abnormality_info_contains_real_metadata(tmp_path):
+    import ast
+    from generate_hoser_abnormalities import process_split_streaming
+
+    in_csv = tmp_path / "in.csv"
+    out_csv = tmp_path / "out.csv"
+
+    in_csv.write_text(
+        "mm_id,entity_id,traj_id,rid_list,time_list\n1,10,100,1,2020-01-01T00:00:00Z\n"
+    )
+
+    process_split_streaming(
+        input_path=str(in_csv),
+        output_path=str(out_csv),
+        seed=123,
+        level="low",
+        abnormal_types=["detour"],
+        abnormality_rate=None,
+        abnormality_weights=None,
+        ensure_change=False,
+        progress_interval=10000,
+        strong_prob=0.0,
+    )
+
+    loaded = pl.read_csv(out_csv)
+    assert loaded.shape[0] == 2
+    assert loaded["abnormality_info"][0] == "normal"
+
+    info = ast.literal_eval(loaded["abnormality_info"][1])
+    assert "real" in info
+    assert info["real"]["rid_list"] == "1"
+    assert info["real"]["time_list"] == "2020-01-01T00:00:00Z"
+
+
+def test_real_metadata_matches_original_row(tmp_path):
+    import ast
+    from generate_hoser_abnormalities import process_split_streaming
+
+    in_csv = tmp_path / "in.csv"
+    out_csv = tmp_path / "out.csv"
+
+    in_csv.write_text(
+        "mm_id,entity_id,traj_id,rid_list,time_list\n1,10,100,1,2020-01-01T00:00:00Z\n"
+    )
+
+    process_split_streaming(
+        input_path=str(in_csv),
+        output_path=str(out_csv),
+        seed=123,
+        level="low",
+        abnormal_types=["detour"],
+        abnormality_rate=None,
+        abnormality_weights=None,
+        ensure_change=False,
+        progress_interval=10000,
+        strong_prob=0.0,
+    )
+
+    loaded = pl.read_csv(out_csv)
+    assert loaded.shape[0] == 2
+
+    original_rid_list = loaded["rid_list"][0]
+    original_time_list = loaded["time_list"][0]
+
+    info = ast.literal_eval(loaded["abnormality_info"][1])
+    assert info["real"]["rid_list"] == original_rid_list
+    assert info["real"]["time_list"] == original_time_list
+
+    # When detour succeeds, the abnormal row should differ from the original,
+    # but `real` must still point to the original.
+    assert loaded["rid_list"][1] != original_rid_list
+
+
 def make_sample_df(second_col_name="entity_id"):
     return pl.DataFrame(
         [

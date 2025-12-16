@@ -10,6 +10,24 @@ from typing import List, Sequence, Optional, Dict
 import json
 
 
+def _detect_time_col(header: Sequence[str]) -> Optional[str]:
+    """Best-effort detection of the time/timestamp list column."""
+    if "time_list" in header:
+        return "time_list"
+    if "timestamp_list" in header:
+        return "timestamp_list"
+    # fallback: first column containing both 'time' and 'list'
+    for col in header:
+        low = col.lower()
+        if "time" in low and "list" in low:
+            return col
+    # last resort: any column containing 'time'
+    for col in header:
+        if "time" in col.lower():
+            return col
+    return None
+
+
 # --- Abnormality generation functions ---
 def perturb_rids(rid_list, level, road_id_pool, rng, strong: bool = False):
     # Replace a number of road IDs with random others from the pool
@@ -309,6 +327,8 @@ def process_split_streaming(
     else:
         rid_col = next((c for c in header if "rid" in c.lower()), "rid_list")
 
+    time_col = _detect_time_col(header)
+
     logging.info("Building road pool for %s (rid_col=%s)", input_path, rid_col)
     road_pool = build_road_pool_stream(input_path, rid_col)
     logging.info("Road pool size=%d", len(road_pool))
@@ -349,6 +369,7 @@ def process_split_streaming(
             # prepare common values
             rid_list = row.get(rid_col, "")
             rids = rid_list.split(",") if rid_list else []
+            time_list = row.get(time_col, "") if time_col else ""
             # per-row deterministic RNG
             rng = np.random.default_rng(global_seed + idx)
 
@@ -392,6 +413,9 @@ def process_split_streaming(
                     if is_strong:
                         info["strength"] = "strong"
 
+                    # attach original trajectory for future reference
+                    info["real"] = {"rid_list": rid_list, "time_list": time_list}
+
                     # write abnormal row
                     new_row = dict(row)
                     new_row[rid_col] = ",".join(new_rids)
@@ -400,10 +424,16 @@ def process_split_streaming(
                     writer.writerow(new_row)
                     # record injected index
                     try:
+                        info_compact = dict(info)
+                        info_compact.pop("real", None)
                         with open(injected_index_file, "a") as jf:
                             jf.write(
                                 json.dumps(
-                                    {"idx": idx, "type": info.get("type"), "info": info}
+                                    {
+                                        "idx": idx,
+                                        "type": info.get("type"),
+                                        "info": info_compact,
+                                    }
                                 )
                                 + "\n"
                             )
@@ -469,19 +499,27 @@ def process_split_streaming(
                         if is_strong:
                             info["strength"] = "strong"
 
+                        # attach original trajectory for future reference
+                        info["real"] = {
+                            "rid_list": rid_list,
+                            "time_list": time_list,
+                        }
+
                         new_row = dict(row)
                         new_row[rid_col] = ",".join(new_rids)
                         new_row["abnormality_info"] = str(info)
                         writer.writerow(new_row)
                         # record injected index
                         try:
+                            info_compact = dict(info)
+                            info_compact.pop("real", None)
                             with open(injected_index_file, "a") as jf:
                                 jf.write(
                                     json.dumps(
                                         {
                                             "idx": idx,
                                             "type": info.get("type"),
-                                            "info": info,
+                                            "info": info_compact,
                                         }
                                     )
                                     + "\n"
