@@ -181,6 +181,7 @@ def _find_bounded_path(
     outgoing: dict[str, list[str]],
     rng: np.random.Generator,
     max_edges: int,
+    forbidden_edges: Optional[set[tuple[str, str]]] = None,
 ) -> Optional[List[str]]:
     """Find a path from start->end using BFS limited by max_edges.
 
@@ -195,6 +196,8 @@ def _find_bounded_path(
     q: deque[str] = deque([start])
     parent: dict[str, str] = {}
     depth: dict[str, int] = {start: 0}
+
+    forbidden = forbidden_edges or set()
 
     while q:
         node = q.popleft()
@@ -211,6 +214,8 @@ def _find_bounded_path(
             rng.shuffle(nbrs)
 
         for nxt in nbrs:
+            if (node, nxt) in forbidden:
+                continue
             if nxt in depth:
                 continue
             parent[nxt] = node
@@ -414,23 +419,37 @@ def insert_detour(rid_list, level, road_id_pool, rng, strong: bool = False):
     if not _is_valid_walk(rid_list, edge_set):
         return rid_list, []
 
-    # Choose an insertion location between two consecutive nodes.
-    insert_after = int(rng.integers(0, len(rid_list) - 1))
-    start = rid_list[insert_after]
-    end = rid_list[insert_after + 1]
+    # Try multiple insertion locations to increase success rate.
+    base_max_edges = {"low": 4, "medium": 7, "high": 12}.get(level, 7)
+    if strong:
+        base_max_edges = min(16, base_max_edges + 3)
+    max_trials = {"low": 6, "medium": 10, "high": 16}.get(level, 10)
 
-    max_edges = max(2, n_insert + 2)
-    path = _find_bounded_path(start, end, outgoing, rng, max_edges=max_edges)
-    if path is None or len(path) < 3:
-        return rid_list, []
+    for _ in range(max_trials):
+        insert_after = int(rng.integers(0, len(rid_list) - 1))
+        start = rid_list[insert_after]
+        end = rid_list[insert_after + 1]
 
-    detour_nodes = path[1:-1]
-    new_rid_list = (
-        rid_list[: insert_after + 1] + detour_nodes + rid_list[insert_after + 1 :]
-    )
-    if not _is_valid_walk(new_rid_list, edge_set):
-        return rid_list, []
-    return new_rid_list, detour_nodes
+        # Prefer a non-trivial detour: forbid taking the direct edge start->end.
+        path = _find_bounded_path(
+            start,
+            end,
+            outgoing,
+            rng,
+            max_edges=base_max_edges,
+            forbidden_edges={(start, end)},
+        )
+        if path is None or len(path) < 3:
+            continue
+
+        detour_nodes = path[1:-1]
+        new_rid_list = (
+            rid_list[: insert_after + 1] + detour_nodes + rid_list[insert_after + 1 :]
+        )
+        if _is_valid_walk(new_rid_list, edge_set):
+            return new_rid_list, detour_nodes
+
+    return rid_list, []
 
 
 def route_switch_graph(
@@ -448,28 +467,34 @@ def route_switch_graph(
     if len(rid_list) < 5 or not _is_valid_walk(rid_list, edge_set):
         return rid_list, None, None
 
-    seg_len = {"low": 2, "medium": 3, "high": 4}.get(level, 3)
+    base_seg_len = {"low": 2, "medium": 3, "high": 4}.get(level, 3)
     if strong:
-        seg_len = min(max(3, seg_len * 2), len(rid_list) - 2)
-    if len(rid_list) <= seg_len + 2:
-        return rid_list, None, None
+        base_seg_len = min(max(3, base_seg_len * 2), len(rid_list) - 2)
 
-    # Try a few random anchor ranges to find a different path.
-    for _ in range(8):
-        start1 = int(rng.integers(1, len(rid_list) - seg_len - 1))
-        a = rid_list[start1 - 1]
-        b = rid_list[start1 + seg_len]
-        max_edges = min(len(rid_list) + 5, seg_len + 4)
-        path = _find_bounded_path(a, b, outgoing, rng, max_edges=max_edges)
-        if path is None or len(path) < 3:
+    # Try progressively shorter segments if a long replacement is hard to find.
+    for seg_len in range(base_seg_len, 1, -1):
+        if len(rid_list) <= seg_len + 2:
             continue
-        replacement = path[1:-1]
-        original = rid_list[start1 : start1 + seg_len]
-        if replacement == original:
-            continue
-        new_rid_list = rid_list[:start1] + replacement + rid_list[start1 + seg_len :]
-        if _is_valid_walk(new_rid_list, edge_set):
-            return new_rid_list, (start1, start1 + seg_len), replacement
+        trials = {"low": 8, "medium": 12, "high": 20}.get(level, 12)
+        for _ in range(trials):
+            start1 = int(rng.integers(1, len(rid_list) - seg_len - 1))
+            a = rid_list[start1 - 1]
+            b = rid_list[start1 + seg_len]
+
+            # Allow some slack so we can route around, but keep bounded.
+            max_edges = min(16, max(seg_len + 6, 10))
+            path = _find_bounded_path(a, b, outgoing, rng, max_edges=max_edges)
+            if path is None or len(path) < 3:
+                continue
+            replacement = path[1:-1]
+            original = rid_list[start1 : start1 + seg_len]
+            if replacement == original:
+                continue
+            new_rid_list = (
+                rid_list[:start1] + replacement + rid_list[start1 + seg_len :]
+            )
+            if _is_valid_walk(new_rid_list, edge_set):
+                return new_rid_list, (start1, start1 + seg_len), replacement
 
     return rid_list, None, None
 
@@ -550,6 +575,7 @@ def process_split_streaming(
 
         global_seed = int(seed)
         types = list(abnormal_types)
+        rate_budget = 0.0
         # prepare normalized probabilities if probabilistic mode
         if abnormality_rate is not None:
             probs = None
@@ -657,22 +683,34 @@ def process_split_streaming(
                     except Exception:
                         pass
             else:
-                # probabilistic mode: decide whether this row gets an abnormality
-                u = rng.random()
-                if u < float(abnormality_rate):
-                    # sample a single abnormality type according to probs
-                    chosen = rng.choice(types, p=probs)
+                # probabilistic mode: decide whether this row gets an abnormality.
+                # When ensure_change is enabled, we treat `abnormality_rate` as a
+                # target ratio and use a carry-over budget so failures don't reduce
+                # the realized abnormal proportion.
+                rate_budget += float(abnormality_rate)
+                should_attempt = False
+                if ensure_change:
+                    if rate_budget >= 1.0:
+                        should_attempt = True
+                else:
+                    u = rng.random()
+                    should_attempt = u < float(abnormality_rate)
 
-                    # determine strong flag for this attempt
-                    is_strong = rng.random() < float(strong_prob)
-
-                    # attempt to generate; optionally retry other types if ensure_change True
-                    tried = set()
+                if should_attempt:
+                    max_attempts = 12 if ensure_change else 1
                     attempts = 0
                     changed = False
-                    while True:
+                    info = None
+                    new_rids = rids
+                    seg_range = None
+                    detour = []
+                    perturbed = []
+
+                    while attempts < max_attempts and not changed:
                         attempts += 1
-                        tried.add(chosen)
+                        chosen = rng.choice(types, p=probs)
+                        is_strong = rng.random() < float(strong_prob)
+
                         if chosen == "detour":
                             new_rids, detour = insert_detour(
                                 rids, level, road_pool, rng, strong=is_strong
@@ -701,38 +739,24 @@ def process_split_streaming(
                         else:
                             changed = False
 
-                        # If graph is present, require walk validity.
                         graph = globals().get("GLOBAL_GRAPH")
                         if changed and graph is not None:
                             if not _is_valid_walk(new_rids, graph["edge_set"]):
                                 changed = False
 
-                        if changed or not ensure_change or attempts >= len(types):
-                            break
-
-                        # pick another type not yet tried
-                        remaining = [t for t in types if t not in tried]
-                        if not remaining:
-                            break
-                        # pick uniformly among remaining
-                        chosen = rng.choice(remaining)
-
-                    if changed:
-                        # annotate strength
+                    if changed and info is not None:
                         if is_strong:
                             info["strength"] = "strong"
 
-                        # attach original trajectory for future reference
-                        info["real"] = {
-                            "rid_list": rid_list,
-                            "time_list": time_list,
-                        }
+                        info["real"] = {"rid_list": rid_list, "time_list": time_list}
 
                         new_row = dict(row)
                         new_row[rid_col] = ",".join(new_rids)
                         new_row["abnormality_info"] = str(info)
                         writer.writerow(new_row)
-                        # record injected index
+                        if ensure_change:
+                            rate_budget -= 1.0
+
                         try:
                             info_compact = dict(info)
                             info_compact.pop("real", None)
