@@ -111,12 +111,18 @@ def process_and_save_row(args):
         [len(candidate_road_id_list) for candidate_road_id_list in candidate_road_id]
     )
 
-    road_label = np.array(
-        [
-            global_reachable_road_id_dict[int(rid_list[i])].index(int(rid_list[i + 1]))
-            for i in range(len(trace_road_id))
-        ]
-    )
+    # Some perturbed datasets may include transitions that are not valid edges in the
+    # base road graph (i.e., next road not in reachable list). For training stability,
+    # mark those positions with -100 so loss masking can ignore them.
+    road_labels = []
+    for i in range(len(trace_road_id)):
+        origin = int(rid_list[i])
+        nxt = int(rid_list[i + 1])
+        try:
+            road_labels.append(global_reachable_road_id_dict[origin].index(nxt))
+        except (ValueError, KeyError):
+            road_labels.append(-100)
+    road_label = np.array(road_labels, dtype=np.int64)
     timestamp_label = np.array(
         [
             (time_list[i + 1] - time_list[i]).total_seconds()

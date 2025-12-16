@@ -241,6 +241,7 @@ def main(
     optuna_trial=None,  # Pass Optuna trial for intermediate reporting
     profile_max_batches: int = 0,
     force_no_distill: bool = False,  # Force disable distillation (vanilla training)
+    distill_lambda: Optional[float] = None,  # Override distillation lambda (KL weight)
 ):
     """
     Main training function that can be called programmatically or from CLI.
@@ -291,6 +292,15 @@ def main(
             action="store_true",
             help="Force disable distillation (vanilla training), overrides config",
         )
+        parser.add_argument(
+            "--distill-lambda",
+            type=float,
+            default=None,
+            help=(
+                "Override distillation KL weight (lambda). If provided and --no-distill is not set, "
+                "this also enables distillation in the loaded config."
+            ),
+        )
         args = parser.parse_args()
 
         dataset = args.dataset
@@ -301,6 +311,7 @@ def main(
         return_metrics = args.return_metrics
         profile_max_batches = args.profile_max_batches
         force_no_distill = args.no_distill
+        distill_lambda = args.distill_lambda
 
     set_seed(seed)
     device = f"cuda:{cuda}"
@@ -320,6 +331,19 @@ def main(
     with open(_config_path, "r") as file:
         raw_config = yaml.safe_load(file)
     config = create_nested_namespace(raw_config)
+
+    # Optional distillation lambda override (useful for M2/M3 sweeps)
+    if distill_lambda is not None and not force_no_distill:
+        if not hasattr(config, "distill") or config.distill is None:
+            config.distill = create_nested_namespace(
+                {"enable": True, "lambda": float(distill_lambda)}
+            )
+        else:
+            if hasattr(config.distill, "enable"):
+                config.distill.enable = True
+            else:
+                setattr(config.distill, "enable", True)
+            setattr(config.distill, "lambda", float(distill_lambda))
 
     # Determine dataset name (for save/log dir names) from CLI or config filename
     dataset_name = (

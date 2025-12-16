@@ -1,0 +1,46 @@
+# Perturbed-data evaluation workspace (Porto abnormal_3)
+
+dataset: porto_hoser_abnormal_3
+# Use your already-generated abnormal train split + clean val/test (symlinked)
+data_dir: ../data/porto_hoser_abnormal_3
+
+models_dir: models
+
+# Generation defaults (A*; deterministic-ish)
+beam_search: false
+beam_width: 4
+num_gene: 5000
+
+od_sources: [train, test]
+seed: 42
+cuda_device: 0
+
+# Base evaluation settings
+grid_size: 0.001
+edr_eps: 100.0
+
+# Keep this workspace focused on robustness + correction
+phases:
+  - generation
+  - base_eval
+  - perturbation_correction
+
+# Phase B: correction/triangulation
+perturbation_source_csv: ../data/porto_hoser_abnormal_3/train.csv
+perturbation_od_source: train
+perturbation_max_entries: null
+perturbation_seed: 0
+perturbation_use_astar: true
+
+# Optional LM-TAD teacher scoring (leave null unless you want it)
+perturbation_lmtad_checkpoint: null
+perturbation_lmtad_repo: null
+perturbation_lmtad_batch_size: 128
+
+wandb:
+  enable: false
+  project: hoser-perturbed-porto-abnormal-3
+  background_sync: true
+
+logging:
+  verbose: false
