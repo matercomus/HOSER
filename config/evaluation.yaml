@@ -50,3 +50,17 @@ wandb:
 # Logging
 logging:
   verbose: false
+
+# Phase B: perturbation correction evaluation (optional)
+# To run: include `perturbation_correction` in `phases:` or use
+# `--only perturbation_correction` with CLI overrides.
+perturbation_source_csv: null  # e.g. ../data/Beijing_abnormal_3/train.csv
+perturbation_od_source: train
+perturbation_max_entries: null  # e.g. 2000 for smoke tests
+perturbation_seed: 0
+perturbation_use_astar: true
+
+# Optional LM-TAD teacher scoring (requires local LM-TAD repo + checkpoint)
+perturbation_lmtad_checkpoint: null
+perturbation_lmtad_repo: null  # e.g. /home/matt/Dev/LMTAD
+perturbation_lmtad_batch_size: 128

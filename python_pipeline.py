@@ -164,6 +164,16 @@ class PipelineConfig:
             0.1  # NEW: Duplicate threshold for LM-TAD validation
         )
 
+        # Phase B: perturbation correction evaluation (optional)
+        self.perturbation_source_csv: Optional[str] = None
+        self.perturbation_od_source: str = "train"
+        self.perturbation_max_entries: Optional[int] = None
+        self.perturbation_seed: int = 0
+        self.perturbation_use_astar: bool = True
+        self.perturbation_lmtad_checkpoint: Optional[str] = None
+        self.perturbation_lmtad_repo: Optional[str] = None
+        self.perturbation_lmtad_batch_size: int = 128
+
         # Load from YAML if provided
         if config_path:
             self.load_from_yaml(config_path)
@@ -1583,6 +1593,78 @@ class EvaluationPipeline:
 
         return results_summary
 
+    @phase("perturbation_correction", critical=False)
+    def run_perturbation_correction(self):
+        """Evaluate whether predictions correct perturbations (Phase B)."""
+        if not getattr(self.config, "perturbation_source_csv", None):
+            msg = (
+                "Perturbation correction not configured: missing "
+                "perturbation_source_csv (config) or --perturbation-source-csv (CLI)"
+            )
+            # If user is explicitly running only this phase, fail fast.
+            if self.config.phases == {"perturbation_correction"}:
+                raise ValueError(msg)
+            logger.error(msg)
+            return
+
+        from tools.perturbation_correction import (
+            PerturbationCorrectionConfig,
+            PerturbationTeacherConfig,
+            run_perturbation_correction,
+        )
+
+        source_csv = Path(str(self.config.perturbation_source_csv))
+        if not source_csv.is_absolute():
+            source_csv = (self.eval_dir / source_csv).resolve()
+
+        teacher_cfg = None
+        if getattr(self.config, "perturbation_lmtad_checkpoint", None):
+            if not getattr(self.config, "perturbation_lmtad_repo", None):
+                raise ValueError(
+                    "perturbation_lmtad_checkpoint set but perturbation_lmtad_repo is missing"
+                )
+
+            device = (
+                f"cuda:{self.config.cuda_device}"
+                if torch.cuda.is_available()
+                else "cpu"
+            )
+            teacher_cfg = PerturbationTeacherConfig(
+                lmtad_repo=Path(str(self.config.perturbation_lmtad_repo)).resolve(),
+                lmtad_checkpoint=Path(
+                    str(self.config.perturbation_lmtad_checkpoint)
+                ).resolve(),
+                device=device,
+                batch_size=int(self.config.perturbation_lmtad_batch_size),
+            )
+
+        cfg = PerturbationCorrectionConfig(
+            dataset=self.config.dataset,
+            eval_dir=self.eval_dir,
+            project_root=PROJECT_ROOT,
+            perturbation_source_csv=source_csv,
+            od_source=str(getattr(self.config, "perturbation_od_source", "train")),
+            max_entries=getattr(self.config, "perturbation_max_entries", None),
+            seed=int(getattr(self.config, "perturbation_seed", 0)),
+            use_astar=bool(getattr(self.config, "perturbation_use_astar", False)),
+            beam_width=int(self.config.beam_width),
+            cuda_device=int(self.config.cuda_device),
+            force=bool(self.config.force),
+            teacher=teacher_cfg,
+        )
+
+        for model_type in self.config.models:
+            model_file = self.detector.find_model_file(model_type)
+            if not model_file:
+                logger.error("Model file not found for type: %s", model_type)
+                continue
+
+            run_perturbation_correction(
+                cfg=cfg,
+                model_type=model_type,
+                model_checkpoint=model_file,
+            )
+
     @phase("cross_dataset", critical=False)
     def run_cross_dataset(self):
         """Evaluate on cross-dataset (BJUT)"""
@@ -2604,6 +2686,7 @@ class EvaluationPipeline:
         default_order = [
             "generation",
             "base_eval",
+            "perturbation_correction",
             "paired_analysis",
             "cross_dataset",
             "road_network_translate",
@@ -2670,7 +2753,7 @@ def main():
             "Run only these phases (comma-separated). Available: "
             "generation,base_eval,paired_analysis,cross_dataset,road_network_translate,abnormal,"
             "abnormal_od_extract,abnormal_od_generate,abnormal_od_evaluate,wang_abnormality,"
-            "lmtad_spatial_abnormality,scenarios."
+            "lmtad_spatial_abnormality,scenarios,perturbation_correction."
         ),
     )
     parser.add_argument(
@@ -2781,6 +2864,48 @@ def main():
         help="Number of trajectories per OD pair for abnormal_od_generate phase (default: 10)",
     )
 
+    # Phase B: perturbation correction (CLI overrides eval-dir/config/evaluation.yaml)
+    parser.add_argument(
+        "--perturbation-source-csv",
+        type=str,
+        help="Path to perturbed train.csv (overrides config)",
+    )
+    parser.add_argument(
+        "--perturbation-od-source",
+        type=str,
+        help="OD source for timestamp selection: train|test (overrides config)",
+    )
+    parser.add_argument(
+        "--perturbation-max-entries",
+        type=int,
+        help="Max abnormal rows to sample for Phase B (overrides config)",
+    )
+    parser.add_argument(
+        "--perturbation-seed",
+        type=int,
+        help="Sampling seed for Phase B (overrides config)",
+    )
+    parser.add_argument(
+        "--perturbation-use-astar",
+        action="store_true",
+        help="Use A* search for Phase B generation (overrides config)",
+    )
+    parser.add_argument(
+        "--perturbation-lmtad-checkpoint",
+        type=str,
+        help="LM-TAD checkpoint to enable teacher perplexity scoring (overrides config)",
+    )
+    parser.add_argument(
+        "--perturbation-lmtad-repo",
+        type=str,
+        help="Path to LM-TAD repo (required if checkpoint is set) (overrides config)",
+    )
+    parser.add_argument(
+        "--perturbation-lmtad-batch-size",
+        type=int,
+        help="Batch size for LM-TAD evaluation (overrides config)",
+    )
+
     args = parser.parse_args()
 
     # Configure logging level
@@ -2878,6 +3003,24 @@ def main():
         config.lmtad_max_od_pairs = args.lmtad_max_od_pairs
     if args.abnormal_num_traj_per_od is not None:
         config.abnormal_num_traj_per_od = args.abnormal_num_traj_per_od
+
+    # Phase B overrides
+    if getattr(args, "perturbation_source_csv", None):
+        config.perturbation_source_csv = args.perturbation_source_csv
+    if getattr(args, "perturbation_od_source", None):
+        config.perturbation_od_source = args.perturbation_od_source
+    if getattr(args, "perturbation_max_entries", None) is not None:
+        config.perturbation_max_entries = args.perturbation_max_entries
+    if getattr(args, "perturbation_seed", None) is not None:
+        config.perturbation_seed = args.perturbation_seed
+    if getattr(args, "perturbation_use_astar", False):
+        config.perturbation_use_astar = True
+    if getattr(args, "perturbation_lmtad_checkpoint", None):
+        config.perturbation_lmtad_checkpoint = args.perturbation_lmtad_checkpoint
+    if getattr(args, "perturbation_lmtad_repo", None):
+        config.perturbation_lmtad_repo = args.perturbation_lmtad_repo
+    if getattr(args, "perturbation_lmtad_batch_size", None) is not None:
+        config.perturbation_lmtad_batch_size = args.perturbation_lmtad_batch_size
 
     # Run pipeline
     try:
