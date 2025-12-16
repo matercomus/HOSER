@@ -181,7 +181,9 @@ train_one() {
     echo "Start: ${start_ts}" | tee -a "$log_file" >/dev/null || true
   fi
 
-  if ! run_with_tee "$log_file" "${cmd[@]}"; then
+  if run_with_tee "$log_file" "${cmd[@]}"; then
+    :
+  else
     local rc=$?
     echo "ERROR: training failed (${dataset_name} seed=${seed} ${variant}) rc=${rc}" >&2
     exit $rc
