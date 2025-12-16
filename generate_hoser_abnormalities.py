@@ -8,6 +8,8 @@ import numpy as np
 import yaml
 from typing import List, Sequence, Optional, Dict
 import json
+from collections import defaultdict, deque
+from pathlib import Path
 
 
 def _detect_time_col(header: Sequence[str]) -> Optional[str]:
@@ -30,26 +32,63 @@ def _detect_time_col(header: Sequence[str]) -> Optional[str]:
 
 # --- Abnormality generation functions ---
 def perturb_rids(rid_list, level, road_id_pool, rng, strong: bool = False):
-    # Replace a number of road IDs with random others from the pool
+    """Replace some road IDs while keeping transitions valid when possible.
+
+    If a road graph is available (loaded from roadmap.rel), replacements are chosen
+    to preserve both (prev -> new) and (new -> next) edges.
+    """
     n = len(rid_list)
-    # base perturbation count by level
     n_perturb = {"low": 1, "medium": max(1, n // 10), "high": max(1, n // 5)}.get(
         level, max(1, n // 10)
     )
     if strong:
-        # stronger perturbations affect more indices (up to ~1/3 of trajectory)
         n_perturb = max(n_perturb, min(n, max(1, n // 3)))
-    if n < 2 or len(road_id_pool) < 2:
+    if n < 3:
         return rid_list, []
-    indices = rng.choice(range(n), size=n_perturb, replace=False)
+
     new_rid_list = rid_list.copy()
-    perturbed = []
+    perturbed: List[tuple[int, str, str]] = []
+
+    graph = globals().get("GLOBAL_GRAPH")
+    if graph is not None:
+        outgoing = graph["outgoing"]
+        incoming = graph["incoming"]
+
+        candidate_indices = list(range(1, n - 1))
+        if not candidate_indices:
+            return rid_list, []
+        indices = rng.choice(
+            candidate_indices,
+            size=min(n_perturb, len(candidate_indices)),
+            replace=False,
+        )
+        for idx in indices:
+            prev_r = new_rid_list[idx - 1]
+            next_r = new_rid_list[idx + 1]
+            old = new_rid_list[idx]
+
+            # Choose a replacement that keeps both edges valid.
+            candidates = list(
+                set(outgoing.get(prev_r, [])) & incoming.get(next_r, set())
+            )
+            candidates = [c for c in candidates if c != old]
+            if not candidates:
+                continue
+            new = str(rng.choice(candidates))
+            new_rid_list[idx] = new
+            perturbed.append((idx, old, new))
+        return new_rid_list, perturbed
+
+    # Fallback: pool-based replacement (may produce invalid transitions).
+    if len(road_id_pool) < 2:
+        return rid_list, []
+    indices = rng.choice(range(n), size=min(n_perturb, n), replace=False)
     for idx in indices:
         old = new_rid_list[idx]
         candidates = [r for r in road_id_pool if r != old]
         if not candidates:
             continue
-        new = rng.choice(candidates)
+        new = str(rng.choice(candidates))
         new_rid_list[idx] = new
         perturbed.append((idx, old, new))
     return new_rid_list, perturbed
@@ -100,6 +139,93 @@ def route_switch_from_pool(rid_list, road_pool, level, rng, strong: bool = False
     seg2 = pool[start2 : start2 + seg_len]
     new_rid_list = rid_list[:start1] + seg2 + rid_list[start1 + seg_len :]
     return new_rid_list, (start1, start1 + seg_len), seg2
+
+
+def _build_graph_from_rel(rel_path: Path) -> dict[str, object]:
+    """Build adjacency structures from roadmap.rel.
+
+    Returns:
+        Dict with keys:
+            - outgoing: dict[str, list[str]]
+            - incoming: dict[str, set[str]]
+            - edge_set: set[tuple[str, str]]
+    """
+    rel_df = pl.read_csv(str(rel_path))
+    if "origin_id" not in rel_df.columns or "destination_id" not in rel_df.columns:
+        raise ValueError(f"Unexpected roadmap.rel schema at {rel_path}")
+    outgoing: dict[str, list[str]] = defaultdict(list)
+    incoming: dict[str, set[str]] = defaultdict(set)
+    edge_set: set[tuple[str, str]] = set()
+
+    for o, d in zip(rel_df["origin_id"].to_list(), rel_df["destination_id"].to_list()):
+        o_s = str(int(o))
+        d_s = str(int(d))
+        outgoing[o_s].append(d_s)
+        incoming[d_s].add(o_s)
+        edge_set.add((o_s, d_s))
+
+    return {
+        "outgoing": dict(outgoing),
+        "incoming": dict(incoming),
+        "edge_set": edge_set,
+    }
+
+
+def _is_valid_walk(rids: Sequence[str], edge_set: set[tuple[str, str]]) -> bool:
+    return all((a, b) in edge_set for a, b in zip(rids[:-1], rids[1:]))
+
+
+def _find_bounded_path(
+    start: str,
+    end: str,
+    outgoing: dict[str, list[str]],
+    rng: np.random.Generator,
+    max_edges: int,
+) -> Optional[List[str]]:
+    """Find a path from start->end using BFS limited by max_edges.
+
+    max_edges is the maximum number of edges allowed in the returned path.
+    Returns a list of nodes including start and end.
+    """
+    if start == end:
+        return [start]
+    if max_edges <= 0:
+        return None
+
+    q: deque[str] = deque([start])
+    parent: dict[str, str] = {}
+    depth: dict[str, int] = {start: 0}
+
+    while q:
+        node = q.popleft()
+        node_depth = depth[node]
+        if node_depth >= max_edges:
+            continue
+
+        nbrs = outgoing.get(node, [])
+        if not nbrs:
+            continue
+        # Randomize neighbor order for variety, but keep it deterministic per-row.
+        if len(nbrs) > 1:
+            nbrs = list(nbrs)
+            rng.shuffle(nbrs)
+
+        for nxt in nbrs:
+            if nxt in depth:
+                continue
+            parent[nxt] = node
+            depth[nxt] = node_depth + 1
+            if nxt == end:
+                # Reconstruct
+                path = [end]
+                cur = end
+                while cur != start:
+                    cur = parent[cur]
+                    path.append(cur)
+                path.reverse()
+                return path
+            q.append(nxt)
+    return None
 
 
 # NOTE: Previously a separate `make_strong_anomaly` function implemented a
@@ -260,27 +386,92 @@ def save_with_abnormality_info(df: pl.DataFrame, out_path: str):
 
 
 def insert_detour(rid_list, level, road_id_pool, rng, strong: bool = False):
-    # Insert random road IDs depending on level. When `strong=True` the
-    # number of inserted roads increases to create a larger detour.
+    """Insert a detour segment.
+
+    If a road graph is available, detours are inserted as a valid path segment
+    between two consecutive nodes in the original trajectory.
+    """
     n_insert = {"low": 1, "medium": 2, "high": 3}.get(level, 2)
     if strong:
-        # amplify detour size for strong anomalies (bounded by pool size)
-        n_insert = min(len(road_id_pool), max(n_insert * 2 + 1, n_insert))
-    if len(road_id_pool) == 0:
-        return rid_list, []
-    detour_roads = rng.choice(
-        road_id_pool, size=min(n_insert, len(road_id_pool)), replace=False
-    ).tolist()
-    # pick insertion positions; ensure positions are valid
-    if len(rid_list) == 0:
-        insert_pos = [0] * len(detour_roads)
-    else:
-        # allow insertion positions from 0..len(rid_list) inclusive; high bound is exclusive
+        n_insert = max(n_insert * 2 + 1, n_insert)
+
+    graph = globals().get("GLOBAL_GRAPH")
+    if graph is None or len(rid_list) < 2:
+        # Fallback: pool-based insertion.
+        if len(road_id_pool) == 0:
+            return rid_list, []
+        detour_roads = rng.choice(
+            road_id_pool, size=min(n_insert, len(road_id_pool)), replace=False
+        ).tolist()
         insert_pos = rng.integers(0, max(1, len(rid_list) + 1), size=len(detour_roads))
-    new_rid_list = rid_list.copy()
-    for pos, road in sorted(zip(insert_pos, detour_roads)):
-        new_rid_list.insert(int(pos), road)
-    return new_rid_list, detour_roads
+        new_rid_list = rid_list.copy()
+        for pos, road in sorted(zip(insert_pos, detour_roads)):
+            new_rid_list.insert(int(pos), str(road))
+        return new_rid_list, [str(x) for x in detour_roads]
+
+    outgoing = graph["outgoing"]
+    edge_set = graph["edge_set"]
+    if not _is_valid_walk(rid_list, edge_set):
+        return rid_list, []
+
+    # Choose an insertion location between two consecutive nodes.
+    insert_after = int(rng.integers(0, len(rid_list) - 1))
+    start = rid_list[insert_after]
+    end = rid_list[insert_after + 1]
+
+    max_edges = max(2, n_insert + 2)
+    path = _find_bounded_path(start, end, outgoing, rng, max_edges=max_edges)
+    if path is None or len(path) < 3:
+        return rid_list, []
+
+    detour_nodes = path[1:-1]
+    new_rid_list = (
+        rid_list[: insert_after + 1] + detour_nodes + rid_list[insert_after + 1 :]
+    )
+    if not _is_valid_walk(new_rid_list, edge_set):
+        return rid_list, []
+    return new_rid_list, detour_nodes
+
+
+def route_switch_graph(
+    rid_list: List[str],
+    level: str,
+    rng: np.random.Generator,
+    strong: bool = False,
+) -> tuple[List[str], Optional[tuple[int, int]], Optional[List[str]]]:
+    """Replace a segment with an alternative valid path in the road graph."""
+    graph = globals().get("GLOBAL_GRAPH")
+    if graph is None:
+        return rid_list, None, None
+    outgoing = graph["outgoing"]
+    edge_set = graph["edge_set"]
+    if len(rid_list) < 5 or not _is_valid_walk(rid_list, edge_set):
+        return rid_list, None, None
+
+    seg_len = {"low": 2, "medium": 3, "high": 4}.get(level, 3)
+    if strong:
+        seg_len = min(max(3, seg_len * 2), len(rid_list) - 2)
+    if len(rid_list) <= seg_len + 2:
+        return rid_list, None, None
+
+    # Try a few random anchor ranges to find a different path.
+    for _ in range(8):
+        start1 = int(rng.integers(1, len(rid_list) - seg_len - 1))
+        a = rid_list[start1 - 1]
+        b = rid_list[start1 + seg_len]
+        max_edges = min(len(rid_list) + 5, seg_len + 4)
+        path = _find_bounded_path(a, b, outgoing, rng, max_edges=max_edges)
+        if path is None or len(path) < 3:
+            continue
+        replacement = path[1:-1]
+        original = rid_list[start1 : start1 + seg_len]
+        if replacement == original:
+            continue
+        new_rid_list = rid_list[:start1] + replacement + rid_list[start1 + seg_len :]
+        if _is_valid_walk(new_rid_list, edge_set):
+            return new_rid_list, (start1, start1 + seg_len), replacement
+
+    return rid_list, None, None
 
 
 def build_road_pool_stream(path: str, rid_col: str) -> List[str]:
@@ -332,6 +523,20 @@ def process_split_streaming(
     logging.info("Building road pool for %s (rid_col=%s)", input_path, rid_col)
     road_pool = build_road_pool_stream(input_path, rid_col)
     logging.info("Road pool size=%d", len(road_pool))
+
+    # If roadmap.rel is available alongside the input split, build a graph so
+    # generated anomalies remain valid walks.
+    dataset_dir = Path(input_path).parent
+    rel_path = dataset_dir / "roadmap.rel"
+    if rel_path.exists():
+        try:
+            globals()["GLOBAL_GRAPH"] = _build_graph_from_rel(rel_path)
+            logging.info("Loaded road graph from %s", rel_path)
+        except Exception as e:
+            globals()["GLOBAL_GRAPH"] = None
+            logging.warning("Failed to load roadmap.rel (%s): %s", rel_path, e)
+    else:
+        globals()["GLOBAL_GRAPH"] = None
 
     # open reader and writer for streaming second pass
     with (
@@ -385,6 +590,7 @@ def process_split_streaming(
                         new_rids, detour = insert_detour(
                             rids, level, road_pool, rng, strong=is_strong
                         )
+                        changed = bool(detour)
                         if detour:
                             info = {"type": "detour", "level": level, "detour": detour}
                         else:
@@ -393,20 +599,31 @@ def process_split_streaming(
                         new_rids, perturbed = perturb_rids(
                             rids, level, road_pool, rng, strong=is_strong
                         )
+                        changed = bool(perturbed)
                         info = {
                             "type": "perturb",
                             "level": level,
                             "perturbed": perturbed,
                         }
                     elif a_type == "route_switch":
-                        new_rids, seg_range, seg2 = route_switch_from_pool(
-                            rids, road_pool, level, rng, strong=is_strong
+                        new_rids, seg_range, seg2 = route_switch_graph(
+                            rids, level, rng, strong=is_strong
                         )
+                        changed = seg_range is not None
                         info = {"type": "route_switch", "level": level}
                         if seg_range is not None:
                             info["seg_range"] = seg_range
                             info["seg2"] = seg2
                     else:
+                        continue
+
+                    # If graph is present, require that the result is a valid walk.
+                    graph = globals().get("GLOBAL_GRAPH")
+                    if changed and graph is not None:
+                        if not _is_valid_walk(new_rids, graph["edge_set"]):
+                            continue
+
+                    if not changed:
                         continue
 
                     # annotate whether generated change was strong
@@ -473,8 +690,8 @@ def process_split_streaming(
                             if perturbed:
                                 info["perturbed"] = perturbed
                         elif chosen == "route_switch":
-                            new_rids, seg_range, seg2 = route_switch_from_pool(
-                                rids, road_pool, level, rng, strong=is_strong
+                            new_rids, seg_range, seg2 = route_switch_graph(
+                                rids, level, rng, strong=is_strong
                             )
                             changed = seg_range is not None
                             info = {"type": "route_switch", "level": level}
@@ -483,6 +700,12 @@ def process_split_streaming(
                                 info["seg2"] = seg2
                         else:
                             changed = False
+
+                        # If graph is present, require walk validity.
+                        graph = globals().get("GLOBAL_GRAPH")
+                        if changed and graph is not None:
+                            if not _is_valid_walk(new_rids, graph["edge_set"]):
+                                changed = False
 
                         if changed or not ensure_change or attempts >= len(types):
                             break

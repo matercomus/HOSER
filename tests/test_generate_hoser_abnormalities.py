@@ -195,3 +195,80 @@ def test_perturb_abnormality_generation():
         perturbed_str = ";".join(f"{i}:{o}->{n}" for i, o, n in perturbed)
         info = f"type=perturb|level={level}|perturbed_indices={perturbed_str}"
         assert info.startswith(f"type=perturb|level={level}|perturbed_indices=")
+
+
+def test_generated_abnormal_rows_are_valid_walks_when_rel_present(tmp_path):
+    from generate_hoser_abnormalities import process_split_streaming
+
+    # Create a small directed graph with alternate valid routes.
+    # Original trajectory: 1->2->3->4->5->6
+    # Alternate middle node between 2 and 4: 2->8->4
+    # Alternate route for switching between 1 and 4: 1->10->11->4
+    rel = tmp_path / "roadmap.rel"
+    rel.write_text(
+        "origin_id,destination_id\n"
+        "1,2\n"
+        "2,3\n"
+        "3,4\n"
+        "4,5\n"
+        "5,6\n"
+        "2,8\n"
+        "8,4\n"
+        "1,10\n"
+        "10,11\n"
+        "11,4\n"
+    )
+
+    in_csv = tmp_path / "train.csv"
+    out_csv = tmp_path / "out.csv"
+
+    # Write multiple identical rows so deterministic RNG across indices yields
+    # at least some successful changes.
+    header = "mm_id,entity_id,traj_id,rid_list,time_list\n"
+    base_rids = "1,2,3,4,5,6"
+    base_times = ",".join(
+        [
+            "2020-01-01T00:00:00Z",
+            "2020-01-01T00:01:00Z",
+            "2020-01-01T00:02:00Z",
+            "2020-01-01T00:03:00Z",
+            "2020-01-01T00:04:00Z",
+            "2020-01-01T00:05:00Z",
+        ]
+    )
+    rows = []
+    for i in range(20):
+        rows.append(f'{i + 1},10,{1000 + i},"{base_rids}","{base_times}"\n')
+    in_csv.write_text(header + "".join(rows))
+
+    process_split_streaming(
+        input_path=str(in_csv),
+        output_path=str(out_csv),
+        seed=123,
+        level="low",
+        abnormal_types=["detour", "perturb", "route_switch"],
+        abnormality_rate=None,
+        abnormality_weights=None,
+        ensure_change=True,
+        progress_interval=10000,
+        strong_prob=0.0,
+    )
+
+    # Validate every abnormal row is a valid walk in roadmap.rel.
+    import polars as pl
+
+    loaded = pl.read_csv(out_csv)
+    abnormal = loaded.filter(pl.col("abnormality_info") != "normal")
+    assert abnormal.shape[0] > 0
+
+    edge_set = set(
+        (line.split(",")[0], line.split(",")[1])
+        for line in rel.read_text().splitlines()[1:]
+        if line.strip()
+    )
+
+    for rid_list in abnormal["rid_list"].to_list():
+        rids = [x for x in str(rid_list).split(",") if x]
+        assert len(rids) >= 2
+        for a, b in zip(rids[:-1], rids[1:]):
+            assert (a, b) in edge_set
