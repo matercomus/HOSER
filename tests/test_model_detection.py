@@ -40,6 +40,22 @@ class TestExtractModelName:
             == "distilled_seed44"
         )
 
+    def test_beijing_distilled_l1_checkpoints_normalize(self):
+        """Test that *_L1 distilled checkpoints normalize into the distilled family."""
+        assert (
+            extract_model_name("distilled_25epoch_seed42_L1.pth") == "distilled_seed42"
+        )
+        assert (
+            extract_model_name("distilled_25epoch_seed43_L1.pth") == "distilled_seed43"
+        )
+        assert (
+            extract_model_name("distilled_25epoch_seed44_L1.pth") == "distilled_seed44"
+        )
+        assert (
+            extract_model_name("hoser_distilled_25epoch_seed42_L1_trainod_gene.csv")
+            == "distilled_seed42"
+        )
+
     def test_porto_phase1_base(self):
         """Test detection of base distill_phase1 model."""
         assert (
@@ -317,6 +333,10 @@ class TestParseModelComponents:
     def test_models_with_seeds(self):
         """Test parsing models with seed variants."""
         result = parse_model_components("distilled_seed44")
+        assert result["base_model"] == "distilled"
+        assert result["seed"] == "seed44"
+
+        result = parse_model_components("distilled_seed44_L1")
         assert result["base_model"] == "distilled"
         assert result["seed"] == "seed44"
 

@@ -116,6 +116,10 @@ MODEL_CONVENTIONS = [
     (r"distill_phase(\d+)_seed(\d+)", "distill_phase{}_seed{}"),
     # Porto distill_phase<N> pattern (no seed)
     (r"distill_phase(\d+)(?!_seed)", "distill_phase{}"),
+    # Beijing distilled *_L1 variants (normalize into the distilled family)
+    (r"distilled_\d+epoch_seed(\d+)_l1", "distilled_seed{}"),
+    (r"distilled_seed(\d+)_l1", "distilled_seed{}"),
+    (r"distilled_.*seed(\d+)_l1", "distilled_seed{}"),
     # Beijing distilled_<N>epoch_seed<M> pattern (normalize to distilled_seed<M>)
     (r"distilled_\d+epoch_seed(\d+)", "distilled_seed{}"),
     # Beijing distilled_seed<M> pattern
@@ -319,12 +323,16 @@ def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
         >>> parse_model_components("vanilla")
         {'base_model': 'vanilla', 'seed': None}
     """
+    normalized = model_name.lower()
+    # Treat distilled *_L1 naming as the same model family as distilled.
+    normalized = re.sub(r"_l1$", "", normalized)
+
     # Check for seed pattern using regex to support any seed number
-    match = re.search(r"_seed(\d+)", model_name)
+    match = re.search(r"_seed(\d+)", normalized)
     if match:
         seed_num = match.group(1)
         seed = f"seed{seed_num}"
-        base_model = model_name.replace(f"_seed{seed_num}", "")
+        base_model = normalized.replace(f"_seed{seed_num}", "")
         return {
             "base_model": base_model,
             "seed": seed,
@@ -332,7 +340,7 @@ def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
 
     # No seed found
     return {
-        "base_model": model_name,
+        "base_model": normalized,
         "seed": None,
     }
 
