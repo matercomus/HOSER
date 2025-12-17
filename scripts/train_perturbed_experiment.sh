@@ -41,6 +41,17 @@ EOF
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Non-interactive scripts do not source ~/.bashrc, so they won't pick up the
+# user's `uv()` wrapper. Ensure uv uses the per-project venv under /local.
+if [[ -z "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
+  root_real="$(readlink -f "$ROOT_DIR")"
+  hash="$(printf '%s' "$root_real" | sha1sum | awk '{print substr($1,1,8)}')"
+  name="$(basename "$root_real")-$hash"
+  envdir="/local/data/mka299/uv/venvs/$name"
+  mkdir -p "$envdir" 2>/dev/null || true
+  export UV_PROJECT_ENVIRONMENT="$envdir"
+fi
+
 CUDA="${CUDA:-0}"
 SEEDS="${SEEDS:-42}"
 WEAK_LAMBDA="${WEAK_LAMBDA:-0.001}"
