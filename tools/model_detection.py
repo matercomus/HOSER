@@ -195,6 +195,13 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         palette_size=8,
         base_offset=2,
     ),
+    "distilled_L1": ModelFamily(
+        name="distilled_L1",
+        base_display="Distilled L1",
+        palette_name="crest",
+        palette_size=8,
+        base_offset=2,
+    ),
     "real": ModelFamily(
         name="real",
         base_display="Real",

@@ -272,3 +272,11 @@ def test_generated_abnormal_rows_are_valid_walks_when_rel_present(tmp_path):
         assert len(rids) >= 2
         for a, b in zip(rids[:-1], rids[1:]):
             assert (a, b) in edge_set
+
+    # And ensure timestamps stay aligned with road IDs after edits.
+    for rid_list, time_list in zip(
+        abnormal["rid_list"].to_list(), abnormal["time_list"].to_list()
+    ):
+        rids = [x for x in str(rid_list).split(",") if x]
+        times = [x for x in str(time_list).split(",") if x]
+        assert len(rids) == len(times)

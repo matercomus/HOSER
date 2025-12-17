@@ -10,6 +10,7 @@ from typing import List, Sequence, Optional, Dict
 import json
 from collections import defaultdict, deque
 from pathlib import Path
+from datetime import datetime, timedelta
 
 
 def _detect_time_col(header: Sequence[str]) -> Optional[str]:
@@ -173,6 +174,46 @@ def _build_graph_from_rel(rel_path: Path) -> dict[str, object]:
 
 def _is_valid_walk(rids: Sequence[str], edge_set: set[tuple[str, str]]) -> bool:
     return all((a, b) in edge_set for a, b in zip(rids[:-1], rids[1:]))
+
+
+def _adjust_time_list_str(time_list: str, target_len: int) -> str:
+    """Adjust a comma-separated ISO8601 '...Z' time list to a desired length.
+
+    Strategy:
+      - If already the right length: return unchanged.
+      - If longer: truncate.
+      - If shorter: linearly interpolate between first and last timestamp.
+        If parsing fails, pad by repeating the last token.
+    """
+    tokens = [t for t in str(time_list).split(",") if t != ""]
+    if target_len <= 0:
+        return ""
+    if len(tokens) == target_len:
+        return ",".join(tokens)
+    if len(tokens) > target_len:
+        return ",".join(tokens[:target_len])
+    if not tokens:
+        return ""
+    if len(tokens) == 1:
+        return ",".join(tokens + [tokens[0]] * (target_len - 1))
+
+    try:
+        start = datetime.strptime(tokens[0], "%Y-%m-%dT%H:%M:%SZ")
+        end = datetime.strptime(tokens[-1], "%Y-%m-%dT%H:%M:%SZ")
+        if target_len == 1:
+            return tokens[0]
+        total = (end - start).total_seconds()
+        if total < 0:
+            # Non-monotonic input; fall back to padding.
+            raise ValueError("Non-monotonic time_list")
+        step = total / float(target_len - 1)
+        out = [
+            (start + timedelta(seconds=round(step * i))).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for i in range(target_len)
+        ]
+        return ",".join(out)
+    except Exception:
+        return ",".join(tokens + [tokens[-1]] * (target_len - len(tokens)))
 
 
 def _find_bounded_path(
@@ -662,6 +703,10 @@ def process_split_streaming(
                     # write abnormal row
                     new_row = dict(row)
                     new_row[rid_col] = ",".join(new_rids)
+                    if time_col:
+                        new_row[time_col] = _adjust_time_list_str(
+                            row.get(time_col, ""), target_len=len(new_rids)
+                        )
                     # write abnormality_info as compact string
                     new_row["abnormality_info"] = str(info)
                     writer.writerow(new_row)
@@ -752,6 +797,10 @@ def process_split_streaming(
 
                         new_row = dict(row)
                         new_row[rid_col] = ",".join(new_rids)
+                        if time_col:
+                            new_row[time_col] = _adjust_time_list_str(
+                                row.get(time_col, ""), target_len=len(new_rids)
+                            )
                         new_row["abnormality_info"] = str(info)
                         writer.writerow(new_row)
                         if ensure_change:

@@ -34,9 +34,19 @@ def load_single_file_with_index(args):
 def process_and_save_row(args):
     index, row, cache_dir = args
 
-    rid_list = eval(row["rid_list"])
-    time_list = row["time_list"].split(",")
-    time_list = [datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ") for t in time_list]
+    rid_list = list(eval(row["rid_list"]))
+    time_tokens = [t for t in str(row["time_list"]).split(",") if t != ""]
+    time_list = [datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ") for t in time_tokens]
+
+    # Some perturbation generators may change trajectory length without adjusting
+    # time_list. For preprocessing stability, pad or truncate timestamps so
+    # len(time_list) == len(rid_list).
+    if len(time_list) < len(rid_list):
+        if not time_list:
+            raise ValueError("Empty time_list")
+        time_list.extend([time_list[-1]] * (len(rid_list) - len(time_list)))
+    elif len(time_list) > len(rid_list):
+        time_list = time_list[: len(rid_list)]
 
     # Ensure all road IDs are integers
     trace_road_id = np.array([int(rid) for rid in rid_list[:-1]], dtype=np.int64)
