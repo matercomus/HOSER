@@ -39,6 +39,13 @@ from tools.model_detection import (
     extract_model_name,
 )
 
+from tools.trajectory_variant_grouping import (
+    VariantAxes,
+    VariantGroupKey,
+    build_cross_model_output_dir,
+    collect_variant_seed_groups,
+)
+
 try:
     import contextily as cx
 except ImportError:
@@ -2064,16 +2071,18 @@ class TrajectoryVisualizer:
                 )
                 continue
 
-            phase_groups = self._collect_phase_seed_groups(models_data)
-            if not phase_groups:
+            variant_axes, variant_groups = collect_variant_seed_groups(
+                models_data.keys(), dataset_has_phases=self.dataset_has_phases
+            )
+            if not variant_groups:
                 logger.warning(
                     f"⚠️  No vanilla/distill pairs available for {od_type} OD"
                 )
                 continue
 
-            for phase_label, seed_map in phase_groups.items():
+            for variant_group, seed_map in variant_groups.items():
                 seed_list = ", ".join(sorted(seed_map.keys())) or "none"
-                logger.info(f"  Phase {phase_label}: seeds {seed_list}")
+                logger.info(f"  Group {variant_group}: seeds {seed_list}")
 
                 for seed, pair in seed_map.items():
                     models_to_plot = {
@@ -2089,7 +2098,8 @@ class TrajectoryVisualizer:
                         models_to_plot,
                         od_type,
                         subfolder=seed,
-                        phase_label=phase_label,
+                        variant_axes=variant_axes,
+                        variant_group=variant_group,
                     )
 
                 if self.config.combine_seeds and seed_map:
@@ -2098,15 +2108,14 @@ class TrajectoryVisualizer:
                     )
 
                     if len(combined_models) <= 1:
-                        logger.info(
-                            f"    Skipping combined plot for {phase_label} (insufficient models)"
-                        )
+                        logger.info("    Skipping combined plot (insufficient models)")
                     else:
                         self._plot_matching_od_pairs(
                             combined_models,
                             od_type,
                             subfolder="combined",
-                            phase_label=phase_label,
+                            variant_axes=variant_axes,
+                            variant_group=variant_group,
                         )
 
     def _load_all_models_for_od(
@@ -2156,6 +2165,8 @@ class TrajectoryVisualizer:
         max_plots: int = None,
         subfolder: str = None,
         phase_label: Optional[str] = None,
+        variant_axes: Optional[VariantAxes] = None,
+        variant_group: Optional[VariantGroupKey] = None,
     ):
         """Find and plot trajectories with matching OD pairs across models
 
@@ -2181,15 +2192,30 @@ class TrajectoryVisualizer:
         else:
             output_dir = self.config.output_dir / "cross_model" / od_type
 
-        if phase_label:
-            output_dir = output_dir / phase_label
+        if variant_axes is not None and variant_group is not None:
+            output_dir = build_cross_model_output_dir(
+                base_output_dir=self.config.output_dir,
+                od_type=od_type,
+                scenario=scenario,
+                axes=variant_axes,
+                group_key=variant_group,
+                subfolder=subfolder,
+            )
+        else:
+            if phase_label:
+                output_dir = output_dir / phase_label
 
-        if subfolder:
-            output_dir = output_dir / subfolder
+            if subfolder:
+                output_dir = output_dir / subfolder
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        phase_for_display = phase_label if self.dataset_has_phases else None
+        if self.dataset_has_phases:
+            phase_for_display = (
+                variant_group.phase_label if variant_group is not None else phase_label
+            )
+        else:
+            phase_for_display = None
 
         title_lead = self._build_cross_model_title_lead(
             od_type,
@@ -2535,8 +2561,11 @@ class TrajectoryVisualizer:
                     )
                     continue
 
-                phase_groups = self._collect_phase_seed_groups(scenario_models_data)
-                if not phase_groups:
+                variant_axes, variant_groups = collect_variant_seed_groups(
+                    scenario_models_data.keys(),
+                    dataset_has_phases=self.dataset_has_phases,
+                )
+                if not variant_groups:
                     logger.info(
                         f"    Skipping {scenario} - no vanilla/distill pairs present"
                     )
@@ -2547,7 +2576,7 @@ class TrajectoryVisualizer:
                     scenario_models_data, scenario, od_scenario_map
                 )
 
-                for phase_label, seed_map in phase_groups.items():
+                for variant_group, seed_map in variant_groups.items():
                     for seed, pair in seed_map.items():
                         seed_models_data = {
                             pair["distill"]: scenario_models_data[pair["distill"]],
@@ -2562,7 +2591,8 @@ class TrajectoryVisualizer:
                             od_type,
                             scenario=scenario,
                             subfolder=seed,
-                            phase_label=phase_label,
+                            variant_axes=variant_axes,
+                            variant_group=variant_group,
                         )
 
                     if self.config.combine_seeds and seed_map:
@@ -2575,7 +2605,8 @@ class TrajectoryVisualizer:
                             od_type,
                             scenario=scenario,
                             subfolder="combined",
-                            phase_label=phase_label,
+                            variant_axes=variant_axes,
+                            variant_group=variant_group,
                         )
 
             # Generate multi-scenario comparison plots for OD pairs appearing in 2+ scenarios

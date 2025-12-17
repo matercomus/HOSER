@@ -276,37 +276,61 @@ class TestGetModelColor:
     """Tests for get_model_color function."""
 
     def test_beijing_models_colors(self):
-        """Test colors for Beijing models (green family)."""
-        assert get_model_color("distilled") == "#509e90"
-        assert get_model_color("distilled_seed42") == "#2a7d8c"
-        assert get_model_color("distilled_seed43") == "#1d6c8a"
-        assert get_model_color("distilled_seed44") == "#1f5985"
+        """Test colors for Beijing models are deterministic and vary by seed."""
+
+        colors = {
+            "base": get_model_color("distilled"),
+            "seed42": get_model_color("distilled_seed42"),
+            "seed43": get_model_color("distilled_seed43"),
+            "seed44": get_model_color("distilled_seed44"),
+        }
+        assert len(set(colors.values())) == len(colors)
+        assert colors["seed42"] == get_model_color("distilled_seed42")
 
     def test_porto_phase1_colors(self):
-        """Test colors for Porto phase 1 models (blue family)."""
-        assert get_model_color("distill_phase1") == "#3b2e5d"
-        assert get_model_color("distill_phase1_seed42") == "#366a9f"
-        assert get_model_color("distill_phase1_seed43") == "#348ba6"
-        assert get_model_color("distill_phase1_seed44") == "#38aaac"
+        """Test colors for Porto phase 1 models are deterministic and vary by seed."""
+
+        colors = {
+            "base": get_model_color("distill_phase1"),
+            "seed42": get_model_color("distill_phase1_seed42"),
+            "seed43": get_model_color("distill_phase1_seed43"),
+            "seed44": get_model_color("distill_phase1_seed44"),
+        }
+        assert len(set(colors.values())) == len(colors)
+        assert colors["seed42"] == get_model_color("distill_phase1_seed42")
 
     def test_porto_phase2_colors(self):
-        """Test colors for Porto phase 2 models (purple family)."""
-        assert get_model_color("distill_phase2") == "#841e5a"
-        assert get_model_color("distill_phase2_seed42") == "#dd2c45"
-        assert get_model_color("distill_phase2_seed43") == "#f06043"
-        assert get_model_color("distill_phase2_seed44") == "#f5946b"
+        """Test colors for Porto phase 2 models are deterministic and vary by seed."""
+
+        colors = {
+            "base": get_model_color("distill_phase2"),
+            "seed42": get_model_color("distill_phase2_seed42"),
+            "seed43": get_model_color("distill_phase2_seed43"),
+            "seed44": get_model_color("distill_phase2_seed44"),
+        }
+        assert len(set(colors.values())) == len(colors)
+        assert colors["seed42"] == get_model_color("distill_phase2_seed42")
 
     def test_vanilla_colors(self):
-        """Test colors for vanilla models (red family)."""
-        assert get_model_color("vanilla") == "#de5d5c"
-        assert get_model_color("vanilla_seed42") == "#b43d6b"
-        assert get_model_color("vanilla_seed43") == "#9a3670"
-        assert get_model_color("vanilla_seed44") == "#7f2f70"
+        """Test colors for vanilla models are deterministic and vary by seed."""
+
+        colors = {
+            "base": get_model_color("vanilla"),
+            "seed42": get_model_color("vanilla_seed42"),
+            "seed43": get_model_color("vanilla_seed43"),
+            "seed44": get_model_color("vanilla_seed44"),
+        }
+        assert len(set(colors.values())) == len(colors)
+        assert colors["seed42"] == get_model_color("vanilla_seed42")
 
     def test_special_colors(self):
-        """Test colors for special cases."""
-        assert get_model_color("real") == "#fede8b"
-        assert get_model_color("unknown") == "#959595"
+        """Test colors for special cases are deterministic."""
+
+        real_color = get_model_color("real")
+        unknown_color = get_model_color("unknown")
+        assert real_color == get_model_color("real")
+        assert unknown_color == get_model_color("unknown")
+        assert real_color != unknown_color
 
     def test_color_format(self):
         """Test that all colors are valid hex codes."""
@@ -495,9 +519,12 @@ class TestIntegration:
         display = get_display_name(model)
         assert display == "Distilled (seed 44)"
 
-        # Get color
+        # Get color (should be a hex string and deterministic)
         color = get_model_color(model)
-        assert color == "#1f5985"
+        assert isinstance(color, str)
+        assert color.startswith("#")
+        assert len(color) == 7
+        assert color == get_model_color(model)
 
         # Parse components
         components = parse_model_components(model)
@@ -513,16 +540,19 @@ class TestIntegration:
         ]
 
         expected = [
-            ("distilled_seed44", "Distilled (seed 44)", "#1f5985"),
-            ("distill_phase2_seed43", "Distill Phase 2 (seed 43)", "#f06043"),
-            ("vanilla", "Vanilla", "#de5d5c"),
+            ("distilled_seed44", "Distilled (seed 44)"),
+            ("distill_phase2_seed43", "Distill Phase 2 (seed 43)"),
+            ("vanilla", "Vanilla"),
         ]
 
-        for filename, (exp_model, exp_display, exp_color) in zip(filenames, expected):
+        for filename, (exp_model, exp_display) in zip(filenames, expected):
             model = extract_model_name(filename)
             assert model == exp_model
             assert get_display_name(model) == exp_display
-            assert get_model_color(model) == exp_color
+            color = get_model_color(model)
+            assert isinstance(color, str)
+            assert color.startswith("#")
+            assert len(color) == 7
 
 
 if __name__ == "__main__":

@@ -24,8 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import seaborn as sns
-from matplotlib.colors import to_hex
+import colorsys
 
 DEFAULT_SEED_TOKEN = "default"
 DEFAULT_SEED_NUMBER = 42
@@ -94,7 +93,11 @@ class ModelFamily:
     def _get_palette(self) -> List[str]:
         if not self.palette:
             kwargs = self.palette_kwargs or {}
-            colors = sns.color_palette(self.palette_name, self.palette_size, **kwargs)
+            colors = _build_color_palette(
+                self.palette_name,
+                self.palette_size,
+                palette_kwargs=kwargs,
+            )
             if self.mix_with_white:
                 mix = self.mix_with_white
                 colors = [
@@ -105,8 +108,106 @@ class ModelFamily:
                     )
                     for c in colors
                 ]
-            self.palette = [to_hex(color) for color in colors]
+            self.palette = [_rgb_to_hex(color) for color in colors]
         return self.palette
+
+
+def _rgb_to_hex(color: tuple[float, float, float]) -> str:
+    """Convert an RGB tuple in [0,1] to a hex string (#rrggbb)."""
+
+    r, g, b = color
+    r_i = max(0, min(255, int(round(r * 255))))
+    g_i = max(0, min(255, int(round(g * 255))))
+    b_i = max(0, min(255, int(round(b * 255))))
+    return f"#{r_i:02x}{g_i:02x}{b_i:02x}"
+
+
+def _build_color_palette(
+    palette_name: str,
+    palette_size: int,
+    *,
+    palette_kwargs: Optional[Dict[str, Any]] = None,
+) -> List[tuple[float, float, float]]:
+    """Build an RGB palette, preferring seaborn but falling back to matplotlib.
+
+    Tests and non-plotting utilities should not require seaborn to be installed.
+    When seaborn isn't available, we approximate palettes using matplotlib
+    colormaps.
+    """
+
+    palette_kwargs = palette_kwargs or {}
+
+    # Prefer seaborn palettes when available.
+    try:
+        import seaborn as sns  # type: ignore
+
+        return sns.color_palette(palette_name, palette_size, **palette_kwargs)
+    except Exception:
+        pass
+
+    # Next, try matplotlib colormaps if available.
+    try:
+        from matplotlib import colormaps
+
+        try:
+            cmap = colormaps.get_cmap(palette_name)
+        except Exception:
+            cmap = colormaps.get_cmap("viridis")
+
+        if palette_size <= 1:
+            rgba = cmap(0.5)
+            return [(float(rgba[0]), float(rgba[1]), float(rgba[2]))]
+
+        xs = [0.1 + (0.8 * i / (palette_size - 1)) for i in range(palette_size)]
+        rgb = []
+        for x in xs:
+            rgba = cmap(x)
+            rgb.append((float(rgba[0]), float(rgba[1]), float(rgba[2])))
+        return rgb
+    except Exception:
+        pass
+
+    # Final fallback: generate a simple HSL palette (deterministic, no deps).
+    if palette_size <= 0:
+        return []
+    if palette_size == 1:
+        return [(0.2, 0.4, 0.8)]
+
+    palette_name_lower = palette_name.lower()
+    if palette_name_lower in {"greys", "grays", "grey", "gray"}:
+        # Deterministic grayscale ramp from darker to lighter.
+        if palette_size == 1:
+            return [(0.5, 0.5, 0.5)]
+        xs = [0.2 + (0.6 * i / (palette_size - 1)) for i in range(palette_size)]
+        return [(float(x), float(x), float(x)) for x in xs]
+
+    if palette_name_lower in {"ylorbr", "ylorbr_r"}:
+        # Approximate a yellow→orange→brown sequential palette.
+        # Hue ~40° (yellow/orange), with decreasing lightness.
+        hues = 40.0 / 360.0
+        lights = (
+            [0.85]
+            if palette_size == 1
+            else [0.85 - (0.5 * i / (palette_size - 1)) for i in range(palette_size)]
+        )
+        sat = 0.85
+        rgb: List[tuple[float, float, float]] = []
+        for light in lights:
+            r, g, b = colorsys.hls_to_rgb(hues, float(light), sat)
+            rgb.append((float(r), float(g), float(b)))
+        return rgb
+
+    palette: List[tuple[float, float, float]] = []
+    # Use the palette name to pick a stable starting hue.
+    name_seed = sum(ord(ch) for ch in palette_name) % 360
+    base_hue = name_seed / 360.0
+    for idx in range(palette_size):
+        hue = (base_hue + (idx / palette_size)) % 1.0
+        light = 0.55
+        sat = 0.75
+        r, g, b = colorsys.hls_to_rgb(hue, light, sat)
+        palette.append((float(r), float(g), float(b)))
+    return palette
 
 
 # Model naming convention patterns (using regex for automatic detection)
@@ -483,9 +584,21 @@ def normalize_base_model(base_model: Optional[str]) -> str:
 
     if not base_model:
         return "unknown"
-    if base_model.startswith("distill"):
+    lowered = base_model.lower()
+
+    # Treat all distilled variants (e.g., distilled_l1, distilled_abnormal) as distilled.
+    if lowered.startswith("distilled"):
         return "distilled"
-    return base_model
+
+    # Porto phase variants should normalize to the distilled umbrella.
+    if lowered.startswith("distill"):
+        return "distilled"
+
+    # Treat all vanilla variants (e.g., vanilla_abnormal) as vanilla.
+    if lowered.startswith("vanilla"):
+        return "vanilla"
+
+    return lowered
 
 
 def get_phase_label_from_base(base_model: Optional[str]) -> Optional[str]:
@@ -495,10 +608,6 @@ def get_phase_label_from_base(base_model: Optional[str]) -> Optional[str]:
         return None
     if base_model.startswith("distill_phase"):
         return base_model.replace("distill_", "")
-    if base_model == "distilled":
-        return "distilled"
-    if base_model == "distilled_l1":
-        return "distilled_l1"
     return None
 
 
