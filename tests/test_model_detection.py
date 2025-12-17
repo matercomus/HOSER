@@ -59,6 +59,22 @@ class TestExtractModelName:
             == "distilled_l1_seed42"
         )
 
+    def test_beijing_distilled_l0p5_checkpoints_detect(self):
+        """Test that lambda=0.5 distilled checkpoints map to the distilled_l0p5 family."""
+
+        assert (
+            extract_model_name("distilled_25epoch_seed42_lambda0p5.pth")
+            == "distilled_l0p5_seed42"
+        )
+        assert (
+            extract_model_name("distilled_25epoch_seed42_L0p5.pth")
+            == "distilled_l0p5_seed42"
+        )
+        assert (
+            extract_model_name("hoser_distilled_lambda0p5_seed42_trainod_gene.csv")
+            == "distilled_l0p5_seed42"
+        )
+
     def test_abnormal_model_outputs(self):
         """Abnormal eval outputs should map to dedicated *_abnormal families."""
 
@@ -227,6 +243,8 @@ class TestGetDisplayName:
         assert get_display_name("distilled_seed44") == "Distilled (seed 44)"
         assert get_display_name("distilled_l1") == "Distilled L1"
         assert get_display_name("distilled_l1_seed42") == "Distilled L1 (seed 42)"
+        assert get_display_name("distilled_l0p5") == "Distilled L0.5"
+        assert get_display_name("distilled_l0p5_seed42") == "Distilled L0.5 (seed 42)"
         assert get_display_name("distilled_abnormal") == "Distilled Abnormal"
         assert (
             get_display_name("distilled_abnormal_seed42")
@@ -279,6 +297,18 @@ class TestGetDisplayName:
         # Legacy suffix form
         assert (
             get_display_name("distilled_seed42_L0p001") == "Distilled L0.001 (seed 42)"
+        )
+
+        # Lambda=0.5 distilled family
+        assert get_display_name("distilled_l0p5") == "Distilled L0.5"
+        assert get_display_name("distilled_l0p5_seed42") == "Distilled L0.5 (seed 42)"
+        # Legacy suffix forms
+        assert get_display_name("distilled_seed42_L0p5") == "Distilled L0.5 (seed 42)"
+        assert (
+            get_display_name("distilled_seed42_lambda0.5") == "Distilled L0.5 (seed 42)"
+        )
+        assert (
+            get_display_name("distilled_seed42_lambda0p5") == "Distilled L0.5 (seed 42)"
         )
 
 
@@ -403,6 +433,18 @@ class TestParseModelComponents:
 
         result = parse_model_components("distilled_seed44_L1")
         assert result["base_model"] == "distilled_l1"
+        assert result["seed"] == "seed44"
+
+        result = parse_model_components("distilled_seed44_L0p5")
+        assert result["base_model"] == "distilled_l0p5"
+        assert result["seed"] == "seed44"
+
+        result = parse_model_components("distilled_seed44_lambda0.5")
+        assert result["base_model"] == "distilled_l0p5"
+        assert result["seed"] == "seed44"
+
+        result = parse_model_components("distilled_seed44_lambda0p5")
+        assert result["base_model"] == "distilled_l0p5"
         assert result["seed"] == "seed44"
 
         result = parse_model_components("distilled_l1_seed44")

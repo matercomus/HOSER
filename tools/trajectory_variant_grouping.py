@@ -56,6 +56,7 @@ def _infer_lambda_label(metadata: ModelMetadata) -> Optional[str]:
 
         - Distilled L1 families map to "L1".
         - Distilled lambda=0.001 families map to "L0p001".
+                - Distilled lambda=0.5 families map to "L0p5".
         - Plain distilled families (no explicit lambda token) map to "default".
     - Porto distillation phases do not map to a lambda label because they use
       phase-based training identifiers instead of lambda sweeps.
@@ -70,6 +71,9 @@ def _infer_lambda_label(metadata: ModelMetadata) -> Optional[str]:
 
     if "l0p001" in base_lower or "lambda0.001" in base_lower:
         return "L0p001"
+
+    if "l0p5" in base_lower or "lambda0.5" in base_lower or "lambda0p5" in base_lower:
+        return "L0p5"
 
     if "l1" in base_lower:
         return "L1"

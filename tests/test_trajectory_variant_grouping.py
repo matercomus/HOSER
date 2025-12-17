@@ -64,6 +64,7 @@ def test_beijing_l0p001_axis_present_when_explicit_models_exist():
             "vanilla_seed42",
             "distilled_seed42",
             "distilled_l0p001_seed42",
+            "distilled_l0p5_seed42",
             "distilled_l1_seed42",
         ],
         dataset_has_phases=False,
@@ -73,6 +74,7 @@ def test_beijing_l0p001_axis_present_when_explicit_models_exist():
     assert set(groups.keys()) == {
         VariantGroupKey(phase_label=None, lambda_label="default", abnormal_label=None),
         VariantGroupKey(phase_label=None, lambda_label="L0p001", abnormal_label=None),
+        VariantGroupKey(phase_label=None, lambda_label="L0p5", abnormal_label=None),
         VariantGroupKey(phase_label=None, lambda_label="L1", abnormal_label=None),
     }
 

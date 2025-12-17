@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Train the perturbed-data experiment models (M1/M2/M3) for both datasets.
+# Train the perturbed-data experiment models for both datasets.
 #
 # Defaults are chosen to match the thesis methodology note:
 # - Additive loss in train_with_distill.py: CE + time + lambda * KL
-# - M1: vanilla (no distill)
-# - M2: weak distill (lambda ~ 0.001)
-# - M3: strong distill (lambda ~ 0.5 by default for additive formulation)
+# - vanilla: no distill
+# - distilled_l0p001: weak distill (lambda ~ 0.001)
+# - distilled_l0p5: medium distill (lambda ~ 0.5)
+# - distilled_l1: strong distill (lambda ~ 1.0 by default for additive formulation)
 #
 # Usage:
 #   bash scripts/train_perturbed_experiment.sh
@@ -16,11 +17,12 @@ set -euo pipefail
 #   CUDA=0
 #   SEEDS="42 43 44"
 #   WEAK_LAMBDA=0.001
-#   STRONG_LAMBDA=0.5
+#   MEDIUM_LAMBDA=0.5
+#   STRONG_LAMBDA=1.0
 #   DATASET=beijing|porto|all   # filter which dataset(s) to run (default: all)
 #   LOG_ROOT=logs/perturbed_training  # where per-run logs are written
 #   DRY_RUN=1            # print commands only
-#   BACKUP_EXISTING=1    # move existing save/<dataset>/seed*_{vanilla,distill} aside
+#   BACKUP_EXISTING=1    # move existing save/<dataset>/seed*_{vanilla,distill*} aside
 
 usage() {
   cat <<'EOF'
@@ -42,7 +44,8 @@ cd "$ROOT_DIR"
 CUDA="${CUDA:-0}"
 SEEDS="${SEEDS:-42}"
 WEAK_LAMBDA="${WEAK_LAMBDA:-0.001}"
-STRONG_LAMBDA="${STRONG_LAMBDA:-1}"
+MEDIUM_LAMBDA="${MEDIUM_LAMBDA:-0.5}"
+STRONG_LAMBDA="${STRONG_LAMBDA:-1.0}"
 DRY_RUN="${DRY_RUN:-0}"
 BACKUP_EXISTING="${BACKUP_EXISTING:-0}"
 LOG_ROOT="${LOG_ROOT:-logs/perturbed_training}"
@@ -119,7 +122,9 @@ maybe_backup_saves() {
   local backup_dir="${save_root}/_backup_${timestamp}"
 
   shopt -s nullglob
-  local dirs=("${save_root}"/seed*_vanilla "${save_root}"/seed*_distill)
+  # train_with_distill.py may include lambda tokens in the directory suffix
+  # (e.g., seed42_distill_l0p001), so back up distill*.
+  local dirs=("${save_root}"/seed*_vanilla* "${save_root}"/seed*_distill*)
   shopt -u nullglob
 
   if [[ ${#dirs[@]} -eq 0 ]]; then
@@ -149,7 +154,7 @@ train_one() {
   local data_dir="$2"       # points at data/<dataset>
   local config_path="$3"    # config/<base>.yaml
   local seed="$4"
-  local variant="$5"        # M1|M2|M3
+  local variant="$5"        # vanilla|distilled_l0p001|distilled_l0p5|distilled_l1
 
   local -a cmd=(uv run python train_with_distill.py
     --dataset "$dataset_name"
@@ -158,11 +163,13 @@ train_one() {
     --cuda "$CUDA"
     --data_dir "$data_dir")
 
-  if [[ "$variant" == "M1" ]]; then
+  if [[ "$variant" == "vanilla" ]]; then
     cmd+=(--no-distill)
-  elif [[ "$variant" == "M2" ]]; then
+  elif [[ "$variant" == "distilled_l0p001" ]]; then
     cmd+=(--distill-lambda "$WEAK_LAMBDA")
-  elif [[ "$variant" == "M3" ]]; then
+  elif [[ "$variant" == "distilled_l0p5" ]]; then
+    cmd+=(--distill-lambda "$MEDIUM_LAMBDA")
+  elif [[ "$variant" == "distilled_l1" ]]; then
     cmd+=(--distill-lambda "$STRONG_LAMBDA")
   else
     echo "ERROR: unknown variant: $variant" >&2
@@ -219,7 +226,7 @@ for entry in "${DATASETS[@]}"; do
   echo "  config: ${config_path}"
   echo "  seeds:  ${SEEDS}"
   echo "  CUDA:   ${CUDA}"
-  echo "  lambdas: weak=${WEAK_LAMBDA} strong=${STRONG_LAMBDA}"
+  echo "  lambdas: weak=${WEAK_LAMBDA} medium=${MEDIUM_LAMBDA} strong=${STRONG_LAMBDA}"
   echo
 
 done
@@ -229,9 +236,10 @@ done
 for seed in $SEEDS; do
   for entry in "${DATASETS[@]}"; do
     IFS='|' read -r dataset_name data_dir config_path <<<"$entry"
-    train_one "$dataset_name" "$data_dir" "$config_path" "$seed" M1
-    train_one "$dataset_name" "$data_dir" "$config_path" "$seed" M2
-    train_one "$dataset_name" "$data_dir" "$config_path" "$seed" M3
+    train_one "$dataset_name" "$data_dir" "$config_path" "$seed" vanilla
+    train_one "$dataset_name" "$data_dir" "$config_path" "$seed" distilled_l0p001
+    train_one "$dataset_name" "$data_dir" "$config_path" "$seed" distilled_l0p5
+    train_one "$dataset_name" "$data_dir" "$config_path" "$seed" distilled_l1
   done
 done
 

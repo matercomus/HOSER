@@ -218,11 +218,18 @@ MODEL_CONVENTIONS = [
     (r"distilled.*_l1.*abnormal", "distilled_l1_abnormal"),
     (r"distilled_.*seed(\d+).*_l0p001.*abnormal", "distilled_l0p001_abnormal_seed{}"),
     (r"distilled.*_l0p001.*abnormal", "distilled_l0p001_abnormal"),
+    (r"distilled_.*seed(\d+).*_l0p5.*abnormal", "distilled_l0p5_abnormal_seed{}"),
+    (r"distilled.*_l0p5.*abnormal", "distilled_l0p5_abnormal"),
     (
         r"distilled_.*seed(\d+).*lambda0\.001.*abnormal",
         "distilled_l0p001_abnormal_seed{}",
     ),
     (r"distilled.*lambda0\.001.*abnormal", "distilled_l0p001_abnormal"),
+    (
+        r"distilled_.*seed(\d+).*lambda0(?:\.5|p5).*abnormal",
+        "distilled_l0p5_abnormal_seed{}",
+    ),
+    (r"distilled.*lambda0(?:\.5|p5).*abnormal", "distilled_l0p5_abnormal"),
     (r"distilled_.*seed(\d+).*abnormal", "distilled_abnormal_seed{}"),
     (r"distilled.*abnormal", "distilled_abnormal"),
     (r"vanilla_.*seed(\d+).*abnormal", "vanilla_abnormal_seed{}"),
@@ -242,12 +249,24 @@ MODEL_CONVENTIONS = [
     (r"distilled_\d+epoch_seed(\d+)_lambda0\.001", "distilled_l0p001_seed{}"),
     (r"distilled_seed(\d+)_lambda0\.001", "distilled_l0p001_seed{}"),
     (r"distilled_.*seed(\d+)_lambda0\.001", "distilled_l0p001_seed{}"),
+    # Beijing distilled *_L0p5 variants (lambda=0.5)
+    (r"distilled_\d+epoch_seed(\d+)_l0p5", "distilled_l0p5_seed{}"),
+    (r"distilled_seed(\d+)_l0p5", "distilled_l0p5_seed{}"),
+    (r"distilled_.*seed(\d+)_l0p5", "distilled_l0p5_seed{}"),
+    (r"distilled_\d+epoch_seed(\d+)_lambda0(?:\.5|p5)", "distilled_l0p5_seed{}"),
+    (r"distilled_seed(\d+)_lambda0(?:\.5|p5)", "distilled_l0p5_seed{}"),
+    (r"distilled_.*seed(\d+)_lambda0(?:\.5|p5)", "distilled_l0p5_seed{}"),
     # Beijing distilled_l1 explicit pattern (if present in filenames)
     (r"distilled_l1_seed(\d+)", "distilled_l1_seed{}"),
     (r"distilled_l1(?!_seed)", "distilled_l1"),
     # Beijing distilled_l0p001 explicit pattern
     (r"distilled_l0p001_seed(\d+)", "distilled_l0p001_seed{}"),
     (r"distilled_l0p001(?!_seed)", "distilled_l0p001"),
+    # Beijing distilled_l0p5 explicit pattern
+    (r"distilled_l0p5_seed(\d+)", "distilled_l0p5_seed{}"),
+    (r"distilled_l0p5(?!_seed)", "distilled_l0p5"),
+    (r"distilled_lambda0(?:\.5|p5)_seed(\d+)", "distilled_l0p5_seed{}"),
+    (r"distilled_lambda0(?:\.5|p5)(?!_seed)", "distilled_l0p5"),
     # Beijing distilled_<N>epoch_seed<M> pattern (normalize to distilled_seed<M>)
     (r"distilled_\d+epoch_seed(\d+)", "distilled_seed{}"),
     # Beijing distilled_seed<M> pattern
@@ -316,6 +335,13 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         palette_size=8,
         base_offset=2,
     ),
+    "distilled_l0p5": ModelFamily(
+        name="distilled_l0p5",
+        base_display="Distilled L0.5",
+        palette_name="crest",
+        palette_size=8,
+        base_offset=2,
+    ),
     "distilled_abnormal": ModelFamily(
         name="distilled_abnormal",
         base_display="Distilled Abnormal",
@@ -333,6 +359,13 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
     "distilled_l0p001_abnormal": ModelFamily(
         name="distilled_l0p001_abnormal",
         base_display="Distilled L0.001 Abnormal",
+        palette_name="crest",
+        palette_size=8,
+        base_offset=2,
+    ),
+    "distilled_l0p5_abnormal": ModelFamily(
+        name="distilled_l0p5_abnormal",
+        base_display="Distilled L0.5 Abnormal",
         palette_name="crest",
         palette_size=8,
         base_offset=2,
@@ -376,6 +409,13 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
     "distilled_L0p001": ModelFamily(
         name="distilled_l0p001",
         base_display="Distilled L0.001",
+        palette_name="crest",
+        palette_size=8,
+        base_offset=2,
+    ),
+    "distilled_L0p5": ModelFamily(
+        name="distilled_l0p5",
+        base_display="Distilled L0.5",
         palette_name="crest",
         palette_size=8,
         base_offset=2,
@@ -516,7 +556,14 @@ def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
     # - distilled_seed44_L0p001
     # - distilled_seed44_lambda0.001
     variant_suffix: Optional[str] = None
-    for suffix in ("_l1", "_l0p001", "_lambda0.001"):
+    for suffix in (
+        "_l1",
+        "_l0p001",
+        "_l0p5",
+        "_lambda0.001",
+        "_lambda0.5",
+        "_lambda0p5",
+    ):
         if normalized.endswith(suffix):
             normalized = normalized[: -len(suffix)]
             variant_suffix = suffix
@@ -533,6 +580,8 @@ def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
                 base_model = f"{base_model}_l1"
             elif variant_suffix in {"_l0p001", "_lambda0.001"}:
                 base_model = f"{base_model}_l0p001"
+            elif variant_suffix in {"_l0p5", "_lambda0.5", "_lambda0p5"}:
+                base_model = f"{base_model}_l0p5"
         return {
             "base_model": base_model,
             "seed": seed,
@@ -545,6 +594,8 @@ def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
             base_model = f"{base_model}_l1"
         elif variant_suffix in {"_l0p001", "_lambda0.001"}:
             base_model = f"{base_model}_l0p001"
+        elif variant_suffix in {"_l0p5", "_lambda0.5", "_lambda0p5"}:
+            base_model = f"{base_model}_l0p5"
     return {"base_model": base_model, "seed": None}
 
 
@@ -750,6 +801,10 @@ DEFAULT_MODEL_NAMES = [
     "distilled_l0p001_seed42",
     "distilled_l0p001_seed43",
     "distilled_l0p001_seed44",
+    "distilled_l0p5",
+    "distilled_l0p5_seed42",
+    "distilled_l0p5_seed43",
+    "distilled_l0p5_seed44",
     "distilled_abnormal",
     "distilled_abnormal_seed42",
     "distilled_abnormal_seed43",
@@ -762,6 +817,10 @@ DEFAULT_MODEL_NAMES = [
     "distilled_l0p001_abnormal_seed42",
     "distilled_l0p001_abnormal_seed43",
     "distilled_l0p001_abnormal_seed44",
+    "distilled_l0p5_abnormal",
+    "distilled_l0p5_abnormal_seed42",
+    "distilled_l0p5_abnormal_seed43",
+    "distilled_l0p5_abnormal_seed44",
     "vanilla_abnormal",
     "vanilla_abnormal_seed42",
     "vanilla_abnormal_seed43",
