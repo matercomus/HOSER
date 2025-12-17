@@ -40,20 +40,43 @@ class TestExtractModelName:
             == "distilled_seed44"
         )
 
-    def test_beijing_distilled_l1_checkpoints_normalize(self):
-        """Test that *_L1 distilled checkpoints normalize into the distilled family."""
+    def test_beijing_distilled_l1_checkpoints_detect(self):
+        """Test that *_L1 distilled checkpoints map to the distilled_l1 family."""
         assert (
-            extract_model_name("distilled_25epoch_seed42_L1.pth") == "distilled_seed42"
+            extract_model_name("distilled_25epoch_seed42_L1.pth")
+            == "distilled_l1_seed42"
         )
         assert (
-            extract_model_name("distilled_25epoch_seed43_L1.pth") == "distilled_seed43"
+            extract_model_name("distilled_25epoch_seed43_L1.pth")
+            == "distilled_l1_seed43"
         )
         assert (
-            extract_model_name("distilled_25epoch_seed44_L1.pth") == "distilled_seed44"
+            extract_model_name("distilled_25epoch_seed44_L1.pth")
+            == "distilled_l1_seed44"
         )
         assert (
             extract_model_name("hoser_distilled_25epoch_seed42_L1_trainod_gene.csv")
-            == "distilled_seed42"
+            == "distilled_l1_seed42"
+        )
+
+    def test_abnormal_model_outputs(self):
+        """Abnormal eval outputs should map to dedicated *_abnormal families."""
+
+        assert extract_model_name("vanilla_abnormal_od.csv") == "vanilla_abnormal"
+        assert (
+            extract_model_name("vanilla_seed43_abnormal_od.csv")
+            == "vanilla_abnormal_seed43"
+        )
+
+        assert extract_model_name("distilled_abnormal_od.csv") == "distilled_abnormal"
+        assert (
+            extract_model_name("distilled_seed44_abnormal_od.csv")
+            == "distilled_abnormal_seed44"
+        )
+
+        assert (
+            extract_model_name("distilled_seed44_L1_abnormal_od.csv")
+            == "distilled_l1_abnormal_seed44"
         )
 
     def test_porto_phase1_base(self):
@@ -202,6 +225,14 @@ class TestGetDisplayName:
         assert get_display_name("distilled_seed42") == "Distilled (seed 42)"
         assert get_display_name("distilled_seed43") == "Distilled (seed 43)"
         assert get_display_name("distilled_seed44") == "Distilled (seed 44)"
+        assert get_display_name("distilled_l1") == "Distilled L1"
+        assert get_display_name("distilled_l1_seed42") == "Distilled L1 (seed 42)"
+        assert get_display_name("distilled_abnormal") == "Distilled Abnormal"
+        assert (
+            get_display_name("distilled_abnormal_seed42")
+            == "Distilled Abnormal (seed 42)"
+        )
+        assert get_display_name("vanilla_abnormal") == "Vanilla Abnormal"
 
     def test_porto_phase1_models(self):
         """Test display names for Porto phase 1 models."""
@@ -337,8 +368,20 @@ class TestParseModelComponents:
         assert result["seed"] == "seed44"
 
         result = parse_model_components("distilled_seed44_L1")
-        assert result["base_model"] == "distilled"
+        assert result["base_model"] == "distilled_l1"
         assert result["seed"] == "seed44"
+
+        result = parse_model_components("distilled_l1_seed44")
+        assert result["base_model"] == "distilled_l1"
+        assert result["seed"] == "seed44"
+
+        result = parse_model_components("distilled_l1_abnormal_seed44")
+        assert result["base_model"] == "distilled_l1_abnormal"
+        assert result["seed"] == "seed44"
+
+        result = parse_model_components("vanilla_abnormal_seed43")
+        assert result["base_model"] == "vanilla_abnormal"
+        assert result["seed"] == "seed43"
 
         result = parse_model_components("distill_phase2_seed43")
         assert result["base_model"] == "distill_phase2"

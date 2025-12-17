@@ -112,14 +112,24 @@ class ModelFamily:
 # Model naming convention patterns (using regex for automatic detection)
 # Order matters: more specific patterns should be checked first
 MODEL_CONVENTIONS = [
+    # Abnormal evaluation outputs (must come before non-abnormal patterns)
+    (r"distilled_.*seed(\d+).*_l1.*abnormal", "distilled_l1_abnormal_seed{}"),
+    (r"distilled.*_l1.*abnormal", "distilled_l1_abnormal"),
+    (r"distilled_.*seed(\d+).*abnormal", "distilled_abnormal_seed{}"),
+    (r"distilled.*abnormal", "distilled_abnormal"),
+    (r"vanilla_.*seed(\d+).*abnormal", "vanilla_abnormal_seed{}"),
+    (r"vanilla.*abnormal", "vanilla_abnormal"),
     # Porto distill_phase<N>_seed<M> pattern
     (r"distill_phase(\d+)_seed(\d+)", "distill_phase{}_seed{}"),
     # Porto distill_phase<N> pattern (no seed)
     (r"distill_phase(\d+)(?!_seed)", "distill_phase{}"),
-    # Beijing distilled *_L1 variants (normalize into the distilled family)
-    (r"distilled_\d+epoch_seed(\d+)_l1", "distilled_seed{}"),
-    (r"distilled_seed(\d+)_l1", "distilled_seed{}"),
-    (r"distilled_.*seed(\d+)_l1", "distilled_seed{}"),
+    # Beijing distilled *_L1 variants (their own family)
+    (r"distilled_\d+epoch_seed(\d+)_l1", "distilled_l1_seed{}"),
+    (r"distilled_seed(\d+)_l1", "distilled_l1_seed{}"),
+    (r"distilled_.*seed(\d+)_l1", "distilled_l1_seed{}"),
+    # Beijing distilled_l1 explicit pattern (if present in filenames)
+    (r"distilled_l1_seed(\d+)", "distilled_l1_seed{}"),
+    (r"distilled_l1(?!_seed)", "distilled_l1"),
     # Beijing distilled_<N>epoch_seed<M> pattern (normalize to distilled_seed<M>)
     (r"distilled_\d+epoch_seed(\d+)", "distilled_seed{}"),
     # Beijing distilled_seed<M> pattern
@@ -174,9 +184,37 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         palette_size=8,
         base_offset=2,
     ),
+    "distilled_l1": ModelFamily(
+        name="distilled_l1",
+        base_display="Distilled L1",
+        palette_name="rocket",
+        palette_size=8,
+        base_offset=2,
+    ),
+    "distilled_abnormal": ModelFamily(
+        name="distilled_abnormal",
+        base_display="Distilled Abnormal",
+        palette_name="crest",
+        palette_size=8,
+        base_offset=2,
+    ),
+    "distilled_l1_abnormal": ModelFamily(
+        name="distilled_l1_abnormal",
+        base_display="Distilled L1 Abnormal",
+        palette_name="rocket",
+        palette_size=8,
+        base_offset=2,
+    ),
     "vanilla": ModelFamily(
         name="vanilla",
         base_display="Vanilla",
+        palette_name="flare",
+        palette_size=8,
+        base_offset=2,
+    ),
+    "vanilla_abnormal": ModelFamily(
+        name="vanilla_abnormal",
+        base_display="Vanilla Abnormal",
         palette_name="flare",
         palette_size=8,
         base_offset=2,
@@ -195,10 +233,11 @@ MODEL_FAMILIES: Dict[str, ModelFamily] = {
         palette_size=8,
         base_offset=2,
     ),
+    # Backward-compat alias (some callers may use mixed-case token).
     "distilled_L1": ModelFamily(
-        name="distilled_L1",
+        name="distilled_l1",
         base_display="Distilled L1",
-        palette_name="crest",
+        palette_name="rocket",
         palette_size=8,
         base_offset=2,
     ),
@@ -243,6 +282,7 @@ def extract_model_name(filename: str) -> str:
     - distill_phase<N>_seed<M> (e.g., distill_phase2_seed44, distill_phase3_seed45)
     - distill_phase<N> (e.g., distill_phase1, distill_phase2)
     - distilled_seed<M> (e.g., distilled_seed42, distilled_seed45)
+    - distilled_l1_seed<M> (e.g., distilled_l1_seed42)
     - distilled
     - vanilla_seed<M> (e.g., vanilla_seed43)
     - vanilla
@@ -331,8 +371,13 @@ def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
         {'base_model': 'vanilla', 'seed': None}
     """
     normalized = model_name.lower()
-    # Treat distilled *_L1 naming as the same model family as distilled.
-    normalized = re.sub(r"_l1$", "", normalized)
+
+    # Support legacy strings like "distilled_seed44_L1" by mapping them onto the
+    # canonical base model "distilled_l1".
+    is_l1 = False
+    if normalized.endswith("_l1"):
+        normalized = normalized[: -len("_l1")]
+        is_l1 = True
 
     # Check for seed pattern using regex to support any seed number
     match = re.search(r"_seed(\d+)", normalized)
@@ -340,16 +385,18 @@ def parse_model_components(model_name: str) -> Dict[str, Optional[str]]:
         seed_num = match.group(1)
         seed = f"seed{seed_num}"
         base_model = normalized.replace(f"_seed{seed_num}", "")
+        if is_l1 and base_model == "distilled":
+            base_model = "distilled_l1"
         return {
             "base_model": base_model,
             "seed": seed,
         }
 
     # No seed found
-    return {
-        "base_model": normalized,
-        "seed": None,
-    }
+    base_model = normalized
+    if is_l1 and base_model == "distilled":
+        base_model = "distilled_l1"
+    return {"base_model": base_model, "seed": None}
 
 
 def detect_model_files(directory: Path, pattern: str = "*.csv") -> List[ModelFile]:
@@ -407,6 +454,9 @@ def _get_or_create_family(base_model: str) -> ModelFamily:
         MODEL_FAMILIES[base_model] = family
         return family
 
+    if base_model == "distilled_l1":
+        return MODEL_FAMILIES["distilled_l1"]
+
     return MODEL_FAMILIES["unknown"]
 
 
@@ -447,6 +497,8 @@ def get_phase_label_from_base(base_model: Optional[str]) -> Optional[str]:
         return base_model.replace("distill_", "")
     if base_model == "distilled":
         return "distilled"
+    if base_model == "distilled_l1":
+        return "distilled_l1"
     return None
 
 
@@ -533,6 +585,22 @@ DEFAULT_MODEL_NAMES = [
     "distilled_seed42",
     "distilled_seed43",
     "distilled_seed44",
+    "distilled_l1",
+    "distilled_l1_seed42",
+    "distilled_l1_seed43",
+    "distilled_l1_seed44",
+    "distilled_abnormal",
+    "distilled_abnormal_seed42",
+    "distilled_abnormal_seed43",
+    "distilled_abnormal_seed44",
+    "distilled_l1_abnormal",
+    "distilled_l1_abnormal_seed42",
+    "distilled_l1_abnormal_seed43",
+    "distilled_l1_abnormal_seed44",
+    "vanilla_abnormal",
+    "vanilla_abnormal_seed42",
+    "vanilla_abnormal_seed43",
+    "vanilla_abnormal_seed44",
     "distill_phase1",
     "distill_phase1_seed42",
     "distill_phase1_seed43",
