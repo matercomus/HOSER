@@ -67,6 +67,12 @@ BOTTOM_LEGEND_Y_OFFSET = -0.14
 BOTTOM_LEGEND_PADDING = 0.22
 
 
+def ensure_plot_output_path(output_path: Path) -> None:
+    """Ensure the parent directory exists for a plot output path."""
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+
 def place_bottom_legend(
     ax: Axes,
     handles: Optional[List] = None,
@@ -886,6 +892,7 @@ class TrajectoryComparisonPlotter:
         ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
         ax.set_aspect("equal", adjustable="box")
 
+        ensure_plot_output_path(output_path)
         plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
         plt.savefig(f"{output_path}.png", dpi=self.config.dpi, bbox_inches="tight")
         plt.close()
@@ -1308,7 +1315,7 @@ class TrajectoryPlotter:
         fig.tight_layout()
 
         # Save both formats
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_plot_output_path(output_path)
         plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
         plt.savefig(f"{output_path}.png", dpi=self.config.dpi, bbox_inches="tight")
         plt.close()
@@ -1435,7 +1442,7 @@ class TrajectoryPlotter:
 
         fig.tight_layout()
         # Save both formats
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_plot_output_path(output_path)
         plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
         plt.savefig(f"{output_path}.png", dpi=self.config.dpi, bbox_inches="tight")
         plt.close()
@@ -1743,7 +1750,7 @@ class TrajectoryPlotter:
         ax.set_aspect("equal", adjustable="box")
 
         # Save both formats
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_plot_output_path(output_path)
         plt.savefig(f"{output_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
         plt.savefig(f"{output_path}.png", dpi=self.config.dpi, bbox_inches="tight")
         plt.close()
@@ -2207,8 +2214,6 @@ class TrajectoryVisualizer:
 
             if subfolder:
                 output_dir = output_dir / subfolder
-
-        output_dir.mkdir(parents=True, exist_ok=True)
 
         if self.dataset_has_phases:
             phase_for_display = (
