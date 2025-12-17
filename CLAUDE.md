@@ -113,7 +113,7 @@ Dependencies are managed through pyproject.toml with key requirements:
 
 External dependencies (separate repositories):
 - LM-TAD: Teacher model for knowledge distillation and evaluation
-  - Location: `/home/matt/Dev/LMTAD/code/`
+  - Location: `/home/mka299/LMTAD/code/`
   - Components: Teacher model, evaluation scripts
   - Data: Pre-converted datasets in grid format
 

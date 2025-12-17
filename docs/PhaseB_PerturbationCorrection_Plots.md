@@ -23,9 +23,9 @@ By default it writes PNG+SVG versions of:
 
 From repo root (recommended):
 ```bash
-uv run python /home/matt/Dev/HOSER/tools/visualize_perturbation_correction_results.py \
-  --eval-dir /home/matt/Dev/HOSER/hoser-distill-beijing \
-  --output-dir /home/matt/Dev/HOSER/hoser-distill-beijing/figures/perturbation_correction
+uv run python /home/mka299/HOSER/tools/visualize_perturbation_correction_results.py \
+  --eval-dir /home/mka299/HOSER/hoser-distill-beijing \
+  --output-dir /home/mka299/HOSER/hoser-distill-beijing/figures/perturbation_correction
 ```
 
 If you omit `--output-dir`, it defaults to:
@@ -33,8 +33,8 @@ If you omit `--output-dir`, it defaults to:
 
 ### Title override
 ```bash
-uv run python /home/matt/Dev/HOSER/tools/visualize_perturbation_correction_results.py \
-  --eval-dir /home/matt/Dev/HOSER/hoser-distill-beijing \
+uv run python /home/mka299/HOSER/tools/visualize_perturbation_correction_results.py \
+  --eval-dir /home/mka299/HOSER/hoser-distill-beijing \
   --title "Beijing Phase B (Smoke)"
 ```
 

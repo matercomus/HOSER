@@ -377,7 +377,7 @@ def main():
     parser.add_argument(
         "--lmtad-repo",
         type=Path,
-        default=Path("/home/matt/Dev/LMTAD/code"),
+        default=Path("/home/mka299/LMTAD/code"),
         help="Path to LM-TAD repository",
     )
     parser.add_argument(
@@ -414,7 +414,7 @@ def main():
     gene_dir = args.eval_dir / "gene" / args.dataset / "seed42"
     data_dir = Path("data") / args.dataset
     roadmap_file = data_dir / "roadmap.geo"
-    vocab_file = Path("/home/matt/Dev/LMTAD/data") / args.dataset / "vocab.json"
+    vocab_file = Path("/home/mka299/LMTAD/data") / args.dataset / "vocab.json"
 
     # Output directories
     converted_dir = args.eval_dir / "eval_lmtad" / args.dataset / "converted"

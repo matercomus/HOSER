@@ -47,8 +47,8 @@ optimizer_config:
 # Distillation settings (used by train_with_distill.py)
 distill:
   enable: true
-  repo: /home/matt/Dev/LMTAD
-  ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
+  repo: /home/mka299/LMTAD
+  ckpt: /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
   window: 4  # Fixed at Phase 1 optimal value
   lambda: 0.01
   temperature: 2.0
@@ -56,7 +56,7 @@ distill:
   downsample: 1     # No downsampling for this model
 
 # Point to the Porto HOSER dataset
-data_dir: /home/matt/Dev/HOSER-dataset-porto
+data_dir: /home/mka299/HOSER-dataset-porto
 
 # Dataloader performance knobs - optimized for streaming large dataset
 dataloader:

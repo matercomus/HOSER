@@ -656,8 +656,8 @@ Examples:
   uv run python tools/run_lmtad_spatial_pipeline.py \\
     --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \\
     --dataset porto_hoser \\
-    --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \\
-    --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt
+    --lmtad-source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \\
+    --lmtad-checkpoint /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt
 
   # Skip generation (use existing trajectories)
   uv run python tools/run_lmtad_spatial_pipeline.py \\

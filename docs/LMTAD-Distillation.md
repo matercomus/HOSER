@@ -2914,10 +2914,10 @@ The entire process is managed by `tune_hoser.py`:
 
 ```bash
 # Run the full 2-phase tuning process (uses settings from config/Beijing.yaml)
-uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset
+uv run python tune_hoser.py --data_dir /home/mka299/HOSER-dataset
 
 # Resume an existing study
-uv run python tune_hoser.py --data_dir /home/matt/Dev/HOSER-dataset --study_name <your_study_name>
+uv run python tune_hoser.py --data_dir /home/mka299/HOSER-dataset --study_name <your_study_name>
 ```
 
 **Where to find results**:

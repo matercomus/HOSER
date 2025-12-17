@@ -193,7 +193,7 @@ uv run python ../python_pipeline.py --only perturbation_correction --no-wandb
 uv run python ../python_pipeline.py \
   --only perturbation_correction \
   --no-wandb \
-  --perturbation-source-csv /home/matt/Dev/HOSER/data/Beijing_abnormal_3/train.csv \
+  --perturbation-source-csv /home/mka299/HOSER/data/Beijing_abnormal_3/train.csv \
   --perturbation-max-entries 2000 \
   --perturbation-seed 0
 

@@ -15,7 +15,7 @@ Evaluate the LM-TAD teacher model on both real and generated trajectories to ena
 lmtad:
   # Required for Phase 6
   enabled: true  # Enable LM-TAD teacher evaluation
-  repo: /home/matt/Dev/LMTAD  # Path to LM-TAD repository
+  repo: /home/mka299/LMTAD  # Path to LM-TAD repository
   checkpoint: /path/to/weights_only.pt  # Teacher checkpoint
   grid_size: 0.002  # Grid size (Beijing: 0.002, Porto: 0.001)
   device: cuda:0  # Device for evaluation

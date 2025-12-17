@@ -2330,8 +2330,8 @@ class EvaluationPipeline:
         if self.config.lmtad_source_eval_dir:
             return Path(self.config.lmtad_source_eval_dir)
 
-        # Auto-detect: /home/matt/Dev/LMTAD/code/results/LMTAD/{dataset}/run_*/.../eval/
-        lmtad_repo = Path("/home/matt/Dev/LMTAD")
+        # Auto-detect: /home/mka299/LMTAD/code/results/LMTAD/{dataset}/run_*/.../eval/
+        lmtad_repo = Path("/home/mka299/LMTAD")
         dataset_eval_base = (
             lmtad_repo / "code" / "results" / "LMTAD" / self.config.dataset
         )

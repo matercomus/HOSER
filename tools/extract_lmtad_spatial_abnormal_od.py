@@ -432,7 +432,7 @@ def main():
 Examples:
   # Extract from Porto evaluation
   uv run python tools/extract_lmtad_spatial_abnormal_od.py \\
-    --tsv-file /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/.../eval/ckpt_best_outliers_config_ratio_0.05_level_3_prob_0.3.tsv \\
+    --tsv-file /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/.../eval/ckpt_best_outliers_config_ratio_0.05_level_3_prob_0.3.tsv \\
     --dataset porto_hoser \\
     --output abnormal_od_pairs_lmtad_spatial_porto_hoser.json
 
@@ -440,7 +440,7 @@ Examples:
   uv run python tools/extract_lmtad_spatial_abnormal_od.py \\
     --tsv-file path/to/outliers.tsv \\
     --dataset porto_hoser \\
-    --source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/.../eval \\
+    --source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/.../eval \\
     --output abnormal_od_pairs_lmtad_spatial_porto_hoser.json
         """,
     )

@@ -24,7 +24,7 @@ The existing z-score abnormality detection results show **0% abnormalities** for
 Porto baselines need to be computed before running abnormality detection. This takes ~15-20 minutes:
 
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 uv run python tools/compute_trajectory_baselines.py --dataset porto_hoser
 ```
 
@@ -37,7 +37,7 @@ uv run python tools/compute_trajectory_baselines.py --dataset porto_hoser
 This will run BOTH the old threshold-based method AND the new Wang statistical method, creating comparison results.
 
 ```bash
-cd /home/matt/Dev/HOSER/hoser-distill-optuna-6
+cd /home/mka299/HOSER/hoser-distill-optuna-6
 
 uv run python ../python_pipeline.py \
   --eval-dir . \
@@ -76,7 +76,7 @@ abnormal/
 Same as Beijing but for Porto dataset:
 
 ```bash
-cd /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732
+cd /home/mka299/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732
 
 uv run python ../python_pipeline.py \
   --eval-dir . \
@@ -104,13 +104,13 @@ abnormal/
 To run both analyses overnight in sequence:
 
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 # Step 1: Compute Porto baselines (if not done yet)
 uv run python tools/compute_trajectory_baselines.py --dataset porto_hoser 2>&1 | tee baselines_porto_$(date +%Y%m%d_%H%M%S).log
 
 # Step 2: Beijing analysis
-cd /home/matt/Dev/HOSER/hoser-distill-optuna-6
+cd /home/mka299/HOSER/hoser-distill-optuna-6
 uv run python ../python_pipeline.py \
   --eval-dir . \
   --only abnormal \
@@ -119,7 +119,7 @@ uv run python ../python_pipeline.py \
   2>&1 | tee abnormal_wang_beijing_$(date +%Y%m%d_%H%M%S).log
 
 # Step 3: Porto analysis
-cd /home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732
+cd /home/mka299/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732
 uv run python ../python_pipeline.py \
   --eval-dir . \
   --only abnormal \

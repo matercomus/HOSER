@@ -10,12 +10,12 @@ Usage (via uv):
   uv run python tools/collect_distill_artifacts.py \
     --run_name Beijing_b24_acc4 \
     --run_dir /path/to/run_YYYYMMDD_HHMMSS \
-    --generated_csv /home/matt/Dev/HOSER/gene/Beijing/seed0/2025-09-26_19-25-56.csv \
+    --generated_csv /home/mka299/HOSER/gene/Beijing/seed0/2025-09-26_19-25-56.csv \
     --backup_root /mnt/i/Matt-Backups/HOSER-Backups/HOSER-Distil
 
 Notes:
 - This script assumes checkpoints saved by train_with_distill.py under save/<dataset>/seed<seed>_distill/best.pth
-- The wandb directory is searched under /home/matt/Dev/HOSER/wandb by default.
+- The wandb directory is searched under /home/mka299/HOSER/wandb by default.
 """
 
 import argparse
@@ -41,7 +41,7 @@ def run_geojson_conversion(
 
     # Build command
     cmd = (
-        f"uv run python /home/matt/Dev/Bigscity-LibCity-Datasets/hoser_to_geojson.py "
+        f"uv run python /home/mka299/Bigscity-LibCity-Datasets/hoser_to_geojson.py "
         f"{run_dir} --file {generated_csv.name} --output_dir {output_dir} --force-regenerate --individual"
     )
     # Execute
@@ -128,12 +128,12 @@ def main():
     )
     parser.add_argument(
         "--wandb_root",
-        default="/home/matt/Dev/HOSER/wandb",
+        default="/home/mka299/HOSER/wandb",
         help="Path to local wandb runs",
     )
     parser.add_argument(
         "--config_path",
-        default="/home/matt/Dev/HOSER/config/Beijing.yaml",
+        default="/home/mka299/HOSER/config/Beijing.yaml",
         help="Config file to copy into backup/meta",
     )
     args = parser.parse_args()
@@ -158,7 +158,7 @@ def main():
 
     # 2) Copy model checkpoint
     ckpt_src = Path(
-        f"/home/matt/Dev/HOSER/save/{args.dataset}/seed{args.seed}_distill/best.pth"
+        f"/home/mka299/HOSER/save/{args.dataset}/seed{args.seed}_distill/best.pth"
     )
     try_copy(ckpt_src, model_dir / "best.pth")
 

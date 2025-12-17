@@ -420,7 +420,7 @@ def main():
     parser.add_argument(
         "--lmtad-repo",
         type=Path,
-        default=Path("/home/matt/Dev/LMTAD"),
+        default=Path("/home/mka299/LMTAD"),
         help="LM-TAD repo path",
     )
     parser.add_argument("--device", type=str, default="cuda:0", help="CUDA device")

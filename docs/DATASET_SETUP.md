@@ -7,7 +7,7 @@ This guide documents the complete process for setting up a new dataset for HOSER
 ### Required Software
 - **Python 3.12+** with `uv` package manager
 - **KaHIP** graph partitioning library
-  - Installation path: `/home/matt/Dev/KaHIP/build/kaffpa`
+  - Installation path: `/home/mka299/KaHIP/build/kaffpa`
   - Used for road network partitioning into zones
 - **LM-TAD** teacher model trained on your dataset
 
@@ -35,11 +35,11 @@ Your dataset directory must contain these files in HOSER format:
 The HOSER codebase expects datasets at `data/<dataset_name>/`. Create a symlink pointing to your actual dataset directory.
 
 ```bash
-cd /home/matt/Dev/HOSER/data
+cd /home/mka299/HOSER/data
 ln -s /path/to/your/dataset <dataset_name>
 
 # Example for Porto:
-ln -s /home/matt/Dev/HOSER-dataset-porto porto_hoser
+ln -s /home/mka299/HOSER-dataset-porto porto_hoser
 
 # Verify symlink:
 ls -la data/<dataset_name>/
@@ -53,7 +53,7 @@ ls -la data/<dataset_name>/
 This creates a mapping from road segments to spatial zones (300 zones by default) using KaHIP graph partitioning.
 
 ```bash
-cd /home/matt/Dev/HOSER/data/preprocess
+cd /home/mka299/HOSER/data/preprocess
 
 uv run python partition_road_network.py --datasets <dataset_name>
 
@@ -74,7 +74,7 @@ uv run python partition_road_network.py --datasets porto_hoser
 This creates a probability matrix of transitions between zones based on training trajectories.
 
 ```bash
-cd /home/matt/Dev/HOSER/data/preprocess
+cd /home/mka299/HOSER/data/preprocess
 
 uv run python get_zone_trans_mat.py --datasets <dataset_name>
 
@@ -96,7 +96,7 @@ Convert the LM-TAD checkpoint to a weights-only format compatible with distillat
 
 **Find your LM-TAD checkpoint:**
 ```bash
-find /home/matt/Dev/LMTAD/code/results/LMTAD/<dataset_name> -name "ckpt_best.pt"
+find /home/mka299/LMTAD/code/results/LMTAD/<dataset_name> -name "ckpt_best.pt"
 ```
 
 **Determine grid dimensions:**
@@ -108,20 +108,20 @@ find /home/matt/Dev/LMTAD/code/results/LMTAD/<dataset_name> -name "ckpt_best.pt"
 
 **Extract weights:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python tools/export_lmtad_weights.py \
-  --repo /home/matt/Dev/LMTAD \
+  --repo /home/mka299/LMTAD \
   --grip_size "<width> <height>" \
   --ckpt_in /path/to/LMTAD/checkpoint/ckpt_best.pt \
   --ckpt_out /path/to/LMTAD/checkpoint/weights_only.pt
 
 # Example for Porto:
 uv run python tools/export_lmtad_weights.py \
-  --repo /home/matt/Dev/LMTAD \
+  --repo /home/mka299/LMTAD \
   --grip_size "46 134" \
-  --ckpt_in /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
-  --ckpt_out /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
+  --ckpt_in /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
+  --ckpt_out /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
 ```
 
 **Output:** `weights_only.pt` in the same directory as the original checkpoint
@@ -131,7 +131,7 @@ uv run python tools/export_lmtad_weights.py \
 Copy the Beijing configuration and adapt it for your dataset.
 
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 cp config/Beijing.yaml config/<dataset_name>.yaml
 ```
 
@@ -146,7 +146,7 @@ data_dir: /path/to/your/dataset
 ```yaml
 distill:
   enable: true
-  repo: /home/matt/Dev/LMTAD
+  repo: /home/mka299/LMTAD
   ckpt: /path/to/LMTAD/checkpoint/weights_only.pt
 ```
 
@@ -194,7 +194,7 @@ ls -lh config/<dataset_name>.yaml
 
 #### Quick test run:
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 # Test with 1 trial, 2 epochs to verify everything loads correctly:
 uv run python tune_hoser.py \
@@ -255,7 +255,7 @@ For large datasets:
 
 ### Standard Tuning Run
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python tune_hoser.py \
   --config config/<dataset_name>.yaml \
@@ -284,23 +284,23 @@ uv run python tune_hoser.py \
 
 ```bash
 # 1. Create symlink
-cd /home/matt/Dev/HOSER/data
-ln -s /home/matt/Dev/HOSER-dataset-porto porto_hoser
+cd /home/mka299/HOSER/data
+ln -s /home/mka299/HOSER-dataset-porto porto_hoser
 
 # 2. Generate road network partition
-cd /home/matt/Dev/HOSER/data/preprocess
+cd /home/mka299/HOSER/data/preprocess
 uv run python partition_road_network.py --datasets porto_hoser
 
 # 3. Generate zone transition matrix
 uv run python get_zone_trans_mat.py --datasets porto_hoser
 
 # 4. Extract LM-TAD teacher weights
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 uv run python tools/export_lmtad_weights.py \
-  --repo /home/matt/Dev/LMTAD \
+  --repo /home/mka299/LMTAD \
   --grip_size "46 134" \
-  --ckpt_in /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
-  --ckpt_out /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
+  --ckpt_in /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
+  --ckpt_out /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
 
 # 5. Create config (manual edits required)
 cp config/Beijing.yaml config/porto_hoser.yaml
@@ -309,7 +309,7 @@ cp config/Beijing.yaml config/porto_hoser.yaml
 # 6. Test setup
 uv run python tune_hoser.py \
   --config config/porto_hoser.yaml \
-  --data_dir /home/matt/Dev/HOSER-dataset-porto \
+  --data_dir /home/mka299/HOSER-dataset-porto \
   --n_trials 1 \
   --max_epochs 2
 ```
@@ -368,7 +368,7 @@ uv run python tune_hoser.py \
 ## File Structure After Setup
 
 ```
-/home/matt/Dev/HOSER/
+/home/mka299/HOSER/
   data/
     <dataset_name> -> /path/to/your/dataset (symlink)
     preprocess/
@@ -388,7 +388,7 @@ uv run python tune_hoser.py \
   road_network_partition (generated)
   zone_trans_mat.npy (generated)
 
-/home/matt/Dev/LMTAD/code/results/LMTAD/<dataset_name>/.../
+/home/mka299/LMTAD/code/results/LMTAD/<dataset_name>/.../
   ckpt_best.pt (original)
   weights_only.pt (generated)
 ```

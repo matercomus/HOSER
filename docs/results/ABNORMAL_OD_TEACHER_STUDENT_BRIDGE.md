@@ -61,7 +61,7 @@ teacher_results = evaluate_with_lmtad(
     trajectory_file="real_trajectories.csv",
     vocab_file="vocab.json",
     lmtad_checkpoint="weights_only.pt",
-    lmtad_repo_path="/home/matt/Dev/LMTAD",
+    lmtad_repo_path="/home/mka299/LMTAD",
     dataset="porto_hoser",
     output_dir="eval_lmtad/porto_hoser/real_data"
 )

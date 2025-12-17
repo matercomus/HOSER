@@ -49,8 +49,8 @@ optimizer_config:
 # Best trial: 7, Best val_acc: 0.5724
 distill:
   enable: true
-  repo: /home/matt/Dev/LMTAD
-  ckpt: /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
+  repo: /home/mka299/LMTAD
+  ckpt: /home/mka299/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
   window: 7  # Tuned: 7 (from Optuna study)
   # lambda: 0.0014233948822000568  # Tuned: ~0.00142 (from Optuna study)
   lambda: 1.0
@@ -59,7 +59,7 @@ distill:
   downsample: 1     # No downsampling for this model
 
 # Point to the original HOSER dataset (beijing_hoser_reference is LM-TAD format only)
-data_dir: /home/matt/Dev/HOSER-dataset
+data_dir: /home/mka299/HOSER-dataset
 
 # Dataloader performance knobs - optimized for streaming large dataset
 dataloader:

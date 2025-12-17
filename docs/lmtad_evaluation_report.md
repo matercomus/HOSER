@@ -149,7 +149,7 @@ ls -la tools_eval_lmtad/*/rule_comparison.*
 uv run tools/plot_lmtad_results.py --eval-dir tools_eval_lmtad/Beijing --out tools_eval_lmtad/Beijing
 ```
 
-- If you want me to apply fixes to LMTAD `metrics.py` (remove rounding; fix average_precision_score): tell me which file path in your LMTAD repo to patch (example from earlier: `/home/matt/Dev/LMTAD/code/metrics.py`). I can patch and then re-run `tools/evaluate_dataset_with_lmtad.py` on a sampled split.
+- If you want me to apply fixes to LMTAD `metrics.py` (remove rounding; fix average_precision_score): tell me which file path in your LMTAD repo to patch (example from earlier: `/home/mka299/LMTAD/code/metrics.py`). I can patch and then re-run `tools/evaluate_dataset_with_lmtad.py` on a sampled split.
 
 ---
 

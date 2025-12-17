@@ -64,7 +64,7 @@ if config.lmtad_evaluation:
 ```yaml
 dataset: Beijing
 lmtad_evaluation: true
-lmtad_repo: /home/matt/Dev/LMTAD
+lmtad_repo: /home/mka299/LMTAD
 lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/.../weights_only.pt
 ```
 
@@ -73,13 +73,13 @@ lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/.../weights_only.pt
 ```yaml
 # Dataset
 dataset: Beijing
-data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+data_dir: /home/mka299/LMTAD/data/beijing_hoser_reference
 
 # LM-TAD settings
 lmtad_evaluation: true
-lmtad_repo: /home/matt/Dev/LMTAD
+lmtad_repo: /home/mka299/LMTAD
 lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/.../weights_only.pt
-lmtad_real_data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+lmtad_real_data_dir: /home/mka299/LMTAD/data/beijing_hoser_reference
 
 # Evaluation settings
 num_gene: 5000
@@ -148,9 +148,9 @@ if config.lmtad_evaluation:
 # Minimal config - auto-detects real data path
 dataset: Beijing
 lmtad_evaluation: true
-lmtad_repo: /home/matt/Dev/LMTAD
+lmtad_repo: /home/mka299/LMTAD
 lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/.../weights_only.pt
-# lmtad_real_data_dir auto-detected: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+# lmtad_real_data_dir auto-detected: /home/mka299/LMTAD/data/beijing_hoser_reference
 ```
 
 ## Configuration Template
@@ -197,7 +197,7 @@ ValueError: lmtad_evaluation=True but lmtad_checkpoint not specified in config
 # Checkpoint file not found
 FileNotFoundError: LM-TAD checkpoint not found: /path/to/checkpoint.pt
 Original config value: code/results/...
-lmtad_repo: /home/matt/Dev/LMTAD
+lmtad_repo: /home/mka299/LMTAD
 
 # Cannot determine real data path
 ValueError: Cannot determine LM-TAD real data path. Please specify one of:

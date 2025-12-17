@@ -32,8 +32,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Project paths
-HOSER_ROOT="/home/matt/Dev/HOSER"
-DATA_DIR="/home/matt/Dev/HOSER-dataset"
+HOSER_ROOT="/home/mka299/HOSER"
+DATA_DIR="/home/mka299/HOSER-dataset"
 CONFIG_FILE="$HOSER_ROOT/config/Beijing.yaml"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 

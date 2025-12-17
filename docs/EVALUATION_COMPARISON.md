@@ -343,8 +343,8 @@ Add to Section 1 or Appendix:
 **Generated:** October 31, 2025  
 **Comparison Version:** 1.0  
 **Documents Compared:**
-- Beijing: `/home/matt/Dev/HOSER/hoser-distill-optuna-6/EVALUATION_ANALYSIS.md` (882 lines)
-- Porto: `/home/matt/Dev/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/EVALUATION_ANALYSIS_PHASE1.md` (975 lines)
+- Beijing: `/home/mka299/HOSER/hoser-distill-optuna-6/EVALUATION_ANALYSIS.md` (882 lines)
+- Porto: `/home/mka299/HOSER/hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/EVALUATION_ANALYSIS_PHASE1.md` (975 lines)
 
 ---
 

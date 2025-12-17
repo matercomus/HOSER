@@ -77,16 +77,16 @@ Extract origin-destination pairs from LM-TAD-identified spatial outliers in the 
 
 **Prerequisites:**
 - LM-TAD source evaluation TSV file (e.g., `ckpt_best_outliers_config_ratio_0.05_level_3_prob_0.3.tsv`)
-- Located in: `/home/matt/Dev/LMTAD/code/results/LMTAD/{dataset}/run_*/.../eval/`
+- Located in: `/home/mka299/LMTAD/code/results/LMTAD/{dataset}/run_*/.../eval/`
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python tools/extract_lmtad_spatial_abnormal_od.py \
-  --tsv-file /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval/ckpt_best_outliers_config_ratio_0.05_level_3_prob_0.3.tsv \
+  --tsv-file /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval/ckpt_best_outliers_config_ratio_0.05_level_3_prob_0.3.tsv \
   --dataset porto_hoser \
-  --source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
   --output hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/abnormal_od_pairs_lmtad_spatial_porto_hoser.json
 ```
 
@@ -111,9 +111,9 @@ uv run python tools/extract_lmtad_spatial_abnormal_od.py \
 **Beijing Example:**
 ```bash
 uv run python tools/extract_lmtad_spatial_abnormal_od.py \
-  --tsv-file /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval/final_model_outliers_config_ratio_0.05_level_3_prob_0.3.tsv \
+  --tsv-file /home/mka299/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval/final_model_outliers_config_ratio_0.05_level_3_prob_0.3.tsv \
   --dataset Beijing \
-  --source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
   --output hoser-distill-beijing/abnormal_od_pairs_lmtad_spatial_Beijing.json
 ```
 
@@ -138,7 +138,7 @@ The stratified sampling ensures:
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python tools/generate_lmtad_spatial_abnormal_trajectories.py \
   --od-pairs-file hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/abnormal_od_pairs_lmtad_spatial_porto_hoser.json \
@@ -169,12 +169,12 @@ Evaluate generated trajectories with LM-TAD to compute perplexity scores.
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python tools/evaluate_lmtad_spatial_abnormal.py \
   --trajectory-file hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/gene_abnormal_lmtad_spatial/porto_hoser/seed42/vanilla_spatial_abnormal.csv \
-  --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
-  --source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --lmtad-checkpoint /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
+  --source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
   --dataset porto_hoser \
   --output hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/eval_lmtad_spatial/porto_hoser/vanilla_spatial_evaluation.json
 ```
@@ -247,12 +247,12 @@ Aggregate evaluation results with statistical comparisons.
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python tools/analyze_lmtad_spatial_results.py \
   --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
   --dataset porto_hoser \
-  --source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
   --output hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/analysis_abnormal/porto_hoser/lmtad_spatial_results_aggregated.json
 ```
 
@@ -269,7 +269,7 @@ Create publication-quality visualizations from aggregated results.
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python tools/visualize_lmtad_spatial_results.py \
   --input hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/analysis_abnormal/porto_hoser/lmtad_spatial_results_aggregated.json \
@@ -446,7 +446,7 @@ After evaluating all models, you can build a cross-model comparison to analyze p
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 # Build cross-model comparison from all evaluation JSON files
 uv run python tools/evaluate_lmtad_spatial_abnormal.py \
@@ -469,7 +469,7 @@ Combine Wang temporal and LM-TAD spatial results into a comprehensive report.
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python tools/create_combined_abnormal_report.py \
   --wang-results hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732/analysis_abnormal/porto_hoser/wang_results_aggregated.json \
@@ -493,13 +493,13 @@ Use the pipeline orchestrator to run all steps automatically:
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python tools/run_lmtad_spatial_pipeline.py \
   --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
   --dataset porto_hoser \
-  --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
-  --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
+  --lmtad-source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --lmtad-checkpoint /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
   --seed 42 \
   --num-trajectories-per-od 20 \
   --max-od-pairs 250 \
@@ -541,8 +541,8 @@ uv run python tools/run_lmtad_spatial_pipeline.py \
 uv run python tools/run_lmtad_spatial_pipeline.py \
   --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
   --dataset porto_hoser \
-  --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
-  --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
+  --lmtad-source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --lmtad-checkpoint /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
   --seed 42 \
   --num-trajectories-per-od 20 \
   --max-od-pairs 250 \
@@ -554,8 +554,8 @@ uv run python tools/run_lmtad_spatial_pipeline.py \
 uv run python tools/run_lmtad_spatial_pipeline.py \
   --eval-dir hoser-distill-beijing \
   --dataset Beijing \
-  --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
-  --lmtad-checkpoint /home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
+  --lmtad-source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --lmtad-checkpoint /home/mka299/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/ckpt_best.pt \
   --seed 42 \
   --num-trajectories-per-od 20 \
   --max-od-pairs 250 \
@@ -568,7 +568,7 @@ The LM-TAD spatial abnormality evaluation is integrated as a phase in the main p
 
 **Command:**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python python_pipeline.py \
   --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
@@ -579,13 +579,13 @@ uv run python python_pipeline.py \
 
 **With explicit paths (optional):**
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 
 uv run python python_pipeline.py \
   --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
   --dataset porto_hoser \
   --run-lmtad-spatial \
-  --lmtad-source-eval-dir /home/matt/Dev/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
+  --lmtad-source-eval-dir /home/mka299/LMTAD/code/results/LMTAD/porto_hoser/run_20251010_212829/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/eval \
   --only lmtad_spatial_abnormality
 ```
 
@@ -600,7 +600,7 @@ For CI or quick validation runs you can reduce workload by limiting OD pairs and
 - **CI-friendly example** (the command you're running):
 
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 uv run python python_pipeline.py \
   --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
   --run-lmtad-spatial \

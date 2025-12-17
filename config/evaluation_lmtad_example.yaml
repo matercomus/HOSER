@@ -18,7 +18,7 @@ dataset: Beijing
 # Data directory containing train.csv and test.csv
 # For LM-TAD: Use the LM-TAD format data (grid-tokenized trajectories)
 # Note: This is different from HOSER data_dir (which uses road network graphs)
-data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+data_dir: /home/mka299/LMTAD/data/beijing_hoser_reference
 
 # ============================================================================
 # LM-TAD Teacher Evaluation Configuration
@@ -28,7 +28,7 @@ data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
 lmtad_evaluation: true
 
 # Path to LM-TAD repository root
-lmtad_repo: /home/matt/Dev/LMTAD
+lmtad_repo: /home/mka299/LMTAD
 
 # Path to LM-TAD checkpoint (.pt file from train_LMTAD.py)
 # Can be absolute or relative to lmtad_repo
@@ -36,7 +36,7 @@ lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/run_20250928_202718
 
 # Optional: Real data directory for teacher evaluation
 # If not specified, will auto-detect from lmtad_repo + dataset name
-# lmtad_real_data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+# lmtad_real_data_dir: /home/mka299/LMTAD/data/beijing_hoser_reference
 
 # ============================================================================
 # Evaluation Settings (Same as HOSER Student Evaluation)
@@ -84,12 +84,12 @@ skip_generation: false
 # Beijing Dataset:
 #   dataset: Beijing
 #   lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/.../weights_only.pt
-#   data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+#   data_dir: /home/mka299/LMTAD/data/beijing_hoser_reference
 
 # Porto Dataset:
 #   dataset: porto_hoser
 #   lmtad_checkpoint: code/results/LMTAD/porto_hoser/run_20251010_212829/.../weights_only.pt
-#   data_dir: /home/matt/Dev/LMTAD/data/porto_hoser
+#   data_dir: /home/mka299/LMTAD/data/porto_hoser
 
 # ============================================================================
 # Notes

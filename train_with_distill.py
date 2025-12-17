@@ -793,7 +793,7 @@ def main(
     if distill_enabled:
         dcfg = DistillConfig(
             enabled=True,
-            repo_path=getattr(config.distill, "repo", "/home/matt/Dev/LMTAD"),
+            repo_path=getattr(config.distill, "repo", "/home/mka299/LMTAD"),
             ckpt_path=getattr(config.distill, "ckpt", ""),
             dtype="float16",
             window=int(distill_window_cfg or 64),

@@ -1372,8 +1372,8 @@ Examples:
   # Evaluate single model
   uv run python tools/evaluate_lmtad_spatial_abnormal.py \\
     --trajectory-file gene_abnormal_lmtad_spatial/porto_hoser/seed42/vanilla_spatial_abnormal.csv \\
-    --lmtad-checkpoint /home/matt/Dev/LMTAD/.../ckpt_best.pt \\
-    --source-eval-dir /home/matt/Dev/LMTAD/.../eval \\
+    --lmtad-checkpoint /home/mka299/LMTAD/.../ckpt_best.pt \\
+    --source-eval-dir /home/mka299/LMTAD/.../eval \\
     --dataset porto_hoser \\
     --output eval_lmtad_spatial/porto_hoser/vanilla_spatial_evaluation.json
         """,

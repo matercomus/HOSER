@@ -39,9 +39,9 @@ YAML Configuration Format:
 
     # Optional: LM-TAD Teacher Baseline Evaluation
     lmtad_evaluation: true
-    lmtad_repo: /home/matt/Dev/LMTAD
+    lmtad_repo: /home/mka299/LMTAD
     lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/.../weights_only.pt
-    lmtad_real_data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference  # Optional (auto-detected)
+    lmtad_real_data_dir: /home/mka299/LMTAD/data/beijing_hoser_reference  # Optional (auto-detected)
 
 Configuration Priority:
     1. Explicit values in YAML file
@@ -81,11 +81,11 @@ class EvaluationConfig:
         ```yaml
         # LM-TAD Teacher Baseline Evaluation
         dataset: Beijing
-        data_dir: /home/matt/Dev/LMTAD/data/beijing_hoser_reference
+        data_dir: /home/mka299/LMTAD/data/beijing_hoser_reference
 
         # LM-TAD specific settings
         lmtad_evaluation: true
-        lmtad_repo: /home/matt/Dev/LMTAD
+        lmtad_repo: /home/mka299/LMTAD
         lmtad_checkpoint: code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/.../weights_only.pt
 
         # Evaluation settings (same as HOSER)

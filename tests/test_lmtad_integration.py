@@ -26,8 +26,8 @@ from evaluation import GlobalMetrics, evaluate_trajectories_programmatic
 def lmtad_config():
     """Basic LM-TAD configuration for testing."""
     return {
-        "repo_path": "/home/matt/Dev/LMTAD",
-        "ckpt_path": "/home/matt/Dev/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt",
+        "repo_path": "/home/mka299/LMTAD",
+        "ckpt_path": "/home/mka299/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt",
         "device": "cuda:0" if torch.cuda.is_available() else "cpu",
         "dtype": "float16",
         "window": 64,

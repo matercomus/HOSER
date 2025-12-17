@@ -50,12 +50,12 @@ DATASET_CONFIGS = {
     "porto_hoser": {
         "grid_size": 0.001,
         "downsample_factor": 1,
-        "vocab_path": "/home/matt/Dev/LMTAD/data/porto_hoser/vocab.json",
+        "vocab_path": "/home/mka299/LMTAD/data/porto_hoser/vocab.json",
     },
     "beijing_hoser_reference": {
         "grid_size": 0.001,
         "downsample_factor": 1,
-        "vocab_path": "/home/matt/Dev/LMTAD/data/beijing_hoser_reference/vocab.json",
+        "vocab_path": "/home/mka299/LMTAD/data/beijing_hoser_reference/vocab.json",
     },
 }
 

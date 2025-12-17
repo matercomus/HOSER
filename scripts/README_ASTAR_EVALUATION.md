@@ -7,7 +7,7 @@ Automated scripts for running complete A* search evaluation pipeline with backup
 ### Launch Both Datasets (Recommended)
 
 ```bash
-cd /home/matt/Dev/HOSER/scripts
+cd /home/mka299/HOSER/scripts
 ./launch_both_astar_evaluations.sh
 ```
 
@@ -20,7 +20,7 @@ This will:
 ### Run Individual Dataset
 
 ```bash
-cd /home/matt/Dev/HOSER/scripts
+cd /home/mka299/HOSER/scripts
 
 # Beijing only
 ./run_astar_evaluation.sh beijing
@@ -129,8 +129,8 @@ eval.backup.astar_TIMESTAMP/       # Backup of previous eval
 
 ```bash
 # Ensure scripts are executable
-chmod +x /home/matt/Dev/HOSER/scripts/run_astar_evaluation.sh
-chmod +x /home/matt/Dev/HOSER/scripts/launch_both_astar_evaluations.sh
+chmod +x /home/mka299/HOSER/scripts/run_astar_evaluation.sh
+chmod +x /home/mka299/HOSER/scripts/launch_both_astar_evaluations.sh
 ```
 
 ### Session Already Exists
@@ -156,7 +156,7 @@ grep ERROR ~/Dev/HOSER/hoser-distill-optuna-6/logs/astar_evaluation_*.log
 
 ```bash
 # Check available space
-df -h /home/matt/Dev/HOSER
+df -h /home/mka299/HOSER
 
 # Each dataset evaluation uses ~10-20GB
 ```

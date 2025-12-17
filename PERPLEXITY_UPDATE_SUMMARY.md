@@ -169,7 +169,7 @@ All statistical functions include:
 uv run python tools/analyze_lmtad_spatial_results.py \
   --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
   --dataset porto_hoser \
-  --source-eval-dir /home/matt/Dev/LMTAD/.../eval \
+  --source-eval-dir /home/mka299/LMTAD/.../eval \
   --output analysis_abnormal/porto_hoser/lmtad_perplexity_results_aggregated.json
 ```
 

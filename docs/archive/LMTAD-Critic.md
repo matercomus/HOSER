@@ -174,7 +174,7 @@ This section details a practical, low-risk path to integrate LM‑TAD as a real-
 
 ### 8.3 LM‑TAD Wrapper (critics/lmtad_wrapper.py)
 
-Purpose: provide a stable API to score candidate next roads using surprisal from LM‑TAD located at `/home/matt/Dev/LMTAD` (e.g., `code/eval_porto.py` and related modules).
+Purpose: provide a stable API to score candidate next roads using surprisal from LM‑TAD located at `/home/mka299/LMTAD` (e.g., `code/eval_porto.py` and related modules).
 
 - API
   - `class LMTADSurprisalScorer:`
@@ -258,7 +258,7 @@ def astar_with_critic(o, t0, d, lambda_surprisal=1e-2, w_length=1.0, max_search_
 Add flags to `gene.py`:
 
 - `--use_critic` — enable LM‑TAD‑augmented A* (otherwise use vanilla `nx_astar_search`)
-- `--critic_repo /home/matt/Dev/LMTAD` — LM‑TAD repository root
+- `--critic_repo /home/mka299/LMTAD` — LM‑TAD repository root
 - `--critic_ckpt /path/to/weights.pt` — LM‑TAD checkpoint
 - `--critic_lambda 0.01` — weight for surprisal penalty
 - `--critic_block_size 64` — history window length
@@ -295,8 +295,8 @@ Assuming an LM‑TAD checkpoint is available:
 
 ```bash
 uv run python gene.py --dataset Beijing --cuda 0 --nx_astar --use_critic \
-  --critic_repo /home/matt/Dev/LMTAD \
-  --critic_ckpt /home/matt/Dev/LMTAD/checkpoints/porto_lmtad.pt \
+  --critic_repo /home/mka299/LMTAD \
+  --critic_ckpt /home/mka299/LMTAD/checkpoints/porto_lmtad.pt \
   --critic_lambda 0.01 --critic_block_size 64 --critic_gpu 0
 ```
 

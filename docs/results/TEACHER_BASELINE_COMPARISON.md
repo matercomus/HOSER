@@ -51,7 +51,7 @@ This document presents the evaluation methodology and results of using the LM-TA
        trajectory_file="lmtad_format.csv",
        vocab_file="vocab.json",
        lmtad_checkpoint="weights_only.pt",
-       lmtad_repo_path="/home/matt/Dev/LMTAD",
+       lmtad_repo_path="/home/mka299/LMTAD",
        dataset="beijing_hoser_reference",
        output_dir="evaluation_results"
    )
@@ -221,7 +221,7 @@ uv run python tools/plot_lmtad_evaluation.py \\
    - `critics/lmtad_teacher.py`: Model wrapper
 
 2. **Results**:
-   - `/home/matt/Dev/LMTAD/code/results/LMTAD/*/EVALUATION_ANALYSIS.md`
+   - `/home/mka299/LMTAD/code/results/LMTAD/*/EVALUATION_ANALYSIS.md`
    - `hoser-distill-optuna-*/analysis_abnormal/*/workflow_summary.json`
 
 3. **Documentation**:

@@ -75,16 +75,16 @@ CONFIGURATION:
 
 USAGE:
   # Phase 1: Standard run (broad search, uses config defaults)
-  uv run python tune_hoser.py --config config/porto_hoser.yaml --data_dir /home/matt/Dev/HOSER-dataset-porto
+  uv run python tune_hoser.py --config config/porto_hoser.yaml --data_dir /home/mka299/HOSER-dataset-porto
 
   # Phase 2: Refined search (narrowed ranges, fixed window)
-  uv run python tune_hoser.py --config config/porto_hoser_phase2.yaml --data_dir /home/matt/Dev/HOSER-dataset-porto
+  uv run python tune_hoser.py --config config/porto_hoser_phase2.yaml --data_dir /home/mka299/HOSER-dataset-porto
 
   # Resume existing study
-  uv run python tune_hoser.py --study_name my_study --config config/porto_hoser_phase2.yaml --data_dir /home/matt/Dev/HOSER-dataset-porto
+  uv run python tune_hoser.py --study_name my_study --config config/porto_hoser_phase2.yaml --data_dir /home/mka299/HOSER-dataset-porto
 
   # Override number of trials or epochs
-  uv run python tune_hoser.py --n_trials 10 --max_epochs 8 --config config/porto_hoser.yaml --data_dir /home/matt/Dev/HOSER-dataset
+  uv run python tune_hoser.py --n_trials 10 --max_epochs 8 --config config/porto_hoser.yaml --data_dir /home/mka299/HOSER-dataset
 """
 
 import os

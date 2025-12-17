@@ -34,7 +34,7 @@ plt.style.use("seaborn-v0_8-whitegrid")
 sns.set_palette("husl")
 
 # Configuration
-BASE_DIR = Path("/home/matt/Dev/HOSER")
+BASE_DIR = Path("/home/mka299/HOSER")
 # Default, can be overridden by args
 DEFAULT_EVAL_DIR = (
     BASE_DIR

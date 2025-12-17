@@ -665,7 +665,7 @@ class AbnormalODWorkflowRunner:
 
         # Get LM-TAD checkpoint and repo path
         lmtad_checkpoint = self.config.get_lmtad_checkpoint()
-        lmtad_repo_path = Path(self.config.get("lmtad_repo", "/home/matt/Dev/LMTAD"))
+        lmtad_repo_path = Path(self.config.get("lmtad_repo", "/home/mka299/LMTAD"))
 
         # Create real data output directory
         real_output_dir = output_dir / "real_data"
@@ -718,7 +718,7 @@ class AbnormalODWorkflowRunner:
         logger.info(f"Found {len(generated_files)} generated trajectory files")
 
         # Get LM-TAD paths
-        lmtad_repo_path = Path(self.config.get("lmtad_repo", "/home/matt/Dev/LMTAD"))
+        lmtad_repo_path = Path(self.config.get("lmtad_repo", "/home/mka299/LMTAD"))
         lmtad_checkpoint = self.config.get_lmtad_checkpoint()
 
         # Load vocab file from real data directory (for consistent grid mapping)

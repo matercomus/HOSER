@@ -169,7 +169,7 @@ When running the LM‑TAD spatial abnormality evaluation you may want to reduce 
 - **Quick/CI example**: reduce OD pairs and trajectories per OD, and temporarily disable duplicate checks (useful to shorten runs while debugging):
 
 ```bash
-cd /home/matt/Dev/HOSER
+cd /home/mka299/HOSER
 uv run python python_pipeline.py \
     --eval-dir hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732 \
     --run-lmtad-spatial \

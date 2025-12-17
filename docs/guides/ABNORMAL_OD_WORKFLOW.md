@@ -5,7 +5,7 @@ Complete pipeline for testing models on challenging abnormal trajectory scenario
 ## Quick Start
 
 ```bash
-cd /home/matt/Dev/HOSER/hoser-distill-optuna-6
+cd /home/mka299/HOSER/hoser-distill-optuna-6
 
 # Phase 1-2: Detect abnormalities (real + generated) for both datasets
 uv run python ../python_pipeline.py --eval-dir . --only abnormal 2>&1 | tee abnormal_baseline.log
@@ -246,7 +246,7 @@ Since generation (Phase 4) can take hours:
 
 ```bash
 tmux new-session -s abnormal-od
-cd /home/matt/Dev/HOSER/hoser-distill-optuna-6
+cd /home/mka299/HOSER/hoser-distill-optuna-6
 
 # Run Phase 4
 uv run python ../tools/generate_abnormal_od.py ...

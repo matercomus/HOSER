@@ -416,7 +416,7 @@ duration: ~28 minutes
 
 ```bash
 # Examine road network statistics
-cd /home/matt/Dev/HOSER/data/Beijing
+cd /home/mka299/HOSER/data/Beijing
 wc -l roadmap.geo roadmap.rel train.csv
 
 # Check zone distribution  

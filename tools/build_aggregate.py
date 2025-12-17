@@ -3,7 +3,7 @@
 Simple script to build aggregate.pt files for HOSER datasets.
 
 Usage:
-    uv run python tools/build_aggregate.py --data_dir /home/matt/Dev/HOSER-dataset
+    uv run python tools/build_aggregate.py --data_dir /home/mka299/HOSER-dataset
 """
 
 import sys

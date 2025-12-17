@@ -66,7 +66,7 @@ This document archives the completed beam search ablation study for the Beijing 
 - 24 evaluation directories with normalized metrics
 - All performance JSON files
 
-**Location**: `/home/matt/Dev/HOSER/hoser-distill-optuna-6/`
+**Location**: `/home/mka299/HOSER/hoser-distill-optuna-6/`
 - Trajectories: `gene/Beijing/seed42/`
 - Evaluations: `eval/2025-11-06_*/`
 

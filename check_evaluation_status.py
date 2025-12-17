@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-BASE_DIR = Path("/home/matt/Dev/HOSER")
+BASE_DIR = Path("/home/mka299/HOSER")
 EVAL_DIR = (
     BASE_DIR
     / "hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732"
@@ -95,11 +95,11 @@ def check_status():
 
     if results_file.exists():
         print("✓ Results are available! Run the visualization script:")
-        print("  python /home/matt/Dev/HOSER/create_lmtad_visualizations.py\n")
+        print("  python /home/mka299/HOSER/create_lmtad_visualizations.py\n")
     else:
         print("⏳ Evaluation still running. Options:")
         print("  1. Monitor with the script:")
-        print("     bash /home/matt/Dev/HOSER/monitor_results.sh")
+        print("     bash /home/mka299/HOSER/monitor_results.sh")
         print("  2. Check this status again later")
         print("  3. Check the training logs for progress\n")
 
