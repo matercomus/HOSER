@@ -6,6 +6,17 @@ __pycache__/
 /gene
 /*.sh
 /data/*
+
+# Local symlinks to external outputs (HPC layout)
+logs
+wandb
+
+# Local evaluation workspaces (often symlinked to /local/data/...)
+hoser-distill-beijing
+hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732
+hoser-perturbed-beijing-abnormal-3-eval
+hoser-perturbed-porto-abnormal-3-eval
+hoser-perturbed-*-eval
 HOSER_paper.pdf
 HOSER_paper.txt
 EVAL_NOTES.md
