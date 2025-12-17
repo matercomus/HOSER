@@ -73,6 +73,32 @@ def ensure_plot_output_path(output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
 
+def format_lambda_axis_label(lambda_label: str) -> str:
+    """Format a lambda axis token for display."""
+
+    if lambda_label == "default":
+        return "Default"
+    if lambda_label == "L0p001":
+        return "L0.001"
+    return lambda_label
+
+
+def append_display_suffix(display_name: str, suffix: str) -> str:
+    """Append a suffix to a display name, preserving existing parentheses."""
+
+    if not suffix or suffix in display_name:
+        return display_name
+
+    if display_name.endswith(")") and "(" in display_name:
+        head, tail = display_name.rsplit("(", 1)
+        inner = tail[:-1]
+        if inner:
+            return f"{head}({inner}, {suffix})"
+        return f"{head}({suffix})"
+
+    return f"{display_name} ({suffix})"
+
+
 def place_bottom_legend(
     ax: Axes,
     handles: Optional[List] = None,
@@ -1541,6 +1567,7 @@ class TrajectoryPlotter:
         output_path: Path,
         title: str = None,
         missing_models: List[str] = None,
+        label_overrides: Optional[Dict[str, str]] = None,
     ):
         """Plot trajectories from different models for the same OD pair"""
         if not trajectories:
@@ -1564,7 +1591,10 @@ class TrajectoryPlotter:
             if model_name == "real":
                 model_labels[model_name] = "Real Trajectory"
             else:
-                model_labels[model_name] = get_display_name(model_name)
+                display_name = get_display_name(model_name)
+                if label_overrides and model_name in label_overrides:
+                    display_name = label_overrides[model_name]
+                model_labels[model_name] = display_name
 
         fig, ax = plt.subplots(figsize=self.config.figsize, facecolor="white")
         ax.set_facecolor("white")
@@ -2306,11 +2336,34 @@ class TrajectoryVisualizer:
             )
             title = f"{title_lead} • OD: {origin} -> {destination}"
 
+            label_overrides: Optional[Dict[str, str]] = None
+            if (
+                variant_group is not None
+                and variant_group.lambda_label
+                and variant_group.lambda_label != "default"
+            ):
+                lambda_display = format_lambda_axis_label(variant_group.lambda_label)
+                overrides: Dict[str, str] = {}
+                for model_name in comparison_trajs:
+                    if model_name == "real":
+                        continue
+                    metadata = build_model_metadata(model_name)
+                    if metadata.normalized_base != "distilled":
+                        continue
+                    base_display = get_display_name(model_name)
+                    overrides[model_name] = append_display_suffix(
+                        base_display,
+                        lambda_display,
+                    )
+                if overrides:
+                    label_overrides = overrides
+
             self.plotter.plot_cross_model_comparison(
                 comparison_trajs,
                 output_path,
                 title=title,
                 missing_models=missing_models,
+                label_overrides=label_overrides,
             )
             # Track generated plots
             self.generated_plots.append(f"{output_path}.pdf")

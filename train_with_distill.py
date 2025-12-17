@@ -31,6 +31,25 @@ from dataset import Dataset
 from critics.distill_hook import DistillationManager, DistillConfig
 
 
+def _format_lambda_token(value: float) -> str:
+    """Format a distillation lambda into a stable path token.
+
+    Examples:
+        0.001 -> l0p001
+        1.0 -> l1
+        0.5 -> lambda0p5
+    """
+
+    if abs(value - 0.001) < 1e-12:
+        return "l0p001"
+    if abs(value - 1.0) < 1e-12:
+        return "l1"
+
+    text = f"{value:.6g}"
+    text = text.replace("-", "m").replace(".", "p")
+    return f"lambda{text}"
+
+
 class MyCollateFn:
     def __init__(
         self,
@@ -382,13 +401,17 @@ def main(
             f"Missing required data files: {missing}. Set --data_dir to your HOSER-format directory."
         )
 
-    # Determine suffix based on distillation mode (prevents directory collision)
-    # Respect --no-distill flag if provided, otherwise use config
+    # Determine suffix based on distillation mode.
+    # If --distill-lambda is provided, include it to prevent M2/M3 directory collisions.
+    # Respect --no-distill flag if provided, otherwise use config.
     if force_no_distill:
         distill_enabled = False
     else:
         distill_enabled = getattr(getattr(config, "distill", {}), "enable", False)
+
     dir_suffix = "distill" if distill_enabled else "vanilla"
+    if distill_enabled and distill_lambda is not None and not force_no_distill:
+        dir_suffix = f"distill_{_format_lambda_token(float(distill_lambda))}"
 
     save_dir = f"./save/{dataset_name}/seed{seed}_{dir_suffix}"
     tensorboard_log_dir = f"./tensorboard_log/{dataset_name}/seed{seed}_{dir_suffix}"

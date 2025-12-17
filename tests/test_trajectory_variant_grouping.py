@@ -37,6 +37,41 @@ def test_beijing_l1_axis_splits_distilled_groups():
     assert axes.include_phase is False
 
     assert set(groups.keys()) == {
+        VariantGroupKey(phase_label=None, lambda_label="default", abnormal_label=None),
+        VariantGroupKey(phase_label=None, lambda_label="L1", abnormal_label=None),
+    }
+
+    assert (
+        groups[
+            VariantGroupKey(
+                phase_label=None, lambda_label="default", abnormal_label=None
+            )
+        ]["seed42"]["distill"]
+        == "distilled_seed42"
+    )
+
+    assert (
+        groups[
+            VariantGroupKey(phase_label=None, lambda_label="L1", abnormal_label=None)
+        ]["seed42"]["distill"]
+        == "distilled_l1_seed42"
+    )
+
+
+def test_beijing_l0p001_axis_present_when_explicit_models_exist():
+    axes, groups = collect_variant_seed_groups(
+        [
+            "vanilla_seed42",
+            "distilled_seed42",
+            "distilled_l0p001_seed42",
+            "distilled_l1_seed42",
+        ],
+        dataset_has_phases=False,
+    )
+
+    assert axes.include_lambda is True
+    assert set(groups.keys()) == {
+        VariantGroupKey(phase_label=None, lambda_label="default", abnormal_label=None),
         VariantGroupKey(phase_label=None, lambda_label="L0p001", abnormal_label=None),
         VariantGroupKey(phase_label=None, lambda_label="L1", abnormal_label=None),
     }

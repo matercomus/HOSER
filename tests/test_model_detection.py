@@ -271,6 +271,16 @@ class TestGetDisplayName:
         assert get_display_name("distilled_seed45") == "Distilled (seed 45)"
         assert get_display_name("vanilla_seed100") == "Vanilla (seed 100)"
 
+        # Lambda=0.001 distilled family
+        assert get_display_name("distilled_l0p001") == "Distilled L0.001"
+        assert (
+            get_display_name("distilled_l0p001_seed42") == "Distilled L0.001 (seed 42)"
+        )
+        # Legacy suffix form
+        assert (
+            get_display_name("distilled_seed42_L0p001") == "Distilled L0.001 (seed 42)"
+        )
+
 
 class TestGetModelColor:
     """Tests for get_model_color function."""

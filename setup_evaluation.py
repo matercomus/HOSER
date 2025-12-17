@@ -66,10 +66,21 @@ class EvaluationSetup:
             if not best_pth.exists():
                 continue
 
-            # Extract model type: seed42_distill -> distill
-            match = re.match(r"seed(\d+)_(distill|vanilla)", seed_dir.name)
+            # Extract model type, allowing variants:
+            # - seed42_distill
+            # - seed42_distill_l0p001
+            # - seed42_distill_l1
+            # - seed42_vanilla
+            match = re.match(
+                r"seed(\d+)_(distill(?:_[a-z0-9p]+)?|vanilla(?:_[a-z0-9p]+)?)$",
+                seed_dir.name,
+            )
             if match:
                 seed_num, model_type = match.groups()
+
+                # Canonicalize distill* -> distilled* for downstream tooling.
+                if model_type.startswith("distill"):
+                    model_type = "distilled" + model_type[len("distill") :]
 
                 # Create key
                 key = model_type if seed_num == "42" else f"{model_type}_seed{seed_num}"

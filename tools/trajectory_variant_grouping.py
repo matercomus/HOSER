@@ -54,9 +54,9 @@ def _infer_abnormal_label(metadata: ModelMetadata) -> str:
 def _infer_lambda_label(metadata: ModelMetadata) -> Optional[str]:
     """Return a stable label for distilled lambda variants.
 
-    - Distilled L1 families map to "L1".
-    - Other distilled families (including "distilled" and abnormal distilled) map
-      to "L0p001".
+        - Distilled L1 families map to "L1".
+        - Distilled lambda=0.001 families map to "L0p001".
+        - Plain distilled families (no explicit lambda token) map to "default".
     - Porto distillation phases do not map to a lambda label because they use
       phase-based training identifiers instead of lambda sweeps.
     """
@@ -68,10 +68,13 @@ def _infer_lambda_label(metadata: ModelMetadata) -> Optional[str]:
     if metadata.normalized_base != "distilled":
         return None
 
+    if "l0p001" in base_lower or "lambda0.001" in base_lower:
+        return "L0p001"
+
     if "l1" in base_lower:
         return "L1"
 
-    return "L0p001"
+    return "default"
 
 
 def _infer_phase_label(
