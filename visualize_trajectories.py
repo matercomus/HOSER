@@ -2722,16 +2722,22 @@ def main():
         help="Sampling strategy",
     )
     parser.add_argument(
-        "--samples_per_type", type=int, default=1, help="Samples per type"
+        "--samples_per_type", type=int, default=2, help="Samples per type"
     )
     parser.add_argument("--random_seed", type=int, default=42, help="Random seed")
 
     # Comparison flags
     parser.add_argument(
-        "--no_separate", action="store_true", help="Disable separate plots"
+        "--no_separate",
+        action="store_true",
+        help="Disable separate plots",
+        default=True,
     )
     parser.add_argument(
-        "--no_overlaid", action="store_true", help="Disable overlaid plots"
+        "--no_overlaid",
+        action="store_true",
+        help="Disable overlaid plots",
+        default=True,
     )
     parser.add_argument(
         "--cross_model", action="store_true", help="Enable cross-model comparison"
@@ -2740,9 +2746,13 @@ def main():
         "--scenario_cross_model",
         action="store_true",
         help="Enable scenario cross-model comparison",
+        default=True,
     )
     parser.add_argument(
-        "--combine-seeds", action="store_true", help="Combine all seeds in one plot"
+        "--combine-seeds",
+        action="store_true",
+        help="Combine all seeds in one plot",
+        default=False,
     )
 
     # Other flags
