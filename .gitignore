@@ -13,6 +13,7 @@ wandb
 
 # Local evaluation workspaces (often symlinked to /local/data/...)
 hoser-distill-beijing
+hoser-distill-beijing-and-l1-normal
 hoser-distill-optuna-porto-eval-eb0e88ab-20251026_152732
 hoser-perturbed-beijing-abnormal-3-eval
 hoser-perturbed-porto-abnormal-3-eval
