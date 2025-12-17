@@ -56,7 +56,7 @@ distill:
   downsample: 1     # No downsampling for this model
 
 # Point to the Porto HOSER dataset
-data_dir: /home/mka299/HOSER-dataset-porto
+data_dir: /home/mka299/HOSER/data/porto_hoser
 
 # Dataloader performance knobs - optimized for streaming large dataset
 dataloader:

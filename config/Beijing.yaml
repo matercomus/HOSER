@@ -58,7 +58,7 @@ distill:
   downsample: 1     # No downsampling for this model
 
 # Point to the original HOSER dataset (beijing_hoser_reference is LM-TAD format only)
-data_dir: /home/mka299/HOSER-dataset
+data_dir: /home/mka299/HOSER/data/Beijing
 
 # Dataloader performance knobs - optimized for streaming large dataset
 dataloader:
