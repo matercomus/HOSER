@@ -33,15 +33,12 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
 import polars as pl
 
 from tools.abnormality_metadata import (
-    CLEAN_MISSING_ALPHA,
     DIRTY_PERTURBED_COLOR,
-    DIRTY_SHARED_COLOR,
     build_abnormality_metadata,
     parse_abnormality_info,
     parse_rid_list,
@@ -281,16 +278,19 @@ class FilterConfig:
 
 
 class PerturbationPlotter:
-    """Render a clean vs dirty overlay plot with colored segments."""
+    """Render a clean vs dirty comparison plot.
+
+    This plot intentionally uses a *parallel offset* (ribbon) style so both the
+    real and abnormal trajectories remain visible even when they overlap.
+    """
 
     def __init__(self, config: VizConfig, road_coords: Dict[int, List[Tuple[float, float]]]):
         self.config = config
         self.road_coords = road_coords
         self.real_color = get_model_color("real")
-        # Visual layering: draw the real trajectory as a thicker underlay so it
-        # remains visible even when the abnormal trajectory overlaps it.
-        self._real_underlay_width = 7.0
+        self._real_width = 4.0
         self._abnormal_width = 4.0
+        self._abnormal_color = DIRTY_PERTURBED_COLOR
 
     def plot(
         self,
@@ -302,51 +302,62 @@ class PerturbationPlotter:
         meta = build_abnormality_metadata(example.abnormality_info)
         origin, dest = example.od_pair
 
-        clean_segments, clean_colors, clean_alphas = self._build_segments(
-            example.clean_road_ids,
-            alignment.clean_node_labels,
-            shared_color=self.real_color,
-            non_shared_color=self.real_color,
-            non_shared_alpha=CLEAN_MISSING_ALPHA,
-            non_shared_label="missing",
-        )
-
-        dirty_segments, dirty_colors, dirty_alphas = self._build_segments(
-            example.dirty_road_ids,
-            alignment.dirty_node_labels,
-            shared_color=DIRTY_SHARED_COLOR,
-            non_shared_color=DIRTY_PERTURBED_COLOR,
-            non_shared_alpha=1.0,
-            non_shared_label="perturbed",
-        )
-
-        if not clean_segments or not dirty_segments:
+        clean_coords = self._road_ids_to_polyline(example.clean_road_ids)
+        dirty_coords = self._road_ids_to_polyline(example.dirty_road_ids)
+        if len(clean_coords) < 2 or len(dirty_coords) < 2:
             raise ValueError("Insufficient coordinates to plot")
+
+        clean_lons, clean_lats = zip(*clean_coords)
+        dirty_lons, dirty_lats = zip(*dirty_coords)
+
+        # Compute a small offset in degrees (dynamic with zoom level) and apply
+        # symmetric offsets so the two curves sit side-by-side.
+        offset_step = self._calculate_dynamic_offset_step(
+            clean_lons,
+            clean_lats,
+            dirty_lons,
+            dirty_lats,
+            linewidth=max(self._real_width, self._abnormal_width),
+            overlap_factor=0.99,
+        )
+        real_offset = -offset_step / 2
+        abnormal_offset = offset_step / 2
+
+        clean_lons_off, clean_lats_off = self._calculate_parallel_offset(
+            list(clean_lons),
+            list(clean_lats),
+            real_offset,
+        )
+        dirty_lons_off, dirty_lats_off = self._calculate_parallel_offset(
+            list(dirty_lons),
+            list(dirty_lats),
+            abnormal_offset,
+        )
 
         fig, ax = plt.subplots(figsize=self.config.figsize, facecolor="white")
         ax.set_facecolor("white")
 
-        # Plot clean (real) first, then dirty on top.
-        self._add_line_collection(
-            ax,
-            clean_segments,
-            clean_colors,
-            clean_alphas,
-            z=5,
-            linewidth=self._real_underlay_width,
+        # Plot both as offset polylines.
+        ax.plot(
+            clean_lons_off,
+            clean_lats_off,
+            color=self.real_color,
+            linewidth=self._real_width,
+            alpha=1.0,
+            zorder=10,
         )
-        self._add_line_collection(
-            ax,
-            dirty_segments,
-            dirty_colors,
-            dirty_alphas,
-            z=10,
+        ax.plot(
+            dirty_lons_off,
+            dirty_lats_off,
+            color=self._abnormal_color,
             linewidth=self._abnormal_width,
+            alpha=1.0,
+            zorder=11,
         )
 
-        # Start/end markers from clean trajectory.
-        clean_start = clean_segments[0][0]
-        clean_end = clean_segments[-1][1]
+        # Start/end markers from (offset) clean trajectory.
+        clean_start = (clean_lons_off[0], clean_lats_off[0])
+        clean_end = (clean_lons_off[-1], clean_lats_off[-1])
         ax.scatter(
             clean_start[0],
             clean_start[1],
@@ -369,11 +380,8 @@ class PerturbationPlotter:
         )
 
         # Bounds.
-        all_points = [p for seg in clean_segments for p in seg] + [
-            p for seg in dirty_segments for p in seg
-        ]
-        lons = [p[0] for p in all_points]
-        lats = [p[1] for p in all_points]
+        lons = list(clean_lons_off) + list(dirty_lons_off)
+        lats = list(clean_lats_off) + list(dirty_lats_off)
         margin = self.config.margin
         ax.set_xlim(min(lons) - margin, max(lons) + margin)
         ax.set_ylim(min(lats) - margin, max(lats) + margin)
@@ -388,12 +396,7 @@ class PerturbationPlotter:
         ax.grid(True, alpha=0.25, linestyle="--", linewidth=0.6)
         ax.set_aspect("equal", adjustable="box")
 
-        legend = self._build_legend(
-            has_clean_shared="shared" in set(alignment.clean_node_labels),
-            has_clean_missing="missing" in set(alignment.clean_node_labels),
-            has_dirty_shared="shared" in set(alignment.dirty_node_labels),
-            has_dirty_perturbed="perturbed" in set(alignment.dirty_node_labels),
-        )
+        legend = self._build_legend()
         ax.legend(
             handles=legend,
             loc="upper center",
@@ -410,131 +413,113 @@ class PerturbationPlotter:
         fig.savefig(f"{out_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
         plt.close(fig)
 
-    def _add_line_collection(
+    def _road_ids_to_polyline(self, road_ids: Sequence[int]) -> List[Tuple[float, float]]:
+        coords: List[Tuple[float, float]] = []
+        for rid in road_ids:
+            seg = self.road_coords.get(int(rid))
+            if not seg:
+                continue
+            if not coords:
+                coords.extend(seg)
+                continue
+
+            # Avoid duplicating the connecting point when roads share endpoints.
+            if coords[-1] == seg[0]:
+                coords.extend(seg[1:])
+            else:
+                coords.extend(seg)
+        return coords
+
+    def _calculate_parallel_offset(
         self,
-        ax: Any,
-        segments: List[List[Tuple[float, float]]],
-        colors: List[str],
-        alphas: List[float],
-        *,
-        z: int,
-        linewidth: float,
-    ) -> None:
-        # Per-segment alpha requires setting RGBA; emulate by adjusting colors
-        # through multiple collections (shared vs non-shared). For simplicity,
-        # build two collections.
-        #
-        # This helper keeps the API simple: we split segments by alpha.
-        by_alpha: Dict[float, List[int]] = {}
-        for idx, a in enumerate(alphas):
-            by_alpha.setdefault(float(a), []).append(idx)
+        lons: List[float],
+        lats: List[float],
+        offset_distance: float,
+    ) -> Tuple[List[float], List[float]]:
+        """Calculate parallel curve coordinates using vector math."""
+        if len(lons) < 2:
+            return lons, lats
 
-        for alpha, indices in by_alpha.items():
-            sub_segments = [segments[i] for i in indices]
-            sub_colors = [colors[i] for i in indices]
-            sub = LineCollection(
-                sub_segments,
-                colors=sub_colors,
-                linewidths=float(linewidth),
-                zorder=z,
-                capstyle="round",
-                joinstyle="round",
-                alpha=alpha,
-                linestyles="--" if alpha < 1.0 else "-",
-            )
-            ax.add_collection(sub)
+        import numpy as np
 
-    def _build_segments(
+        points = np.column_stack([lons, lats])
+        diffs = points[1:] - points[:-1]
+        normals = np.column_stack([-diffs[:, 1], diffs[:, 0]])
+
+        norms = np.linalg.norm(normals, axis=1)
+        norms[norms == 0] = 1
+        normals = normals / norms[:, None]
+
+        vertex_normals = np.zeros_like(points)
+        vertex_normals[0] = normals[0]
+        vertex_normals[-1] = normals[-1]
+        if len(points) > 2:
+            vertex_normals[1:-1] = (normals[:-1] + normals[1:]) / 2
+
+        v_norms = np.linalg.norm(vertex_normals, axis=1)
+        v_norms[v_norms == 0] = 1
+        vertex_normals = vertex_normals / v_norms[:, None]
+
+        offset_points = points + vertex_normals * float(offset_distance)
+        return offset_points[:, 0].tolist(), offset_points[:, 1].tolist()
+
+    def _calculate_dynamic_offset_step(
         self,
-        road_ids: Sequence[int],
-        road_labels: Sequence[str],
+        clean_lons: Sequence[float],
+        clean_lats: Sequence[float],
+        dirty_lons: Sequence[float],
+        dirty_lats: Sequence[float],
         *,
-        shared_color: str,
-        non_shared_color: str,
-        non_shared_alpha: float,
-        non_shared_label: str,
-    ) -> Tuple[List[List[Tuple[float, float]]], List[str], List[float]]:
-        if len(road_ids) != len(road_labels):
-            raise ValueError("road_ids/labels length mismatch")
+        linewidth: float = 4.0,
+        overlap_factor: float = 0.99,
+    ) -> float:
+        """Calculate an offset distance (in degrees) tuned to current zoom."""
+        all_lons = list(clean_lons) + list(dirty_lons)
+        all_lats = list(clean_lats) + list(dirty_lats)
+        if not all_lons:
+            return 0.0
 
-        segments: List[List[Tuple[float, float]]] = []
-        colors: List[str] = []
-        alphas: List[float] = []
+        min_lon, max_lon = min(all_lons), max(all_lons)
+        min_lat, max_lat = min(all_lats), max(all_lats)
 
-        for rid, label in zip(road_ids, road_labels):
-            coords = self.road_coords.get(int(rid))
-            if not coords or len(coords) < 2:
-                return [], [], []
+        span_lon = max_lon - min_lon
+        span_lat = max_lat - min_lat
+        if span_lon == 0:
+            span_lon = 1e-6
+        if span_lat == 0:
+            span_lat = 1e-6
 
-            for a, b in zip(coords[:-1], coords[1:]):
-                segments.append([a, b])
-                if label == "shared":
-                    colors.append(shared_color)
-                    alphas.append(1.0)
-                elif label == non_shared_label:
-                    colors.append(non_shared_color)
-                    alphas.append(float(non_shared_alpha))
-                else:
-                    # Defensive fallback.
-                    colors.append(non_shared_color)
-                    alphas.append(float(non_shared_alpha))
+        margin = self.config.margin
+        span_lon += 2 * margin
+        span_lat += 2 * margin
 
-        return segments, colors, alphas
+        fig_w_pts = self.config.figsize[0] * 72
+        fig_h_pts = self.config.figsize[1] * 72
+        scale_x = fig_w_pts / span_lon
+        scale_y = fig_h_pts / span_lat
+        scale = min(scale_x, scale_y)
+        if scale <= 0:
+            return 0.0
 
-    def _build_legend(
-        self,
-        *,
-        has_clean_shared: bool,
-        has_clean_missing: bool,
-        has_dirty_shared: bool,
-        has_dirty_perturbed: bool,
-    ) -> List[Any]:
-        items: List[Any] = []
+        offset_deg = (float(linewidth) * float(overlap_factor)) / scale
+        return float(offset_deg)
 
-        if has_clean_shared:
-            items.append(
-                Line2D(
-                    [0],
-                    [0],
-                    color=self.real_color,
-                    linewidth=self._real_underlay_width,
-                    label="Real (shared)",
-                )
-            )
-        if has_clean_missing:
-            items.append(
-                Line2D(
-                    [0],
-                    [0],
-                    color=self.real_color,
-                    linewidth=self._real_underlay_width,
-                    alpha=CLEAN_MISSING_ALPHA,
-                    linestyle="--",
-                    label="Real (missing vs abnormal)",
-                )
-            )
-        if has_dirty_shared:
-            items.append(
-                Line2D(
-                    [0],
-                    [0],
-                    color=DIRTY_SHARED_COLOR,
-                    linewidth=self._abnormal_width,
-                    label="Abnormal (same as real)",
-                )
-            )
-        if has_dirty_perturbed:
-            items.append(
-                Line2D(
-                    [0],
-                    [0],
-                    color=DIRTY_PERTURBED_COLOR,
-                    linewidth=self._abnormal_width,
-                    label="Abnormal (perturbed)",
-                )
-            )
-
-        items.append(
+    def _build_legend(self) -> List[Any]:
+        return [
+            Line2D(
+                [0],
+                [0],
+                color=self.real_color,
+                linewidth=self._real_width,
+                label="Real trajectory",
+            ),
+            Line2D(
+                [0],
+                [0],
+                color=self._abnormal_color,
+                linewidth=self._abnormal_width,
+                label="Abnormal trajectory",
+            ),
             Line2D(
                 [0],
                 [0],
@@ -546,9 +531,7 @@ class PerturbationPlotter:
                 markeredgewidth=1.2,
                 label="Start",
                 linestyle="",
-            )
-        )
-        items.append(
+            ),
             Line2D(
                 [0],
                 [0],
@@ -560,10 +543,8 @@ class PerturbationPlotter:
                 markeredgewidth=1.2,
                 label="End",
                 linestyle="",
-            )
-        )
-
-        return items
+            ),
+        ]
 
 
 def _parse_csv_filter_list(value: Optional[str]) -> Optional[List[str]]:
