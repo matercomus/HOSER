@@ -368,20 +368,20 @@ class PerturbationPlotter:
 
         # Plot both as offset polylines.
         ax.plot(
-            clean_lons_off,
-            clean_lats_off,
-            color=self.real_color,
-            linewidth=self._real_width,
-            linestyle=self._real_linestyle,
-            alpha=1.0,
-            zorder=10,
-        )
-        ax.plot(
             dirty_lons_off,
             dirty_lats_off,
             color=self._abnormal_color,
             linewidth=self._abnormal_width,
             linestyle=self._abnormal_linestyle,
+            alpha=1.0,
+            zorder=10,
+        )
+        ax.plot(
+            clean_lons_off,
+            clean_lats_off,
+            color=self.real_color,
+            linewidth=self._real_width,
+            linestyle=self._real_linestyle,
             alpha=1.0,
             zorder=11,
         )
