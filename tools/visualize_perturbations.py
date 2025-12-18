@@ -39,12 +39,10 @@ from matplotlib.lines import Line2D
 import polars as pl
 
 from tools.abnormality_metadata import (
-    DIRTY_PERTURBED_COLOR,
     build_abnormality_metadata,
     parse_abnormality_info,
     parse_rid_list,
 )
-from tools.model_detection import get_model_color
 from tools.trajectory_diff import AlignmentResult, align_trajectories
 
 logger = logging.getLogger(__name__)
@@ -66,6 +64,12 @@ class VizConfig:
     include_types: Optional[Sequence[str]]
     include_levels: Optional[Sequence[str]]
     include_strengths: Optional[Sequence[str]]
+
+    # Styling (defaults intentionally avoid tools/model_detection.py palettes)
+    real_color: str = "#1f77b4"  # matplotlib default blue
+    abnormal_color: str = "#ff7f0e"  # matplotlib default orange
+    real_linestyle: str = "-"  # solid
+    abnormal_linestyle: str = "-"  # solid
 
     dpi: int = 250
     figsize: Tuple[int, int] = (12, 10)
@@ -288,12 +292,12 @@ class PerturbationPlotter:
     def __init__(self, config: VizConfig, road_coords: Dict[int, List[Tuple[float, float]]]):
         self.config = config
         self.road_coords = road_coords
-        self.real_color = get_model_color("real")
+        self.real_color = str(config.real_color)
         self._real_width = 4.0
         self._abnormal_width = 4.0
-        self._abnormal_color = DIRTY_PERTURBED_COLOR
-        self._real_linestyle = "-"  # solid
-        self._abnormal_linestyle = "-"  # solid
+        self._abnormal_color = str(config.abnormal_color)
+        self._real_linestyle = str(config.real_linestyle)
+        self._abnormal_linestyle = str(config.abnormal_linestyle)
 
         # Pre-index road bounding boxes for fast per-plot filtering.
         self._road_bboxes: List[Tuple[List[Tuple[float, float]], Tuple[float, float, float, float]]] = []
@@ -680,6 +684,31 @@ def main() -> int:
         help="Comma-separated strengths to include (strong,weak)",
     )
 
+    parser.add_argument(
+        "--real-color",
+        type=str,
+        default="#1f77b4",
+        help="Color for real trajectory (default: matplotlib blue)",
+    )
+    parser.add_argument(
+        "--abnormal-color",
+        type=str,
+        default="#ff7f0e",
+        help="Color for abnormal trajectory (default: matplotlib orange)",
+    )
+    parser.add_argument(
+        "--real-style",
+        type=str,
+        default="-",
+        help="Line style for real trajectory (default: '-')",
+    )
+    parser.add_argument(
+        "--abnormal-style",
+        type=str,
+        default="-",
+        help="Line style for abnormal trajectory (default: '-')",
+    )
+
     args = parser.parse_args()
 
     paths = DatasetPaths(args.dataset_dir)
@@ -696,6 +725,10 @@ def main() -> int:
         include_types=_parse_csv_filter_list(args.types),
         include_levels=_parse_csv_filter_list(args.levels),
         include_strengths=_parse_csv_filter_list(args.strengths),
+        real_color=str(args.real_color),
+        abnormal_color=str(args.abnormal_color),
+        real_linestyle=str(args.real_style),
+        abnormal_linestyle=str(args.abnormal_style),
     )
 
     if not cfg.dataset_dir.exists():
