@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
 import polars as pl
@@ -292,6 +293,16 @@ class PerturbationPlotter:
         self._abnormal_width = 4.0
         self._abnormal_color = DIRTY_PERTURBED_COLOR
 
+        # Pre-index road bounding boxes for fast per-plot filtering.
+        self._road_bboxes: List[Tuple[List[Tuple[float, float]], Tuple[float, float, float, float]]] = []
+        for coords in self.road_coords.values():
+            if not coords or len(coords) < 2:
+                continue
+            lons = [p[0] for p in coords]
+            lats = [p[1] for p in coords]
+            bbox = (min(lons), max(lons), min(lats), max(lats))
+            self._road_bboxes.append((coords, bbox))
+
     def plot(
         self,
         *,
@@ -334,8 +345,20 @@ class PerturbationPlotter:
             abnormal_offset,
         )
 
+        lons = list(clean_lons_off) + list(dirty_lons_off)
+        lats = list(clean_lats_off) + list(dirty_lats_off)
+        bounds = (
+            min(lons) - self.config.margin,
+            max(lons) + self.config.margin,
+            min(lats) - self.config.margin,
+            max(lats) + self.config.margin,
+        )
+
         fig, ax = plt.subplots(figsize=self.config.figsize, facecolor="white")
         ax.set_facecolor("white")
+
+        # Plot road network underlay (light gray reference), filtered to bounds.
+        self._plot_road_network(ax, bounds=bounds)
 
         # Plot both as offset polylines.
         ax.plot(
@@ -380,8 +403,6 @@ class PerturbationPlotter:
         )
 
         # Bounds.
-        lons = list(clean_lons_off) + list(dirty_lons_off)
-        lats = list(clean_lats_off) + list(dirty_lats_off)
         margin = self.config.margin
         ax.set_xlim(min(lons) - margin, max(lons) + margin)
         ax.set_ylim(min(lats) - margin, max(lats) + margin)
@@ -429,6 +450,44 @@ class PerturbationPlotter:
             else:
                 coords.extend(seg)
         return coords
+
+    def _plot_road_network(
+        self,
+        ax: Any,
+        *,
+        bounds: Tuple[float, float, float, float],
+    ) -> None:
+        """Plot the road network as a light gray reference underlay."""
+        min_lon, max_lon, min_lat, max_lat = bounds
+
+        segments: List[List[Tuple[float, float]]] = []
+        for coords, (rmin_lon, rmax_lon, rmin_lat, rmax_lat) in self._road_bboxes:
+            # Fast bbox intersection test.
+            if (
+                rmax_lon < min_lon
+                or rmin_lon > max_lon
+                or rmax_lat < min_lat
+                or rmin_lat > max_lat
+            ):
+                continue
+            for a, b in zip(coords[:-1], coords[1:]):
+                segments.append([a, b])
+
+        if not segments:
+            return
+
+        # Use a single collection for performance.
+        ax.add_collection(
+            LineCollection(
+                segments,
+                colors="lightgray",
+                linewidths=0.6,
+                alpha=0.25,
+                zorder=1,
+                capstyle="round",
+                joinstyle="round",
+            )
+        )
 
     def _calculate_parallel_offset(
         self,
