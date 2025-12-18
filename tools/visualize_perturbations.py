@@ -783,6 +783,7 @@ class PerturbationPlotter:
         return float(offset_deg)
 
     def _build_legend(self) -> List[Any]:
+        perturbed_color = self._darken_color(self._abnormal_color, factor=0.75)
         return [
             Line2D(
                 [0],
@@ -799,6 +800,14 @@ class PerturbationPlotter:
                 linewidth=self._abnormal_width,
                 linestyle=self._abnormal_linestyle,
                 label="Abnormal trajectory",
+            ),
+            Line2D(
+                [0],
+                [0],
+                color=perturbed_color,
+                linewidth=self._abnormal_width,
+                linestyle=self._abnormal_linestyle,
+                label="Abnormal (perturbed)",
             ),
             Line2D(
                 [0],
