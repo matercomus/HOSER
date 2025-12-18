@@ -287,6 +287,10 @@ class PerturbationPlotter:
         self.config = config
         self.road_coords = road_coords
         self.real_color = get_model_color("real")
+        # Visual layering: draw the real trajectory as a thicker underlay so it
+        # remains visible even when the abnormal trajectory overlaps it.
+        self._real_underlay_width = 7.0
+        self._abnormal_width = 4.0
 
     def plot(
         self,
@@ -323,8 +327,22 @@ class PerturbationPlotter:
         ax.set_facecolor("white")
 
         # Plot clean (real) first, then dirty on top.
-        self._add_line_collection(ax, clean_segments, clean_colors, clean_alphas, z=5)
-        self._add_line_collection(ax, dirty_segments, dirty_colors, dirty_alphas, z=10)
+        self._add_line_collection(
+            ax,
+            clean_segments,
+            clean_colors,
+            clean_alphas,
+            z=5,
+            linewidth=self._real_underlay_width,
+        )
+        self._add_line_collection(
+            ax,
+            dirty_segments,
+            dirty_colors,
+            dirty_alphas,
+            z=10,
+            linewidth=self._abnormal_width,
+        )
 
         # Start/end markers from clean trajectory.
         clean_start = clean_segments[0][0]
@@ -370,7 +388,12 @@ class PerturbationPlotter:
         ax.grid(True, alpha=0.25, linestyle="--", linewidth=0.6)
         ax.set_aspect("equal", adjustable="box")
 
-        legend = self._build_legend()
+        legend = self._build_legend(
+            has_clean_shared="shared" in set(alignment.clean_node_labels),
+            has_clean_missing="missing" in set(alignment.clean_node_labels),
+            has_dirty_shared="shared" in set(alignment.dirty_node_labels),
+            has_dirty_perturbed="perturbed" in set(alignment.dirty_node_labels),
+        )
         ax.legend(
             handles=legend,
             loc="upper center",
@@ -395,6 +418,7 @@ class PerturbationPlotter:
         alphas: List[float],
         *,
         z: int,
+        linewidth: float,
     ) -> None:
         # Per-segment alpha requires setting RGBA; emulate by adjusting colors
         # through multiple collections (shared vs non-shared). For simplicity,
@@ -411,11 +435,12 @@ class PerturbationPlotter:
             sub = LineCollection(
                 sub_segments,
                 colors=sub_colors,
-                linewidths=4.0,
+                linewidths=float(linewidth),
                 zorder=z,
                 capstyle="round",
                 joinstyle="round",
                 alpha=alpha,
+                linestyles="--" if alpha < 1.0 else "-",
             )
             ax.add_collection(sub)
 
@@ -456,31 +481,60 @@ class PerturbationPlotter:
 
         return segments, colors, alphas
 
-    def _build_legend(self) -> List[Any]:
-        return [
-            Line2D([0], [0], color=self.real_color, linewidth=4.0, label="Real (shared)"),
-            Line2D(
-                [0],
-                [0],
-                color=self.real_color,
-                linewidth=4.0,
-                alpha=CLEAN_MISSING_ALPHA,
-                label="Real (missing vs abnormal)",
-            ),
-            Line2D(
-                [0],
-                [0],
-                color=DIRTY_SHARED_COLOR,
-                linewidth=4.0,
-                label="Abnormal (same as real)",
-            ),
-            Line2D(
-                [0],
-                [0],
-                color=DIRTY_PERTURBED_COLOR,
-                linewidth=4.0,
-                label="Abnormal (perturbed)",
-            ),
+    def _build_legend(
+        self,
+        *,
+        has_clean_shared: bool,
+        has_clean_missing: bool,
+        has_dirty_shared: bool,
+        has_dirty_perturbed: bool,
+    ) -> List[Any]:
+        items: List[Any] = []
+
+        if has_clean_shared:
+            items.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color=self.real_color,
+                    linewidth=self._real_underlay_width,
+                    label="Real (shared)",
+                )
+            )
+        if has_clean_missing:
+            items.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color=self.real_color,
+                    linewidth=self._real_underlay_width,
+                    alpha=CLEAN_MISSING_ALPHA,
+                    linestyle="--",
+                    label="Real (missing vs abnormal)",
+                )
+            )
+        if has_dirty_shared:
+            items.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color=DIRTY_SHARED_COLOR,
+                    linewidth=self._abnormal_width,
+                    label="Abnormal (same as real)",
+                )
+            )
+        if has_dirty_perturbed:
+            items.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color=DIRTY_PERTURBED_COLOR,
+                    linewidth=self._abnormal_width,
+                    label="Abnormal (perturbed)",
+                )
+            )
+
+        items.append(
             Line2D(
                 [0],
                 [0],
@@ -492,7 +546,9 @@ class PerturbationPlotter:
                 markeredgewidth=1.2,
                 label="Start",
                 linestyle="",
-            ),
+            )
+        )
+        items.append(
             Line2D(
                 [0],
                 [0],
@@ -504,8 +560,10 @@ class PerturbationPlotter:
                 markeredgewidth=1.2,
                 label="End",
                 linestyle="",
-            ),
-        ]
+            )
+        )
+
+        return items
 
 
 def _parse_csv_filter_list(value: Optional[str]) -> Optional[List[str]]:
