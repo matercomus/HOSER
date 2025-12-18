@@ -30,6 +30,7 @@ from haversine import haversine
 
 from evaluation import load_road_network
 from gene import generate_trajectories_programmatic
+from tools.abnormality_metadata import parse_abnormality_info, parse_rid_list
 
 logger = logging.getLogger(__name__)
 
@@ -90,46 +91,15 @@ def _short_hash(text: str) -> str:
 
 
 def _parse_rid_list(value: Any) -> List[int]:
-    """Parse road ID sequences from either list-literal or comma-string."""
-    if value is None:
-        return []
+    """Backward-compatible wrapper for `tools.abnormality_metadata.parse_rid_list`."""
 
-    if isinstance(value, list):
-        return [int(x) for x in value]
-
-    if not isinstance(value, str):
-        raise TypeError(f"rid_list must be str/list, got {type(value).__name__}")
-
-    text = value.strip()
-    if text == "":
-        return []
-
-    if text.startswith("["):
-        parsed = ast.literal_eval(text)
-        if not isinstance(parsed, list):
-            raise ValueError("rid_list literal did not parse to list")
-        return [int(x) for x in parsed]
-
-    # Beijing abnormal CSVs often use comma-separated ints.
-    parts = [p.strip() for p in text.split(",") if p.strip()]
-    return [int(p) for p in parts]
+    return parse_rid_list(value)
 
 
 def _parse_abnormality_info(value: str) -> Optional[Dict[str, Any]]:
-    """Parse abnormality_info; returns None for normal rows."""
-    if value is None:
-        return None
+    """Backward-compatible wrapper for `tools.abnormality_metadata.parse_abnormality_info`."""
 
-    text = str(value).strip()
-    if text.lower() == "normal":
-        return None
-
-    parsed = ast.literal_eval(text)
-    if not isinstance(parsed, dict):
-        raise ValueError("abnormality_info did not parse to dict")
-    if "real" not in parsed:
-        raise ValueError("abnormality_info missing 'real' field")
-    return parsed
+    return parse_abnormality_info(value)
 
 
 def iter_abnormal_pairs(
