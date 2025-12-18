@@ -422,7 +422,7 @@ class PerturbationPlotter:
         ax.set_title(title, fontsize=14, pad=16)
         ax.set_xlabel("Longitude", fontsize=11)
         ax.set_ylabel("Latitude", fontsize=11)
-        ax.grid(True, alpha=0.25, linestyle="--", linewidth=0.6)
+        ax.grid(False)
         ax.set_aspect("equal", adjustable="box")
 
         legend = self._build_legend()
@@ -491,6 +491,7 @@ class PerturbationPlotter:
                 colors="lightgray",
                 linewidths=0.6,
                 alpha=0.25,
+                linestyles="-",
                 zorder=1,
                 capstyle="round",
                 joinstyle="round",
