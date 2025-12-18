@@ -14,7 +14,7 @@ Design goals:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 
 CleanNodeLabel = Literal["shared", "missing"]
@@ -81,6 +81,7 @@ def align_trajectories(
 
     # LCS fallback (also repairs/overrides weak hints).
     clean_shared_idx, dirty_shared_idx = _lcs_shared_indices(clean, dirty)
+    lcs_pairs = list(zip(clean_shared_idx, dirty_shared_idx))
     for idx in clean_shared_idx:
         clean_labels[idx] = "shared"
     for idx in dirty_shared_idx:
@@ -93,6 +94,7 @@ def align_trajectories(
         {
             "clean_shared": len(clean_shared_idx),
             "dirty_shared": len(dirty_shared_idx),
+            "lcs_pairs": lcs_pairs,
             "clean_missing": sum(1 for x in clean_labels if x == "missing"),
             "dirty_perturbed": sum(1 for x in dirty_labels if x == "perturbed"),
         }

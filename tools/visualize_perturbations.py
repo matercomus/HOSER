@@ -34,6 +34,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tupl
 
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
+from matplotlib.colors import to_rgb, to_rgba
 from matplotlib.lines import Line2D
 
 import polars as pl
@@ -319,8 +320,12 @@ class PerturbationPlotter:
         meta = build_abnormality_metadata(example.abnormality_info)
         origin, dest = example.od_pair
 
-        clean_coords = self._road_ids_to_polyline(example.clean_road_ids)
-        dirty_coords = self._road_ids_to_polyline(example.dirty_road_ids)
+        clean_coords, clean_seg_road_idx = self._road_ids_to_polyline_with_segment_road_idx(
+            example.clean_road_ids
+        )
+        dirty_coords, dirty_seg_road_idx = self._road_ids_to_polyline_with_segment_road_idx(
+            example.dirty_road_ids
+        )
         if len(clean_coords) < 2 or len(dirty_coords) < 2:
             raise ValueError("Insufficient coordinates to plot")
 
@@ -366,23 +371,30 @@ class PerturbationPlotter:
         # Plot road network underlay (light gray reference), filtered to bounds.
         self._plot_road_network(ax, bounds=bounds)
 
-        # Plot both as offset polylines.
-        ax.plot(
-            dirty_lons_off,
-            dirty_lats_off,
-            color=self._abnormal_color,
-            linewidth=self._abnormal_width,
-            linestyle=self._abnormal_linestyle,
-            alpha=1.0,
+        # Plot abnormal trajectory segments: perturbed segments are fully opaque
+        # and slightly darker; shared segments are lightly faded.
+        self._plot_abnormal_with_segment_alpha(
+            ax,
+            lons=list(dirty_lons_off),
+            lats=list(dirty_lats_off),
+            seg_road_idx=dirty_seg_road_idx,
+            dirty_node_labels=alignment.dirty_node_labels,
+            shared_alpha=0.75,
+            perturbed_alpha=1.0,
             zorder=10,
         )
-        ax.plot(
-            clean_lons_off,
-            clean_lats_off,
-            color=self.real_color,
-            linewidth=self._real_width,
-            linestyle=self._real_linestyle,
-            alpha=1.0,
+
+        # Plot real trajectory segments: fade only the local window around the
+        # abnormal region to help the abnormality stand out.
+        fade_clean_road_idx = self._compute_clean_fade_road_idx(alignment)
+        self._plot_real_with_local_fade(
+            ax,
+            lons=list(clean_lons_off),
+            lats=list(clean_lats_off),
+            seg_road_idx=clean_seg_road_idx,
+            fade_road_idx=fade_clean_road_idx,
+            faded_alpha=0.5,
+            full_alpha=1.0,
             zorder=11,
         )
 
@@ -442,22 +454,223 @@ class PerturbationPlotter:
         fig.savefig(f"{out_path}.pdf", dpi=self.config.dpi, bbox_inches="tight")
         plt.close(fig)
 
-    def _road_ids_to_polyline(self, road_ids: Sequence[int]) -> List[Tuple[float, float]]:
-        coords: List[Tuple[float, float]] = []
-        for rid in road_ids:
+    def _road_ids_to_polyline_with_segment_road_idx(
+        self, road_ids: Sequence[int]
+    ) -> Tuple[List[Tuple[float, float]], List[int]]:
+        """Build a polyline plus a per-segment road-index mapping.
+
+        Returns:
+            (points, seg_road_idx) where seg_road_idx has length len(points)-1
+            and each entry is the index into `road_ids` for the segment
+            connecting points[i] -> points[i+1].
+        """
+
+        points: List[Tuple[float, float]] = []
+        seg_road_idx: List[int] = []
+
+        for rid_idx, rid in enumerate(road_ids):
             seg = self.road_coords.get(int(rid))
-            if not seg:
-                continue
-            if not coords:
-                coords.extend(seg)
+            if not seg or len(seg) < 2:
                 continue
 
-            # Avoid duplicating the connecting point when roads share endpoints.
-            if coords[-1] == seg[0]:
-                coords.extend(seg[1:])
+            if not points:
+                points.append(seg[0])
+
+            start_at = 0
+            if points[-1] == seg[0]:
+                start_at = 1
+
+            for pt in seg[start_at:]:
+                if pt == points[-1]:
+                    continue
+                points.append(pt)
+                seg_road_idx.append(int(rid_idx))
+
+        return points, seg_road_idx
+
+    def _compute_clean_fade_road_idx(self, alignment: AlignmentResult) -> "set[int]":
+        """Return indices in the clean road-id sequence to fade.
+
+        Prefer explicit missing regions (route_switch/perturb). For detours and
+        insertions (no missing nodes), infer a local window using LCS alignment.
+        """
+
+        clean_len = len(alignment.clean_node_labels)
+        if clean_len == 0:
+            return set()
+
+        missing = [
+            i
+            for i, label in enumerate(alignment.clean_node_labels)
+            if label == "missing"
+        ]
+        if missing:
+            start = max(0, min(missing) - 1)
+            end = min(clean_len - 1, max(missing) + 1)
+            return set(range(start, end + 1))
+
+        perturbed_dirty = [
+            i
+            for i, label in enumerate(alignment.dirty_node_labels)
+            if label == "perturbed"
+        ]
+        if not perturbed_dirty:
+            return set()
+
+        pairs = alignment.meta.get("lcs_pairs")
+        if not isinstance(pairs, list) or not pairs:
+            return set()
+
+        dirty_to_clean: Dict[int, int] = {}
+        shared_dirty: List[int] = []
+        for entry in pairs:
+            if (
+                not isinstance(entry, (tuple, list))
+                or len(entry) != 2
+                or not isinstance(entry[0], int)
+                or not isinstance(entry[1], int)
+            ):
+                continue
+            clean_i, dirty_i = int(entry[0]), int(entry[1])
+            dirty_to_clean[dirty_i] = clean_i
+            shared_dirty.append(dirty_i)
+
+        if not dirty_to_clean:
+            return set()
+
+        left = min(perturbed_dirty)
+        right = max(perturbed_dirty)
+        prev_shared = max((d for d in shared_dirty if d < left), default=None)
+        next_shared = min((d for d in shared_dirty if d > right), default=None)
+
+        anchors: List[int] = []
+        if prev_shared is not None and prev_shared in dirty_to_clean:
+            anchors.append(dirty_to_clean[prev_shared])
+        if next_shared is not None and next_shared in dirty_to_clean:
+            anchors.append(dirty_to_clean[next_shared])
+
+        fade: "set[int]" = set()
+        for idx in anchors:
+            for j in (idx - 1, idx, idx + 1):
+                if 0 <= j < clean_len:
+                    fade.add(j)
+        return fade
+
+    def _plot_abnormal_with_segment_alpha(
+        self,
+        ax: Any,
+        *,
+        lons: List[float],
+        lats: List[float],
+        seg_road_idx: List[int],
+        dirty_node_labels: Sequence[str],
+        shared_alpha: float,
+        perturbed_alpha: float,
+        zorder: int,
+    ) -> None:
+        if len(lons) < 2 or len(lats) < 2:
+            return
+
+        if len(seg_road_idx) != len(lons) - 1:
+            ax.plot(
+                lons,
+                lats,
+                color=self._abnormal_color,
+                linewidth=self._abnormal_width,
+                linestyle=self._abnormal_linestyle,
+                alpha=perturbed_alpha,
+                zorder=zorder,
+            )
+            return
+
+        emphasis = self._darken_color(self._abnormal_color, factor=0.75)
+        segments: List[List[Tuple[float, float]]] = []
+        colors: List[Tuple[float, float, float, float]] = []
+
+        for i, rid_idx in enumerate(seg_road_idx):
+            label = "perturbed"
+            if 0 <= rid_idx < len(dirty_node_labels):
+                label = str(dirty_node_labels[rid_idx])
+
+            if label == "shared":
+                color = to_rgba(self._abnormal_color, alpha=shared_alpha)
             else:
-                coords.extend(seg)
-        return coords
+                color = to_rgba(emphasis, alpha=perturbed_alpha)
+
+            segments.append([(lons[i], lats[i]), (lons[i + 1], lats[i + 1])])
+            colors.append(color)
+
+        ax.add_collection(
+            LineCollection(
+                segments,
+                colors=colors,
+                linewidths=self._abnormal_width,
+                linestyles=self._abnormal_linestyle,
+                zorder=zorder,
+                capstyle="round",
+                joinstyle="round",
+            )
+        )
+
+    def _plot_real_with_local_fade(
+        self,
+        ax: Any,
+        *,
+        lons: List[float],
+        lats: List[float],
+        seg_road_idx: List[int],
+        fade_road_idx: "set[int]",
+        faded_alpha: float,
+        full_alpha: float,
+        zorder: int,
+    ) -> None:
+        if len(lons) < 2 or len(lats) < 2:
+            return
+
+        if len(seg_road_idx) != len(lons) - 1:
+            ax.plot(
+                lons,
+                lats,
+                color=self.real_color,
+                linewidth=self._real_width,
+                linestyle=self._real_linestyle,
+                alpha=full_alpha,
+                zorder=zorder,
+            )
+            return
+
+        segments: List[List[Tuple[float, float]]] = []
+        colors: List[Tuple[float, float, float, float]] = []
+
+        for i, rid_idx in enumerate(seg_road_idx):
+            alpha = full_alpha
+            if rid_idx in fade_road_idx:
+                alpha = faded_alpha
+
+            segments.append([(lons[i], lats[i]), (lons[i + 1], lats[i + 1])])
+            colors.append(to_rgba(self.real_color, alpha=alpha))
+
+        ax.add_collection(
+            LineCollection(
+                segments,
+                colors=colors,
+                linewidths=self._real_width,
+                linestyles=self._real_linestyle,
+                zorder=zorder,
+                capstyle="round",
+                joinstyle="round",
+            )
+        )
+
+    def _darken_color(self, color: str, *, factor: float) -> str:
+        """Return a darker version of a color.
+
+        factor=1.0 leaves the color unchanged, factor=0.0 returns black.
+        """
+
+        r, g, b = to_rgb(color)
+        factor = max(0.0, min(1.0, float(factor)))
+        return (r * factor, g * factor, b * factor)
 
     def _plot_road_network(
         self,
@@ -488,9 +701,9 @@ class PerturbationPlotter:
         ax.add_collection(
             LineCollection(
                 segments,
-                colors="lightgray",
-                linewidths=0.6,
-                alpha=0.25,
+                colors="#CCCCCC",
+                linewidths=0.5,
+                alpha=0.6,
                 linestyles="-",
                 zorder=1,
                 capstyle="round",
