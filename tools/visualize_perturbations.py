@@ -379,22 +379,19 @@ class PerturbationPlotter:
             lats=list(dirty_lats_off),
             seg_road_idx=dirty_seg_road_idx,
             dirty_node_labels=alignment.dirty_node_labels,
-            shared_alpha=0.75,
+            shared_alpha=1.0,
             perturbed_alpha=1.0,
             zorder=10,
         )
 
-        # Plot real trajectory segments: fade only the local window around the
-        # abnormal region to help the abnormality stand out.
-        fade_clean_road_idx = self._compute_clean_fade_road_idx(alignment)
-        self._plot_real_with_local_fade(
-            ax,
-            lons=list(clean_lons_off),
-            lats=list(clean_lats_off),
-            seg_road_idx=clean_seg_road_idx,
-            fade_road_idx=fade_clean_road_idx,
-            faded_alpha=0.5,
-            full_alpha=1.0,
+        # Plot real trajectory as fully-opaque polyline.
+        ax.plot(
+            clean_lons_off,
+            clean_lats_off,
+            color=self.real_color,
+            linewidth=self._real_width,
+            linestyle=self._real_linestyle,
+            alpha=1.0,
             zorder=11,
         )
 
