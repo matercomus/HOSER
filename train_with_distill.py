@@ -420,8 +420,14 @@ def main(
     # config already loaded above
 
     os.makedirs(save_dir, exist_ok=True)
-    os.makedirs(tensorboard_log_dir, exist_ok=True)
-    writer = SummaryWriter(tensorboard_log_dir)
+    writer = None
+    try:
+        os.makedirs(tensorboard_log_dir, exist_ok=True)
+        writer = SummaryWriter(tensorboard_log_dir)
+    except PermissionError as e:
+        logger.warning(
+            f"TensorBoard disabled (cannot write to {tensorboard_log_dir}): {e}"
+        )
     os.makedirs(loguru_log_dir, exist_ok=True)
     logger.add(
         os.path.join(
@@ -1215,12 +1221,23 @@ def main(
 
             # Logging
             current_lr = optimizer.param_groups[0]["lr"]
-            writer.add_scalar("loss_next_step", loss_next_step.item(), step_idx)
-            writer.add_scalar("loss_time_pred", loss_time_pred.item(), step_idx)
-            if distill_mgr is not None:
-                writer.add_scalar("loss_kl", kl_loss.item(), step_idx)
-            writer.add_scalar("loss", loss.item(), step_idx)
-            writer.add_scalar("learning_rate", current_lr, step_idx)
+            if writer is not None:
+                try:
+                    writer.add_scalar(
+                        "loss_next_step", loss_next_step.item(), step_idx
+                    )
+                    writer.add_scalar(
+                        "loss_time_pred", loss_time_pred.item(), step_idx
+                    )
+                    if distill_mgr is not None:
+                        writer.add_scalar("loss_kl", kl_loss.item(), step_idx)
+                    writer.add_scalar("loss", loss.item(), step_idx)
+                    writer.add_scalar("learning_rate", current_lr, step_idx)
+                except PermissionError as e:
+                    logger.warning(
+                        f"TensorBoard disabled (write permission error): {e}"
+                    )
+                    writer = None
             if wb_enable:
                 wandb.log(
                     {
@@ -1466,8 +1483,15 @@ def main(
             )
             val_mape = 1000.0
 
-        writer.add_scalar("val/next_step_acc", val_acc, epoch_id)
-        writer.add_scalar("val/time_pred_mape", val_mape, epoch_id)
+        if writer is not None:
+            try:
+                writer.add_scalar("val/next_step_acc", val_acc, epoch_id)
+                writer.add_scalar("val/time_pred_mape", val_mape, epoch_id)
+            except PermissionError as e:
+                logger.warning(
+                    f"TensorBoard disabled (write permission error): {e}"
+                )
+                writer = None
 
         # Log validation metrics to console for debugging
         logger.info(
