@@ -293,6 +293,12 @@ class PerturbationPlotter:
         self._abnormal_width = 4.0
         self._abnormal_color = DIRTY_PERTURBED_COLOR
 
+        # Avoid confusion with model-family styling from tools/model_detection.py.
+        # Model plots often use solid ('-') for most series; here we use distinct
+        # linestyles to emphasize this is a real-vs-abnormal compare view.
+        self._real_linestyle = ":"  # dotted
+        self._abnormal_linestyle = "-."  # dash-dot
+
         # Pre-index road bounding boxes for fast per-plot filtering.
         self._road_bboxes: List[Tuple[List[Tuple[float, float]], Tuple[float, float, float, float]]] = []
         for coords in self.road_coords.values():
@@ -366,6 +372,7 @@ class PerturbationPlotter:
             clean_lats_off,
             color=self.real_color,
             linewidth=self._real_width,
+            linestyle=self._real_linestyle,
             alpha=1.0,
             zorder=10,
         )
@@ -374,6 +381,7 @@ class PerturbationPlotter:
             dirty_lats_off,
             color=self._abnormal_color,
             linewidth=self._abnormal_width,
+            linestyle=self._abnormal_linestyle,
             alpha=1.0,
             zorder=11,
         )
@@ -570,6 +578,7 @@ class PerturbationPlotter:
                 [0],
                 color=self.real_color,
                 linewidth=self._real_width,
+                linestyle=self._real_linestyle,
                 label="Real trajectory",
             ),
             Line2D(
@@ -577,6 +586,7 @@ class PerturbationPlotter:
                 [0],
                 color=self._abnormal_color,
                 linewidth=self._abnormal_width,
+                linestyle=self._abnormal_linestyle,
                 label="Abnormal trajectory",
             ),
             Line2D(
