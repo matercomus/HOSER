@@ -3,6 +3,7 @@ import argparse
 import json
 import math
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 import yaml
 import time  # For profiling
@@ -48,6 +49,38 @@ def _format_lambda_token(value: float) -> str:
     text = f"{value:.6g}"
     text = text.replace("-", "m").replace(".", "p")
     return f"lambda{text}"
+
+
+def _ensure_parent_dir(path: os.PathLike | str) -> None:
+    """Ensure the parent directory exists for a file path.
+
+    This is a small guard against missing per-run directories (and against any
+    accidental working-directory changes mid-run). It makes checkpoint/model
+    saving resilient.
+    """
+
+    Path(path).expanduser().absolute().parent.mkdir(parents=True, exist_ok=True)
+
+
+def _get_output_dirs(
+    dataset_name: str,
+    seed: int,
+    dir_suffix: str,
+    project_root: Path | None = None,
+) -> tuple[Path, Path, Path]:
+    """Return (save_dir, tensorboard_log_dir, loguru_log_dir) for a run.
+
+    Uses a stable root (the directory containing this file) by default so paths
+    are resilient to accidental working-directory changes.
+    """
+
+    root = project_root or Path(__file__).resolve().parent
+    run_name = f"seed{seed}_{dir_suffix}"
+    return (
+        root / "save" / dataset_name / run_name,
+        root / "tensorboard_log" / dataset_name / run_name,
+        root / "log" / dataset_name / run_name,
+    )
 
 
 class MyCollateFn:
@@ -413,9 +446,11 @@ def main(
     if distill_enabled and distill_lambda is not None and not force_no_distill:
         dir_suffix = f"distill_{_format_lambda_token(float(distill_lambda))}"
 
-    save_dir = f"./save/{dataset_name}/seed{seed}_{dir_suffix}"
-    tensorboard_log_dir = f"./tensorboard_log/{dataset_name}/seed{seed}_{dir_suffix}"
-    loguru_log_dir = f"./log/{dataset_name}/seed{seed}_{dir_suffix}"
+    save_dir, tensorboard_log_dir, loguru_log_dir = _get_output_dirs(
+        dataset_name=dataset_name,
+        seed=seed,
+        dir_suffix=dir_suffix,
+    )
 
     # config already loaded above
 
@@ -423,16 +458,14 @@ def main(
     writer = None
     try:
         os.makedirs(tensorboard_log_dir, exist_ok=True)
-        writer = SummaryWriter(tensorboard_log_dir)
+        writer = SummaryWriter(str(tensorboard_log_dir))
     except PermissionError as e:
         logger.warning(
             f"TensorBoard disabled (cannot write to {tensorboard_log_dir}): {e}"
         )
     os.makedirs(loguru_log_dir, exist_ok=True)
     logger.add(
-        os.path.join(
-            loguru_log_dir, f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.log"
-        ),
+        str(loguru_log_dir / f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.log"),
         level="INFO",
         format="{time:YYYY-MM-DD HH:mm:ss} | {message}",
     )
@@ -653,7 +686,7 @@ def main(
     logger.info("[distill] Initialized HOSER model for distillation training")
 
     # Check for checkpoint BEFORE WandB init to get resume_wandb_id
-    checkpoint_path = os.path.join(save_dir, "checkpoint_latest.pth")
+    checkpoint_path = save_dir / "checkpoint_latest.pth"
     resume_wandb_id = None
     checkpoint_exists = False
 
@@ -678,7 +711,7 @@ def main(
                     logger.warning(
                         "⚠️  Deleting mismatched checkpoint and starting fresh"
                     )
-                    os.remove(checkpoint_path)
+                    os.remove(str(checkpoint_path))
                     checkpoint_exists = False
                 else:
                     resume_wandb_id = checkpoint.get("wandb_run_id")
@@ -691,14 +724,14 @@ def main(
                     f"⚠️  Checkpoint mismatch (seed={ckpt_seed} vs {seed}, dataset={ckpt_dataset} vs {dataset_name})"
                 )
                 logger.warning("⚠️  Deleting invalid checkpoint and starting fresh")
-                os.remove(checkpoint_path)
+                os.remove(str(checkpoint_path))
                 checkpoint_exists = False
         except Exception as e:
             logger.warning(f"⚠️  Failed to read checkpoint: {e}. Starting fresh.")
             # Delete corrupted checkpoint
             if os.path.exists(checkpoint_path):
                 try:
-                    os.remove(checkpoint_path)
+                    os.remove(str(checkpoint_path))
                     logger.info("🧹 Deleted corrupted checkpoint")
                 except Exception:
                     pass
@@ -1525,8 +1558,9 @@ def main(
                 raise optuna.TrialPruned()
 
         # Save checkpoint after each epoch
-        checkpoint_path = os.path.join(save_dir, "checkpoint_latest.pth")
+        checkpoint_path = save_dir / "checkpoint_latest.pth"
         try:
+            _ensure_parent_dir(checkpoint_path)
             torch.save(
                 {
                     "epoch": epoch_id,
@@ -1547,10 +1581,15 @@ def main(
 
         model.train()
 
-    torch.save(model.state_dict(), os.path.join(save_dir, "best.pth"))
-    logger.info(f"[distill] Saved best model to {save_dir}/best.pth")
+    best_path = save_dir / "best.pth"
+    try:
+        _ensure_parent_dir(best_path)
+        torch.save(model.state_dict(), best_path)
+        logger.info(f"[distill] Saved best model to {best_path}")
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to save best model: {e}")
     if wb_enable:
-        wandb.save(os.path.join(save_dir, "best.pth"))
+        wandb.save(str(best_path))
         wandb.finish()
 
     # Return metrics for Optuna if requested
