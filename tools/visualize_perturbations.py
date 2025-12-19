@@ -749,7 +749,7 @@ class PerturbationPlotter:
         dirty_lats: Sequence[float],
         *,
         linewidth: float = 4.0,
-        overlap_factor: float = 0.99,
+        overlap_factor: float = 0.1,
     ) -> float:
         """Calculate an offset distance (in degrees) tuned to current zoom."""
         all_lons = list(clean_lons) + list(dirty_lons)
