@@ -83,6 +83,31 @@ def _get_output_dirs(
     )
 
 
+def _resolve_wandb_run_name(
+    *,
+    dataset_name: str,
+    batch_size: int,
+    accum_steps: int,
+    config_run_name: str,
+    cli_run_name: str | None,
+) -> str:
+    """Resolve WandB run name.
+
+    Precedence:
+    1) CLI override (if provided)
+    2) config.wandb.run_name (if non-empty)
+    3) default derived name
+    """
+
+    if cli_run_name:
+        return cli_run_name
+
+    if config_run_name:
+        return config_run_name
+
+    return f"{dataset_name}_b{batch_size}_acc{accum_steps}"
+
+
 class MyCollateFn:
     def __init__(
         self,
@@ -294,6 +319,7 @@ def main(
     profile_max_batches: int = 0,
     force_no_distill: bool = False,  # Force disable distillation (vanilla training)
     distill_lambda: Optional[float] = None,  # Override distillation lambda (KL weight)
+    wandb_run_name_override: Optional[str] = None,  # Override wandb run name
 ):
     """
     Main training function that can be called programmatically or from CLI.
@@ -353,6 +379,15 @@ def main(
                 "this also enables distillation in the loaded config."
             ),
         )
+        parser.add_argument(
+            "--wandb-run-name",
+            type=str,
+            default=None,
+            help=(
+                "Override Weights & Biases run name (useful for scripts to label runs). "
+                "If not provided, uses config.wandb.run_name or a default derived name."
+            ),
+        )
         args = parser.parse_args()
 
         dataset = args.dataset
@@ -364,6 +399,7 @@ def main(
         profile_max_batches = args.profile_max_batches
         force_no_distill = args.no_distill
         distill_lambda = args.distill_lambda
+        wandb_run_name_override = args.wandb_run_name
 
     set_seed(seed)
     device = f"cuda:{cuda}"
@@ -741,9 +777,12 @@ def main(
     wb_enable = bool(getattr(getattr(config, "wandb", {}), "enable", False))
     if wb_enable:
         wb_project = getattr(getattr(config, "wandb", {}), "project", "hoser-distill")
-        wb_run_name = (
-            getattr(getattr(config, "wandb", {}), "run_name", "")
-            or f"{dataset_name}_b{config.optimizer_config.batch_size}_acc{getattr(config.optimizer_config, 'accum_steps', 1)}"
+        wb_run_name = _resolve_wandb_run_name(
+            dataset_name=dataset_name,
+            batch_size=int(config.optimizer_config.batch_size),
+            accum_steps=int(getattr(config.optimizer_config, "accum_steps", 1)),
+            config_run_name=str(getattr(getattr(config, "wandb", {}), "run_name", "") or ""),
+            cli_run_name=(str(wandb_run_name_override) if wandb_run_name_override else None),
         )
         wb_tags = list(getattr(getattr(config, "wandb", {}), "tags", []))
         # Log entire YAML config to wandb

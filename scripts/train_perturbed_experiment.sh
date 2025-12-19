@@ -167,12 +167,17 @@ train_one() {
   local seed="$4"
   local variant="$5"        # vanilla|distilled_l0p001|distilled_l0p5|distilled_l1
 
+  # Deterministic WandB run naming so it's obvious which run is which.
+  # Example: porto_hoser_abnormal_3_seed42_distilled_l0p5
+  local wb_run_name="${dataset_name}_seed${seed}_${variant}"
+
   local -a cmd=(uv run python train_with_distill.py
     --dataset "$dataset_name"
     --config "$config_path"
     --seed "$seed"
     --cuda "$CUDA"
-    --data_dir "$data_dir")
+    --data_dir "$data_dir"
+    --wandb-run-name "$wb_run_name")
 
   if [[ "$variant" == "vanilla" ]]; then
     cmd+=(--no-distill)
