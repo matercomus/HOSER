@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import ast
 import csv
+import colorsys
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -580,7 +581,10 @@ class PerturbationPlotter:
             )
             return
 
-        emphasis = self._darken_color(self._abnormal_color, factor=0.75)
+        emphasis = self._compute_emphasis_color(
+            base_color=self._abnormal_color,
+            avoid_colors=[self.real_color, self._abnormal_color],
+        )
         segments: List[List[Tuple[float, float]]] = []
         colors: List[Tuple[float, float, float, float]] = []
 
@@ -659,15 +663,55 @@ class PerturbationPlotter:
             )
         )
 
-    def _darken_color(self, color: str, *, factor: float) -> str:
-        """Return a darker version of a color.
+    def _compute_emphasis_color(
+        self,
+        *,
+        base_color: str,
+        avoid_colors: Sequence[str],
+    ) -> Tuple[float, float, float]:
+        """Compute a high-contrast emphasis color.
 
-        factor=1.0 leaves the color unchanged, factor=0.0 returns black.
+        This is used for highlighting perturbed segments. It is derived from
+        `base_color` but intentionally chosen to be visually distinct from both
+        the base and any `avoid_colors` (e.g., the real trajectory color).
         """
 
-        r, g, b = to_rgb(color)
-        factor = max(0.0, min(1.0, float(factor)))
-        return (r * factor, g * factor, b * factor)
+        base_rgb = to_rgb(base_color)
+        avoid_rgbs = [to_rgb(c) for c in avoid_colors]
+
+        h, s, v = colorsys.rgb_to_hsv(*base_rgb)
+        # If the base is near-gray, hue is effectively arbitrary; pick a stable
+        # default so the emphasis remains deterministic.
+        if s < 0.08:
+            h = 0.0
+
+        # Candidate hue shifts (wrap-around in [0, 1)). We include a few options
+        # so we can avoid accidentally picking something too close to `real_color`.
+        hue_shifts = [0.0, 0.5, 1.0 / 3.0, 2.0 / 3.0, 0.25, 0.75]
+
+        # Make candidates vivid and readable on white background.
+        cand_s = min(1.0, max(0.85, s * 1.25))
+        cand_v = min(1.0, max(0.80, v))
+
+        def score(rgb: Tuple[float, float, float]) -> float:
+            # Maximize the minimum distance to all avoid colors.
+            dists = [
+                (rgb[0] - a[0]) ** 2 + (rgb[1] - a[1]) ** 2 + (rgb[2] - a[2]) ** 2
+                for a in avoid_rgbs
+            ]
+            return float(min(dists)) if dists else 0.0
+
+        best_rgb: Tuple[float, float, float] = base_rgb
+        best_score = -1.0
+        for shift in hue_shifts:
+            hh = (h + float(shift)) % 1.0
+            rgb = colorsys.hsv_to_rgb(hh, cand_s, cand_v)
+            sc = score(rgb)
+            if sc > best_score:
+                best_score = sc
+                best_rgb = rgb
+
+        return best_rgb
 
     def _plot_road_network(
         self,
@@ -783,7 +827,10 @@ class PerturbationPlotter:
         return float(offset_deg)
 
     def _build_legend(self) -> List[Any]:
-        perturbed_color = self._darken_color(self._abnormal_color, factor=0.75)
+        perturbed_color = self._compute_emphasis_color(
+            base_color=self._abnormal_color,
+            avoid_colors=[self.real_color, self._abnormal_color],
+        )
         return [
             Line2D(
                 [0],
