@@ -231,6 +231,31 @@ class TestExtractModelName:
             == "distill_phase2_seed100"
         )
 
+    def test_eval_seed_prefix_checkpoint_names(self):
+        """Support eval-workspace checkpoint naming like seed42_distill_l1.pth."""
+
+        assert (
+            extract_model_name("seed42_distill_l0p001.pth") == "distilled_l0p001_seed42"
+        )
+        assert extract_model_name("seed43_distill_l1.pth") == "distilled_l1_seed43"
+        assert (
+            extract_model_name("seed44_distill_lambda0p5.pth")
+            == "distilled_l0p5_seed44"
+        )
+        assert extract_model_name("seed42_vanilla.pth") == "vanilla_seed42"
+
+    def test_checkpoint_default_seed42_when_missing(self):
+        """Checkpoint filenames without an explicit seed default to seed42."""
+
+        # Default-seed behavior should apply to checkpoints (.pth/.pt) only.
+        assert extract_model_name("distilled.pth") == "distilled_seed42"
+        assert extract_model_name("vanilla.pth") == "vanilla_seed42"
+        assert extract_model_name("distilled_l1.pth") == "distilled_l1_seed42"
+        assert extract_model_name("distill_phase1.pth") == "distill_phase1_seed42"
+
+        # CSVs retain their unseeded meaning.
+        assert extract_model_name("hoser_distilled_trainod.csv") == "distilled"
+
 
 class TestGetDisplayName:
     """Tests for get_display_name function."""

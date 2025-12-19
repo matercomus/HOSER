@@ -234,6 +234,22 @@ MODEL_CONVENTIONS = [
     (r"distilled.*abnormal", "distilled_abnormal"),
     (r"vanilla_.*seed(\d+).*abnormal", "vanilla_abnormal_seed{}"),
     (r"vanilla.*abnormal", "vanilla_abnormal"),
+
+    # Eval workspace model checkpoints using seed-prefixed naming, e.g.
+    # seed42_distill_l0p001.pth, seed43_distill_l1.pth, seed44_vanilla.pth
+    (r"seed(\d+)_distill_l1", "distilled_l1_seed{}"),
+    (r"seed(\d+)_distill_l0p001", "distilled_l0p001_seed{}"),
+    (
+        r"seed(\d+)_distill_(?:lambda0(?:\.5|p5)|l0p5)",
+        "distilled_l0p5_seed{}",
+    ),
+    (r"seed(\d+)_vanilla", "vanilla_seed{}"),
+
+    # Same as above but without an explicit seed token; treated as default-seed
+    # checkpoints by extract_model_name() when the input looks like a .pth/.pt.
+    (r"distill_l1", "distilled_l1"),
+    (r"distill_l0p001", "distilled_l0p001"),
+    (r"distill_(?:lambda0(?:\.5|p5)|l0p5)", "distilled_l0p5"),
     # Porto distill_phase<N>_seed<M> pattern
     (r"distill_phase(\d+)_seed(\d+)", "distill_phase{}_seed{}"),
     # Porto distill_phase<N> pattern (no seed)
@@ -491,13 +507,24 @@ def extract_model_name(filename: str) -> str:
     # Try each convention pattern
     for pattern, template in MODEL_CONVENTIONS:
         match = re.search(pattern, filename_lower)
-        if match:
-            # Format the template with captured groups
-            groups = match.groups()
-            if groups:
-                return template.format(*groups)
-            else:
-                return template
+        if not match:
+            continue
+
+        groups = match.groups()
+        detected = template.format(*groups) if groups else template
+
+        # If the input looks like a checkpoint file (models/*.pth or *.pt) and the
+        # detected model doesn't include an explicit seed token, treat it as the
+        # default seed for plotting/grouping consistency.
+        is_checkpoint = filename_lower.endswith((".pth", ".pt"))
+        if (
+            is_checkpoint
+            and "_seed" not in detected
+            and detected not in {"unknown", "real"}
+        ):
+            return f"{detected}_seed{DEFAULT_SEED_NUMBER}"
+
+        return detected
 
     return "unknown"
 
