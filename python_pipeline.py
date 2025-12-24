@@ -35,6 +35,7 @@ import os
 import sys
 import argparse
 import threading
+import re
 from functools import wraps
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable, Set
@@ -63,12 +64,24 @@ from utils import set_seed  # noqa: E402
 import yaml  # noqa: E402
 import torch  # noqa: E402
 import wandb  # noqa: E402
+from tools.model_detection import extract_model_name  # noqa: E402
 
 # Configure logging
+# Some environments (shared filesystems, read-only eval dirs, restrictive symlinks)
+# can make a log file unwritable. In that case, fall back to stderr logging only.
+_log_handlers: List[logging.Handler] = [logging.StreamHandler()]
+try:
+    # Open immediately so unwritable paths are detected here (not during emit/flush).
+    _log_handlers.append(
+        logging.FileHandler(Path.cwd() / "pipeline.log", mode="a", encoding="utf-8")
+    )
+except OSError:
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("pipeline.log")],
+    handlers=_log_handlers,
 )
 logger = logging.getLogger(__name__)
 
@@ -113,6 +126,10 @@ class PipelineConfig:
         self.seed = 42
         self.models = []  # Auto-detect
         self.od_sources = ["train", "test"]
+
+        # Optional dataset root override (can be absolute or relative to eval dir)
+        # Used by eval workspaces that keep datasets outside ../data/{dataset}.
+        self.data_dir: Optional[str] = None
 
         # NEW: Phase-based control (replaces skip_* flags)
         self.phases: Set[str] = {
@@ -210,24 +227,13 @@ class ModelDetector:
 
     @staticmethod
     def _extract_model_type_from_filename(filename: str) -> str:
-        """Robust model type extraction supporting multiple naming patterns"""
-        stem = filename.replace(".pth", "")
+        """Extract a canonical model type from a checkpoint filename.
 
-        # Pattern 1: _25epoch_seed (old naming convention)
-        if "_25epoch_seed" in stem:
-            base = stem.split("_25epoch_seed")[0]
-            seed = stem.split("_seed")[-1]
-            return base if seed == "42" else f"{base}_seed{seed}"
+        Delegates to the centralized `tools.model_detection.extract_model_name` so
+        naming conventions remain consistent across the codebase.
+        """
 
-        # Pattern 2: _phase{N}_seed (new phase-based naming)
-        elif "_phase" in stem and "_seed" in stem:
-            base_with_phase = stem.split("_seed")[0]
-            seed = stem.split("_seed")[1]
-            return base_with_phase if seed == "42" else f"{base_with_phase}_seed{seed}"
-
-        # Pattern 3: Fallback for simple names
-        else:
-            return stem.split("_")[0]
+        return extract_model_name(filename)
 
     def detect_models(self) -> List[str]:
         """Detect all available models and return unique model types"""
@@ -265,6 +271,27 @@ class TrajectoryGenerator:
     def __init__(self, config: PipelineConfig):
         self.config = config
 
+    @staticmethod
+    def _infer_seed_from_model_type(model_type: str) -> Optional[int]:
+        """Infer a numeric seed from a model type string.
+
+        Examples:
+            - "seed42" -> 42
+            - "distilled_l0p001_seed43" -> 43
+
+        Returns:
+            Parsed seed integer if present, otherwise None.
+        """
+
+        match = re.search(r"seed(\d+)", model_type)
+        if not match:
+            return None
+
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+
     def generate_trajectories(
         self, model_path: Path, model_type: str, od_source: str
     ) -> tuple[Path, dict]:
@@ -275,12 +302,14 @@ class TrajectoryGenerator:
         """
         logger.info(f"Generating trajectories: {model_type} ({od_source} OD)")
 
+        model_seed = self._infer_seed_from_model_type(model_type) or self.config.seed
+
         # Use the programmatic interface (returns dict with output_file, num_generated, performance)
         result = generate_trajectories_programmatic(
             dataset=self.config.dataset,
             model_path=str(model_path),
             od_source=od_source,
-            seed=self.config.seed,
+            seed=model_seed,
             num_gene=self.config.num_gene,
             cuda_device=self.config.cuda_device,
             beam_search=self.config.beam_search,
@@ -348,6 +377,7 @@ class TrajectoryEvaluator:
             generated_file=str(generated_file),
             dataset=self.config.dataset,
             od_source=od_source,  # Pass OD source to load correct real data
+            data_dir=getattr(self.config, "data_dir", None),
             grid_size=self.config.grid_size,
             edr_eps=self.config.edr_eps,
             enable_wandb=False,  # We'll handle WandB separately
@@ -539,27 +569,47 @@ class EvaluationPipeline:
         """Validate pipeline configuration"""
         logger.info("Validating pipeline configuration...")
 
+        def _raise_permission(path: Path, operation: str, exc: PermissionError):
+            raise PermissionError(
+                f"Permission denied while trying to {operation}: '{path}'. "
+                "This usually means the pipeline is running under a different UID than the files, "
+                "or the filesystem applies root-squash / restrictive directory permissions. "
+                "Run as the owning user (e.g., your login UID) or relax directory traverse permissions."
+            ) from exc
+
         # Check models directory
         if not self.models_dir.exists():
             raise FileNotFoundError(f"Models directory not found: {self.models_dir}")
 
         # Check data directory
-        # First check if data_dir is specified in config as absolute path
-        if hasattr(self.config, "data_dir") and self.config.data_dir:
-            data_dir = Path(self.config.data_dir)
-            if not data_dir.is_absolute():
-                # Relative to eval dir
-                data_dir = self.eval_dir / data_dir
-        else:
-            # Default: ../data/{dataset} from eval dir
-            data_dir = self.eval_dir.parent / "data" / self.config.dataset
+        # Prefer an explicit config.data_dir, but fall back to common layouts.
+        candidate_dirs = []
 
-        if not data_dir.exists():
-            raise FileNotFoundError(f"Data directory not found: {data_dir}")
+        if hasattr(self.config, "data_dir") and self.config.data_dir:
+            configured = Path(self.config.data_dir)
+            if not configured.is_absolute():
+                configured = self.eval_dir / configured
+            candidate_dirs.append(configured)
+
+        # Common eval layout: <eval-root>/../data/<dataset>
+        candidate_dirs.append(self.eval_dir.parent / "data" / self.config.dataset)
+
+        # Project-root layout: <repo>/data/<dataset>
+        candidate_dirs.append(PROJECT_ROOT / "data" / self.config.dataset)
+
+        data_dir = next((p for p in candidate_dirs if p.exists()), None)
+        if data_dir is None:
+            raise FileNotFoundError(
+                "Data directory not found. Tried: "
+                + ", ".join(str(p) for p in candidate_dirs)
+            )
 
         # Resolve symlink if needed
-        if data_dir.is_symlink():
-            data_dir = data_dir.resolve()
+        try:
+            if data_dir.is_symlink():
+                data_dir = data_dir.resolve()
+        except PermissionError as e:
+            _raise_permission(data_dir, "probe dataset symlink", e)
 
         # Check required data files
         required_files = ["test.csv", "roadmap.geo"]
@@ -581,8 +631,11 @@ class EvaluationPipeline:
                 )
 
             # Resolve symlink if needed
-            if cross_data_dir.is_symlink():
-                cross_data_dir = cross_data_dir.resolve()
+            try:
+                if cross_data_dir.is_symlink():
+                    cross_data_dir = cross_data_dir.resolve()
+            except PermissionError as e:
+                _raise_permission(cross_data_dir, "probe cross-dataset symlink", e)
 
             # Check required cross-dataset files
             for file in required_files:
@@ -635,7 +688,11 @@ class EvaluationPipeline:
             return None
 
         # Check for existing generated file
-        gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
+        model_seed = (
+            TrajectoryGenerator._infer_seed_from_model_type(model_type)
+            or self.config.seed
+        )
+        gene_dir = Path(f"./gene/{self.config.dataset}/seed{model_seed}")
 
         # Try multiple patterns to support both Porto and Beijing naming conventions
         patterns = [
@@ -962,6 +1019,7 @@ class EvaluationPipeline:
                         generated_file=str(cross_gen_file),
                         dataset=self.config.dataset,
                         od_source=od_source,
+                        data_dir=str(cross_data_dir),
                         grid_size=self.config.grid_size,
                         edr_eps=self.config.edr_eps,
                         enable_wandb=self.config.enable_wandb,

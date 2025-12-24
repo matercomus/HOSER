@@ -1558,7 +1558,9 @@ def load_and_preprocess_data(dataset, od_source="train"):
         dataset: Dataset name (e.g., 'Beijing')
         od_source: 'train' or 'test' - which dataset to extract OD pairs from
     """
-    cache_path = f"../data/{dataset}/gene_preprocessed_cache.pkl"
+    project_root = Path(__file__).resolve().parent
+    dataset_dir = project_root / "data" / str(dataset)
+    cache_path = str(dataset_dir / "gene_preprocessed_cache.pkl")
     if os.path.exists(cache_path):
         print(f"✅ Loading preprocessed data from cache: {cache_path}")
         with open(cache_path, "rb") as f:
@@ -1567,7 +1569,7 @@ def load_and_preprocess_data(dataset, od_source="train"):
         # If using test OD pairs, reload them (cache only has train ODs)
         if od_source == "test":
             print("🔄 Loading test set OD pairs (od_source=test)...")
-            test_traj_file = f"../data/{dataset}/test.csv"
+            test_traj_file = str(dataset_dir / "test.csv")
             if not os.path.exists(test_traj_file):
                 raise FileNotFoundError(
                     f"Test file not found: {test_traj_file}. Cannot use --od_source test"
@@ -1629,11 +1631,11 @@ def load_and_preprocess_data(dataset, od_source="train"):
 
     print("🚀 Preprocessing data for trajectory generation (first time only)...")
 
-    geo_file = f"../data/{dataset}/roadmap.geo"
-    rel_file = f"../data/{dataset}/roadmap.rel"
-    train_traj_file = f"../data/{dataset}/train.csv"
-    road_network_partition_file = f"../data/{dataset}/road_network_partition"
-    zone_trans_mat_file = f"../data/{dataset}/zone_trans_mat.npy"
+    geo_file = str(dataset_dir / "roadmap.geo")
+    rel_file = str(dataset_dir / "roadmap.rel")
+    train_traj_file = str(dataset_dir / "train.csv")
+    road_network_partition_file = str(dataset_dir / "road_network_partition")
+    zone_trans_mat_file = str(dataset_dir / "zone_trans_mat.npy")
 
     print("📂 Loading road network data...")
     geo = pl.read_csv(geo_file, schema_overrides={"lanes": pl.Utf8, "oneway": pl.Utf8})
@@ -2125,7 +2127,9 @@ def generate_trajectories_programmatic(
         else:
             print(f"✅ All {len(od_pairs)} OD pairs are valid")
 
-    with open(f"../config/{dataset}.yaml", "r") as file:
+    project_root = Path(__file__).resolve().parent
+    config_path = project_root / "config" / f"{dataset}.yaml"
+    with open(config_path, "r") as file:
         config = yaml.safe_load(file)
     config = create_nested_namespace(config)
 

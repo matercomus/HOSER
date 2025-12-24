@@ -41,14 +41,30 @@ EOF
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+die() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+check_writable_dir() {
+  # Best-effort check that a directory is writable by the current user.
+  # This catches common issues like UID mismatch in containers or root-squash.
+  local d="$1"
+  mkdir -p "$d" 2>/dev/null || die "cannot create directory: $d"
+  local probe="$d/.perm_probe_$$"
+  : >"$probe" 2>/dev/null || die "directory not writable: $d (uid=$(id -u), gid=$(id -g))"
+  rm -f "$probe" 2>/dev/null || true
+}
+
 # Non-interactive scripts do not source ~/.bashrc, so they won't pick up the
 # user's `uv()` wrapper. Ensure uv uses the per-project venv under /local.
 if [[ -z "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
   root_real="$(readlink -f "$ROOT_DIR")"
   hash="$(printf '%s' "$root_real" | sha1sum | awk '{print substr($1,1,8)}')"
   name="$(basename "$root_real")-$hash"
-  envdir="/local/data/mka299/uv/venvs/$name"
-  mkdir -p "$envdir" 2>/dev/null || true
+  local_user="${USER:-$(id -un 2>/dev/null || echo mka299)}"
+  envdir="/local/data/${local_user}/uv/venvs/$name"
+  check_writable_dir "$envdir"
   export UV_PROJECT_ENVIRONMENT="$envdir"
 fi
 
@@ -96,7 +112,7 @@ run_with_tee() {
     return 0
   fi
 
-  mkdir -p "$(dirname "$log_file")"
+  check_writable_dir "$(dirname "$log_file")"
   echo "Logging to: $log_file"
 
   # Ensure timely log flushing from Python.
@@ -233,6 +249,9 @@ if [[ ${#DATASETS[@]} -eq 0 ]]; then
 fi
 
 # Preflight
+check_writable_dir "${LOG_ROOT}"
+check_writable_dir "save"
+
 for entry in "${DATASETS[@]}"; do
   IFS='|' read -r dataset_name data_dir config_path <<<"$entry"
   require_file "$config_path"

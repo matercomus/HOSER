@@ -1109,6 +1109,7 @@ def evaluate_trajectories_programmatic(
     generated_file: str,
     dataset: str = "Beijing",
     od_source: str = "test",
+    data_dir: str | Path | None = None,
     grid_size: float = 0.001,
     edr_eps: float = 100.0,
     enable_wandb: bool = False,
@@ -1127,6 +1128,7 @@ def evaluate_trajectories_programmatic(
         generated_file: Path to generated trajectory CSV file
         dataset: Dataset name (e.g., 'Beijing')
         od_source: 'train' or 'test' - which dataset to use for real trajectories
+        data_dir: Optional explicit dataset directory (overrides <repo>/data/<dataset>)
         grid_size: Grid size in degrees for OD pair matching
         edr_eps: EDR threshold in meters
         enable_wandb: Enable WandB logging
@@ -1145,24 +1147,54 @@ def evaluate_trajectories_programmatic(
     import os
     import json
 
-    # Set up data paths (handle symlink)
-    # For cross-dataset evaluation, use cross_dataset_name for real data
-    if cross_dataset and cross_dataset_name:
-        data_dir = Path(f"../data/{cross_dataset_name}")
-    else:
-        data_dir = Path(f"../data/{dataset}")
+    def _permission_hint(path: Path, operation: str) -> PermissionError:
+        return PermissionError(
+            f"Permission denied while trying to {operation}: '{path}'. "
+            "This typically means the current process user cannot traverse/read the directory "
+            "(e.g., parent directory missing execute permission) or a symlink target is protected. "
+            "Fix by running as the owning user or relaxing directory permissions on the path."
+        )
 
-    if data_dir.is_symlink():
-        data_dir = data_dir.resolve()
+    # Set up data paths (handle symlink)
+    # Resolve relative to the repository root so evaluation works regardless of CWD.
+    project_root = Path(__file__).resolve().parent
+
+    # Prefer an explicit dataset directory when provided (common in eval workspaces).
+    if data_dir is not None:
+        data_dir = Path(str(data_dir))
+        if not data_dir.is_absolute():
+            data_dir = (project_root / data_dir).resolve()
+    else:
+        # For cross-dataset evaluation, use cross_dataset_name for real data
+        if cross_dataset and cross_dataset_name:
+            data_dir = project_root / "data" / str(cross_dataset_name)
+        else:
+            data_dir = project_root / "data" / str(dataset)
+
+    try:
+        if data_dir.is_symlink():
+            data_dir = data_dir.resolve()
+    except PermissionError as e:
+        raise _permission_hint(data_dir, "probe symlink") from e
 
     # Use appropriate dataset based on OD source
     real_path = data_dir / f"{od_source}.csv"
     geo_path = data_dir / "roadmap.geo"
 
-    if not os.path.exists(real_path):
-        raise FileNotFoundError(f"Real data not found: {real_path}")
-    if not os.path.exists(geo_path):
-        raise FileNotFoundError(f"Road network not found: {geo_path}")
+    # Use stat() so we can distinguish missing files from permission issues.
+    try:
+        real_path.stat()
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"Real data not found: {real_path}") from e
+    except PermissionError as e:
+        raise _permission_hint(real_path, "read real trajectory CSV") from e
+
+    try:
+        geo_path.stat()
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"Road network not found: {geo_path}") from e
+    except PermissionError as e:
+        raise _permission_hint(geo_path, "read road network file") from e
 
     # Load data
     geo_df = load_road_network(geo_path)

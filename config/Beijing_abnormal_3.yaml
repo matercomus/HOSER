@@ -1,0 +1,112 @@
+# Config for Beijing_abnormal_3 dataset.
+# This mirrors `config/Beijing.yaml` for model architecture compatibility, but
+# points `data_dir` at the Beijing_abnormal_3 dataset.
+
+road_network_encoder_config:
+  road_id_emb_dim: 64
+  len_emb_dim: 16
+  type_emb_dim: 16
+  lon_emb_dim: 16
+  lat_emb_dim: 16
+  intersection_emb_dim: 128
+  zone_id_emb_dim: 128
+  # determined at runtime
+  road_id_num_embeddings:
+  # determined at runtime
+  type_num_embeddings:
+  zone_id_num_embeddings: 300
+
+# determined at runtime
+road_network_encoder_feature:
+  road_attr:
+    len:
+    type:
+    lon:
+    lat:
+  road_edge_index:
+  intersection_attr:
+  zone_edge_index:
+  zone_edge_weight:
+
+trajectory_encoder_config:
+  hidden_dim: 128
+  num_heads: 2
+  num_layers: 2
+  dropout: 0.0
+  max_len: 1024
+  grad_checkpoint: false
+
+navigator_config:
+  hidden_dim: 128
+
+optimizer_config:
+  max_epoch: 25
+  batch_size: 128
+  accum_steps: 8
+  learning_rate: 0.001
+  weight_decay: 0.1
+  warmup_ratio: 0.1
+  max_norm: 1.0
+
+# Distillation settings (used by train_with_distill.py)
+distill:
+  enable: true
+  repo: /home/mka299/LMTAD
+  ckpt: /home/mka299/LMTAD/code/results/LMTAD/beijing_hoser_reference/run_20250928_202718/outlier_False/n_layer_8_n_head_12_n_embd_768_lr_0.0003_integer_poe_False/weights_only.pt
+  window: 7
+  lambda: 0.0014233948822000568
+  temperature: 4.372898776918818
+  grid_size: 0.001
+  downsample: 1
+
+# IMPORTANT: point at the abnormal dataset
+data_dir: /home/mka299/HOSER/data/Beijing_abnormal_3
+
+dataloader:
+  num_workers: 6
+  pin_memory: false
+  prefetch_factor: 16
+  persistent_workers: false
+
+data:
+  candidate_top_k: 64
+
+training:
+  seed: 43
+  allow_tf32: true
+  cudnn_benchmark: true
+  torch_compile: true
+  torch_compile_mode: max-autotune
+  disable_cudagraphs: true
+
+profiling:
+  enable: true
+  log_interval: 1000
+
+wandb:
+  enable: true
+  project: hoser-distill-optuna-6
+  run_name: ''
+  tags: [beijing, distillation, optuna]
+
+optuna:
+  n_trials: 12
+  max_epochs: 8
+  pruner:
+    min_resource: 5
+    reduction_factor: 3
+  sampler:
+    sampler_type: "cmaes"
+    seed: 43
+  vanilla_baseline_pretune:
+    enabled: true
+    max_epochs: 8
+    seeds: [43]
+  final_run:
+    enabled: true
+    max_epochs: 25
+    seeds: [42, 43, 44]
+  vanilla_baseline:
+    enabled: true
+    max_epochs: 25
+    seeds: [42, 43, 44]
