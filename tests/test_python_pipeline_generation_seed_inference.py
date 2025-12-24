@@ -94,6 +94,7 @@ def test_check_existing_results_uses_model_seed_dir(tmp_path: Path, monkeypatch)
     config.dataset = "Beijing"
     config.seed = 42
     config.force = False
+    config.num_gene = 1
 
     with patch.object(EvaluationPipeline, "_validate_config", return_value=None):
         pipeline = EvaluationPipeline(config, eval_dir)
@@ -103,9 +104,9 @@ def test_check_existing_results_uses_model_seed_dir(tmp_path: Path, monkeypatch)
     gene_dir = eval_dir / "gene" / "Beijing" / "seed43"
     gene_dir.mkdir(parents=True)
     csv_path = gene_dir / "2025-01-01_00-00-00_seed43_train.csv"
-    csv_path.write_text("dummy")
+    csv_path.write_text("col\nrow\n")
     perf_path = gene_dir / "2025-01-01_00-00-00_seed43_train_perf.json"
-    perf_path.write_text('{"beam_search_enabled": false}')
+    perf_path.write_text('{"beam_search_enabled": false, "num_trajectories": 1}')
 
     found = pipeline._check_existing_results("seed43", "train")
     assert found is not None

@@ -687,6 +687,16 @@ class EvaluationPipeline:
         if self.config.force:
             return None
 
+        def _csv_has_at_least_n_lines(path: Path, n_lines: int) -> bool:
+            try:
+                with open(path, "r") as f:
+                    for i, _ in enumerate(f, start=1):
+                        if i >= n_lines:
+                            return True
+                return False
+            except OSError:
+                return False
+
         # Check for existing generated file
         model_seed = (
             TrajectoryGenerator._infer_seed_from_model_type(model_type)
@@ -727,6 +737,30 @@ class EvaluationPipeline:
                     beam_search_enabled = perf_data.get("beam_search_enabled", True)
 
                     if not beam_search_enabled:
+                        expected_traj = int(self.config.num_gene)
+                        actual_traj = perf_data.get("num_trajectories")
+
+                        # If perf metadata indicates an incomplete run, ignore it.
+                        if isinstance(actual_traj, int) and actual_traj < expected_traj:
+                            logger.warning(
+                                "Ignoring incomplete generated file %s: %s/%s trajectories",
+                                csv_file.name,
+                                actual_traj,
+                                expected_traj,
+                            )
+                            continue
+
+                        # Fallback safety if perf is missing/old.
+                        if not isinstance(actual_traj, int):
+                            # header + expected trajectories
+                            if not _csv_has_at_least_n_lines(csv_file, expected_traj + 1):
+                                logger.warning(
+                                    "Ignoring incomplete generated file %s: fewer than %s lines",
+                                    csv_file.name,
+                                    expected_traj + 1,
+                                )
+                                continue
+
                         logger.info(
                             f"Found existing A* generated file: {csv_file.name}"
                         )
@@ -1520,7 +1554,11 @@ class EvaluationPipeline:
                 logger.info(f"Evaluating {model_type} ({od_source} OD)")
 
                 # Find generated file (prefer A* files)
-                gene_dir = Path(f"./gene/{self.config.dataset}/seed{self.config.seed}")
+                model_seed = (
+                    TrajectoryGenerator._infer_seed_from_model_type(model_type)
+                    or self.config.seed
+                )
+                gene_dir = Path(f"./gene/{self.config.dataset}/seed{model_seed}")
 
                 # Try new naming pattern first: {timestamp}_{model_type}_{od_source}.csv
                 pattern = f"*_{model_type}_{od_source}.csv"
@@ -1561,8 +1599,19 @@ class EvaluationPipeline:
                         perf_metadata[csv_file] = perf_data
 
                         beam_search_enabled = perf_data.get("beam_search_enabled", True)
-                        if not beam_search_enabled:
+
+                        expected_traj = int(self.config.num_gene)
+                        actual_traj = perf_data.get("num_trajectories")
+
+                        if not beam_search_enabled and isinstance(actual_traj, int) and actual_traj >= expected_traj:
                             astar_files.append(csv_file)
+                        elif not beam_search_enabled and isinstance(actual_traj, int) and actual_traj < expected_traj:
+                            logger.warning(
+                                "Ignoring incomplete generated file %s: %s/%s trajectories",
+                                csv_file.name,
+                                actual_traj,
+                                expected_traj,
+                            )
                     except (json.JSONDecodeError, KeyError):
                         logger.warning(
                             "Invalid perf metadata for %s, skipping A* detection",
@@ -1575,16 +1624,13 @@ class EvaluationPipeline:
                     generated_file = max(astar_files, key=lambda x: x.stat().st_mtime)
                     logger.info(f"Found existing A* file: {generated_file.name}")
                 else:
-                    # No A* files found - this shouldn't happen if generation phase worked
-                    # But log a warning and use the most recent file anyway
-                    generated_file = max(
-                        generated_files, key=lambda x: x.stat().st_mtime
+                    error_msg = (
+                        f"No complete A* generated file found for {model_type} ({od_source} OD) "
+                        f"in {gene_dir} (expected {self.config.num_gene} trajectories)."
                     )
-                    logger.warning(
-                        f"No A* file found for {model_type} ({od_source} OD), "
-                        f"using most recent file: {generated_file.name}. "
-                        f"This may be a beam search file."
-                    )
+                    logger.error(error_msg)
+                    failed_operations.append(error_msg)
+                    continue
 
                 generation_performance = perf_metadata.get(generated_file)
 
