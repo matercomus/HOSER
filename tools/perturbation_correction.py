@@ -15,7 +15,6 @@ Outputs:
 
 from __future__ import annotations
 
-import ast
 import csv
 import hashlib
 import json
@@ -33,6 +32,12 @@ from gene import generate_trajectories_programmatic
 from tools.abnormality_metadata import parse_abnormality_info, parse_rid_list
 
 logger = logging.getLogger(__name__)
+
+
+_TEACHER_CACHE: dict[
+    tuple[str, str, str, int, float, str],
+    tuple[Any, Any],
+] = {}
 
 
 @dataclass(frozen=True)
@@ -271,6 +276,18 @@ def _maybe_load_teacher(
     from critics.grid_mapper import GridConfig, GridMapper
     from simple_evaluate_with_lmtad import load_road_centroids
 
+    cache_key = (
+        str(teacher_cfg.lmtad_repo),
+        str(teacher_cfg.lmtad_checkpoint),
+        str(teacher_cfg.device),
+        int(teacher_cfg.batch_size),
+        float(teacher_cfg.grid_size),
+        str(roadmap_geo),
+    )
+    cached = _TEACHER_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     model = LMTADTeacher(
         repo_path=str(teacher_cfg.lmtad_repo),
         ckpt_path=str(teacher_cfg.lmtad_checkpoint),
@@ -280,23 +297,27 @@ def _maybe_load_teacher(
     )
 
     road_centroids = load_road_centroids(roadmap_geo)
+    # `simple_evaluate_with_lmtad.load_road_centroids()` returns centroids as
+    # (lng, lat). `GridMapper` expects (lat, lng).
+    road_centroids_latlng = road_centroids[:, [1, 0]]
     grid_config = GridConfig(
-        min_lat=float(road_centroids[:, 1].min()),
-        max_lat=float(road_centroids[:, 1].max()),
-        min_lng=float(road_centroids[:, 0].min()),
-        max_lng=float(road_centroids[:, 0].max()),
+        min_lat=float(road_centroids_latlng[:, 0].min()),
+        max_lat=float(road_centroids_latlng[:, 0].max()),
+        min_lng=float(road_centroids_latlng[:, 1].min()),
+        max_lng=float(road_centroids_latlng[:, 1].max()),
         grid_size=teacher_cfg.grid_size,
     )
 
     mapper = GridMapper(
         boundary=grid_config,
-        road_centroids=road_centroids,
+        road_centroids=road_centroids_latlng,
         verify_hw=None,
     )
 
     import torch
 
     road_to_token = torch.from_numpy(mapper.map_all()).to(teacher_cfg.device)
+    _TEACHER_CACHE[cache_key] = (model, road_to_token)
     return model, road_to_token
 
 

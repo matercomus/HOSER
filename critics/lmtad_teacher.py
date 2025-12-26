@@ -20,10 +20,91 @@ Notes
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from contextlib import nullcontext
-from typing import Optional, Tuple
+from types import ModuleType
+from typing import Iterator, Optional, Tuple
 
 import torch
+
+
+def _load_module_from_path(module_name: str, module_path: str) -> ModuleType:
+    """Load a Python module from an explicit file path.
+
+    This is used to load external LM-TAD files without requiring LM-TAD to be
+    installed as a package.
+    """
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module {module_name} from {module_path}")
+
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+    return mod
+
+
+@contextmanager
+def _lmtad_sys_namespace(repo_path: str) -> Iterator[None]:
+    """Temporarily make LM-TAD importable as `models.*` and `utils`.
+
+    This is required because LM-TAD checkpoints may contain pickled objects
+    referencing `models.LMTAD` during `torch.load()`.
+    """
+
+    import os
+
+    code_path = f"{repo_path}/code"
+    if code_path not in sys.path:
+        sys.path.insert(0, code_path)
+    elif sys.path[0] != code_path:
+        sys.path.remove(code_path)
+        sys.path.insert(0, code_path)
+
+    lmtad_utils_py = os.path.join(code_path, "utils.py")
+    lmtad_model_py = os.path.join(code_path, "models", "LMTAD.py")
+    if not os.path.exists(lmtad_model_py):
+        raise ImportError(f"LM-TAD repo missing {lmtad_model_py}")
+
+    saved_modules: dict[str, ModuleType] = {}
+    for name, module in list(sys.modules.items()):
+        if name == "utils" or name == "models" or name.startswith("models."):
+            if isinstance(module, ModuleType):
+                saved_modules[name] = module
+            sys.modules.pop(name, None)
+
+    try:
+        import importlib
+
+        # Import under their canonical names so recursive imports work.
+        if os.path.exists(lmtad_utils_py):
+            importlib.import_module("utils")
+
+        # Pre-import so it's available for checkpoint unpickling.
+        importlib.import_module("models.LMTAD")
+        yield
+    finally:
+        # Remove any LM-TAD-injected modules so we can restore HOSER's.
+        for name in list(sys.modules.keys()):
+            if name == "utils" or name == "models" or name.startswith("models."):
+                sys.modules.pop(name, None)
+
+        sys.modules.update(saved_modules)
+
+
+def _import_lmtad_LMTAD_class(repo_path: str) -> type:
+    """Import LM-TAD's `LMTAD` class from `<repo>/code/models/LMTAD.py`."""
+
+    import importlib
+
+    with _lmtad_sys_namespace(repo_path):
+        module = importlib.import_module("models.LMTAD")
+        LMTAD = getattr(module, "LMTAD", None)
+        if LMTAD is None:
+            raise ImportError("LMTAD class not found in models.LMTAD")
+        return LMTAD
 
 
 class LMTADTeacher:
@@ -65,58 +146,16 @@ class LMTADTeacher:
             "float16": torch.float16,
         }[dtype]
 
-        # Add LM-TAD repo to sys.path and import lazily
-        # Note: repo_path in config is /home/mka299/LMTAD but code is in /home/mka299/LMTAD/code
-        code_path = f"{self.repo_path}/code"
-        if code_path not in sys.path:
-            sys.path.insert(0, code_path)
-
-        # Robust import of LM-TAD modules without colliding with local `models` package
-        import importlib.util
-        import os as _os
-
-        def _load_module(module_name: str, module_path: str):
-            spec = importlib.util.spec_from_file_location(module_name, module_path)
-            if spec is None or spec.loader is None:
-                raise ImportError(
-                    f"Cannot load module {module_name} from {module_path}"
+        # LM-TAD checkpoints may include pickled objects referencing
+        # `models.LMTAD`, so make LM-TAD importable during `torch.load()`.
+        with _lmtad_sys_namespace(self.repo_path):
+            LMTAD = _import_lmtad_LMTAD_class(self.repo_path)
+            try:
+                checkpoint = torch.load(
+                    self.ckpt_path, map_location=self.device, weights_only=False
                 )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)  # type: ignore[attr-defined]
-            return mod
-
-        # Load model from models/LMTAD.py
-        lmtad_model_py = _os.path.join(code_path, "models", "LMTAD.py")
-        lmtad_utils_py = _os.path.join(code_path, "utils.py")
-        # We do not need datasets for distillation; skip importing datasets.py
-        if not _os.path.exists(lmtad_model_py):
-            raise ImportError(f"LM-TAD repo missing {lmtad_model_py}")
-        # Ensure LM-TAD's 'utils' is used by model code
-        import sys as _sys
-
-        prev_utils = _sys.modules.get("utils")
-        try:
-            if _os.path.exists(lmtad_utils_py):
-                lmtad_utils = _load_module("lmtad_utils", lmtad_utils_py)
-                _sys.modules["utils"] = lmtad_utils
-            lmtad_models = _load_module("lmtad_models", lmtad_model_py)
-        finally:
-            # Do not leave a broken state; restore previous utils if any
-            if prev_utils is not None:
-                _sys.modules["utils"] = prev_utils
-            else:
-                _sys.modules.pop("utils", None)
-        LMTAD = getattr(lmtad_models, "LMTAD", None)
-        if LMTAD is None:
-            raise ImportError("LMTAD class not found in LM-TAD model file")
-
-        # Prefer weights-only checkpoints: {'state_dict','model_config' (plain dict)}
-        try:
-            checkpoint = torch.load(
-                self.ckpt_path, map_location=self.device, weights_only=False
-            )
-        except TypeError:
-            checkpoint = torch.load(self.ckpt_path, map_location=self.device)
+            except TypeError:
+                checkpoint = torch.load(self.ckpt_path, map_location=self.device)
 
         state_dict = checkpoint.get("state_dict") or checkpoint.get("model")
         if state_dict is None:

@@ -41,6 +41,37 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable, Set
 import logging
 
+
+class _SafeStreamHandler(logging.StreamHandler):
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except (PermissionError, OSError, ValueError):
+            # Some cluster environments can intermittently make stdout/stderr
+            # unwritable (e.g., closed TTY, redirected stream). Logging should
+            # never crash or spam internal tracebacks.
+            return
+
+    def flush(self):
+        try:
+            super().flush()
+        except (PermissionError, OSError, ValueError):
+            return
+
+
+class _SafeFileHandler(logging.FileHandler):
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except (PermissionError, OSError, ValueError):
+            return
+
+    def flush(self):
+        try:
+            super().flush()
+        except (PermissionError, OSError, ValueError):
+            return
+
 # Detect if we're running from inside an eval directory or from project root
 SCRIPT_DIR = Path(__file__).parent
 CURRENT_DIR = Path.cwd()
@@ -69,11 +100,13 @@ from tools.model_detection import extract_model_name  # noqa: E402
 # Configure logging
 # Some environments (shared filesystems, read-only eval dirs, restrictive symlinks)
 # can make a log file unwritable. In that case, fall back to stderr logging only.
-_log_handlers: List[logging.Handler] = [logging.StreamHandler()]
+logging.raiseExceptions = False
+
+_log_handlers: List[logging.Handler] = [_SafeStreamHandler()]
 try:
     # Open immediately so unwritable paths are detected here (not during emit/flush).
     _log_handlers.append(
-        logging.FileHandler(Path.cwd() / "pipeline.log", mode="a", encoding="utf-8")
+        _SafeFileHandler(Path.cwd() / "pipeline.log", mode="a", encoding="utf-8")
     )
 except OSError:
     pass
@@ -1711,11 +1744,30 @@ class EvaluationPipeline:
             logger.error(msg)
             return
 
-        from tools.perturbation_correction import (
-            PerturbationCorrectionConfig,
-            PerturbationTeacherConfig,
-            run_perturbation_correction,
-        )
+        try:
+            from tools.perturbation_correction import (
+                PerturbationCorrectionConfig,
+                PerturbationTeacherConfig,
+                run_perturbation_correction,
+            )
+        except ModuleNotFoundError:
+            # Rarely, environments with a conflicting installed `tools` package
+            # or modified sys.path can break the normal import. Fall back to a
+            # direct file-based import from this repo.
+            import importlib.util
+
+            module_path = (PROJECT_ROOT / "tools" / "perturbation_correction.py").resolve()
+            spec = importlib.util.spec_from_file_location(
+                "hoser_tools_perturbation_correction", module_path
+            )
+            if spec is None or spec.loader is None:
+                raise
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            PerturbationCorrectionConfig = module.PerturbationCorrectionConfig
+            PerturbationTeacherConfig = module.PerturbationTeacherConfig
+            run_perturbation_correction = module.run_perturbation_correction
 
         source_csv = Path(str(self.config.perturbation_source_csv))
         if not source_csv.is_absolute():
@@ -1723,9 +1775,21 @@ class EvaluationPipeline:
 
         teacher_cfg = None
         if getattr(self.config, "perturbation_lmtad_checkpoint", None):
-            if not getattr(self.config, "perturbation_lmtad_repo", None):
+            lmtad_repo = getattr(self.config, "perturbation_lmtad_repo", None)
+            if not lmtad_repo:
                 raise ValueError(
                     "perturbation_lmtad_checkpoint set but perturbation_lmtad_repo is missing"
+                )
+
+            # `LMTADTeacher` expects `repo_path` to point at the LM-TAD code repo root
+            # that contains `code/models/LMTAD.py`.
+            lmtad_repo_path = Path(str(lmtad_repo)).resolve()
+            expected = lmtad_repo_path / "code" / "models" / "LMTAD.py"
+            if not expected.exists():
+                raise FileNotFoundError(
+                    "LM-TAD repo missing expected file. "
+                    f"Expected: {expected} (from perturbation_lmtad_repo={lmtad_repo_path}). "
+                    "Set perturbation_lmtad_repo to the LM-TAD repository root (e.g., /home/<user>/LMTAD)."
                 )
 
             device = (
@@ -1734,7 +1798,7 @@ class EvaluationPipeline:
                 else "cpu"
             )
             teacher_cfg = PerturbationTeacherConfig(
-                lmtad_repo=Path(str(self.config.perturbation_lmtad_repo)).resolve(),
+                lmtad_repo=lmtad_repo_path,
                 lmtad_checkpoint=Path(
                     str(self.config.perturbation_lmtad_checkpoint)
                 ).resolve(),
