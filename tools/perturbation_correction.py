@@ -274,7 +274,8 @@ def _maybe_load_teacher(
     """Load LM-TAD teacher and road_to_token mapping."""
     from critics.lmtad_teacher import LMTADTeacher
     from critics.grid_mapper import GridConfig, GridMapper
-    from simple_evaluate_with_lmtad import load_road_centroids
+    import csv
+    import json
 
     cache_key = (
         str(teacher_cfg.lmtad_repo),
@@ -296,23 +297,108 @@ def _maybe_load_teacher(
         window=256,
     )
 
-    road_centroids = load_road_centroids(roadmap_geo)
-    # `simple_evaluate_with_lmtad.load_road_centroids()` returns centroids as
-    # (lng, lat). `GridMapper` expects (lat, lng).
-    road_centroids_latlng = road_centroids[:, [1, 0]]
+    # IMPORTANT: LM-TAD token ids depend on the exact grid boundary.
+    # To keep tokenization consistent with teacher training and the project's
+    # dataset-level LM-TAD evaluation (`tools/evaluate_dataset_with_lmtad.py`),
+    # compute the grid boundary from *all* roadmap polyline points (not just
+    # centroids), and compute per-road centroids as the mean of polyline points.
+    min_lat, max_lat = float("inf"), float("-inf")
+    min_lng, max_lng = float("inf"), float("-inf")
+    centroids_by_id: Dict[int, Tuple[float, float]] = {}
+    max_road_id = -1
+
+    with roadmap_geo.open("r", newline="") as f:
+        reader = csv.DictReader(f)
+        if "coordinates" not in (reader.fieldnames or []):
+            raise ValueError(
+                f"Roadmap missing required column 'coordinates': {roadmap_geo}"
+            )
+
+        has_road_id = "road_id" in (reader.fieldnames or [])
+
+        for row_idx, row in enumerate(reader):
+            coords_str = row.get("coordinates")
+            if coords_str is None:
+                continue
+
+            if has_road_id:
+                rid_raw = row.get("road_id")
+                if rid_raw is None:
+                    continue
+                try:
+                    road_id = int(rid_raw)
+                except (TypeError, ValueError):
+                    continue
+            else:
+                # Most roadmap.geo exports in this repo do not include road_id;
+                # they implicitly use the row index as road_id.
+                road_id = int(row_idx)
+
+            coords_str = str(coords_str)
+            if not coords_str.strip():
+                continue
+
+            # roadmap.geo typically stores coordinates as JSON list of [lng, lat] pairs.
+            try:
+                coords = json.loads(coords_str)
+            except json.JSONDecodeError:
+                # Fallback: some older exports may use python-literal lists.
+                coords = eval(coords_str)
+
+            if not isinstance(coords, list) or not coords:
+                continue
+
+            try:
+                lngs = [float(c[0]) for c in coords]
+                lats = [float(c[1]) for c in coords]
+            except (TypeError, ValueError, IndexError):
+                continue
+
+            if any(lat < -90 or lat > 90 for lat in lats) or any(
+                lng < -180 or lng > 180 for lng in lngs
+            ):
+                continue
+
+            centroid_lat = float(sum(lats) / len(lats))
+            centroid_lng = float(sum(lngs) / len(lngs))
+            centroids_by_id[road_id] = (centroid_lat, centroid_lng)
+            max_road_id = max(max_road_id, road_id)
+
+            # Boundary from *all* points.
+            min_lat = min(min_lat, min(lats))
+            max_lat = max(max_lat, max(lats))
+            min_lng = min(min_lng, min(lngs))
+            max_lng = max(max_lng, max(lngs))
+
+    if max_road_id < 0 or not centroids_by_id:
+        raise RuntimeError(f"Failed to parse road centroids from roadmap: {roadmap_geo}")
+
+    if has_road_id:
+        missing = [i for i in range(max_road_id + 1) if i not in centroids_by_id]
+        if missing:
+            preview = ",".join(str(i) for i in missing[:10])
+            raise ValueError(
+                "Roadmap road_id indices are not contiguous from 0..max; refusing to proceed to avoid road-id/index mismatch. "
+                f"Missing: {len(missing)} (first: {preview}{'...' if len(missing) > 10 else ''})"
+            )
+
+    if not (min_lat < max_lat and min_lng < max_lng):
+        raise ValueError(
+            f"Invalid boundary computed from roadmap points: lat=[{min_lat}, {max_lat}], lng=[{min_lng}, {max_lng}]"
+        )
+
+    road_centroids_latlng = np.asarray(
+        [centroids_by_id[i] for i in range(max_road_id + 1)], dtype=np.float64
+    )
     grid_config = GridConfig(
-        min_lat=float(road_centroids_latlng[:, 0].min()),
-        max_lat=float(road_centroids_latlng[:, 0].max()),
-        min_lng=float(road_centroids_latlng[:, 1].min()),
-        max_lng=float(road_centroids_latlng[:, 1].max()),
+        min_lat=float(min_lat),
+        max_lat=float(max_lat),
+        min_lng=float(min_lng),
+        max_lng=float(max_lng),
         grid_size=teacher_cfg.grid_size,
     )
 
-    mapper = GridMapper(
-        boundary=grid_config,
-        road_centroids=road_centroids_latlng,
-        verify_hw=None,
-    )
+    mapper = GridMapper(boundary=grid_config, road_centroids=road_centroids_latlng, verify_hw=None)
 
     import torch
 

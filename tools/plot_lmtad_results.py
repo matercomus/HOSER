@@ -249,8 +249,33 @@ def plot_results(
             ax.set_title(s)
         else:
             sns.histplot(vals, bins=50, kde=False, ax=ax)
-            thr = np.percentile(vals, 95)
-            ax.axvline(thr, color="red", linestyle="--", label=f"95th pct={thr:.3f}")
+            base_meta = agg.get(s, {}).get("baseline_calibrated") if isinstance(agg, dict) else None
+            thr = None
+            if isinstance(base_meta, dict) and base_meta.get("threshold") is not None:
+                thr = float(base_meta["threshold"])
+                q = base_meta.get("quantile")
+                if q is not None:
+                    ax.axvline(
+                        thr,
+                        color="red",
+                        linestyle="--",
+                        label=f"Baseline q={float(q):.3f} thr={thr:.3f}",
+                    )
+                else:
+                    ax.axvline(
+                        thr,
+                        color="red",
+                        linestyle="--",
+                        label=f"Baseline thr={thr:.3f}",
+                    )
+            else:
+                thr = float(np.percentile(vals, 95))
+                ax.axvline(
+                    thr,
+                    color="red",
+                    linestyle="--",
+                    label=f"95th pct (within split)={thr:.3f}",
+                )
             ax.set_title(f"{s} (N={len(vals)})")
             ax.set_xlabel("Log perplexity")
             ax.legend()
@@ -286,7 +311,18 @@ def plot_results(
             if scores.size == 0:
                 ax_den.text(0.5, 0.5, "No finite values", ha="center")
             else:
-                thr = float(np.percentile(scores, 95))
+                base_meta = agg.get(s, {}).get("baseline_calibrated") if isinstance(agg, dict) else None
+                if isinstance(base_meta, dict) and base_meta.get("threshold") is not None:
+                    thr = float(base_meta["threshold"])
+                    q = base_meta.get("quantile")
+                    thr_label = (
+                        f"Baseline q={float(q):.3f} thr={thr:.3f}"
+                        if q is not None
+                        else f"Baseline thr={thr:.3f}"
+                    )
+                else:
+                    thr = float(np.percentile(scores, 95))
+                    thr_label = f"95th pct (within split)={thr:.3f}"
                 # Use density so shapes are comparable even if class counts differ.
                 if normal_scores.size > 0:
                     sns.histplot(
@@ -332,7 +368,7 @@ def plot_results(
                     color="black",
                     linestyle="--",
                     linewidth=1,
-                    label=f"95th pct (all)={thr:.3f}",
+                    label=thr_label,
                 )
                 ax_den.set_xlabel("Log perplexity")
                 ax_den.set_ylabel("Density")

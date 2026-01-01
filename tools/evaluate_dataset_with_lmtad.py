@@ -29,6 +29,19 @@ Baseline-calibrated outliers (recommended):
         --lmtad-checkpoint /path/to/ckpt_best.pt \
         --baseline-eval tools_eval_lmtad/Beijing \
         --baseline-quantile 0.95
+
+One-command baseline + target evals (recommended for perturbed-data experiments):
+    # Evaluates baseline, writes baseline_eval.json, then evaluates target(s)
+    # using the baseline-calibrated threshold — all in one invocation.
+    uv run python tools/evaluate_dataset_with_lmtad.py \
+        --baseline-dataset Beijing \
+        --target-datasets Beijing_abnormal_3 \
+        --lmtad-checkpoint /path/to/ckpt_best.pt \
+        --device cuda:0 \
+        --splits train \
+        --baseline-quantile 0.95 \
+        --baseline-split train \
+        --sample-frac 0.01
 """
 
 from __future__ import annotations
@@ -310,6 +323,46 @@ def _update_aggregated_json(
         json.dump(agg, f, indent=2)
 
 
+def _abnormality_info_stats(csv_path: Path) -> Optional[Dict[str, Any]]:
+    """Best-effort stats about injected abnormality rows.
+
+    For perturbed datasets like `Beijing_abnormal_3`, only the train split is
+    typically perturbed; val/test often remain clean. Reporting this helps
+    interpret baseline-calibrated outlier rates.
+    """
+    try:
+        with open(csv_path, "r", newline="") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames is None or "abnormality_info" not in reader.fieldnames:
+                return None
+
+            total = 0
+            abnormal = 0
+            for row in reader:
+                total += 1
+                raw = row.get("abnormality_info")
+                if raw is None:
+                    continue
+                s = str(raw).strip()
+                if not s:
+                    continue
+                if s.lower() in {"nan", "none", "null", "normal"}:
+                    continue
+                abnormal += 1
+
+        if total == 0:
+            return None
+
+        return {
+            "column": "abnormality_info",
+            "num_rows": int(total),
+            "num_abnormal": int(abnormal),
+            "abnormal_fraction": float(abnormal / total),
+        }
+    except Exception:
+        return None
+
+
 def _iter_splits(data_dir: Path, splits: List[str]) -> Iterable[Tuple[str, Path]]:
     for split in splits:
         yield split, data_dir / f"{split}.csv"
@@ -502,6 +555,7 @@ def _build_split_result(
     within_split_outliers: np.ndarray,
     within_split_outlier_rate: float,
     baseline_calibrated: Optional[Dict[str, Any]],
+    abnormality_stats: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     return {
         "num_trajectories": int(num_trajectories),
@@ -517,6 +571,7 @@ def _build_split_result(
         "within_split_outlier_rate": float(within_split_outlier_rate),
         "within_split_outlier_labels": within_split_outliers.tolist(),
         "baseline_calibrated": baseline_calibrated,
+        "abnormality_stats": abnormality_stats,
     }
 
 
@@ -553,6 +608,17 @@ def _compute_outliers(
 
     baseline_outlier_rate = float((base_scores > threshold).mean())
     calibrated_outliers = (perplexities > threshold).astype(np.float32)
+
+    logger.info(
+        "Baseline-calibrated threshold (target_split=%s): baseline_split=%s, q=%.3f, threshold=%.6f, "
+        "baseline_outlier_rate=%.2f%%, target_outlier_rate=%.2f%%",
+        str(split),
+        chosen_baseline_split,
+        float(baseline_quantile),
+        float(threshold),
+        baseline_outlier_rate * 100.0,
+        float(calibrated_outliers.mean()) * 100.0,
+    )
 
     baseline_calibrated = {
         "method": "quantile",
@@ -653,6 +719,17 @@ def evaluate_splits(
             logger.warning("Sampled 0 rows from %s, skipping", csv_file)
             continue
 
+        abnormality_stats = _abnormality_info_stats(target_csv)
+        if abnormality_stats is not None:
+            logger.info(
+                "Split '%s': abnormal_fraction=%.2f%% (%d/%d rows have %s)",
+                split,
+                float(abnormality_stats["abnormal_fraction"]) * 100.0,
+                int(abnormality_stats["num_abnormal"]),
+                int(abnormality_stats["num_rows"]),
+                str(abnormality_stats["column"]),
+            )
+
         eval_out = _evaluate_csv(
             csv_path=target_csv,
             model=model,
@@ -681,6 +758,7 @@ def evaluate_splits(
             within_split_outliers=within_split_outliers,
             within_split_outlier_rate=within_split_outlier_rate,
             baseline_calibrated=baseline_calibrated,
+            abnormality_stats=abnormality_stats,
         )
 
         logger.info(
@@ -715,8 +793,40 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        required=True,
-        help="Dataset name (used for default paths)",
+        default=None,
+        help=(
+            "Dataset name (used for default paths). "
+            "In multi-dataset mode, use --baseline-dataset/--target-datasets instead."
+        ),
+    )
+
+    # Multi-dataset convenience mode: run baseline then one or more targets.
+    parser.add_argument(
+        "--baseline-dataset",
+        type=str,
+        default=None,
+        help="Baseline dataset name (e.g., Beijing).",
+    )
+    parser.add_argument(
+        "--target-datasets",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated list of target datasets to evaluate using the baseline threshold "
+            "(e.g., Beijing_abnormal_3)."
+        ),
+    )
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=Path("data"),
+        help="Root directory containing per-dataset folders.",
+    )
+    parser.add_argument(
+        "--out-root",
+        type=Path,
+        default=Path("tools_eval_lmtad"),
+        help="Root directory for per-dataset evaluation outputs.",
     )
     parser.add_argument(
         "--data-dir",
@@ -825,9 +935,104 @@ def main():
 
     args = parser.parse_args()
 
-    data_dir = (
-        args.data_dir if args.data_dir is not None else Path("data") / args.dataset
-    )
+    splits = [s.strip() for s in args.splits.split(",") if s.strip()]
+
+    multi_mode = bool(args.baseline_dataset or args.target_datasets)
+    if multi_mode:
+        if not args.baseline_dataset or not args.target_datasets:
+            raise SystemExit(
+                "Multi-dataset mode requires both --baseline-dataset and --target-datasets."
+            )
+        if args.data_dir is not None or args.output_dir is not None or args.baseline_eval is not None:
+            logger.warning(
+                "Ignoring --data-dir/--output-dir/--baseline-eval in multi-dataset mode; "
+                "using --data-root/--out-root and the baseline run output as baseline_eval."
+            )
+
+        baseline_data_dir = args.data_root / str(args.baseline_dataset)
+        baseline_output_dir = args.out_root / str(args.baseline_dataset)
+
+        roadmap = args.roadmap
+        if roadmap is None:
+            candidate = baseline_data_dir / "roadmap.geo"
+            if candidate.exists():
+                roadmap = candidate
+            else:
+                raise SystemExit(
+                    "--roadmap is required unless <baseline-data-dir>/roadmap.geo exists. "
+                    f"Tried: {candidate}"
+                )
+
+        target_datasets = [
+            s.strip() for s in str(args.target_datasets).split(",") if s.strip()
+        ]
+        if not target_datasets:
+            raise SystemExit("--target-datasets parsed to an empty list")
+
+        logger.info(
+            "Running baseline dataset '%s' then %d target dataset(s)",
+            str(args.baseline_dataset),
+            len(target_datasets),
+        )
+
+        # 1) Baseline run (writes baseline_eval.json).
+        evaluate_splits(
+            data_dir=baseline_data_dir,
+            roadmap_file=roadmap,
+            lmtad_ckpt=args.lmtad_checkpoint,
+            lmtad_repo=args.lmtad_repo,
+            device=args.device,
+            batch_size=args.batch_size,
+            splits=splits,
+            output_dir=baseline_output_dir,
+            sample_frac=args.sample_frac,
+            sample_seed=args.sample_seed,
+            baseline_eval=None,
+            baseline_quantile=args.baseline_quantile,
+            baseline_split=args.baseline_split,
+            write_baseline=True,
+            baseline_out=None,
+        )
+
+        baseline_eval_dir = baseline_output_dir
+        logger.info(
+            "Reusing baseline eval from %s (q=%.3f)",
+            baseline_eval_dir,
+            float(args.baseline_quantile),
+        )
+
+        # 2) Target runs (use baseline threshold).
+        for target in target_datasets:
+            target_data_dir = args.data_root / target
+            target_output_dir = args.out_root / target
+            logger.info("Evaluating target dataset '%s'", target)
+            evaluate_splits(
+                data_dir=target_data_dir,
+                roadmap_file=roadmap,
+                lmtad_ckpt=args.lmtad_checkpoint,
+                lmtad_repo=args.lmtad_repo,
+                device=args.device,
+                batch_size=args.batch_size,
+                splits=splits,
+                output_dir=target_output_dir,
+                sample_frac=args.sample_frac,
+                sample_seed=args.sample_seed,
+                baseline_eval=baseline_eval_dir,
+                baseline_quantile=args.baseline_quantile,
+                baseline_split=args.baseline_split,
+                write_baseline=False,
+                baseline_out=None,
+            )
+
+        return
+
+    # Single-dataset mode (backwards compatible).
+    if not args.dataset:
+        raise SystemExit(
+            "Single-dataset mode requires --dataset (or use --baseline-dataset/--target-datasets)."
+        )
+
+    data_dir = args.data_dir if args.data_dir is not None else Path("data") / args.dataset
     roadmap = args.roadmap
     if roadmap is None:
         candidate = Path(data_dir) / "roadmap.geo"
@@ -838,7 +1043,6 @@ def main():
                 "--roadmap is required unless <data-dir>/roadmap.geo exists. "
                 f"Tried: {candidate}"
             )
-    splits = [s.strip() for s in args.splits.split(",") if s.strip()]
 
     evaluate_splits(
         data_dir=data_dir,
