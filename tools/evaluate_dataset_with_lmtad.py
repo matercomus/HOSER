@@ -902,7 +902,7 @@ def main():
         default=0.95,
         help=(
             "Baseline quantile q used to set the threshold when --baseline-eval is provided. "
-            "Example: 0.95 targets ~5% baseline outliers."
+            "Example: 0.95 targets ~5%% baseline outliers."
         ),
     )
     parser.add_argument(

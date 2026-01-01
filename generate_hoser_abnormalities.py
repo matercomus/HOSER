@@ -13,6 +13,189 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 
+def _to_builtin(value):
+    """Recursively convert numpy scalars/arrays to Python builtin types.
+
+    This keeps `abnormality_info` parseable via `ast.literal_eval` (and JSON-
+    serializable for the injected-index log).
+    """
+
+    if isinstance(value, dict):
+        return {str(k): _to_builtin(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_builtin(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_to_builtin(v) for v in value)
+
+    # numpy scalars
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+
+    # numpy arrays
+    if isinstance(value, np.ndarray):
+        return _to_builtin(value.tolist())
+
+    if isinstance(value, set):
+        return [_to_builtin(v) for v in sorted(value)]
+
+    return value
+
+
+def _load_road_centroids_from_geo(geo_path: Path) -> dict[str, tuple[float, float]]:
+    """Load per-road (lat, lng) centroids from a roadmap.geo file.
+
+    Expected schema: a CSV with a `coordinates` column that stores a JSON list
+    of [lng, lat] points.
+    """
+    try:
+        geo_df = pl.read_csv(str(geo_path))
+    except Exception:
+        return {}
+
+    if "coordinates" not in geo_df.columns:
+        return {}
+
+    centroids: dict[str, tuple[float, float]] = {}
+    coords_list = geo_df["coordinates"].to_list()
+    for idx, coords_str in enumerate(coords_list):
+        if coords_str is None:
+            continue
+        s = str(coords_str).strip()
+        if not s:
+            continue
+        try:
+            coords = json.loads(s)
+        except Exception:
+            continue
+        if not isinstance(coords, list) or not coords:
+            continue
+        lat_sum = 0.0
+        lng_sum = 0.0
+        n = 0
+        for pt in coords:
+            if not isinstance(pt, (list, tuple)) or len(pt) < 2:
+                continue
+            try:
+                lng = float(pt[0])
+                lat = float(pt[1])
+            except Exception:
+                continue
+            lat_sum += lat
+            lng_sum += lng
+            n += 1
+        if n <= 0:
+            continue
+        centroids[str(idx)] = (lat_sum / n, lng_sum / n)
+    return centroids
+
+
+def _dist2(a: tuple[float, float], b: tuple[float, float]) -> float:
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+
+def _point_segment_dist2(
+    p: tuple[float, float], a: tuple[float, float], b: tuple[float, float]
+) -> float:
+    """Squared distance from p to segment a-b in 2D (lat,lng)."""
+    ax, ay = a
+    bx, by = b
+    px, py = p
+    abx = bx - ax
+    aby = by - ay
+    apx = px - ax
+    apy = py - ay
+    denom = abx * abx + aby * aby
+    if denom <= 0.0:
+        return _dist2(p, a)
+    t = (apx * abx + apy * aby) / denom
+    if t <= 0.0:
+        return _dist2(p, a)
+    if t >= 1.0:
+        return _dist2(p, b)
+    proj = (ax + t * abx, ay + t * aby)
+    return _dist2(p, proj)
+
+
+def _path_detour_score(
+    *,
+    path: Sequence[str],
+    start: str,
+    end: str,
+    centroids: dict[str, tuple[float, float]],
+) -> float:
+    """Heuristic score: bigger means more spatially deviant from straight line."""
+    a = centroids.get(start)
+    b = centroids.get(end)
+    if a is None or b is None:
+        return 0.0
+    best = 0.0
+    for node in path:
+        if node == start or node == end:
+            continue
+        p = centroids.get(node)
+        if p is None:
+            continue
+        best = max(best, _point_segment_dist2(p, a, b))
+    return best
+
+
+def _path_divergence_from_segment_score(
+    *,
+    replacement: Sequence[str],
+    original_segment: Sequence[str],
+    centroids: dict[str, tuple[float, float]],
+) -> float:
+    """Heuristic: max min-distance from replacement nodes to original segment."""
+    orig_pts = [centroids.get(x) for x in original_segment]
+    orig_pts = [p for p in orig_pts if p is not None]
+    if not orig_pts:
+        return 0.0
+    best = 0.0
+    for node in replacement:
+        p = centroids.get(node)
+        if p is None:
+            continue
+        d2 = min(_dist2(p, q) for q in orig_pts)
+        best = max(best, d2)
+    return best
+
+
+def _find_bounded_paths(
+    *,
+    start: str,
+    end: str,
+    outgoing: dict[str, list[str]],
+    rng: np.random.Generator,
+    max_edges: int,
+    forbidden_edges: Optional[set[tuple[str, str]]] = None,
+    num_paths: int = 1,
+) -> list[list[str]]:
+    """Generate up to num_paths candidate paths by re-running randomized BFS."""
+    paths: list[list[str]] = []
+    seen: set[tuple[str, ...]] = set()
+    for _ in range(max(1, int(num_paths))):
+        path = _find_bounded_path(
+            start,
+            end,
+            outgoing,
+            rng,
+            max_edges=max_edges,
+            forbidden_edges=forbidden_edges,
+        )
+        if path is None:
+            continue
+        key = tuple(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(path)
+    return paths
+
+
 def _detect_time_col(header: Sequence[str]) -> Optional[str]:
     """Best-effort detection of the time/timestamp list column."""
     if "time_list" in header:
@@ -51,6 +234,7 @@ def perturb_rids(rid_list, level, road_id_pool, rng, strong: bool = False):
     perturbed: List[tuple[int, str, str]] = []
 
     graph = globals().get("GLOBAL_GRAPH")
+    centroids = globals().get("GLOBAL_CENTROIDS")
     if graph is not None:
         outgoing = graph["outgoing"]
         incoming = graph["incoming"]
@@ -75,7 +259,30 @@ def perturb_rids(rid_list, level, road_id_pool, rng, strong: bool = False):
             candidates = [c for c in candidates if c != old]
             if not candidates:
                 continue
-            new = str(rng.choice(candidates))
+
+            # In strong mode, prefer candidates that are spatially far from `old`
+            # (helps make anomalies more detectable while staying graph-valid).
+            if strong and isinstance(centroids, dict):
+                old_pt = centroids.get(str(old))
+                if old_pt is not None:
+                    best_new = None
+                    best_d2 = -1.0
+                    for c in candidates:
+                        c_pt = centroids.get(str(c))
+                        if c_pt is None:
+                            continue
+                        d2 = _dist2(c_pt, old_pt)
+                        if d2 > best_d2:
+                            best_d2 = d2
+                            best_new = c
+                    if best_new is not None:
+                        new = str(best_new)
+                    else:
+                        new = str(rng.choice(candidates))
+                else:
+                    new = str(rng.choice(candidates))
+            else:
+                new = str(rng.choice(candidates))
             new_rid_list[idx] = new
             perturbed.append((idx, old, new))
         return new_rid_list, perturbed
@@ -457,6 +664,7 @@ def insert_detour(rid_list, level, road_id_pool, rng, strong: bool = False):
 
     outgoing = graph["outgoing"]
     edge_set = graph["edge_set"]
+    centroids = globals().get("GLOBAL_CENTROIDS")
     if not _is_valid_walk(rid_list, edge_set):
         return rid_list, []
 
@@ -472,18 +680,42 @@ def insert_detour(rid_list, level, road_id_pool, rng, strong: bool = False):
         end = rid_list[insert_after + 1]
 
         # Prefer a non-trivial detour: forbid taking the direct edge start->end.
-        path = _find_bounded_path(
-            start,
-            end,
-            outgoing,
-            rng,
+        # In strong mode, sample multiple candidates and pick the most
+        # spatially deviant (still bounded and graph-valid).
+        num_candidates = 10 if strong else 3
+        paths = _find_bounded_paths(
+            start=start,
+            end=end,
+            outgoing=outgoing,
+            rng=rng,
             max_edges=base_max_edges,
             forbidden_edges={(start, end)},
+            num_paths=num_candidates,
         )
-        if path is None or len(path) < 3:
+        best_nodes: Optional[list[str]] = None
+        best_score = -1.0
+        for path in paths:
+            if len(path) < 3:
+                continue
+            nodes = path[1:-1]
+            # Require a larger detour when strong to increase detectability.
+            if strong and len(nodes) < max(2, n_insert):
+                continue
+
+            if isinstance(centroids, dict) and centroids:
+                score = _path_detour_score(
+                    path=path, start=str(start), end=str(end), centroids=centroids
+                )
+            else:
+                score = float(len(nodes))
+            if score > best_score:
+                best_score = score
+                best_nodes = nodes
+
+        if not best_nodes:
             continue
 
-        detour_nodes = path[1:-1]
+        detour_nodes = best_nodes
         new_rid_list = (
             rid_list[: insert_after + 1] + detour_nodes + rid_list[insert_after + 1 :]
         )
@@ -505,6 +737,7 @@ def route_switch_graph(
         return rid_list, None, None
     outgoing = graph["outgoing"]
     edge_set = graph["edge_set"]
+    centroids = globals().get("GLOBAL_CENTROIDS")
     if len(rid_list) < 5 or not _is_valid_walk(rid_list, edge_set):
         return rid_list, None, None
 
@@ -522,20 +755,75 @@ def route_switch_graph(
             a = rid_list[start1 - 1]
             b = rid_list[start1 + seg_len]
 
-            # Allow some slack so we can route around, but keep bounded.
-            max_edges = min(16, max(seg_len + 6, 10))
-            path = _find_bounded_path(a, b, outgoing, rng, max_edges=max_edges)
-            if path is None or len(path) < 3:
-                continue
-            replacement = path[1:-1]
             original = rid_list[start1 : start1 + seg_len]
-            if replacement == original:
-                continue
-            new_rid_list = (
-                rid_list[:start1] + replacement + rid_list[start1 + seg_len :]
+
+            # Allow some slack so we can route around, but keep bounded.
+            max_edges = max(seg_len + 8, 14)
+            if strong:
+                max_edges = min(40, max(max_edges, seg_len * 4))
+            else:
+                max_edges = min(24, max_edges)
+
+            num_candidates = 20 if strong else 6
+            paths = _find_bounded_paths(
+                start=str(a),
+                end=str(b),
+                outgoing=outgoing,
+                rng=rng,
+                max_edges=max_edges,
+                forbidden_edges=None,
+                num_paths=num_candidates,
             )
+
+            best_rep_strict: Optional[list[str]] = None
+            best_score_strict = -1.0
+            best_rep_relaxed: Optional[list[str]] = None
+            best_score_relaxed = -1.0
+            for path in paths:
+                if path is None or len(path) < 3:
+                    continue
+                replacement = path[1:-1]
+                if replacement == original:
+                    continue
+
+                # Strong mode prefers longer replacements, but will fall back to
+                # shorter (still different) replacements instead of failing.
+                strict_min_len = max(len(original) + 2, 3)
+                relaxed_min_len = max(2, len(original) // 2)
+                is_strict_ok = (not strong) or (len(replacement) >= strict_min_len)
+                is_relaxed_ok = (not strong) or (len(replacement) >= relaxed_min_len)
+                if not is_relaxed_ok:
+                    continue
+
+                if isinstance(centroids, dict) and centroids:
+                    score = _path_divergence_from_segment_score(
+                        replacement=replacement,
+                        original_segment=[str(x) for x in ([a] + original + [b])],
+                        centroids=centroids,
+                    )
+                else:
+                    score = float(len(replacement))
+
+                # Small length bonus so we still bias toward bigger changes.
+                if strong:
+                    score = float(score) + 0.05 * float(len(replacement))
+
+                if is_strict_ok:
+                    if score > best_score_strict:
+                        best_score_strict = score
+                        best_rep_strict = replacement
+                else:
+                    if score > best_score_relaxed:
+                        best_score_relaxed = score
+                        best_rep_relaxed = replacement
+
+            best_rep = best_rep_strict or best_rep_relaxed
+            if best_rep is None:
+                continue
+
+            new_rid_list = rid_list[:start1] + best_rep + rid_list[start1 + seg_len :]
             if _is_valid_walk(new_rid_list, edge_set):
-                return new_rid_list, (start1, start1 + seg_len), replacement
+                return new_rid_list, (start1, start1 + seg_len), best_rep
 
     return rid_list, None, None
 
@@ -603,6 +891,14 @@ def process_split_streaming(
             logging.warning("Failed to load roadmap.rel (%s): %s", rel_path, e)
     else:
         globals()["GLOBAL_GRAPH"] = None
+
+    # Optionally load centroids for stronger, still-valid but more detectable anomalies.
+    # This is best-effort; missing centroids just falls back to length-based heuristics.
+    geo_path = dataset_dir / "roadmap.geo"
+    if geo_path.exists():
+        globals()["GLOBAL_CENTROIDS"] = _load_road_centroids_from_geo(geo_path)
+    else:
+        globals()["GLOBAL_CENTROIDS"] = {}
 
     # open reader and writer for streaming second pass
     with (
@@ -700,6 +996,8 @@ def process_split_streaming(
                     # attach original trajectory for future reference
                     info["real"] = {"rid_list": rid_list, "time_list": time_list}
 
+                    info = _to_builtin(info)
+
                     # write abnormal row
                     new_row = dict(row)
                     new_row[rid_col] = ",".join(new_rids)
@@ -794,6 +1092,8 @@ def process_split_streaming(
                             info["strength"] = "strong"
 
                         info["real"] = {"rid_list": rid_list, "time_list": time_list}
+
+                        info = _to_builtin(info)
 
                         new_row = dict(row)
                         new_row[rid_col] = ",".join(new_rids)

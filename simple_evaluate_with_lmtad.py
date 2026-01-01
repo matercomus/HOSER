@@ -138,34 +138,54 @@ def load_hoser_trajectories(csv_file: Path) -> List[List[int]]:
                     raise
             else:
                 # Real format: rid_list may be one of:
-                #  - list of [road_id, timestamp] pairs (common)
-                #  - list of road_id integers (some CSV exports)
-                rid_list = eval(row["rid_list"])  # Convert string to list
-
-                # Defensive handling for multiple possible formats
-                if not rid_list:
+                #  - Python literal list of [road_id, timestamp] pairs (common)
+                #  - Python literal list of road_id integers
+                #  - Comma-separated road IDs (produced by generate_hoser_abnormalities)
+                rid_raw = row["rid_list"]
+                if pd.isna(rid_raw) or str(rid_raw).strip() == "":
                     road_ids = []
                 else:
-                    first = rid_list[0]
-                    # Format: list of pairs/tuples like [[road_id, ts], ...]
-                    if isinstance(first, (list, tuple)) and len(first) > 0:
-                        try:
-                            road_ids = [int(item[0]) for item in rid_list]
-                        except Exception as e:
-                            raise ValueError(f"Unexpected rid_list pair format: {e}")
-                    # Format: simple list of ints like [road_id, road_id, ...]
-                    elif isinstance(first, (int,)):
-                        try:
-                            road_ids = [int(item) for item in rid_list]
-                        except Exception as e:
-                            raise ValueError(f"Unexpected rid_list int format: {e}")
+                    rid_text = str(rid_raw).strip()
+
+                    if rid_text.startswith("["):
+                        rid_list = eval(rid_text)  # Convert string to list
+
+                        if not rid_list:
+                            road_ids = []
+                        else:
+                            first = rid_list[0]
+                            # Format: list of pairs/tuples like [[road_id, ts], ...]
+                            if isinstance(first, (list, tuple)) and len(first) > 0:
+                                try:
+                                    road_ids = [int(item[0]) for item in rid_list]
+                                except Exception as e:
+                                    raise ValueError(
+                                        f"Unexpected rid_list pair format: {e}"
+                                    )
+                            # Format: simple list of ints like [road_id, ...]
+                            elif isinstance(first, (int,)):
+                                try:
+                                    road_ids = [int(item) for item in rid_list]
+                                except Exception as e:
+                                    raise ValueError(
+                                        f"Unexpected rid_list int format: {e}"
+                                    )
+                            else:
+                                # Last resort: attempt to extract zeroth element for each entry
+                                try:
+                                    road_ids = [int(item[0]) for item in rid_list]
+                                except Exception:
+                                    raise ValueError(
+                                        f"Unrecognized rid_list entry type: {type(first)}"
+                                    )
                     else:
-                        # Last resort: attempt to extract zeroth element for each entry
+                        # Comma-separated road IDs like "1,2,3" or "1, 2, 3".
+                        parts = [p.strip() for p in rid_text.split(",") if p.strip()]
                         try:
-                            road_ids = [int(item[0]) for item in rid_list]
-                        except Exception:
+                            road_ids = [int(p) for p in parts]
+                        except ValueError as e:
                             raise ValueError(
-                                f"Unrecognized rid_list entry type: {type(first)}"
+                                f"Failed to parse rid_list as comma-separated ints: {e}"
                             )
 
             # Validate
