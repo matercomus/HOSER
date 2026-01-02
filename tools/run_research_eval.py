@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,13 +37,10 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from tools.evaluate_dataset_with_lmtad import evaluate_splits
-from tools.nonlinear_coefficient import (
-    load_outgoing_edges,
-    load_road_lengths_m,
-    non_linear_coefficient,
-    _parse_rid_list,
-)
+# Ensure project root is importable when running this script directly.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 @dataclass(frozen=True)
@@ -51,9 +49,9 @@ class NonLinearSummary:
     split: str
     max_rows: int
     normals_count: int
-    normals_mean: float
+    normals_mean: Optional[float]
     abnormals_count: int
-    abnormals_mean: float
+    abnormals_mean: Optional[float]
 
 
 def _utc_timestamp() -> str:
@@ -87,6 +85,45 @@ def _git_commit(repo_root: Path) -> Optional[str]:
         return None
 
 
+def _plot_lmtad_results(*, eval_dir: Path, out_dir: Path, splits: list[str]) -> None:
+    """Plot LM-TAD evaluation outputs into a directory.
+
+    Kept as a small indirection so tests can monkeypatch it without importing
+    heavy plotting dependencies.
+    """
+
+    from tools.plot_lmtad_results import load_results, plot_results
+
+    # Mirror plot_lmtad_results.py's "auto" behavior: if `{split}_sampled.csv`
+    # exists and contains `abnormality_info`, enable ROC/PR/density plots.
+    labels_csv_by_split: Dict[str, Path] | None = None
+    inferred: Dict[str, Path] = {}
+    for split in splits:
+        candidate = eval_dir / f"{split}_sampled.csv"
+        if not candidate.exists():
+            continue
+        try:
+            import csv
+
+            with open(candidate, "r", newline="") as f:
+                reader = csv.DictReader(f)
+                if reader.fieldnames is not None and "abnormality_info" in reader.fieldnames:
+                    inferred[str(split)] = candidate
+        except Exception:
+            continue
+    if inferred:
+        labels_csv_by_split = inferred
+
+    agg = load_results(eval_dir)
+    plot_results(
+        agg,
+        out_dir,
+        splits=splits,
+        labels_csv_by_split=labels_csv_by_split,
+        label_col="abnormality_info",
+    )
+
+
 def _nonlinear_for_dataset(
     *,
     dataset_dir: Path,
@@ -94,6 +131,13 @@ def _nonlinear_for_dataset(
     max_rows: int,
 ) -> NonLinearSummary:
     """Compute non-linear coefficient means for normal vs abnormal rows."""
+
+    from tools.nonlinear_coefficient import (
+        _parse_rid_list,
+        load_outgoing_edges,
+        load_road_lengths_m,
+        non_linear_coefficient,
+    )
 
     split_csv = dataset_dir / f"{split}.csv"
     if not split_csv.exists():
@@ -129,8 +173,10 @@ def _nonlinear_for_dataset(
             else:
                 normals.append(float(coef))
 
-    def _mean(xs: List[float]) -> float:
-        return float(np.mean(xs)) if xs else float("nan")
+    def _mean(xs: List[float]) -> Optional[float]:
+        if not xs:
+            return None
+        return float(np.mean(xs))
 
     return NonLinearSummary(
         dataset=str(dataset_dir.name),
@@ -145,7 +191,9 @@ def _nonlinear_for_dataset(
 
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    )
 
 
 def _jsonify(obj: Any) -> Any:
@@ -215,8 +263,32 @@ def main() -> int:
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--sample-frac", type=float, default=0.01)
+    parser.add_argument(
+        "--sample-frac-target",
+        type=float,
+        default=None,
+        help=(
+            "Optional: override sample fraction for target datasets only. "
+            "If omitted, targets use --sample-frac."
+        ),
+    )
     parser.add_argument("--baseline-quantile", type=float, default=0.95)
     parser.add_argument("--baseline-split", type=str, default="train")
+    parser.add_argument(
+        "--baseline-eval",
+        type=Path,
+        default=None,
+        help=(
+            "Optional: existing baseline eval (file or directory). "
+            "If provided with --skip-baseline, targets are evaluated against this baseline "
+            "without re-running the baseline LM-TAD evaluation."
+        ),
+    )
+    parser.add_argument(
+        "--skip-baseline",
+        action="store_true",
+        help="Skip baseline LM-TAD evaluation (requires --baseline-eval).",
+    )
     parser.add_argument(
         "--roadmap",
         type=Path,
@@ -227,7 +299,36 @@ def main() -> int:
         ),
     )
 
+    # Optional: auto-run abnormal OD plotting if a comparison report exists.
+    parser.add_argument(
+        "--abnormal-comparison-report",
+        type=Path,
+        default=None,
+        help=(
+            "Optional: path to abnormal OD comparison_report.json. "
+            "If provided, this tool runs tools/plot_abnormal_evaluation.py and saves plots under the run directory."
+        ),
+    )
+    parser.add_argument(
+        "--abnormal-dataset",
+        type=str,
+        default=None,
+        help="Optional: dataset name used for plot titles (e.g., 'porto_hoser').",
+    )
+
+    # Optional: auto-plot LM-TAD outputs for evaluated datasets.
+    parser.add_argument(
+        "--plot-lmtad",
+        action="store_true",
+        help=(
+            "If set, run tools/plot_lmtad_results.py logic for each evaluated dataset and "
+            "save plots under <run_dir>/plots/lmtad_<dataset>/"
+        ),
+    )
+
     args = parser.parse_args()
+
+    from tools.evaluate_dataset_with_lmtad import evaluate_splits
 
     repo_root = Path(__file__).resolve().parents[1]
 
@@ -244,7 +345,11 @@ def main() -> int:
     ]
 
     baseline_dir = Path(args.baseline_dataset_dir)
-    roadmap_geo = Path(args.roadmap) if args.roadmap is not None else baseline_dir / "roadmap.geo"
+    roadmap_geo = (
+        Path(args.roadmap)
+        if args.roadmap is not None
+        else baseline_dir / "roadmap.geo"
+    )
 
     manifest: Dict[str, Any] = {
         "timestamp_utc": ts,
@@ -256,6 +361,8 @@ def main() -> int:
         "outputs": {
             "nonlinear_dir": str(run_dir / "nonlinear"),
             "lmtad_dir": str(run_dir / "lmtad"),
+            "plots_dir": str(run_dir / "plots"),
+            "abnormal_plots_dir": str(run_dir / "abnormal_plots"),
         },
     }
     _write_json(run_dir / "manifest.json", manifest)
@@ -288,22 +395,37 @@ def main() -> int:
     lmtad_root = run_dir / "lmtad"
     baseline_out = lmtad_root / baseline_dir.name
 
-    evaluate_splits(
-        data_dir=baseline_dir,
-        roadmap_file=roadmap_geo,
-        lmtad_ckpt=Path(args.lmtad_checkpoint),
-        lmtad_repo=Path(args.lmtad_repo),
-        device=str(args.device),
-        batch_size=int(args.batch_size),
-        splits=splits,
-        output_dir=baseline_out,
-        sample_frac=float(args.sample_frac),
-        sample_seed=42,
-        baseline_eval=None,
-        baseline_quantile=float(args.baseline_quantile),
-        baseline_split=str(args.baseline_split),
-        write_baseline=True,
-        baseline_out=baseline_out / "baseline_eval.json",
+    if bool(args.skip_baseline) and args.baseline_eval is None:
+        raise ValueError("--skip-baseline requires --baseline-eval")
+
+    baseline_eval_for_targets: Optional[Path] = None
+    if args.baseline_eval is not None:
+        baseline_eval_for_targets = Path(args.baseline_eval)
+
+    if not bool(args.skip_baseline):
+        evaluate_splits(
+            data_dir=baseline_dir,
+            roadmap_file=roadmap_geo,
+            lmtad_ckpt=Path(args.lmtad_checkpoint),
+            lmtad_repo=Path(args.lmtad_repo),
+            device=str(args.device),
+            batch_size=int(args.batch_size),
+            splits=splits,
+            output_dir=baseline_out,
+            sample_frac=float(args.sample_frac),
+            sample_seed=42,
+            baseline_eval=None,
+            baseline_quantile=float(args.baseline_quantile),
+            baseline_split=str(args.baseline_split),
+            write_baseline=True,
+            baseline_out=baseline_out / "baseline_eval.json",
+        )
+        baseline_eval_for_targets = baseline_out
+
+    target_sample_frac = (
+        float(args.sample_frac_target)
+        if args.sample_frac_target is not None
+        else float(args.sample_frac)
     )
 
     for tdir in targets:
@@ -317,12 +439,47 @@ def main() -> int:
             batch_size=int(args.batch_size),
             splits=splits,
             output_dir=out_dir,
-            sample_frac=float(args.sample_frac),
+            sample_frac=float(target_sample_frac),
             sample_seed=42,
-            baseline_eval=baseline_out,
+            baseline_eval=baseline_eval_for_targets,
             baseline_quantile=float(args.baseline_quantile),
             baseline_split=str(args.baseline_split),
             write_baseline=False,
+        )
+
+    lmtad_plots: Dict[str, str] = {}
+    if bool(args.plot_lmtad):
+        plots_root = run_dir / "plots"
+        if not bool(args.skip_baseline):
+            out = plots_root / f"lmtad_{baseline_dir.name}"
+            _plot_lmtad_results(eval_dir=baseline_out, out_dir=out, splits=splits)
+            lmtad_plots[str(baseline_dir.name)] = str(out)
+        for tdir in targets:
+            eval_dir = lmtad_root / tdir.name
+            out = plots_root / f"lmtad_{tdir.name}"
+            _plot_lmtad_results(eval_dir=eval_dir, out_dir=out, splits=splits)
+            lmtad_plots[str(tdir.name)] = str(out)
+
+    abnormal_plots_dir: Optional[Path] = None
+    if args.abnormal_comparison_report is not None:
+        comparison_report = Path(args.abnormal_comparison_report)
+        if not comparison_report.exists():
+            raise FileNotFoundError(
+                f"--abnormal-comparison-report not found: {comparison_report}"
+            )
+
+        from tools.plot_abnormal_evaluation import plot_evaluation_from_files
+
+        dataset_name = (
+            str(args.abnormal_dataset)
+            if args.abnormal_dataset is not None
+            else comparison_report.parent.name
+        )
+        abnormal_plots_dir = run_dir / "abnormal_plots" / dataset_name
+        plot_evaluation_from_files(
+            comparison_report_file=comparison_report,
+            output_dir=abnormal_plots_dir,
+            dataset=dataset_name,
         )
 
     _write_json(
@@ -331,8 +488,20 @@ def main() -> int:
             "ok": True,
             "run_dir": str(run_dir),
             "baseline": str(baseline_dir),
+            "baseline_eval_used": str(baseline_eval_for_targets)
+            if baseline_eval_for_targets is not None
+            else None,
             "targets": [str(p) for p in targets],
             "splits": splits,
+            "lmtad_plots": lmtad_plots,
+            "abnormal": {
+                "comparison_report": str(args.abnormal_comparison_report)
+                if args.abnormal_comparison_report is not None
+                else None,
+                "plots_dir": str(abnormal_plots_dir)
+                if abnormal_plots_dir is not None
+                else None,
+            },
         },
     )
 

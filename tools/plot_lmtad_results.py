@@ -33,6 +33,16 @@ import seaborn as sns
 import csv
 
 
+def _csv_has_column(csv_path: Path, col: str) -> bool:
+    """Return True if a CSV file contains a given column name."""
+    try:
+        with open(csv_path, "r", newline="") as f:
+            reader = csv.DictReader(f)
+            return reader.fieldnames is not None and col in reader.fieldnames
+    except Exception:
+        return False
+
+
 def _read_bool_labels_from_csv(
     csv_path: Path,
     *,
@@ -194,6 +204,7 @@ def plot_results(
     splits: list[str] | None = None,
     labels_csv_by_split: dict[str, Path] | None = None,
     label_col: str = "abnormality_info",
+    labels_required: bool = False,
     bootstrap: int = 0,
     seed: int = 0,
     ci: float = 0.95,
@@ -288,9 +299,18 @@ def plot_results(
 
         # Optional: ROC/PR curves if we have labels for this split.
         if labels_csv_by_split is not None and s in labels_csv_by_split:
-            labels_list = _read_bool_labels_from_csv(
-                labels_csv_by_split[s], label_col=label_col
-            )
+            try:
+                labels_list = _read_bool_labels_from_csv(
+                    labels_csv_by_split[s], label_col=label_col
+                )
+            except Exception as e:
+                if labels_required:
+                    raise
+                print(
+                    "[plot_lmtad_results] Skipping ROC/PR/density for split "
+                    f"'{s}': cannot read labels from {labels_csv_by_split[s]} ({e})"
+                )
+                continue
             scores = np.array(agg[s].get("log_perplexity_values", []), dtype=np.float64)
             labels = np.array(labels_list, dtype=bool)
             if scores.size != labels.size:
@@ -659,7 +679,9 @@ def main():
         splits = [s.strip() for s in args.splits.split(",") if s.strip()]
 
     labels_csv_by_split: dict[str, Path] | None = None
+    labels_required = False
     if args.labels_csv_template is not None:
+        labels_required = True
         if splits is None:
             # Derive from agg keys to keep UX simple.
             split_names = sorted(agg.keys())
@@ -669,6 +691,7 @@ def main():
             s: Path(str(args.labels_csv_template).format(split=s)) for s in split_names
         }
     elif args.labels_csv is not None:
+        labels_required = True
         if splits is None or len(splits) != 1:
             raise ValueError(
                 "--labels-csv requires exactly one split. Use --splits <one> or --labels-csv-template."
@@ -678,11 +701,14 @@ def main():
         # Default behavior: auto-detect per-split sampled CSVs in eval-dir.
         # This keeps the CLI simple for common cases where the evaluation
         # directory already contains `{split}_sampled.csv` files.
+        #
+        # Important: only enable label-based plots (ROC/PR/density) when the
+        # sampled CSV actually contains the requested label column.
         split_names = sorted(agg.keys()) if splits is None else splits
         inferred: dict[str, Path] = {}
         for s in split_names:
             candidate = args.eval_dir / f"{s}_sampled.csv"
-            if candidate.exists():
+            if candidate.exists() and _csv_has_column(candidate, str(args.label_col)):
                 inferred[s] = candidate
         if inferred:
             labels_csv_by_split = inferred
@@ -694,6 +720,7 @@ def main():
         splits=splits,
         labels_csv_by_split=labels_csv_by_split,
         label_col=str(args.label_col),
+        labels_required=bool(labels_required),
         bootstrap=int(args.bootstrap),
         seed=int(args.seed),
         ci=float(args.ci),

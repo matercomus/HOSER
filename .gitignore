@@ -198,6 +198,9 @@ hoser-distill-beijing-and-l1-normal/analysis/scenarios_train.csv
 hoser-distill-beijing-and-l1-normal/analysis/top_scenarios_test.csv
 hoser-distill-beijing-and-l1-normal/analysis/top_scenarios_train.csv
 hoser-distill-beijing-and-l1-normal/analysis/md/results_table.md
+
+# Local research run artifacts (generated)
+research_runs/
 hoser-distill-beijing-and-l1-normal/analysis/md/scenario_analysis.md
 hoser-distill-beijing-and-l1-normal/analysis_abnormal/Beijing/lmtad_spatial_results_aggregated.json
 hoser-distill-beijing-and-l1-normal/analysis_abnormal/Beijing/lmtad_spatial_results_aggregated.json.bak
