@@ -99,9 +99,8 @@ def _read_labels(csv_path: Path, *, label_col: str = "abnormality_info") -> Tupl
 def _load_eval_scores(eval_dir: Path, split: str) -> np.ndarray:
     payload = json.loads((eval_dir / "evaluation_results.json").read_text(encoding="utf-8"))
     scores = np.asarray(payload[split]["log_perplexity_values"], dtype=float)
-    scores = scores[np.isfinite(scores)]
     if scores.size == 0:
-        raise ValueError(f"No finite scores for split '{split}'")
+        raise ValueError(f"No scores for split '{split}'")
     return scores
 
 
@@ -243,6 +242,15 @@ def _write_md(path: Path, text: str) -> None:
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _fmt_metric(x: Optional[float]) -> str:
+    if x is None:
+        return "NA"
+    try:
+        return f"{float(x):.4f}"
+    except Exception:
+        return "NA"
 
 
 def _basename(dataset_dir: Path) -> str:
@@ -573,6 +581,43 @@ def main() -> int:
             copy_roadmaps=bool(args.copy_roadmaps),
         )
 
+        # If the balanced CSV is empty, skip evaluation/analysis but still write artifacts.
+        labels, raw = _read_labels(csv_path)
+        if labels.size == 0:
+            metrics: Dict[str, Any] = {
+                "n": 0,
+                "n_pos": 0,
+                "n_neg": 0,
+                "pos_fraction": 0.0,
+                "auroc": None,
+                "auprc": None,
+                "type_counts": {},
+                "baseline_quantile": {},
+                "topk_matched": {},
+                "skipped": True,
+                "skipped_reason": "empty_balanced_csv",
+            }
+
+            analysis_dir.mkdir(parents=True, exist_ok=True)
+            _write_json(analysis_dir / "metrics.json", metrics)
+            _write_md(
+                analysis_dir / "report.md",
+                _render_dataset_report(
+                    dataset_name=ds_name,
+                    split=split,
+                    metrics=metrics,
+                    plots_rel={},
+                ),
+            )
+            summary["datasets"][ds_name] = {
+                "target_data_dir": str(target_dir),
+                "balanced_csv": str(csv_path),
+                "eval_dir": str(eval_dir),
+                "analysis_dir": str(analysis_dir),
+                "metrics": metrics,
+            }
+            continue
+
         roadmap = _resolve_roadmap(
             balanced_dir=balanced_dir,
             target_data_dir=target_dir,
@@ -594,13 +639,56 @@ def main() -> int:
             baseline_split=baseline_split,
         )
 
+        # Evaluator may skip empty/invalid CSVs without producing aggregated JSON.
+        eval_json = eval_dir / "evaluation_results.json"
+        if not eval_json.exists():
+            metrics = {
+                "n": int(labels.size),
+                "n_pos": int(labels.sum()),
+                "n_neg": int((~labels).sum()),
+                "pos_fraction": float(labels.mean()) if labels.size else 0.0,
+                "auroc": None,
+                "auprc": None,
+                "type_counts": {},
+                "baseline_quantile": {},
+                "topk_matched": {},
+                "skipped": True,
+                "skipped_reason": "missing_eval_results_json",
+            }
+            analysis_dir.mkdir(parents=True, exist_ok=True)
+            _write_json(analysis_dir / "metrics.json", metrics)
+            _write_md(
+                analysis_dir / "report.md",
+                _render_dataset_report(
+                    dataset_name=ds_name,
+                    split=split,
+                    metrics=metrics,
+                    plots_rel={},
+                ),
+            )
+            summary["datasets"][ds_name] = {
+                "target_data_dir": str(target_dir),
+                "balanced_csv": str(csv_path),
+                "eval_dir": str(eval_dir),
+                "analysis_dir": str(analysis_dir),
+                "metrics": metrics,
+            }
+            continue
+
         scores = _load_eval_scores(eval_dir, split)
-        labels, raw = _read_labels(csv_path)
         if scores.size != labels.size:
             raise ValueError(
                 f"Length mismatch for {ds_name}: scores={scores.size} labels={labels.size}. "
                 "Ensure evaluation used the same balanced CSV."
             )
+
+        # Keep labels/types aligned if any scores are non-finite.
+        finite = np.isfinite(scores)
+        if not finite.all():
+            scores = scores[finite]
+            labels = labels[finite]
+            raw = [r for r, m in zip(raw, finite.tolist()) if m]
+
         types = [_parse_type(x) for x in raw]
 
         metrics = _analyze_decisions(
@@ -662,7 +750,9 @@ def main() -> int:
         entry = summary["datasets"][ds_name]
         auroc = entry["metrics"].get("auroc")
         auprc = entry["metrics"].get("auprc")
-        lines.append(f"- `{ds_name}`: AUROC={auroc:.4f} AUPRC={auprc:.4f} report=`{Path(entry['analysis_dir'])/'report.md'}`")
+        lines.append(
+            f"- `{ds_name}`: AUROC={_fmt_metric(auroc)} AUPRC={_fmt_metric(auprc)} report=`{Path(entry['analysis_dir'])/'report.md'}`"
+        )
     lines.append("")
     lines.append("Use each per-dataset report for per-type breakdown and q vs top-k comparison.")
 
