@@ -62,13 +62,13 @@ fi
 
 INPUT_DIR=""
 OUT_ROOT=""
-TYPES="detour,route_switch,perturb"
-SPLITS="train,val,test"
-RATE="0.05"
-LEVEL="medium"
+TYPES="detour"
+SPLITS="train"
+RATE="0.15"
+LEVEL="strong"
 SEED="42"
-ENSURE_CHANGE="0"
-STRONG_PROB="0.3"
+ENSURE_CHANGE="1"
+STRONG_PROB="0.5"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

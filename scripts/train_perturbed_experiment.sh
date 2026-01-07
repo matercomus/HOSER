@@ -75,7 +75,7 @@ MEDIUM_LAMBDA="${MEDIUM_LAMBDA:-0.5}"
 STRONG_LAMBDA="${STRONG_LAMBDA:-1.0}"
 DRY_RUN="${DRY_RUN:-0}"
 BACKUP_EXISTING="${BACKUP_EXISTING:-0}"
-LOG_ROOT="${LOG_ROOT:-logs/perturbed_training}"
+LOG_ROOT="${LOG_ROOT:-logs/perturbed_training2}"
 
 DATASET_SELECTOR_ARG="${1:-}"
 if [[ "$DATASET_SELECTOR_ARG" == "-h" || "$DATASET_SELECTOR_ARG" == "--help" ]]; then
@@ -237,10 +237,10 @@ train_one() {
 # Dataset table: (dataset_name, data_dir, config_path)
 DATASETS=()
 if [[ "$DATASET_SELECTOR" == "all" || "$DATASET_SELECTOR" == "beijing" ]]; then
-  DATASETS+=("Beijing_abnormal_3|data/Beijing_abnormal_3|config/Beijing.yaml")
+  DATASETS+=("Beijing_per_type_detour|data/_per_type/Beijing_per_type_detour|config/Beijing.yaml")
 fi
 if [[ "$DATASET_SELECTOR" == "all" || "$DATASET_SELECTOR" == "porto" ]]; then
-  DATASETS+=("porto_hoser_abnormal_3|data/porto_hoser_abnormal_3|config/porto_hoser.yaml")
+  DATASETS+=("porto_hoser_per_type_detour|data/_per_type/porto_hoser_per_type_detour|config/porto_hoser.yaml")
 fi
 
 if [[ ${#DATASETS[@]} -eq 0 ]]; then
