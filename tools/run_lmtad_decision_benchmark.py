@@ -40,7 +40,6 @@ import argparse
 import ast
 import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -133,6 +132,9 @@ def _confusion(scores: np.ndarray, labels: np.ndarray, pred: np.ndarray) -> Dict
     tn = int(np.logical_and(~p, ~y).sum())
     precision = float(tp / (tp + fp)) if (tp + fp) else 0.0
     recall = float(tp / (tp + fn)) if (tp + fn) else 0.0
+    # F1 is the harmonic mean of precision and recall.
+    # Use the integer formulation to avoid 0/0 and reduce FP rounding issues.
+    f1 = float((2 * tp) / (2 * tp + fp + fn)) if (2 * tp + fp + fn) else 0.0
     fpr = float(fp / (fp + tn)) if (fp + tn) else 0.0
     return {
         "tp": tp,
@@ -141,6 +143,7 @@ def _confusion(scores: np.ndarray, labels: np.ndarray, pred: np.ndarray) -> Dict
         "tn": tn,
         "precision": precision,
         "recall": recall,
+        "f1": f1,
         "fpr": fpr,
     }
 
@@ -443,23 +446,23 @@ def _render_dataset_report(
 
     lines.append("### Baseline-quantile thresholds")
     lines.append("")
-    lines.append("| q | thr | flag_rate | recall | precision | FPR | TP | FP | FN | TN |")
-    lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("| q | thr | flag_rate | recall | precision | F1 | FPR | TP | FP | FN | TN |")
+    lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for key in sorted(metrics["baseline_quantile"].keys()):
         m = metrics["baseline_quantile"][key]
         lines.append(
-            f"| {float(m['q']):.2f} | {float(m['threshold']):.6f} | {float(m['flag_rate']):.3f} | {float(m['recall']):.3f} | {float(m['precision']):.3f} | {float(m['fpr']):.3f} | {m['tp']} | {m['fp']} | {m['fn']} | {m['tn']} |"
+            f"| {float(m['q']):.2f} | {float(m['threshold']):.6f} | {float(m['flag_rate']):.3f} | {float(m['recall']):.3f} | {float(m['precision']):.3f} | {float(m.get('f1', 0.0)):.3f} | {float(m['fpr']):.3f} | {m['tp']} | {m['fp']} | {m['fn']} | {m['tn']} |"
         )
 
     lines.append("")
     lines.append("### Top-k matched to q (same alert volume)")
     lines.append("")
-    lines.append("| q_match | k | cutoff | flag_rate | recall | precision | FPR | TP | FP | FN | TN |")
-    lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("| q_match | k | cutoff | flag_rate | recall | precision | F1 | FPR | TP | FP | FN | TN |")
+    lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for key in sorted(metrics["topk_matched"].keys()):
         m = metrics["topk_matched"][key]
         lines.append(
-            f"| {float(m['q_matched']):.2f} | {int(m['k'])} | {float(m['cutoff']):.6f} | {float(m['flag_rate']):.3f} | {float(m['recall']):.3f} | {float(m['precision']):.3f} | {float(m['fpr']):.3f} | {m['tp']} | {m['fp']} | {m['fn']} | {m['tn']} |"
+            f"| {float(m['q_matched']):.2f} | {int(m['k'])} | {float(m['cutoff']):.6f} | {float(m['flag_rate']):.3f} | {float(m['recall']):.3f} | {float(m['precision']):.3f} | {float(m.get('f1', 0.0)):.3f} | {float(m['fpr']):.3f} | {m['tp']} | {m['fp']} | {m['fn']} | {m['tn']} |"
         )
 
     lines.append("")

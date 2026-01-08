@@ -120,3 +120,11 @@ def test_run_lmtad_decision_benchmark_smoke(tmp_path, monkeypatch):
         assert (root / "analysis" / ds / "report.md").exists()
         assert (root / "analysis" / ds / "plots" / "score_hist.png").exists()
         assert (root / "analysis" / ds / "plots" / "score_by_type_box.png").exists()
+
+        metrics = json.loads((root / "analysis" / ds / "metrics.json").read_text(encoding="utf-8"))
+        for bucket_name in ["baseline_quantile", "topk_matched"]:
+            bucket = metrics.get(bucket_name)
+            assert isinstance(bucket, dict)
+            assert bucket, f"Expected non-empty {bucket_name}"
+            for _, entry in bucket.items():
+                assert "f1" in entry

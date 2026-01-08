@@ -42,6 +42,29 @@ import seaborn as sns
 import csv
 
 
+_NULL_LIKE = {"", "nan", "none", "null", "normal"}
+
+
+def _is_abnormal_label(raw: str, *, normal_value: str = "normal") -> bool:
+    """Return True if a CSV label indicates an abnormal trajectory.
+
+    This is intentionally tolerant to common "null-like" values that show up
+    across datasets and export pipelines.
+
+    Rules:
+    - treat {"", "nan", "none", "null", "normal"} (case-insensitive) as normal
+    - also treat `normal_value` (case-insensitive) as normal
+    - everything else is abnormal
+    """
+
+    s = str(raw or "").strip().lower()
+    if s in _NULL_LIKE:
+        return False
+    if s == str(normal_value or "").strip().lower():
+        return False
+    return True
+
+
 def _parse_q_key(q_key: str) -> float:
     """Parse q keys like 'q=0.95' into float(0.95)."""
     q_key = str(q_key).strip()
@@ -100,9 +123,17 @@ def _extract_method_rows(metrics: dict, method_key: str) -> list[dict]:
             "fn": _safe_int(entry.get("fn")),
             "precision": _safe_float(entry.get("precision")),
             "recall": _safe_float(entry.get("recall")),
+            "f1": _safe_float(entry.get("f1")),
             "fpr": _safe_float(entry.get("fpr")),
             "flag_rate": _safe_float(entry.get("flag_rate")),
         }
+
+        # Backward compat: compute f1 if missing but precision/recall exist.
+        if row.get("f1") is None:
+            p = row.get("precision")
+            r = row.get("recall")
+            if p is not None and r is not None and (p + r) > 0:
+                row["f1"] = float((2.0 * p * r) / (p + r))
         if method_key == "baseline_quantile":
             row["threshold"] = _safe_float(entry.get("threshold"))
         else:
@@ -146,7 +177,7 @@ def _write_method_summary_md(path: Path, method_key: str, rows: list[dict]):
     # Basic notes
     lines.append("This is computed from `metrics.json` (no re-scoring).\n")
     lines.append("## Per-q table\n")
-    header = ["q", "precision", "recall", "fpr", "flag_rate", "tp", "fp", "tn", "fn"]
+    header = ["q", "precision", "recall", "f1", "fpr", "flag_rate", "tp", "fp", "tn", "fn"]
     if method_key == "baseline_quantile":
         header.insert(1, "threshold")
     else:
@@ -211,12 +242,15 @@ def _plot_confusion_grid(out_path: Path, *, title: str, rows: list[dict], method
             meta = f"cut={float(r['cutoff']):.3f}"
         pr = r.get("precision")
         rc = r.get("recall")
+        f1 = r.get("f1")
         fpr = r.get("fpr")
         stats = []
         if pr is not None:
             stats.append(f"P={float(pr):.2f}")
         if rc is not None:
             stats.append(f"R={float(rc):.2f}")
+        if f1 is not None:
+            stats.append(f"F1={float(f1):.2f}")
         if fpr is not None:
             stats.append(f"FPR={float(fpr):.2f}")
         ax.set_title(f"q={q:.2f} {meta}\n" + " ".join(stats), fontsize=9)
@@ -238,14 +272,20 @@ def _plot_metrics_vs_q(out_path: Path, *, title: str, rows: list[dict], method_k
     if not rows:
         return
     q = np.array([float(r["q"]) for r in rows], dtype=np.float64)
-    precision = np.array([_safe_float(r.get("precision")) for r in rows], dtype=np.float64)
-    recall = np.array([_safe_float(r.get("recall")) for r in rows], dtype=np.float64)
-    fpr = np.array([_safe_float(r.get("fpr")) for r in rows], dtype=np.float64)
-    flag = np.array([_safe_float(r.get("flag_rate")) for r in rows], dtype=np.float64)
+    def _to_float_or_nan(v) -> float:
+        x = _safe_float(v)
+        return float(x) if x is not None else float("nan")
+
+    precision = np.array([_to_float_or_nan(r.get("precision")) for r in rows], dtype=np.float64)
+    recall = np.array([_to_float_or_nan(r.get("recall")) for r in rows], dtype=np.float64)
+    f1 = np.array([_to_float_or_nan(r.get("f1")) for r in rows], dtype=np.float64)
+    fpr = np.array([_to_float_or_nan(r.get("fpr")) for r in rows], dtype=np.float64)
+    flag = np.array([_to_float_or_nan(r.get("flag_rate")) for r in rows], dtype=np.float64)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7.5, 6.5), sharex=True)
     ax1.plot(q, precision, marker="o", label="precision")
     ax1.plot(q, recall, marker="o", label="recall")
+    ax1.plot(q, f1, marker="o", label="f1")
     ax1.set_ylabel("Score")
     ax1.set_ylim(-0.02, 1.02)
     ax1.grid(True, alpha=0.3)
@@ -321,12 +361,12 @@ def _read_bool_labels_from_csv(
     csv_path: Path,
     *,
     label_col: str,
-    abnormal_value: str = "normal",
+    normal_value: str = "normal",
 ) -> list[bool]:
     """Return abnormality labels from a sampled CSV.
 
-    Label rule (matches earlier analysis tooling):
-    - abnormal if `abnormality_info` exists and is not equal to `normal`.
+    Label rule:
+    - abnormal if the label is not a normal/null-like value.
     """
     if not csv_path.exists():
         raise FileNotFoundError(f"Labels CSV not found: {csv_path}")
@@ -340,7 +380,7 @@ def _read_bool_labels_from_csv(
             )
         for row in reader:
             raw = (row.get(label_col) or "").strip()
-            labels.append(raw != "" and raw != abnormal_value)
+            labels.append(_is_abnormal_label(raw, normal_value=str(normal_value)))
     return labels
 
 
@@ -386,7 +426,7 @@ def _precision_recall_curve_points(
     """Compute Precision-Recall curve points and AUPRC (average precision).
 
     Returns:
-        (recall, precision, auprc)
+        (recall, precision, average_precision)
 
     Notes:
         - `labels=True` is treated as the positive class.
@@ -410,14 +450,15 @@ def _precision_recall_curve_points(
     recall = tp / float(n_pos)
 
     # Average precision: mean precision at each positive example.
-    # Equivalent to a step-wise area under the PR curve.
-    auprc = float(precision[y_sorted].sum() / float(n_pos))
+    # This matches the common ML definition of AP (e.g., sklearn's
+    # average_precision_score) and may differ from trapezoidal PR-AUC.
+    ap = float(precision[y_sorted].sum() / float(n_pos))
 
     # Add a (0,1) starting point for cleaner plots.
     recall = np.concatenate(([0.0], recall))
     precision = np.concatenate(([1.0], precision))
 
-    return recall, precision, auprc
+    return recall, precision, ap
 
 
 def _bootstrap_ci_percent(
@@ -570,9 +611,9 @@ def plot_results(
                     thr = float(np.percentile(vals, 95))
                     ax.axvline(
                         thr,
-                        color="red",
-                        linestyle="--",
-                        label=f"95th pct (within split)={thr:.3f}",
+                        color="gray",
+                        linestyle=":",
+                        label=f"95th pct (within split; descriptive)={thr:.3f}",
                     )
             ax.set_title(f"{s} (N={len(vals)})")
             ax.set_xlabel("Log perplexity")
@@ -635,7 +676,7 @@ def plot_results(
                         )
                     else:
                         thr = float(np.percentile(scores, 95))
-                        thr_label = f"95th pct (within split)={thr:.3f}"
+                        thr_label = f"95th pct (within split; descriptive)={thr:.3f}"
                 # Use density so shapes are comparable even if class counts differ.
                 if normal_scores.size > 0:
                     sns.histplot(
@@ -712,15 +753,15 @@ def plot_results(
             saved_files.append(roc_file)
             plt.close(fig_roc)
 
-            recall, precision, auprc = _precision_recall_curve_points(scores, labels)
+            recall, precision, ap = _precision_recall_curve_points(scores, labels)
             fig_pr, ax_pr = plt.subplots(figsize=(5.5, 5.5))
-            ax_pr.plot(recall, precision, label=f"AUPRC={auprc:.4f}")
+            ax_pr.plot(recall, precision, label=f"AP={ap:.4f}")
             ax_pr.set_xlabel("Recall")
             ax_pr.set_ylabel("Precision")
             pad = 0.02
             ax_pr.set_xlim(-pad, 1.0 + pad)
             ax_pr.set_ylim(-pad, 1.0 + pad)
-            ax_pr.set_title(f"{s}: Precision-Recall curve")
+            ax_pr.set_title(f"{s}: Precision-Recall curve (AP)")
             ax_pr.legend(loc="lower left")
             pr_file = out_dirs["pr"] / f"{base}_{s}_pr.png"
             fig_pr.tight_layout()
@@ -751,7 +792,7 @@ def plot_results(
         plt.axis("off")
         plt.show()
 
-    # Abnormality percentages bar chart (uses outlier_rate from results)
+    # Predicted outlier-rate bar chart (uses outlier_rate from results)
     abnormal_rates = []
     counts = []
     outlier_labels_by_split: dict[str, np.ndarray] = {}
@@ -772,7 +813,20 @@ def plot_results(
         if isinstance(labels, list) and labels:
             outlier_labels_by_split[s] = np.asarray(labels, dtype=np.float64)
 
-    # Error bars: bootstrap percentile CI when enabled, else binomial SE.
+    # Error bars: bootstrap percentile CI when enabled.
+    # If bootstrap is requested but per-example outlier labels are missing,
+    # fall back to a normal-approx 95% CI using only outlier_rate and N.
+    if bootstrap and int(bootstrap) > 0:
+        need = [s for s in splits if not np.isnan(abnormal_rates[splits.index(s)])]
+        missing = [s for s in need if s not in outlier_labels_by_split]
+        if missing:
+            print(
+                "[plot_lmtad_results] --bootstrap requested but outlier_labels are missing for "
+                f"{missing}; falling back to normal-approx CI."
+            )
+            bootstrap = 0
+
+    # Error bars: bootstrap percentile CI when enabled, else normal-approx 95% CI.
     if bootstrap and int(bootstrap) > 0:
         yerr = np.zeros((2, len(splits)), dtype=np.float64)
         ci_low: list[float] = []
@@ -782,10 +836,6 @@ def plot_results(
                 ci_low.append(0.0)
                 ci_high.append(0.0)
                 continue
-            if s not in outlier_labels_by_split:
-                raise ValueError(
-                    f"Cannot bootstrap CI for split '{s}': missing outlier_labels in results."
-                )
             lo, hi = _bootstrap_ci_percent(
                 outlier_labels_by_split[s],
                 bootstrap=int(bootstrap),
@@ -797,7 +847,7 @@ def plot_results(
             yerr[0, i] = float(pct) - lo
             yerr[1, i] = hi - float(pct)
     else:
-        # Compute standard error (%) for proportion p: sqrt(p*(1-p)/n) * 100
+        # Normal-approx 95% CI for proportion p: +/- 1.96 * sqrt(p*(1-p)/n)
         yerr = np.zeros(len(splits), dtype=np.float64)
         ci_low = []
         ci_high = []
@@ -811,7 +861,7 @@ def plot_results(
             se = np.sqrt(p * (1.0 - p) / float(n)) * 100.0
             ci_low.append(float(pct) - 1.96 * float(se))
             ci_high.append(float(pct) + 1.96 * float(se))
-            yerr[len(ci_low) - 1] = float(se)
+            yerr[len(ci_low) - 1] = 1.96 * float(se)
 
     fig3, ax3 = plt.subplots(figsize=(max(6, len(splits) * 0.9), 4))
     x = np.arange(len(splits))
@@ -825,9 +875,9 @@ def plot_results(
     )
     ax3.set_xticks(x)
     ax3.set_xticklabels(splits)
-    ax3.set_ylabel("Abnormality rate (%)")
+    ax3.set_ylabel("Predicted outlier rate (%)")
     ax3.set_xlabel("Split")
-    ax3.set_title("Abnormality (outlier) percentage per split", pad=14)
+    ax3.set_title("Predicted outlier rate per split", pad=14)
 
     # Adjust y-limits to leave space above bars for annotations and errorbars
     top = 0.0
