@@ -222,6 +222,7 @@ def _write_baseline_eval_json(
             "log_perplexity_values": list(res.get("log_perplexity_values", [])),
         }
 
+    path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
 
@@ -303,6 +304,7 @@ def _stream_sample_csv(
 
 def _append_jsonl(path: Path, payload: Dict[str, Any]) -> None:
     """Append one JSON object per line."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a") as f:
         f.write(json.dumps(payload) + "\n")
 
@@ -311,6 +313,7 @@ def _update_aggregated_json(
     path: Path, split: str, split_payload: Dict[str, Any]
 ) -> None:
     """Update (overwrite) an aggregated JSON file with one split."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         with open(path, "r") as f:
             agg = json.load(f)
@@ -642,7 +645,7 @@ def evaluate_splits(
     batch_size: int = 128,
     splits: Optional[List[str]] = None,
     output_dir: Optional[Path] = None,
-    sample_frac: float = 0.1,
+    sample_frac: float = 0.01,
     sample_seed: int = 42,
     baseline_eval: Optional[Path] = None,
     baseline_quantile: float = 0.95,
@@ -655,6 +658,10 @@ def evaluate_splits(
 
     if output_dir is None:
         output_dir = Path("tools_eval_lmtad") / data_dir.name
+
+    # Resolve early so later relative-path writes aren't affected if any
+    # imported code changes the process working directory.
+    output_dir = output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Validate inputs
@@ -776,6 +783,7 @@ def evaluate_splits(
 
     if write_baseline:
         out_path = baseline_out if baseline_out is not None else writer.baseline_path
+        out_path = out_path.expanduser().resolve()
         _write_baseline_eval_json(path=out_path, results_by_split=all_results)
         logger.info("Baseline eval written to: %s", out_path)
         logger.info(
@@ -875,7 +883,7 @@ def main():
     parser.add_argument(
         "--sample-frac",
         type=float,
-        default=0.1,
+        default=0.01,
         help="Fraction of rows to sample from each split (0.0-1.0); 1.0 = full",
     )
     parser.add_argument(

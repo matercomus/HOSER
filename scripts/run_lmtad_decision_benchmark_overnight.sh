@@ -19,6 +19,26 @@ check_writable_dir() {
   rm -f "$probe" 2>/dev/null || true
 }
 
+ensure_symlink_target_dir() {
+  # If a directory path is a symlink, ensure its target directory exists.
+  # This is especially important on clusters where /local is node-local: the
+  # symlink may be dangling depending on which node you're on.
+  local link_path="$1"
+  [[ -L "$link_path" ]] || return 0
+
+  local target
+  target="$(readlink "$link_path" 2>/dev/null || true)"
+  [[ -n "$target" ]] || return 0
+
+  if [[ "$target" != /* ]]; then
+    local link_dir
+    link_dir="$(cd "$(dirname "$link_path")" && pwd)"
+    target="$link_dir/$target"
+  fi
+
+  mkdir -p "$target" 2>/dev/null || true
+}
+
 # Non-interactive scripts do not source ~/.bashrc, so they won't pick up the
 # user's `uv()` wrapper. Ensure uv uses the per-project venv under /local.
 if [[ -z "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
@@ -30,6 +50,9 @@ if [[ -z "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
   check_writable_dir "$envdir"
   export UV_PROJECT_ENVIRONMENT="$envdir"
 fi
+
+# Ensure the default evaluation output root works even if it is a symlink.
+ensure_symlink_target_dir "tools_eval_lmtad"
 
 usage() {
   cat <<'EOF'
