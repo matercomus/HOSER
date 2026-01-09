@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import csv
 import json
 import sys
 from pathlib import Path
@@ -80,8 +81,6 @@ def _parse_type(raw: str) -> str:
 
 
 def _read_labels(csv_path: Path, *, label_col: str = "abnormality_info") -> Tuple[np.ndarray, List[str]]:
-    import csv
-
     with csv_path.open("r", newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None or label_col not in reader.fieldnames:
@@ -93,6 +92,51 @@ def _read_labels(csv_path: Path, *, label_col: str = "abnormality_info") -> Tupl
             labels.append(_is_abnormal(v))
             raw.append(v)
     return np.asarray(labels, dtype=bool), raw
+
+
+def _bernoulli_sample_csv(
+    *,
+    in_path: Path,
+    out_path: Path,
+    sample_frac: float,
+    seed: int,
+) -> Path:
+    """Write a Bernoulli-sampled subset of a CSV.
+
+    Sampling is row-wise (independent), preserves the header, and is deterministic
+    given (seed, input ordering).
+    """
+    if not (0.0 < float(sample_frac) <= 1.0):
+        raise ValueError(f"sample_frac must be in (0,1], got {sample_frac}")
+
+    if float(sample_frac) >= 1.0:
+        return in_path
+
+    # Keep sampling local to this function.
+    import random
+
+    rng = random.Random(int(seed))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    kept = 0
+    with (
+        in_path.open("r", newline="", encoding="utf-8") as inf,
+        out_path.open("w", newline="", encoding="utf-8") as outf,
+    ):
+        reader = csv.reader(inf)
+        writer = csv.writer(outf)
+        header = next(reader, None)
+        if header is None:
+            raise ValueError(f"Empty CSV: {in_path}")
+        writer.writerow(header)
+
+        for row in reader:
+            if rng.random() < float(sample_frac):
+                writer.writerow(row)
+                kept += 1
+
+    # If sampling yields 0 rows, still return the file (header-only).
+    return out_path
 
 
 def _load_eval_scores(eval_dir: Path, split: str) -> np.ndarray:
@@ -208,7 +252,7 @@ def _plot_hist(scores: np.ndarray, labels: np.ndarray, vlines: Dict[str, float],
     plt.hist(pos, bins=60, alpha=0.55, label=f"abnormal (n={pos.size})")
     for name, x in vlines.items():
         plt.axvline(float(x), linestyle="--", linewidth=1.4, label=name)
-    plt.title("LM-TAD log-perplexity (balanced)")
+    plt.title("LM-TAD log-perplexity")
     plt.xlabel("log perplexity")
     plt.ylabel("count")
     plt.legend(loc="best")
@@ -501,6 +545,26 @@ def main() -> int:
     )
 
     parser.add_argument("--split", type=str, default="train")
+    parser.add_argument(
+        "--no-balance",
+        action="store_true",
+        help=(
+            "Evaluate the target dataset CSV directly (no balanced_data staging). "
+            "Useful when the target split already has the desired class mix."
+        ),
+    )
+    parser.add_argument(
+        "--sample-frac",
+        type=float,
+        default=0.01,
+        help="Fraction of rows to evaluate from the (balanced or raw) CSV (0.0-1.0].",
+    )
+    parser.add_argument(
+        "--sample-seed",
+        type=int,
+        default=42,
+        help="Random seed for CSV Bernoulli sampling.",
+    )
     parser.add_argument("--normal-per-abnormal", type=int, default=1)
     parser.add_argument("--length-bucket", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
@@ -573,16 +637,42 @@ def main() -> int:
         analysis_dir = out_root / "analysis" / ds_name
         plots_dir = analysis_dir / "plots"
 
-        csv_path = _run_balancer(
-            target_data_dir=target_dir,
-            split=split,
-            out_dir=balanced_dir,
-            normal_per_abnormal=int(args.normal_per_abnormal),
-            length_bucket=int(args.length_bucket),
-            seed=int(args.seed),
-            allow_replacement=bool(args.allow_replacement),
-            copy_roadmaps=bool(args.copy_roadmaps),
-        )
+        if bool(args.no_balance):
+            source_data_dir = target_dir
+            source_csv = target_dir / f"{split}.csv"
+        else:
+            source_data_dir = balanced_dir
+            source_csv = _run_balancer(
+                target_data_dir=target_dir,
+                split=split,
+                out_dir=balanced_dir,
+                normal_per_abnormal=int(args.normal_per_abnormal),
+                length_bucket=int(args.length_bucket),
+                seed=int(args.seed),
+                allow_replacement=bool(args.allow_replacement),
+                copy_roadmaps=bool(args.copy_roadmaps),
+            )
+
+        # Optional sampling for speed: sample the CSV once and use it for both
+        # label loading and LM-TAD scoring so lengths stay aligned.
+        sample_frac = float(args.sample_frac)
+        sample_seed = int(args.sample_seed)
+        if not (0.0 < sample_frac <= 1.0):
+            raise ValueError(f"--sample-frac must be in (0,1], got {sample_frac}")
+
+        if sample_frac < 1.0:
+            sampled_dir = out_root / "sampled_data" / ds_name
+            sampled_csv = sampled_dir / f"{split}.csv"
+            csv_path = _bernoulli_sample_csv(
+                in_path=source_csv,
+                out_path=sampled_csv,
+                sample_frac=sample_frac,
+                seed=sample_seed,
+            )
+            data_dir = sampled_dir
+        else:
+            csv_path = source_csv
+            data_dir = source_data_dir
 
         # If the balanced CSV is empty, skip evaluation/analysis but still write artifacts.
         labels, raw = _read_labels(csv_path)
@@ -622,14 +712,14 @@ def main() -> int:
             continue
 
         roadmap = _resolve_roadmap(
-            balanced_dir=balanced_dir,
+            balanced_dir=data_dir,
             target_data_dir=target_dir,
             baseline_data_dir=Path(args.baseline_data_dir) if args.baseline_data_dir is not None else None,
             roadmap_arg=Path(args.roadmap) if args.roadmap is not None else None,
         )
 
         _run_eval(
-            data_dir=balanced_dir,
+            data_dir=data_dir,
             output_dir=eval_dir,
             roadmap=roadmap,
             ckpt=ckpt,

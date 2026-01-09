@@ -324,6 +324,7 @@ run_job() {
     --baseline-data-dir "$baseline_data_dir"
     --baseline-split "$BASELINE_SPLIT"
     --split "$SPLIT"
+    --no-balance
     --device "$DEVICE"
     --batch-size "$BATCH_SIZE"
     --q "$Q_LIST"
@@ -387,6 +388,7 @@ run_job_in_tmux() {
   --baseline-data-dir \"$baseline_data_dir\" \
   --baseline-split \"$BASELINE_SPLIT\" \
   --split \"$SPLIT\" \
+  --no-balance \
   --device \"$DEVICE\" \
   --batch-size \"$BATCH_SIZE\" \
   --q \"$Q_LIST\" \
