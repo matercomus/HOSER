@@ -170,6 +170,7 @@ class PipelineConfig:
         self.phases: Set[str] = {
             "generation",
             "base_eval",
+            "perturbation_correction",
             "paired_analysis",
             "cross_dataset",
             "road_network_translate",
@@ -1758,7 +1759,7 @@ class EvaluationPipeline:
             # If user is explicitly running only this phase, fail fast.
             if self.config.phases == {"perturbation_correction"}:
                 raise ValueError(msg)
-            logger.error(msg)
+            logger.info(msg)
             return
 
         try:
@@ -1789,6 +1790,12 @@ class EvaluationPipeline:
         source_csv = Path(str(self.config.perturbation_source_csv))
         if not source_csv.is_absolute():
             source_csv = (self.eval_dir / source_csv).resolve()
+
+        resolved_data_dir = None
+        if getattr(self.config, "data_dir", None):
+            resolved_data_dir = Path(str(self.config.data_dir))
+            if not resolved_data_dir.is_absolute():
+                resolved_data_dir = (self.eval_dir / resolved_data_dir).resolve()
 
         teacher_cfg = None
         if getattr(self.config, "perturbation_lmtad_checkpoint", None):
@@ -1827,6 +1834,7 @@ class EvaluationPipeline:
             dataset=self.config.dataset,
             eval_dir=self.eval_dir,
             project_root=PROJECT_ROOT,
+            data_dir=resolved_data_dir,
             perturbation_source_csv=source_csv,
             od_source=str(getattr(self.config, "perturbation_od_source", "train")),
             max_entries=getattr(self.config, "perturbation_max_entries", None),
@@ -2608,6 +2616,12 @@ class EvaluationPipeline:
         # Import the pipeline runner
         from tools.run_lmtad_spatial_pipeline import run_lmtad_spatial_pipeline
 
+        resolved_data_dir = None
+        if getattr(self.config, "data_dir", None):
+            resolved_data_dir = Path(str(self.config.data_dir))
+            if not resolved_data_dir.is_absolute():
+                resolved_data_dir = (self.eval_dir / resolved_data_dir).resolve()
+
         # Run the LM-TAD spatial detection pipeline
         try:
             # Load evaluation config for Porto grid configuration
@@ -2624,14 +2638,23 @@ class EvaluationPipeline:
                 dataset=self.config.dataset,
                 lmtad_source_eval_dir=lmtad_source_eval_dir,
                 lmtad_checkpoint=lmtad_checkpoint,
+                data_dir=resolved_data_dir,
                 skip_extraction=False,
                 skip_generation=False,
                 skip_evaluation=False,
                 skip_aggregation=False,
                 skip_visualization=False,
                 seed=self.config.seed,
-                num_traj_per_od=self.config.lmtad_num_trajectories_per_od,
-                max_od_pairs=self.config.lmtad_max_od_pairs,
+                num_traj_per_od=(
+                    int(self.config.lmtad_num_trajectories_per_od)
+                    if self.config.lmtad_num_trajectories_per_od is not None
+                    else 20
+                ),
+                max_od_pairs=(
+                    int(self.config.lmtad_max_od_pairs)
+                    if self.config.lmtad_max_od_pairs is not None
+                    else 250
+                ),
                 lmtad_repo=None,  # Auto-detect from checkpoint
                 force=self.config.force,
                 eval_config=eval_config,
@@ -2657,11 +2680,25 @@ class EvaluationPipeline:
 
         # Auto-detect: /home/mka299/LMTAD/code/results/LMTAD/{dataset}/run_*/.../eval/
         lmtad_repo = Path("/home/mka299/LMTAD")
-        dataset_eval_base = (
-            lmtad_repo / "code" / "results" / "LMTAD" / self.config.dataset
-        )
+        dataset_candidates = [self.config.dataset]
+        if isinstance(self.config.dataset, str) and "_" in self.config.dataset:
+            dataset_candidates.append(self.config.dataset.split("_", 1)[0])
 
-        if not dataset_eval_base.exists():
+        # LM-TAD uses a different canonical dataset directory name for Beijing.
+        # Support derived dataset variants (e.g., Beijing_per_type_detour) by
+        # falling back to the Beijing LM-TAD reference name.
+        base_lower = str(dataset_candidates[-1]).lower() if dataset_candidates else ""
+        if base_lower == "beijing" and "beijing_hoser_reference" not in dataset_candidates:
+            dataset_candidates.append("beijing_hoser_reference")
+
+        dataset_eval_base = None
+        for cand in dataset_candidates:
+            candidate_base = lmtad_repo / "code" / "results" / "LMTAD" / cand
+            if candidate_base.exists():
+                dataset_eval_base = candidate_base
+                break
+
+        if dataset_eval_base is None:
             return None
 
         # Find most recent run directory
@@ -2680,7 +2717,11 @@ class EvaluationPipeline:
                 / "eval"
             )
             if eval_dir.exists():
-                tsv_files = list(eval_dir.glob("ckpt_best_outliers_*.tsv"))
+                tsv_files = sorted(eval_dir.glob("ckpt_best_outliers_*.tsv"))
+                if not tsv_files:
+                    tsv_files = sorted(eval_dir.glob("*outliers*.tsv"))
+                if not tsv_files:
+                    tsv_files = sorted(eval_dir.glob("*.tsv"))
                 if tsv_files:
                     return eval_dir
 
@@ -3270,6 +3311,17 @@ def main():
     if hasattr(args, "only") and args.only:
         config.phases = {p.strip() for p in args.only.split(",") if p.strip()}
         logger.info(f"Running only phases: {config.phases}")
+
+        # If the user explicitly requested a phase via --only, treat that as an
+        # explicit enable signal for the corresponding feature flag.
+        if "abnormal" in config.phases:
+            config.run_abnormal_detection = True
+        if "wang_abnormality" in config.phases:
+            config.run_wang_detection = True
+        if "lmtad_spatial_abnormality" in config.phases:
+            config.run_lmtad_spatial_detection = True
+        if "scenarios" in config.phases:
+            config.run_scenarios = True
 
     if hasattr(args, "skip") and args.skip:
         skip_phases = {p.strip() for p in args.skip.split(",") if p.strip()}

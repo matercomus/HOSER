@@ -842,6 +842,7 @@ def evaluate_spatial_abnormal_trajectories(
     lmtad_checkpoint: Path,
     source_eval_dir: Path,
     dataset: str,
+    data_dir: Path | None = None,
     device: str = "cuda:0",
     batch_size: int = 128,
     lmtad_repo: Path | None = None,
@@ -961,13 +962,26 @@ def evaluate_spatial_abnormal_trajectories(
     logger.info("📂 Creating grid mapper...")
     from pathlib import Path as PathLib
 
-    data_dir = PathLib("data") / dataset
-    roadmap_file = data_dir / "roadmap.geo"
-    if not roadmap_file.exists():
-        # Try relative to project root
-        roadmap_file = (
-            PathLib(__file__).parent.parent / "data" / dataset / "roadmap.geo"
-        )
+    # Resolve dataset directory (supports eval workspaces with non-standard layouts).
+    candidate_data_dirs: list[PathLib] = []
+    if data_dir is not None:
+        override = PathLib(data_dir)
+        if override.is_absolute():
+            candidate_data_dirs.append(override)
+        else:
+            # Try relative to cwd first (often eval_dir), then project root.
+            candidate_data_dirs.append(PathLib.cwd() / override)
+            candidate_data_dirs.append(PathLib(__file__).parent.parent / override)
+
+    candidate_data_dirs.append(PathLib("data") / dataset)
+    candidate_data_dirs.append(PathLib(__file__).parent.parent / "data" / dataset)
+
+    roadmap_file = None
+    for cand in candidate_data_dirs:
+        candidate = cand / "roadmap.geo"
+        if candidate.exists():
+            roadmap_file = candidate
+            break
 
     # Before failing on a missing roadmap, attempt to auto-load a canonical
     # `road_to_token.json` mapping from nearby locations. This supports the
@@ -997,8 +1011,11 @@ def evaluate_spatial_abnormal_trajectories(
             # If mapping_utils import or parsing fails, continue to normal flow
             pass
 
-    if not roadmap_file.exists() and road_to_token_override is None:
-        raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
+    if (roadmap_file is None or not roadmap_file.exists()) and road_to_token_override is None:
+        raise FileNotFoundError(
+            "Roadmap file not found. Tried: "
+            + ", ".join(str(p / "roadmap.geo") for p in candidate_data_dirs)
+        )
 
     # Get expected grid dimensions from teacher (matches training process)
     raw_teacher_hw = model.get_grid_size_hw()
@@ -1052,16 +1069,20 @@ def evaluate_spatial_abnormal_trajectories(
     logger.info("📂 Preparing grid mapper for token mapping (used in validation)")
     from pathlib import Path as PathLib
 
-    data_dir = PathLib("data") / dataset
-    roadmap_file = data_dir / "roadmap.geo"
-    if not roadmap_file.exists():
-        # Try relative to project root
-        roadmap_file = (
-            PathLib(__file__).parent.parent / "data" / dataset / "roadmap.geo"
-        )
+    # Re-resolve roadmap file for mapper creation (kept separate from the earlier
+    # block because this section is used in validation/mapping).
+    roadmap_file = None
+    for cand in candidate_data_dirs:
+        candidate = cand / "roadmap.geo"
+        if candidate.exists():
+            roadmap_file = candidate
+            break
 
-    if not roadmap_file.exists():
-        raise FileNotFoundError(f"Roadmap file not found: {roadmap_file}")
+    if roadmap_file is None or not roadmap_file.exists():
+        raise FileNotFoundError(
+            "Roadmap file not found. Tried: "
+            + ", ".join(str(p / "roadmap.geo") for p in candidate_data_dirs)
+        )
 
     # Extract road centroids (needed for mapper)
     road_centroids, boundary_from_roadmap = extract_road_centroids(roadmap_file)

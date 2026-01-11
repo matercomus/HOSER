@@ -60,6 +60,10 @@ class PerturbationCorrectionConfig:
     project_root: Path
 
     perturbation_source_csv: Path
+
+    # Optional dataset root override (absolute or relative to eval_dir).
+    # Needed for eval workspaces where datasets live outside project_root/data/{dataset}.
+    data_dir: Optional[Path] = None
     od_source: str = "train"
     max_entries: Optional[int] = None
     seed: int = 0
@@ -439,7 +443,15 @@ def run_perturbation_correction(
     if cfg.od_source not in {"train", "test"}:
         raise ValueError("od_source must be 'train' or 'test'")
 
-    roadmap_geo = cfg.project_root / "data" / cfg.dataset / "roadmap.geo"
+    resolved_data_dir: Optional[Path] = None
+    if cfg.data_dir is not None:
+        resolved_data_dir = Path(cfg.data_dir)
+        if not resolved_data_dir.is_absolute():
+            resolved_data_dir = (cfg.eval_dir / resolved_data_dir).resolve()
+    else:
+        resolved_data_dir = cfg.project_root / "data" / cfg.dataset
+
+    roadmap_geo = resolved_data_dir / "roadmap.geo"
     if not roadmap_geo.exists():
         raise FileNotFoundError(f"Road network not found: {roadmap_geo}")
 
@@ -491,6 +503,7 @@ def run_perturbation_correction(
             num_gene=len(od_pairs),
             od_pairs=od_pairs,
             output_file=generated_csv,
+            data_dir=str(resolved_data_dir),
             cuda_device=cfg.cuda_device,
             beam_search=not cfg.use_astar,
             beam_width=cfg.beam_width,

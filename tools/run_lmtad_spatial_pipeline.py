@@ -144,6 +144,7 @@ def run_lmtad_spatial_pipeline(
     dataset: str,
     lmtad_source_eval_dir: Path,
     lmtad_checkpoint: Path,
+    data_dir: Path | None = None,
     skip_extraction: bool = False,
     skip_generation: bool = False,
     skip_evaluation: bool = False,
@@ -352,10 +353,24 @@ def run_lmtad_spatial_pipeline(
                 from tools.convert_to_lmtad_format import extract_road_centroids  # noqa: E402
                 from critics.grid_mapper import GridMapper, GridConfig  # noqa: E402
 
-                data_dir = Path(__file__).parent.parent / "data" / dataset
-                roadmap_file = data_dir / "roadmap.geo"
-                if not roadmap_file.exists():
-                    roadmap_file = Path("data") / dataset / "roadmap.geo"
+                # Resolve dataset directory (supports eval workspaces with non-standard layouts).
+                candidate_data_dirs: list[Path] = []
+                if data_dir is not None:
+                    override = Path(data_dir)
+                    if override.is_absolute():
+                        candidate_data_dirs.append(override)
+                    else:
+                        candidate_data_dirs.append((eval_dir / override).resolve())
+
+                candidate_data_dirs.append(Path(__file__).parent.parent / "data" / dataset)
+                candidate_data_dirs.append(Path("data") / dataset)
+
+                roadmap_file = None
+                for cand in candidate_data_dirs:
+                    candidate = cand / "roadmap.geo"
+                    if candidate.exists():
+                        roadmap_file = candidate
+                        break
 
                 road_to_token_override = None
                 # First, attempt to auto-load a canonical mapping file from the
@@ -368,10 +383,8 @@ def run_lmtad_spatial_pipeline(
                     candidate_paths = [
                         eval_dir / "road_to_token.json",
                         eval_dir / "analysis_abnormal" / dataset / "road_to_token.json",
-                        Path(__file__).parent.parent
-                        / "data"
-                        / dataset
-                        / "road_to_token.json",
+                        *( [roadmap_file.parent / "road_to_token.json"] if roadmap_file is not None else [] ),
+                        Path(__file__).parent.parent / "data" / dataset / "road_to_token.json",
                     ]
                     for cand in candidate_paths:
                         if cand.exists():
@@ -398,7 +411,7 @@ def run_lmtad_spatial_pipeline(
                 # If we didn't find/parse a canonical mapping file, fall back to
                 # computing the mapping from the dataset roadmap (existing behavior).
                 if road_to_token_override is None:
-                    if roadmap_file.exists():
+                    if roadmap_file is not None and roadmap_file.exists():
                         road_centroids, boundary_from_roadmap = extract_road_centroids(
                             roadmap_file
                         )
@@ -469,6 +482,7 @@ def run_lmtad_spatial_pipeline(
                                 lmtad_checkpoint=lmtad_checkpoint,
                                 source_eval_dir=lmtad_source_eval_dir,
                                 dataset=dataset,
+                                data_dir=data_dir,
                                 device="cuda:0",
                                 batch_size=128,
                                 lmtad_repo=lmtad_repo,
