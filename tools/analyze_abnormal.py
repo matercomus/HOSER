@@ -441,6 +441,7 @@ def run_abnormal_analysis(
     config_path: Path,
     output_dir: Path,
     is_real_data: bool = True,
+    data_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Run abnormal trajectory analysis on trajectory data.
 
@@ -478,13 +479,17 @@ def run_abnormal_analysis(
     # Load configuration (needed for either method)
     logger.info("⚙️  Loading configuration...")
 
-    # Determine data directory from dataset name
-    data_dir = Path(f"data/{dataset}")
-    if not data_dir.exists():
-        # Try alternative paths
-        data_dir = Path(f"../data/{dataset}")
-        if not data_dir.exists():
+    # Determine data directory
+    # Prefer an explicit override from the pipeline (for non-standard eval workspace layouts).
+    if data_dir is None:
+        inferred = Path(f"data/{dataset}")
+        if not inferred.exists():
+            inferred = Path(f"../data/{dataset}")
+        if not inferred.exists():
             raise FileNotFoundError(f"Data directory not found for dataset: {dataset}")
+        data_dir = inferred
+    else:
+        data_dir = Path(data_dir)
 
     # Load road network
     geo_path = data_dir / "roadmap.geo"

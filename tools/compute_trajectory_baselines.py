@@ -92,25 +92,45 @@ def compute_trajectory_metrics(row: dict, road_network: pl.DataFrame = None) -> 
     Returns:
         Dict with route_length_m, duration_sec, avg_speed_kmh, origin, destination
     """
-    # Parse road IDs and timestamps
-    road_ids_str = row["rid_list"]
-    timestamps_str = row["time_list"]
+    # Parse road IDs and timestamps.
+    # Performance note: we only need origin/destination and overall duration,
+    # so avoid parsing every timestamp in the trajectory.
+    road_ids_str = str(row["rid_list"])
+    timestamps_str = str(row["time_list"])
 
-    road_ids = [int(r) for r in str(road_ids_str).split(",")]
-    timestamps = [
-        datetime.strptime(t.strip('"'), "%Y-%m-%dT%H:%M:%SZ")
-        for t in str(timestamps_str).split(",")
-    ]
+    road_id_parts = road_ids_str.split(",")
+    if len(road_id_parts) == 0:
+        return None
 
-    if len(road_ids) == 0 or len(timestamps) == 0:
+    try:
+        origin = int(road_id_parts[0])
+        destination = int(road_id_parts[-1])
+    except ValueError:
+        return None
+
+    # Timestamps: parse only first and last
+    if not timestamps_str:
+        return None
+
+    if "," in timestamps_str:
+        first_ts_raw = timestamps_str.split(",", 1)[0]
+        last_ts_raw = timestamps_str.rsplit(",", 1)[-1]
+    else:
+        first_ts_raw = timestamps_str
+        last_ts_raw = timestamps_str
+
+    try:
+        start_ts = datetime.strptime(first_ts_raw.strip('"'), "%Y-%m-%dT%H:%M:%SZ")
+        end_ts = datetime.strptime(last_ts_raw.strip('"'), "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
         return None
 
     # Route length (simplified: count road segments × average segment length)
     # TODO: Use actual road lengths from .geo file for accuracy
-    route_length_m = len(road_ids) * 100  # Rough estimate: 100m per segment
+    route_length_m = len(road_id_parts) * 100  # Rough estimate: 100m per segment
 
     # Travel time
-    duration_sec = (timestamps[-1] - timestamps[0]).total_seconds()
+    duration_sec = (end_ts - start_ts).total_seconds()
 
     # Average speed
     avg_speed_kmh = (
@@ -118,12 +138,12 @@ def compute_trajectory_metrics(row: dict, road_network: pl.DataFrame = None) -> 
     )
 
     return {
-        "origin": road_ids[0],
-        "destination": road_ids[-1],
+        "origin": origin,
+        "destination": destination,
         "route_length_m": route_length_m,
         "duration_sec": duration_sec,
         "avg_speed_kmh": avg_speed_kmh,
-        "num_points": len(road_ids),
+        "num_points": len(road_id_parts),
     }
 
 

@@ -30,7 +30,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 # Add parent directory to path for imports when run as script
 _parent_dir = Path(__file__).parent.parent
@@ -91,6 +91,7 @@ def find_generated_models(eval_dir: Path, dataset: str) -> Dict[str, Path]:
 def run_wang_detection_pipeline(
     eval_dir: Path,
     dataset: str,
+    data_dir: Optional[Path] = None,
     skip_real: bool = False,
     skip_generated: bool = False,
     skip_aggregation: bool = False,
@@ -122,7 +123,15 @@ def run_wang_detection_pipeline(
     # Paths
     config_file = eval_dir / "config" / "abnormal_detection_statistical.yaml"
     abnormal_dir = eval_dir / "abnormal" / dataset
-    data_dir = project_root / "data" / dataset
+
+    # Data directory: allow override for eval workspaces that keep datasets outside
+    # the canonical repo layout (PROJECT_ROOT/data/{dataset}).
+    if data_dir is None:
+        resolved_data_dir = project_root / "data" / dataset
+    else:
+        resolved_data_dir = Path(data_dir)
+        if not resolved_data_dir.is_absolute():
+            resolved_data_dir = (eval_dir / resolved_data_dir).resolve()
 
     # Check prerequisites
     if not config_file.exists():
@@ -147,7 +156,7 @@ def run_wang_detection_pipeline(
     # Step 1: Real data detection (test split)
     if not skip_real:
         total_steps += 1
-        real_test_file = data_dir / "test.csv"
+        real_test_file = resolved_data_dir / "test.csv"
         if real_test_file.exists():
             logger.info(f"{'=' * 70}")
             logger.info("Step: Real data detection (test split)")
@@ -173,7 +182,7 @@ def run_wang_detection_pipeline(
     # Step 2: Real data detection (train split)
     if not skip_real:
         total_steps += 1
-        real_train_file = data_dir / "train.csv"
+        real_train_file = resolved_data_dir / "train.csv"
         if real_train_file.exists():
             logger.info(f"{'=' * 70}")
             logger.info("Step: Real data detection (train split)")

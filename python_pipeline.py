@@ -165,6 +165,8 @@ class PipelineConfig:
         self.data_dir: Optional[str] = None
 
         # NEW: Phase-based control (replaces skip_* flags)
+        # Note: stored as a set for membership checks; execution order is defined
+        # in `_phase_execution_order()`.
         self.phases: Set[str] = {
             "generation",
             "base_eval",
@@ -995,6 +997,7 @@ class EvaluationPipeline:
                         config_path=config_copy,
                         output_dir=output_dir,
                         model_name=model_name,
+                        data_dir=getattr(self.config, "data_dir", None),
                     )
 
                     logger.info(f"  ✅ Results saved to {output_dir}")
@@ -1136,6 +1139,7 @@ class EvaluationPipeline:
                             config_path=scenarios_config,
                             output_dir=scenario_output,
                             model_name=model_type,
+                            data_dir=cross_data_dir,
                             cross_dataset=True,
                             trained_on_dataset=self.config.dataset,
                         )
@@ -1177,9 +1181,19 @@ class EvaluationPipeline:
         # Analyze BOTH datasets: main evaluation dataset AND cross-dataset
         datasets_to_analyze = []
 
-        # Always analyze the main evaluation dataset (Beijing/HOSER)
-        main_data_dir = self.eval_dir.parent / "data" / self.config.dataset
-        if main_data_dir.exists():
+        # Always analyze the main evaluation dataset
+        # Prefer an explicit config.data_dir override, but fall back to common layouts.
+        candidate_main_dirs = []
+        if getattr(self.config, "data_dir", None):
+            configured = Path(self.config.data_dir)
+            if not configured.is_absolute():
+                configured = self.eval_dir / configured
+            candidate_main_dirs.append(configured)
+        candidate_main_dirs.append(self.eval_dir.parent / "data" / self.config.dataset)
+        candidate_main_dirs.append(PROJECT_ROOT / "data" / self.config.dataset)
+
+        main_data_dir = next((p for p in candidate_main_dirs if p.exists()), None)
+        if main_data_dir is not None:
             datasets_to_analyze.append(
                 {
                     "name": self.config.dataset,
@@ -1330,6 +1344,7 @@ class EvaluationPipeline:
                     dataset=dataset_name,
                     config_path=config_path,
                     output_dir=detection_output_real,
+                    data_dir=data_dir,
                 )
 
                 # Count UNIQUE abnormal trajectories (not sum of categories to avoid double-counting)
@@ -1381,6 +1396,7 @@ class EvaluationPipeline:
                             config_path=config_path,
                             output_dir=detection_output_gen,
                             is_real_data=False,  # Generated data format
+                            data_dir=data_dir,
                         )
 
                         # Count UNIQUE abnormal trajectories (not sum of categories to avoid double-counting)
@@ -1988,20 +2004,92 @@ class EvaluationPipeline:
 
     @phase("abnormal_od_extract", critical=False)
     def run_abnormal_od_extract(self):
-        """Extract abnormal OD pairs from cross-dataset detection results"""
-        logger.info("📊 Extracting abnormal OD pairs from cross-dataset...")
+        """Extract abnormal OD pairs from abnormal detection results.
 
-        # Check dependency: Need abnormal detection results
-        if not self.config.cross_dataset_name:
-            logger.warning(
-                "No cross-dataset configured, skipping abnormal OD extraction"
+        Primary workflow:
+        - If cross-dataset is configured: extract from cross-dataset abnormal detection.
+        - Otherwise: extract from the main dataset abnormal detection (e.g., Wang statistical).
+        """
+        logger.info("📊 Extracting abnormal OD pairs from abnormal detection results...")
+
+        # Determine which dataset's abnormal results to use.
+        is_cross_dataset = bool(
+            self.config.cross_dataset_name and self.config.cross_dataset_eval
+        )
+
+        target_dataset = (
+            self.config.cross_dataset_name if is_cross_dataset else self.config.dataset
+        )
+
+        # Prefer LM-TAD spatial abnormal OD pairs when available.
+        # These are produced by tools/run_lmtad_spatial_pipeline.py and have schema
+        # {"od_pairs_by_type": {"route_switch": [...], "detour": [...]}}.
+        lmtad_pairs_file = Path(
+            f"./abnormal_od_pairs_lmtad_spatial_{target_dataset}.json"
+        )
+
+        if lmtad_pairs_file.exists():
+            logger.info(
+                f"✅ Found LM-TAD spatial OD pairs file, using it: {lmtad_pairs_file}"
             )
             return
 
-        abnormal_results_dir = Path(f"./abnormal/{self.config.cross_dataset_name}")
+        # If the user configured LM-TAD spatial detection (or explicitly provided the
+        # LM-TAD source eval directory), we can extract OD pairs directly from the
+        # LM-TAD TSV exports without needing the 'abnormal' phase.
+        if getattr(self.config, "run_lmtad_spatial_detection", False) or getattr(
+            self.config, "lmtad_source_eval_dir", None
+        ):
+            try:
+                from tools.extract_lmtad_spatial_abnormal_od import (
+                    extract_spatial_abnormal_od_pairs,
+                )
+
+                source_eval_dir = self._detect_lmtad_source_eval_dir()
+                if not source_eval_dir:
+                    logger.error(
+                        "❌ Could not auto-detect LM-TAD source eval directory. "
+                        "Set 'lmtad_source_eval_dir' in evaluation.yaml or run the lmtad_spatial_abnormality phase."
+                    )
+                    return
+
+                # Use a base dataset name for mapping when the eval dataset is a derived variant
+                # (e.g., Beijing_per_type_detour). This helps the LM-TAD token→road mapping logic.
+                base_dataset = target_dataset
+                if isinstance(target_dataset, str) and "_" in target_dataset:
+                    candidate = target_dataset.split("_", 1)[0]
+                    if (PROJECT_ROOT / "data" / candidate).exists():
+                        base_dataset = candidate
+
+                logger.info(
+                    f"🔎 Extracting LM-TAD spatial abnormal OD pairs from: {source_eval_dir} (dataset='{base_dataset}')"
+                )
+                result = extract_spatial_abnormal_od_pairs(
+                    tsv_file=source_eval_dir,
+                    dataset=base_dataset,
+                    source_eval_dir=source_eval_dir,
+                )
+
+                import json
+
+                with open(lmtad_pairs_file, "w") as f:
+                    json.dump(result, f, indent=2)
+
+                logger.info(
+                    f"✅ Saved LM-TAD spatial abnormal OD pairs to {lmtad_pairs_file}"
+                )
+                return
+            except Exception as e:
+                logger.error(f"❌ LM-TAD spatial OD extraction failed: {e}")
+                import traceback
+
+                traceback.print_exc()
+                return
+
+        abnormal_results_dir = Path(f"./abnormal/{target_dataset}")
         if not abnormal_results_dir.exists():
             logger.error(
-                f"❌ Dependency not met: Run 'abnormal' phase first. "
+                f"❌ Dependency not met: Run 'abnormal'/'wang_abnormality' phase first. "
                 f"Missing: {abnormal_results_dir}"
             )
             return
@@ -2020,12 +2108,55 @@ class EvaluationPipeline:
             logger.error(f"❌ No detection results found in {abnormal_results_dir}")
             return
 
+        # If Wang is enabled, ensure we're extracting from Wang statistical results.
+        # Wang detection writes `config_file: config/abnormal_detection_statistical.yaml`.
+        if getattr(self.config, "run_wang_detection", False):
+            import json
+
+            wang_files: list[Path] = []
+            for file_path in detection_files:
+                try:
+                    with open(file_path, "r") as f:
+                        payload = json.load(f)
+                    config_file = str(payload.get("config_file", ""))
+                    if "abnormal_detection_statistical" in config_file:
+                        wang_files.append(file_path)
+                except Exception:
+                    continue
+
+            if not wang_files:
+                logger.error(
+                    "❌ No Wang statistical detection results found. "
+                    "Enable/run the 'wang_abnormality' phase (or run the Wang pipeline) before 'abnormal_od_extract'."
+                )
+                return
+
+            detection_files = wang_files
+
         logger.info(f"  Found {len(detection_files)} detection result files")
 
         # Prepare data file paths
-        data_dir = Path(self.config.cross_dataset_eval)
-        if not data_dir.is_absolute():
-            data_dir = self.eval_dir / data_dir
+        if is_cross_dataset:
+            data_dir = Path(self.config.cross_dataset_eval)
+            if not data_dir.is_absolute():
+                data_dir = self.eval_dir / data_dir
+        else:
+            # Prefer explicit eval config data_dir; fall back to common layouts.
+            candidate_dirs = []
+            if getattr(self.config, "data_dir", None):
+                configured = Path(self.config.data_dir)
+                if not configured.is_absolute():
+                    configured = self.eval_dir / configured
+                candidate_dirs.append(configured)
+            candidate_dirs.append(self.eval_dir.parent / "data" / self.config.dataset)
+            candidate_dirs.append(PROJECT_ROOT / "data" / self.config.dataset)
+            data_dir = next((p for p in candidate_dirs if p.exists()), None)
+            if data_dir is None:
+                logger.error(
+                    "❌ Data directory not found for abnormal OD extraction. Tried: "
+                    + ", ".join(str(p) for p in candidate_dirs)
+                )
+                return
 
         data_files = []
         for det_file in detection_files:
@@ -2043,15 +2174,14 @@ class EvaluationPipeline:
         # Import and run extraction
         from tools.extract_abnormal_od_pairs import extract_abnormal_od_pairs
 
-        output_file = Path(
-            f"./abnormal_od_pairs_{self.config.cross_dataset_name.lower().replace(' ', '_')}.json"
-        )
+        output_suffix = target_dataset.lower().replace(" ", "_")
+        output_file = Path(f"./abnormal_od_pairs_{output_suffix}.json")
 
         try:
             result = extract_abnormal_od_pairs(
                 detection_results_files=detection_files,
                 real_data_files=data_files,
-                dataset_name=self.config.cross_dataset_name,
+                dataset_name=target_dataset,
             )
 
             # Save result
@@ -2076,6 +2206,8 @@ class EvaluationPipeline:
         """Generate trajectories for abnormal OD pairs"""
         logger.info("🤖 Generating trajectories for abnormal OD pairs...")
 
+        # Supports both cross-dataset and same-dataset workflows.
+
         # Check dependency: Need OD pairs file
         od_pairs_files = list(Path(".").glob("abnormal_od_pairs_*.json"))
         if not od_pairs_files:
@@ -2085,38 +2217,30 @@ class EvaluationPipeline:
             )
             return
 
-        # Prefer dataset-specific OD pairs file if available
-        # Filter out lmtad_spatial files (different workflow)
-        non_lmtad_files = [f for f in od_pairs_files if "lmtad_spatial" not in f.name]
-        if non_lmtad_files:
-            # If cross-dataset evaluation was explicitly requested, prefer its file
-            if self.config.cross_dataset_name:
-                cross_dataset_pattern = self.config.cross_dataset_name.lower().replace(
-                    " ", "_"
-                )
-                matching = [
-                    f
-                    for f in non_lmtad_files
-                    if cross_dataset_pattern in f.name.lower()
-                ]
-                if matching:
-                    od_pairs_file = matching[0]
-                else:
-                    # Fall back to any non-lmtad file
-                    od_pairs_file = non_lmtad_files[0]
-            else:
-                # Prefer OD pairs that match the main dataset name to avoid accidentally
-                # picking up cross-dataset artifacts left on disk (e.g., BJUT_Beijing).
-                main_dataset_pattern = self.config.dataset.lower().replace(" ", "_")
-                matching_main = [
-                    f for f in non_lmtad_files if main_dataset_pattern in f.name.lower()
-                ]
-                if matching_main:
-                    od_pairs_file = matching_main[0]
-                else:
-                    od_pairs_file = non_lmtad_files[0]
+        # Prefer dataset-specific OD pairs file if available.
+        # If LM-TAD spatial OD pairs exist for the main dataset, prefer those.
+        main_dataset_pattern = self.config.dataset.lower().replace(" ", "_")
+        lmtad_matching = [
+            f
+            for f in od_pairs_files
+            if "lmtad_spatial" in f.name.lower()
+            and main_dataset_pattern in f.name.lower()
+        ]
+        if lmtad_matching:
+            od_pairs_file = lmtad_matching[0]
+        elif self.config.cross_dataset_name:
+            cross_dataset_pattern = self.config.cross_dataset_name.lower().replace(
+                " ", "_"
+            )
+            matching_cross = [
+                f for f in od_pairs_files if cross_dataset_pattern in f.name.lower()
+            ]
+            od_pairs_file = matching_cross[0] if matching_cross else od_pairs_files[0]
         else:
-            od_pairs_file = od_pairs_files[0]
+            matching_main = [
+                f for f in od_pairs_files if main_dataset_pattern in f.name.lower()
+            ]
+            od_pairs_file = matching_main[0] if matching_main else od_pairs_files[0]
 
         logger.info(f"  Using OD pairs: {od_pairs_file}")
 
@@ -2126,10 +2250,18 @@ class EvaluationPipeline:
         with open(od_pairs_file, "r") as f:
             od_pairs_data = json.load(f)
 
-        # Create flat list of OD pairs
+        # Create flat list of OD pairs (support multiple schemas)
         all_pairs = []
-        for category, pairs in od_pairs_data.get("od_pairs_by_category", {}).items():
-            # Limit to 20 pairs per category for reasonable runtime
+        if "od_pairs_by_category" in od_pairs_data:
+            pairs_by_bucket = od_pairs_data.get("od_pairs_by_category", {})
+        elif "od_pairs_by_type" in od_pairs_data:
+            # LM-TAD spatial workflow
+            pairs_by_bucket = od_pairs_data.get("od_pairs_by_type", {})
+        else:
+            pairs_by_bucket = {}
+
+        for category, pairs in pairs_by_bucket.items():
+            # Limit to 20 pairs per bucket for reasonable runtime
             pairs_limited = pairs[:20]
             all_pairs.extend(pairs_limited)
             logger.info(f"  {category}: {len(pairs_limited)} OD pairs")
@@ -2209,6 +2341,11 @@ class EvaluationPipeline:
         """Evaluate model performance on abnormal OD pairs"""
         logger.info("📊 Evaluating performance on abnormal OD pairs...")
 
+        # Supports both cross-dataset and same-dataset workflows.
+        is_cross_dataset = bool(
+            self.config.cross_dataset_name and self.config.cross_dataset_eval
+        )
+
         # Check dependency: Need generated files
         gen_dir = Path(f"./gene_abnormal/{self.config.dataset}/seed{self.config.seed}")
         if not gen_dir.exists():
@@ -2233,19 +2370,29 @@ class EvaluationPipeline:
 
         od_pairs_file = od_pairs_files[0]
 
-        # Get real abnormal data file
-        if not self.config.cross_dataset_eval:
-            logger.error("❌ No cross-dataset configured")
-            return
-
-        data_dir = Path(self.config.cross_dataset_eval)
-        if not data_dir.is_absolute():
-            data_dir = self.eval_dir / data_dir
-
-        real_abnormal_file = data_dir / "train.csv"
-        if not real_abnormal_file.exists():
-            logger.error(f"❌ Real abnormal file not found: {real_abnormal_file}")
-            return
+        # Resolve dataset directory for evaluation
+        if is_cross_dataset:
+            eval_dataset = self.config.cross_dataset_name
+            data_dir = Path(self.config.cross_dataset_eval)
+            if not data_dir.is_absolute():
+                data_dir = self.eval_dir / data_dir
+        else:
+            eval_dataset = self.config.dataset
+            candidate_dirs = []
+            if getattr(self.config, "data_dir", None):
+                configured = Path(self.config.data_dir)
+                if not configured.is_absolute():
+                    configured = self.eval_dir / configured
+                candidate_dirs.append(configured)
+            candidate_dirs.append(self.eval_dir.parent / "data" / self.config.dataset)
+            candidate_dirs.append(PROJECT_ROOT / "data" / self.config.dataset)
+            data_dir = next((p for p in candidate_dirs if p.exists()), None)
+            if data_dir is None:
+                logger.error(
+                    "❌ Data directory not found for abnormal OD evaluation. Tried: "
+                    + ", ".join(str(p) for p in candidate_dirs)
+                )
+                return
 
         # Output directory
         output_dir = Path(f"./eval_abnormal/{self.config.dataset}")
@@ -2292,6 +2439,7 @@ class EvaluationPipeline:
                     config_path=abnormal_config_path,
                     output_dir=detection_output,
                     is_real_data=False,  # Analyzing generated abnormal OD data
+                    data_dir=(Path(self.config.data_dir) if getattr(self.config, "data_dir", None) else None),
                 )
 
                 # Calculate rates
@@ -2311,13 +2459,12 @@ class EvaluationPipeline:
                 eval_output = output_dir / model_name / "metrics"
                 eval_output.mkdir(parents=True, exist_ok=True)
 
-                # Note: evaluate_trajectories_programmatic uses dataset/od_source to find real data
-                # For abnormal OD evaluation, we compare generated trajectories against the
-                # cross-dataset real data (e.g., BJUT_Beijing)
+                # Compare generated trajectories against the corresponding real dataset.
                 eval_results = evaluate_trajectories_programmatic(
                     generated_file=str(gen_file),
-                    dataset=self.config.cross_dataset_name or self.config.dataset,
+                    dataset=eval_dataset,
                     od_source="train",  # Abnormal OD pairs come from train set
+                    data_dir=str(data_dir),
                 )
 
                 metrics = {}
@@ -2406,11 +2553,19 @@ class EvaluationPipeline:
         # Import the pipeline runner
         from tools.run_wang_detection_pipeline import run_wang_detection_pipeline
 
+        # Resolve data directory (supports eval workspaces that keep datasets outside ../data/{dataset}).
+        resolved_data_dir = None
+        if getattr(self.config, "data_dir", None):
+            resolved_data_dir = Path(self.config.data_dir)
+            if not resolved_data_dir.is_absolute():
+                resolved_data_dir = (self.eval_dir / resolved_data_dir).resolve()
+
         # Run the Wang detection pipeline
         try:
             success = run_wang_detection_pipeline(
                 eval_dir=self.eval_dir,
                 dataset=self.config.dataset,
+                data_dir=resolved_data_dir,
                 skip_real=False,
                 skip_generated=False,
                 skip_aggregation=False,
@@ -2861,11 +3016,13 @@ class EvaluationPipeline:
             "cross_dataset",
             "road_network_translate",
             "abnormal",
+            # Abnormality sources should run before extracting abnormal OD pairs.
+            # In particular, Wang writes `abnormal/<dataset>/*/real_data/detection_results.json`.
+            "wang_abnormality",
+            "lmtad_spatial_abnormality",
             "abnormal_od_extract",
             "abnormal_od_generate",
             "abnormal_od_evaluate",
-            "wang_abnormality",
-            "lmtad_spatial_abnormality",
             "scenarios",
         ]
         extras = [phase for phase in self.config.phases if phase not in default_order]

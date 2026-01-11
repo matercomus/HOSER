@@ -864,6 +864,7 @@ def run_scenario_analysis(
     config_path: Path,
     output_dir: Path,
     model_name: str = None,
+    data_dir: Path | str | None = None,
     cross_dataset: bool = False,
     trained_on_dataset: str = None,
 ):
@@ -888,31 +889,41 @@ def run_scenario_analysis(
     generated_df = pl.read_csv(generated_file)
 
     # Load real data
-    # Try multiple paths to find data directory
-    possible_data_dirs = [
-        Path(f"data/{dataset}"),  # From project root
-        Path(f"../data/{dataset}"),  # From eval directory
-        generated_file.parent.parent.parent.parent
-        / "data"
-        / dataset,  # Relative to gene file
-        Path("data") / dataset,  # Direct path
-    ]
+    # Prefer an explicit data_dir override (used by eval workspaces with non-standard layouts)
+    resolved_data_dir: Path | None = None
+    if data_dir is not None:
+        resolved_data_dir = Path(data_dir)
+        if resolved_data_dir.exists():
+            pass
+        else:
+            resolved_data_dir = None
 
-    data_dir = None
-    for possible_dir in possible_data_dirs:
-        if possible_dir.exists():
-            data_dir = possible_dir
-            break
+    # Fall back to dataset-name based discovery
+    if resolved_data_dir is None:
+        possible_data_dirs = [
+            Path(f"data/{dataset}"),  # From project root
+            Path(f"../data/{dataset}"),  # From eval directory
+            generated_file.parent.parent.parent.parent / "data" / dataset,  # Relative to gene file
+            Path("data") / dataset,  # Direct path
+        ]
 
-    if data_dir is None:
-        raise FileNotFoundError(f"Could not find data directory for {dataset}")
+        for possible_dir in possible_data_dirs:
+            if possible_dir.exists():
+                resolved_data_dir = possible_dir
+                break
 
-    real_file = data_dir / f"{od_source}.csv"
+    if resolved_data_dir is None:
+        raise FileNotFoundError(
+            f"Could not find data directory for {dataset}"
+            + (" (no data_dir override provided)" if data_dir is None else f" (data_dir override: {data_dir})")
+        )
+
+    real_file = resolved_data_dir / f"{od_source}.csv"
     logger.info(f"📂 Loading real data from {real_file}...")
     real_df = pl.read_csv(real_file)
 
     # Load geo data
-    geo_file = data_dir / "roadmap.geo"
+    geo_file = resolved_data_dir / "roadmap.geo"
     logger.info(f"📂 Loading geo data from {geo_file}...")
     # Handle complex geo file format with proper schema
     # Read first to check columns with basic schema
@@ -926,24 +937,12 @@ def run_scenario_analysis(
         },
     )
 
-    # Build schema overrides based on dataset
-    schema_overrides = {
-        "coordinates": pl.Utf8  # Always JSON string
-    }
-
-    # Check for problematic columns that might contain lists
+    # Build schema overrides based on what the sample read needed.
+    # This makes derived dataset names (e.g., Beijing_per_type_detour) work reliably.
+    schema_overrides = {"coordinates": pl.Utf8}
     for col in ["lanes", "oneway", "name"]:
-        if col in sample_df.columns:
-            try:
-                # Try to read normally first
-                sample_df.select(pl.col(col)).head()
-            except Exception:
-                # If error, read as string
-                schema_overrides[col] = pl.Utf8
-
-    # For Beijing, oneway can be "[False, True]" etc
-    if "oneway" in sample_df.columns and dataset.lower() == "beijing":
-        schema_overrides["oneway"] = pl.Utf8
+        if col in sample_df.columns and sample_df.schema.get(col) == pl.Utf8:
+            schema_overrides[col] = pl.Utf8
 
     # Read with proper schema
     geo_df = pl.read_csv(
