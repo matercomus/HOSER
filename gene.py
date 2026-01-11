@@ -1551,15 +1551,62 @@ def _save_performance_metrics(
         print(f"📊 Saved per-trajectory timing: {timing_csv_path}")
 
 
-def load_and_preprocess_data(dataset, od_source="train"):
+def _resolve_dataset_dir(dataset: str, data_dir: Optional[Union[str, Path]] = None) -> Path:
+    """Resolve the dataset directory used by generation.
+
+    By default, this matches the historical layout: `<repo_root>/data/<dataset>`.
+    When `data_dir` is provided (typically from `config/evaluation.yaml`), it is
+    treated as the path to the directory containing `roadmap.geo`, `train.csv`,
+    etc. Relative paths are resolved from the current working directory.
+
+    Args:
+        dataset: Dataset identifier (e.g., "Beijing"). Used only for the default.
+        data_dir: Optional override path to the dataset directory.
+
+    Returns:
+        Absolute path to the dataset directory.
+    """
+
+    if data_dir is None:
+        project_root = Path(__file__).resolve().parent
+        return (project_root / "data" / str(dataset)).resolve()
+
+    requested = Path(data_dir).expanduser()
+    if requested.is_absolute():
+        resolved = requested.resolve()
+    else:
+        # Prefer resolving relative to CWD (eval workspace friendly). If that
+        # doesn't exist, fall back to resolving relative to the repo root.
+        cwd_candidate = (Path.cwd() / requested)
+        if cwd_candidate.exists():
+            resolved = cwd_candidate.resolve()
+        else:
+            project_root = Path(__file__).resolve().parent
+            resolved = (project_root / requested).resolve()
+
+    if not resolved.exists():
+        raise FileNotFoundError(
+            "Dataset directory not found. "
+            f"Resolved path: {resolved} (from data_dir={data_dir!r}, dataset={dataset!r})."
+        )
+
+    return resolved
+
+
+def load_and_preprocess_data(
+    dataset: str,
+    od_source: str = "train",
+    data_dir: Optional[Union[str, Path]] = None,
+):
     """Load and preprocess data for trajectory generation.
 
     Args:
         dataset: Dataset name (e.g., 'Beijing')
         od_source: 'train' or 'test' - which dataset to extract OD pairs from
+        data_dir: Optional override directory containing dataset files.
     """
-    project_root = Path(__file__).resolve().parent
-    dataset_dir = project_root / "data" / str(dataset)
+
+    dataset_dir = _resolve_dataset_dir(dataset, data_dir=data_dir)
     cache_path = str(dataset_dir / "gene_preprocessed_cache.pkl")
     if os.path.exists(cache_path):
         print(f"✅ Loading preprocessed data from cache: {cache_path}")
@@ -1827,6 +1874,7 @@ def sample_od_pairs(
     od_source: str,
     num_pairs: int,
     seed: int = 42,
+    data_dir: Optional[Union[str, Path]] = None,
 ) -> List[Tuple[int, int]]:
     """
     Sample OD pairs from dataset with weighted probability.
@@ -1841,7 +1889,7 @@ def sample_od_pairs(
         List of (origin, destination) tuples sampled from dataset
     """
     set_seed(seed)
-    data = load_and_preprocess_data(dataset, od_source=od_source)
+    data = load_and_preprocess_data(dataset, od_source=od_source, data_dir=data_dir)
     num_roads = data["num_roads"]
 
     print(" ... Filtering valid OD pairs...")
@@ -1942,6 +1990,7 @@ def generate_trajectories_programmatic(
     num_gene: int = 100,
     od_pairs: Optional[List[Tuple[int, int]]] = None,
     output_file: Optional[Union[Path, str]] = None,
+    data_dir: Optional[Union[Path, str]] = None,
     cuda_device: int = 0,
     beam_search: bool = True,
     beam_width: int = 4,
@@ -2061,11 +2110,17 @@ def generate_trajectories_programmatic(
         print(f"✅ Using {len(od_pairs)} custom OD pairs")
     else:
         # Old interface: sample OD pairs
-        od_coords = sample_od_pairs(dataset, od_source, num_gene, seed)
+        od_coords = sample_od_pairs(
+            dataset,
+            od_source,
+            num_gene,
+            seed,
+            data_dir=data_dir,
+        )
         print(f"✅ Sampled {len(od_coords)} OD pairs from {od_source} set")
 
     # Load data for validation and timestamp selection
-    data = load_and_preprocess_data(dataset, od_source=od_source)
+    data = load_and_preprocess_data(dataset, od_source=od_source, data_dir=data_dir)
     num_roads = data["num_roads"]
 
     # Validate custom OD pairs if provided
@@ -2129,6 +2184,31 @@ def generate_trajectories_programmatic(
 
     project_root = Path(__file__).resolve().parent
     config_path = project_root / "config" / f"{dataset}.yaml"
+    if not config_path.exists():
+        # Many evaluation datasets are derived from a base dataset name
+        # (e.g., "Beijing_per_type_detour"). In those cases, re-use the
+        # nearest matching base config file by stripping suffixes.
+        candidate = str(dataset)
+        fallback = None
+        while "_" in candidate:
+            candidate = candidate.rsplit("_", 1)[0]
+            candidate_path = project_root / "config" / f"{candidate}.yaml"
+            if candidate_path.exists():
+                fallback = candidate_path
+                break
+
+        if fallback is None:
+            raise FileNotFoundError(
+                f"Model config not found: {config_path}. "
+                "No base config could be inferred by stripping suffixes."
+            )
+
+        print(
+            f"ℹ️  Config not found: {config_path.name}. "
+            f"Falling back to: {fallback.name}"
+        )
+        config_path = fallback
+
     with open(config_path, "r") as file:
         config = yaml.safe_load(file)
     config = create_nested_namespace(config)
