@@ -265,6 +265,7 @@ def run_lmtad_spatial_pipeline(
                     tsv_file=lmtad_source_eval_dir,  # Pass directory to process all TSV files
                     dataset=dataset,
                     source_eval_dir=lmtad_source_eval_dir,
+                    data_dir=data_dir,
                 )
                 # Save results
                 output_file.parent.mkdir(parents=True, exist_ok=True)

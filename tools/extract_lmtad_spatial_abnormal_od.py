@@ -42,6 +42,7 @@ EOS_TOKEN = 6165
 
 def build_reverse_grid_mapping(
     dataset: str,
+    data_dir: Optional[Path] = None,
 ) -> Tuple[Optional[Dict[int, List[int]]], Optional[int]]:
     """Build mapping from grid token to list of road IDs and find EOS token"""
     # Map dataset name to config name
@@ -50,7 +51,14 @@ def build_reverse_grid_mapping(
         config_dataset = "beijing_hoser_reference"
 
     # Find roadmap file
-    roadmap_path = Path("data") / dataset / "roadmap.geo"
+    roadmap_path = None
+    if data_dir is not None:
+        candidate = Path(data_dir) / "roadmap.geo"
+        if candidate.exists():
+            roadmap_path = candidate
+
+    if roadmap_path is None:
+        roadmap_path = Path("data") / dataset / "roadmap.geo"
     if not roadmap_path.exists():
         # Try alternative path for porto_hoser
         if dataset == "porto_hoser":
@@ -178,6 +186,7 @@ def extract_spatial_abnormal_od_pairs(
     tsv_file: Path,
     dataset: str,
     source_eval_dir: Path,
+    data_dir: Optional[Path] = None,
     grid_to_roads: Optional[Dict[int, List[int]]] = None,
     eos_token: Optional[int] = None,
 ) -> Dict:
@@ -196,6 +205,15 @@ def extract_spatial_abnormal_od_pairs(
     # Use default EOS token if not provided
     if eos_token is None:
         eos_token = EOS_TOKEN
+
+    # Auto-build grid mapping if not provided
+    if grid_to_roads is None:
+        grid_to_roads, inferred_eos = build_reverse_grid_mapping(
+            dataset=dataset,
+            data_dir=data_dir,
+        )
+        if eos_token == EOS_TOKEN and inferred_eos is not None:
+            eos_token = inferred_eos
 
     if tsv_file.is_dir():
         # Prefer the canonical ckpt_best_outliers_* pattern used by LM-TAD

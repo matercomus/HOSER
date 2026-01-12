@@ -2428,6 +2428,7 @@ class EvaluationPipeline:
 
                 # Resolve config path
                 abnormal_config_path = Path("config/abnormal_detection.yaml")
+                "perturbation_correction",
                 if not abnormal_config_path.exists():
                     # Fallback to project root config
                     project_config = PROJECT_ROOT / "config" / "abnormal_detection.yaml"
@@ -3006,6 +3007,18 @@ class EvaluationPipeline:
             phases = set()
 
         self.config.phases = set(phases)
+
+        # Keep phase set consistent with feature flags.
+        # This prevents confusing situations where a feature is enabled via YAML/CLI
+        # but the corresponding phase is absent from the phase list.
+        if getattr(self.config, "run_abnormal_detection", False):
+            self.config.phases.add("abnormal")
+        if getattr(self.config, "run_wang_detection", False):
+            self.config.phases.add("wang_abnormality")
+        if getattr(self.config, "run_lmtad_spatial_detection", False):
+            self.config.phases.add("lmtad_spatial_abnormality")
+        if getattr(self.config, "run_scenarios", False):
+            self.config.phases.add("scenarios")
         logger.info(f"Enabled phases: {sorted(self.config.phases)}")
 
     def _ensure_models_loaded(self) -> None:
