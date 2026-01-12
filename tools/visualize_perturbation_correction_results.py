@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 try:
     import pandas as pd
@@ -279,6 +280,272 @@ def plot_dtw_delta_distribution(
     logger.info("Saved %s", out)
 
 
+def plot_rsr_by_model_and_strength(
+    df: pd.DataFrame,
+    summaries: List[ModelSummary],
+    output_dir: Path,
+    title_prefix: str,
+) -> None:
+    """Plot correction rate split by perturbation strength.
+
+    Uses `ab_strength == 'strong'` vs everything else (including None).
+    """
+
+    if df.empty:
+        logger.warning("No per-row data found; skipping rsr_by_strength plot")
+        return
+
+    if "ab_strength" not in df.columns or "corrected" not in df.columns:
+        logger.warning(
+            "Missing ab_strength/corrected columns; skipping rsr_by_strength plot"
+        )
+        return
+
+    df = df.copy()
+    df = df[df["corrected"].notna()].copy()
+    if df.empty:
+        logger.warning("No valid corrected labels; skipping rsr_by_strength plot")
+        return
+
+    df["strength_bucket"] = np.where(
+        df["ab_strength"].astype(str) == "strong", "strong", "other"
+    )
+    display_by_model = {s.model: s.display for s in summaries}
+    color_by_model = {s.model: s.color for s in summaries}
+    df["model_display"] = df["model"].map(display_by_model)
+
+    grouped = (
+        df.groupby(["model", "model_display", "strength_bucket"], dropna=False)
+        .agg(
+            rsr=("corrected", "mean"),
+            n=("corrected", "size"),
+        )
+        .reset_index()
+    )
+
+    # Ensure stable order by display name
+    model_order = [s.model for s in sorted(summaries, key=lambda s: s.display)]
+    display_order = [display_by_model[m] for m in model_order]
+
+    # Build two aligned bars per model
+    strength_order = ["strong", "other"]
+    x = np.arange(len(model_order), dtype=float)
+    width = 0.36
+
+    fig, ax = plt.subplots(figsize=(max(10, len(model_order) * 1.5), 6))
+
+    for idx, strength in enumerate(strength_order):
+        offset = (-width / 2) if idx == 0 else (width / 2)
+        heights = []
+        ns = []
+        colors = []
+
+        for m in model_order:
+            row = grouped[(grouped["model"] == m) & (grouped["strength_bucket"] == strength)]
+            if row.empty:
+                heights.append(np.nan)
+                ns.append(0)
+            else:
+                heights.append(float(row["rsr"].iloc[0]))
+                ns.append(int(row["n"].iloc[0]))
+            colors.append(color_by_model.get(m, "#999999"))
+
+        alpha = 0.9 if strength == "strong" else 0.45
+        bars = ax.bar(
+            x + offset,
+            heights,
+            width=width,
+            color=colors,
+            alpha=alpha,
+            label=strength,
+            edgecolor="black",
+            linewidth=0.3,
+        )
+
+        for bar, h, n in zip(bars, heights, ns):
+            if not np.isfinite(h):
+                continue
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                h + 0.02,
+                f"{h:.2f}\n(n={n})",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(display_order, rotation=45, ha="right")
+    ax.set_ylim(0.0, 1.05)
+    ax.set_ylabel("RSR (corrected rate)")
+    ax.set_title(f"{title_prefix}: RSR by Perturbation Strength")
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.legend(title="ab_strength bucket")
+    plt.tight_layout()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out = output_dir / "rsr_by_model_and_strength.png"
+    plt.savefig(out, dpi=300, bbox_inches="tight")
+    plt.savefig(out.with_suffix(".svg"), bbox_inches="tight")
+    plt.close(fig)
+    logger.info("Saved %s", out)
+
+
+def plot_dtw_clean_vs_dirty_scatter(
+    df: pd.DataFrame,
+    summaries: List[ModelSummary],
+    output_dir: Path,
+    title_prefix: str,
+) -> None:
+    """Scatter plot of DTW to clean vs DTW to dirty with y=x reference."""
+
+    if df.empty:
+        logger.warning("No per-row data found; skipping dtw_clean_vs_dirty plot")
+        return
+
+    required = {"dtw_to_clean_km", "dtw_to_dirty_km", "model"}
+    if not required.issubset(df.columns):
+        logger.warning("Missing DTW/model columns; skipping dtw_clean_vs_dirty plot")
+        return
+
+    palette = {s.display: s.color for s in summaries}
+    display_by_model = {s.model: s.display for s in summaries}
+
+    df = df.copy()
+    df["model_display"] = df["model"].map(display_by_model)
+
+    x = df["dtw_to_clean_km"].astype(float)
+    y = df["dtw_to_dirty_km"].astype(float)
+    finite = np.isfinite(x) & np.isfinite(y)
+    df = df.loc[finite].copy()
+    if df.empty:
+        logger.warning("No finite DTW values; skipping dtw_clean_vs_dirty plot")
+        return
+
+    # Clip to a high percentile for readability; still faithful for comparisons.
+    xy_max = float(
+        np.nanpercentile(
+            np.maximum(
+                df["dtw_to_clean_km"].astype(float).to_numpy(),
+                df["dtw_to_dirty_km"].astype(float).to_numpy(),
+            ),
+            99.5,
+        )
+    )
+    xy_max = max(1.0, xy_max)
+
+    fig, ax = plt.subplots(figsize=(7.5, 7.0))
+
+    sns.scatterplot(
+        data=df,
+        x="dtw_to_clean_km",
+        y="dtw_to_dirty_km",
+        hue="model_display",
+        palette=palette,
+        alpha=0.25,
+        s=12,
+        linewidth=0,
+        ax=ax,
+    )
+
+    ax.plot([0, xy_max], [0, xy_max], color="black", linewidth=1.0, alpha=0.7)
+    ax.set_xlim(0, xy_max)
+    ax.set_ylim(0, xy_max)
+    ax.set_xlabel("DTW to clean [km]")
+    ax.set_ylabel("DTW to dirty [km]")
+    ax.set_title(
+        f"{title_prefix}: DTW to Clean vs Dirty (clipped to p99.5)"
+    )
+    ax.grid(True, alpha=0.25)
+
+    handles, labels = ax.get_legend_handles_labels()
+    if handles and labels:
+        ax.legend(
+            handles,
+            labels,
+            title="Model",
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            borderaxespad=0.0,
+            frameon=False,
+        )
+
+    plt.tight_layout()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out = output_dir / "dtw_clean_vs_dirty_scatter.png"
+    plt.savefig(out, dpi=300, bbox_inches="tight")
+    plt.savefig(out.with_suffix(".svg"), bbox_inches="tight")
+    plt.close(fig)
+    logger.info("Saved %s", out)
+
+
+def plot_dtw_delta_cdf(
+    df: pd.DataFrame,
+    summaries: List[ModelSummary],
+    output_dir: Path,
+    title_prefix: str,
+) -> None:
+    """Plot ECDFs of DTW delta (dirty - clean) per model."""
+
+    if df.empty:
+        logger.warning("No per-row data found; skipping dtw_delta_cdf plot")
+        return
+
+    if "dtw_delta_km" not in df.columns:
+        logger.warning("Missing dtw_delta_km; skipping dtw_delta_cdf plot")
+        return
+
+    palette = {s.display: s.color for s in summaries}
+    display_by_model = {s.model: s.display for s in summaries}
+
+    df = df.copy()
+    df["model_display"] = df["model"].map(display_by_model)
+    df["dtw_delta_km"] = df["dtw_delta_km"].astype(float)
+    df = df[np.isfinite(df["dtw_delta_km"])].copy()
+    if df.empty:
+        logger.warning("No finite dtw_delta_km; skipping dtw_delta_cdf plot")
+        return
+
+    # Stable order by display name
+    order = [s.display for s in sorted(summaries, key=lambda s: s.display)]
+
+    fig, ax = plt.subplots(figsize=(max(9, len(order) * 0.65), 6))
+    sns.ecdfplot(
+        data=df,
+        x="dtw_delta_km",
+        hue="model_display",
+        hue_order=order,
+        palette=palette,
+        ax=ax,
+    )
+
+    ax.axvline(0.0, color="black", linewidth=1.0, alpha=0.7)
+    ax.set_xlabel("DTW delta (dirty - clean) [km]")
+    ax.set_ylabel("ECDF")
+    ax.set_title(f"{title_prefix}: ECDF of DTW Delta (Dirty − Clean)")
+    ax.grid(True, alpha=0.25)
+
+    handles, labels = ax.get_legend_handles_labels()
+    if handles and labels:
+        ax.legend(
+            handles,
+            labels,
+            title="Model",
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            borderaxespad=0.0,
+            frameon=False,
+        )
+
+    plt.tight_layout()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out = output_dir / "dtw_delta_cdf.png"
+    plt.savefig(out, dpi=300, bbox_inches="tight")
+    plt.savefig(out.with_suffix(".svg"), bbox_inches="tight")
+    plt.close(fig)
+    logger.info("Saved %s", out)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Plot Phase B perturbation correction results",
@@ -320,8 +587,11 @@ def main() -> int:
     summaries = sorted(summaries, key=lambda s: s.display)
 
     plot_rsr_by_model(summaries, output_dir, title_prefix)
+    plot_rsr_by_model_and_strength(df, summaries, output_dir, title_prefix)
     plot_dtw_gap_by_model(summaries, output_dir, title_prefix)
     plot_dtw_delta_distribution(df, summaries, output_dir, title_prefix)
+    plot_dtw_clean_vs_dirty_scatter(df, summaries, output_dir, title_prefix)
+    plot_dtw_delta_cdf(df, summaries, output_dir, title_prefix)
 
     logger.info("Done. Wrote plots to %s", output_dir)
     return 0

@@ -298,11 +298,14 @@ def _render_report(
 
     # Embedded plots
     figures_dir = eval_dir / "figures" / "perturbation_correction"
-    plot_paths = {
-        "rsr": figures_dir / "rsr_by_model.png",
-        "gap": figures_dir / "dtw_gap_by_model.png",
-        "box": figures_dir / "dtw_delta_boxplot.png",
-    }
+    plot_paths: List[Tuple[str, Path]] = [
+        ("rsr", figures_dir / "rsr_by_model.png"),
+        ("rsr_strength", figures_dir / "rsr_by_model_and_strength.png"),
+        ("gap", figures_dir / "dtw_gap_by_model.png"),
+        ("box", figures_dir / "dtw_delta_boxplot.png"),
+        ("scatter", figures_dir / "dtw_clean_vs_dirty_scatter.png"),
+        ("cdf", figures_dir / "dtw_delta_cdf.png"),
+    ]
 
     # Build tables
     per_model_rows: List[List[str]] = []
@@ -582,21 +585,27 @@ def _render_report(
         # Make plot links relative to where the markdown will live.
         # If output is inside repo, this yields stable relative paths.
         out_dir = output_md.parent.resolve()
-        for key, path in plot_paths.items():
+        for key, path in plot_paths:
             if not path.exists():
                 continue
             rel = _relpath(out_dir, path.resolve())
             if key == "rsr":
                 lines.append("### Correction Rate (RSR)")
+            elif key == "rsr_strength":
+                lines.append("### Correction Rate (RSR) by perturbation strength")
             elif key == "gap":
                 lines.append("### Mean DTW gap (dirty − clean)")
             elif key == "box":
                 lines.append("### Per-sample DTW delta distribution")
+            elif key == "scatter":
+                lines.append("### DTW to clean vs DTW to dirty")
+            elif key == "cdf":
+                lines.append("### DTW delta CDF")
             lines.append("")
             lines.append(f"![]({rel})")
             lines.append("")
 
-        if not any(p.exists() for p in plot_paths.values()):
+        if not any(p.exists() for _k, p in plot_paths):
             lines.append(
                 "No plots found under `figures/perturbation_correction/`. Generate them with:"
             )
