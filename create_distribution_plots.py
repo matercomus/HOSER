@@ -59,16 +59,35 @@ class DistributionPlotter:
         # Load configuration from evaluation.yaml
         eval_config = self._load_eval_config()
 
+        # Used to ignore incomplete/accidental tiny artifacts (e.g., debug runs)
+        self.expected_num_gene = int(eval_config.get("num_gene", 0) or 0)
+
         # Get dataset from config or use provided
         if dataset is None:
             dataset = eval_config.get("dataset", "Beijing")
         self.dataset = dataset
 
-        # Set paths based on dataset
-        if dataset.lower() == "porto":
-            self.data_dir = Path("data") / "porto_hoser"
-        else:
-            self.data_dir = Path("data") / dataset
+        # Prefer the eval workspace's explicit data_dir override.
+        configured_data_dir = eval_config.get("data_dir")
+        resolved_data_dir: Path | None = None
+        if configured_data_dir:
+            candidate = Path(str(configured_data_dir)).expanduser()
+            if candidate.exists():
+                resolved_data_dir = candidate.resolve()
+            else:
+                logger.warning(
+                    "Configured data_dir does not exist: %s; falling back to default layout",
+                    configured_data_dir,
+                )
+
+        # Fall back to repo-local data/<dataset> conventions.
+        if resolved_data_dir is None:
+            if dataset.lower() == "porto":
+                resolved_data_dir = (Path("data") / "porto_hoser").resolve()
+            else:
+                resolved_data_dir = (Path("data") / dataset).resolve()
+
+        self.data_dir = resolved_data_dir
 
         self.gene_dir = self.eval_dir / "gene" / dataset
         self.output_dir = self.eval_dir / "figures" / "distributions"
@@ -76,6 +95,17 @@ class DistributionPlotter:
 
         # Load road network for coordinate conversion
         self.road_coords = self._load_road_network()
+
+    def _csv_has_at_least_n_lines(self, path: Path, n_lines: int) -> bool:
+        """Return True if file has at least n_lines (fast early-exit scan)."""
+        try:
+            with open(path, "r") as f:
+                for i, _ in enumerate(f, start=1):
+                    if i >= n_lines:
+                        return True
+            return False
+        except OSError:
+            return False
 
     def _load_eval_config(self) -> dict:
         """Load evaluation.yaml from eval directory"""
@@ -247,6 +277,19 @@ class DistributionPlotter:
         # Search recursively so files in seed subdirectories are included
         generated_data = {}
         for csv_file in sorted(self.gene_dir.rglob("*.csv")):
+            # If evaluation.yaml specifies num_gene, ignore incomplete artifacts.
+            if self.expected_num_gene > 0:
+                # CSVs include header, so expected lines = num_gene + 1.
+                if not self._csv_has_at_least_n_lines(
+                    csv_file, self.expected_num_gene + 1
+                ):
+                    logger.warning(
+                        "Skipping incomplete generated CSV %s (expected ~%s trajectories)",
+                        csv_file.name,
+                        self.expected_num_gene,
+                    )
+                    continue
+
             # Extract model name and OD type
             model = extract_model_name(csv_file.name)
 
@@ -309,16 +352,19 @@ class DistributionPlotter:
         x_range = np.linspace(0, 30, 300)  # Smooth curve with 300 points
 
         # Plot real data with thicker line
-        kde_real = stats.gaussian_kde(real_distances)
-        ax1.plot(
-            x_range,
-            kde_real(x_range),
-            color=COLORS["real_train"],
-            linewidth=3,
-            label="Real",
-            linestyle="-",
-            alpha=0.9,
-        )
+        if len(real_distances) >= 2:
+            kde_real = stats.gaussian_kde(real_distances)
+            ax1.plot(
+                x_range,
+                kde_real(x_range),
+                color=COLORS["real_train"],
+                linewidth=3,
+                label="Real",
+                linestyle="-",
+                alpha=0.9,
+            )
+        else:
+            logger.warning("Skipping KDE for real data (need >=2 samples).")
 
         # Plot generated models with distinct styles
         linestyles = {"distilled": "-", "distilled_seed44": "--", "vanilla": "-."}
@@ -326,6 +372,12 @@ class DistributionPlotter:
             model_name = model_key.replace("_train", "").replace("_test", "")
             color = COLORS.get(model_name, "#95a5a6")
             linestyle = linestyles.get(model_name, "-")
+
+            if len(distances) < 2:
+                logger.warning(
+                    f"Skipping KDE for {model_name} (need >=2 samples, got {len(distances)})."
+                )
+                continue
 
             kde = stats.gaussian_kde(distances)
             ax1.plot(
@@ -370,6 +422,8 @@ class DistributionPlotter:
 
         # Add mean as diamonds
         for i, (data, color) in enumerate(zip(box_data, box_colors), start=1):
+            if len(data) == 0:
+                continue
             mean_val = np.mean(data)
             ax2.plot(
                 i,
@@ -408,16 +462,19 @@ class DistributionPlotter:
         x_range = np.linspace(0, 5, 300)  # Smooth curve with 300 points
 
         # Plot real data with thicker line
-        kde_real = stats.gaussian_kde(real_radii)
-        ax1.plot(
-            x_range,
-            kde_real(x_range),
-            color=COLORS["real_train"],
-            linewidth=3,
-            label="Real",
-            linestyle="-",
-            alpha=0.9,
-        )
+        if len(real_radii) >= 2:
+            kde_real = stats.gaussian_kde(real_radii)
+            ax1.plot(
+                x_range,
+                kde_real(x_range),
+                color=COLORS["real_train"],
+                linewidth=3,
+                label="Real",
+                linestyle="-",
+                alpha=0.9,
+            )
+        else:
+            logger.warning("Skipping KDE for real data (need >=2 samples).")
 
         # Plot generated models with distinct styles
         linestyles = {"distilled": "-", "distilled_seed44": "--", "vanilla": "-."}
@@ -425,6 +482,12 @@ class DistributionPlotter:
             model_name = model_key.replace("_train", "").replace("_test", "")
             color = COLORS.get(model_name, "#95a5a6")
             linestyle = linestyles.get(model_name, "-")
+
+            if len(radii) < 2:
+                logger.warning(
+                    f"Skipping KDE for {model_name} (need >=2 samples, got {len(radii)})."
+                )
+                continue
 
             kde = stats.gaussian_kde(radii)
             ax1.plot(
@@ -471,6 +534,8 @@ class DistributionPlotter:
 
         # Add mean as diamonds
         for i, (data, color) in enumerate(zip(box_data, box_colors), start=1):
+            if len(data) == 0:
+                continue
             mean_val = np.mean(data)
             ax2.plot(
                 i,

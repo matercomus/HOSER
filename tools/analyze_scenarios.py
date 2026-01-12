@@ -1381,16 +1381,15 @@ Examples:
         for od_source in od_sources:
             logger.info(f"\nAnalyzing {od_source} OD...")
 
-            # Find all generated files for this OD source
-            seed_dir = gene_dir / dataset / "seed42"  # Assuming seed42
-            if not seed_dir.exists():
-                # Try to find any seed directory
-                seed_dirs = list((gene_dir / dataset).glob("seed*"))
-                if seed_dirs:
-                    seed_dir = seed_dirs[0]
-                else:
-                    logger.warning(f"No seed directory found in {gene_dir / dataset}")
-                    continue
+            # Find seed directories under gene/<dataset>/seed*
+            dataset_gene_dir = gene_dir / dataset
+            seed_dirs = sorted(
+                [d for d in dataset_gene_dir.glob("seed*") if d.is_dir()],
+                key=lambda p: int(re.sub(r"\D+", "", p.name) or "0"),
+            )
+            if not seed_dirs:
+                logger.warning(f"No seed directory found in {dataset_gene_dir}")
+                continue
 
             # Try multiple patterns to find generated files
             patterns = [
@@ -1399,52 +1398,57 @@ Examples:
                 f"*{od_source}*.csv",  # Fallback: *test*.csv
             ]
 
-            generated_files = []
-            for pattern in patterns:
-                files = list(seed_dir.glob(pattern))
-                if files:
-                    generated_files.extend(files)
-                    break
+            for seed_dir in seed_dirs:
+                logger.info(f"  Scanning {seed_dir.name}...")
 
-            if not generated_files:
-                logger.warning(f"No generated files found for {od_source} OD")
-                continue
+                generated_files = []
+                for pattern in patterns:
+                    files = list(seed_dir.glob(pattern))
+                    if files:
+                        generated_files.extend(files)
+                        break
 
-            # Filter by models if specified
-            if args.models:
-                model_filter = args.models.split(",")
-                filtered_files = []
-                for f in generated_files:
-                    for model in model_filter:
-                        if model in f.name:
-                            filtered_files.append(f)
-                            break
-                generated_files = filtered_files
-
-            # Process each file
-            for gen_file in generated_files:
-                # Extract model name from filename
-                model_name = extract_model_name(gen_file.name)
-
-                output_dir = eval_dir / "scenarios" / od_source / model_name
-
-                logger.info(f"  Analyzing {model_name} model...")
-
-                try:
-                    run_scenario_analysis(
-                        generated_file=gen_file,
-                        dataset=dataset,
-                        od_source=od_source,
-                        config_path=config_copy,
-                        output_dir=output_dir,
-                        model_name=model_name,
+                if not generated_files:
+                    logger.warning(
+                        f"  No generated files found for {od_source} OD in {seed_dir}"
                     )
-                except Exception as e:
-                    logger.error(f"Analysis failed for {model_name}: {e}")
-                    import traceback
-
-                    traceback.print_exc()
                     continue
+
+                # Filter by models if specified
+                if args.models:
+                    model_filter = args.models.split(",")
+                    filtered_files = []
+                    for file_path in generated_files:
+                        for model in model_filter:
+                            if model in file_path.name:
+                                filtered_files.append(file_path)
+                                break
+                    generated_files = filtered_files
+
+                # Process each file
+                for gen_file in generated_files:
+                    # Extract model name from filename
+                    model_name = extract_model_name(gen_file.name)
+
+                    output_dir = eval_dir / "scenarios" / od_source / model_name
+
+                    logger.info(f"  Analyzing {model_name} model...")
+
+                    try:
+                        run_scenario_analysis(
+                            generated_file=gen_file,
+                            dataset=dataset,
+                            od_source=od_source,
+                            config_path=config_copy,
+                            output_dir=output_dir,
+                            model_name=model_name,
+                        )
+                    except Exception as e:
+                        logger.error(f"Analysis failed for {model_name}: {e}")
+                        import traceback
+
+                        traceback.print_exc()
+                        continue
 
         logger.info(f"\n✅ All analyses complete! Results in {eval_dir / 'scenarios'}")
 

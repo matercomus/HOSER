@@ -183,6 +183,11 @@ class PipelineConfig:
             "scenarios",
         }
 
+        # When True, `phases` was set explicitly by the operator (e.g., via --only).
+        # In that case we should NOT auto-add phases based on feature flags, so that
+        # `--only X` really means only X.
+        self.phases_explicit: bool = False
+
         # Other settings
         self.force = False
         self.enable_wandb = True
@@ -2634,6 +2639,20 @@ class EvaluationPipeline:
                 with open(config_path, "r") as f:
                     eval_config = yaml.safe_load(f)
 
+            # Prefer an explicitly configured LM-TAD repo path. For backwards
+            # compatibility with existing eval configs, fall back to
+            # `perturbation_lmtad_repo` if `lmtad_repo` isn't provided.
+            resolved_lmtad_repo = getattr(self.config, "lmtad_repo", None)
+            if resolved_lmtad_repo is None:
+                resolved_lmtad_repo = getattr(self.config, "lmtad_spatial_repo", None)
+            if resolved_lmtad_repo is None:
+                resolved_lmtad_repo = getattr(self.config, "perturbation_lmtad_repo", None)
+
+            if resolved_lmtad_repo is not None:
+                resolved_lmtad_repo = Path(str(resolved_lmtad_repo))
+                if not resolved_lmtad_repo.is_absolute():
+                    resolved_lmtad_repo = (self.eval_dir / resolved_lmtad_repo).resolve()
+
             success = run_lmtad_spatial_pipeline(
                 eval_dir=self.eval_dir,
                 dataset=self.config.dataset,
@@ -2656,7 +2675,7 @@ class EvaluationPipeline:
                     if self.config.lmtad_max_od_pairs is not None
                     else 250
                 ),
-                lmtad_repo=None,  # Auto-detect from checkpoint
+                lmtad_repo=resolved_lmtad_repo,  # Avoid fragile checkpoint-path auto-detection
                 force=self.config.force,
                 eval_config=eval_config,
                 max_duplicate_ratio=(
@@ -3008,17 +3027,17 @@ class EvaluationPipeline:
 
         self.config.phases = set(phases)
 
-        # Keep phase set consistent with feature flags.
-        # This prevents confusing situations where a feature is enabled via YAML/CLI
-        # but the corresponding phase is absent from the phase list.
-        if getattr(self.config, "run_abnormal_detection", False):
-            self.config.phases.add("abnormal")
-        if getattr(self.config, "run_wang_detection", False):
-            self.config.phases.add("wang_abnormality")
-        if getattr(self.config, "run_lmtad_spatial_detection", False):
-            self.config.phases.add("lmtad_spatial_abnormality")
-        if getattr(self.config, "run_scenarios", False):
-            self.config.phases.add("scenarios")
+        # Keep phase set consistent with feature flags, unless the operator
+        # explicitly requested a phase subset via --only.
+        if not getattr(self.config, "phases_explicit", False):
+            if getattr(self.config, "run_abnormal_detection", False):
+                self.config.phases.add("abnormal")
+            if getattr(self.config, "run_wang_detection", False):
+                self.config.phases.add("wang_abnormality")
+            if getattr(self.config, "run_lmtad_spatial_detection", False):
+                self.config.phases.add("lmtad_spatial_abnormality")
+            if getattr(self.config, "run_scenarios", False):
+                self.config.phases.add("scenarios")
         logger.info(f"Enabled phases: {sorted(self.config.phases)}")
 
     def _ensure_models_loaded(self) -> None:
@@ -3323,6 +3342,7 @@ def main():
     # Apply phase control (BEFORE other overrides)
     if hasattr(args, "only") and args.only:
         config.phases = {p.strip() for p in args.only.split(",") if p.strip()}
+        config.phases_explicit = True
         logger.info(f"Running only phases: {config.phases}")
 
         # If the user explicitly requested a phase via --only, treat that as an

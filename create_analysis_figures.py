@@ -81,6 +81,7 @@ class EvaluationVisualizer:
     def _load_results(self) -> List[Dict]:
         """Load all results.json files from eval directory"""
         results = []
+        is_abnormal_dataset = "abnormal" in (self.dataset or "").lower()
         # Search in eval/ subdirectory for timestamp directories
         eval_subdir = self.eval_dir / "eval"
         if eval_subdir.exists():
@@ -90,8 +91,11 @@ class EvaluationVisualizer:
                     # Skip abnormal-OD / gene_abnormal runs from standard analysis
                     meta = data.get("metadata", {})
                     gen = meta.get("generated_file", "") or ""
-                    # Skip abnormal-OD / gene_abnormal runs from standard analysis
-                    if "abnormal" in gen.lower() or "gene_abnormal" in gen.lower():
+                    # In non-abnormal datasets, exclude abnormal-generation artifacts.
+                    # In abnormal datasets, keep them; otherwise we'd drop everything.
+                    if not is_abnormal_dataset and (
+                        "abnormal" in gen.lower() or "gene_abnormal" in gen.lower()
+                    ):
                         continue
                     # Skip cross-dataset evaluations (they compare across different real datasets)
                     if meta.get("cross_dataset") or meta.get("cross_dataset_name"):

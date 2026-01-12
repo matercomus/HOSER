@@ -184,6 +184,7 @@ def generate_spatial_abnormal_trajectories(
     dataset: str,
     models: List[str],
     seed: int,
+    data_dir: Path | str | None = None,
     num_traj_per_od: int = 20,
     max_od_pairs: int = 250,
     stratified_sampling: bool = True,
@@ -199,6 +200,9 @@ def generate_spatial_abnormal_trajectories(
         dataset: Dataset name
         models: List of model names to generate for (if empty, auto-detect all)
         seed: Random seed
+        data_dir: Optional dataset root override. If provided, files like
+            'roadmap.geo' are loaded from this directory instead of the default
+            project-root-relative 'data/<dataset>/' layout.
         num_traj_per_od: Number of trajectories to generate per OD pair (default: 20)
         max_od_pairs: Maximum number of OD pairs to sample (default: 250)
         stratified_sampling: Use stratified sampling to maintain route_switch/detour ratio (default: True)
@@ -317,6 +321,7 @@ def generate_spatial_abnormal_trajectories(
                     model_path=str(model_path_abs),
                     od_pairs=od_list_expanded,
                     output_file=str(output_file),
+                    data_dir=data_dir,
                     seed=seed,
                     cuda_device=cuda_device,
                     beam_search=beam_search,
@@ -390,6 +395,15 @@ Examples:
         type=str,
         required=True,
         help="Dataset name (e.g., porto_hoser, Beijing)",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional dataset root override (e.g., /local/data/.../<dataset>/). "
+            "If provided, roadmap.geo/train.csv/test.csv are resolved from here."
+        ),
     )
     parser.add_argument(
         "--models",
@@ -469,6 +483,7 @@ Examples:
             dataset=args.dataset,
             models=models,
             seed=args.seed,
+            data_dir=args.data_dir,
             num_traj_per_od=args.num_trajectories_per_od,
             max_od_pairs=args.max_od_pairs,
             stratified_sampling=args.stratified_sampling,

@@ -40,15 +40,34 @@ logger = logging.getLogger(__name__)
 EOS_TOKEN = 6165
 
 
+def _canonical_lmtad_config_dataset(dataset: str) -> str:
+    """Map a HOSER dataset name to the LM-TAD config dataset name.
+
+    LM-TAD's grid vocab and EOS token are tied to the dataset config name.
+    For derived Beijing datasets (e.g., Beijing_per_type_detour), we still want
+    to use the canonical Beijing LM-TAD config.
+    """
+    if dataset.lower().startswith("beijing"):
+        return "beijing_hoser_reference"
+    return dataset
+
+
+def _default_eos_token_for_dataset(dataset: str) -> int | None:
+    """Return a dataset-appropriate EOS token ID if known."""
+    if dataset.lower().startswith("beijing"):
+        return 51661
+    if dataset in {"porto_hoser", "Porto", "porto"}:
+        return 6165
+    return None
+
+
 def build_reverse_grid_mapping(
     dataset: str,
     data_dir: Optional[Path] = None,
 ) -> Tuple[Optional[Dict[int, List[int]]], Optional[int]]:
     """Build mapping from grid token to list of road IDs and find EOS token"""
-    # Map dataset name to config name
-    config_dataset = dataset
-    if dataset == "Beijing":
-        config_dataset = "beijing_hoser_reference"
+    # Map dataset name to LM-TAD config name (handles derived datasets).
+    config_dataset = _canonical_lmtad_config_dataset(dataset)
 
     # Find roadmap file
     roadmap_path = None
@@ -91,14 +110,14 @@ def build_reverse_grid_mapping(
                 break
 
         if eos_token is None:
-            if dataset == "Beijing":
-                eos_token = 51661
-                logger.info(f"Using hardcoded EOS token for Beijing: {eos_token}")
-            elif dataset == "porto_hoser":
-                eos_token = 6165
-                logger.info(f"Using hardcoded EOS token for Porto: {eos_token}")
+            fallback = _default_eos_token_for_dataset(dataset)
+            if fallback is not None:
+                eos_token = fallback
+                logger.info(f"Using hardcoded EOS token for {dataset}: {eos_token}")
             else:
-                logger.warning("EOS token not found in vocab and no hardcoded default")
+                logger.warning(
+                    "EOS token not found in vocab and no hardcoded default"
+                )
         else:
             logger.info(f"Found EOS token in vocab: {eos_token}")
 

@@ -214,10 +214,23 @@ def _build_color_palette(
 # Order matters: more specific patterns should be checked first
 MODEL_CONVENTIONS = [
     # Abnormal evaluation outputs (must come before non-abnormal patterns)
+    # Handle both ordering styles:
+    # - ...seed42...abnormal...
+    # - ...abnormal...seed42...
+    # - ..._l0p001...seed42...abnormal... (seed after the lambda token)
+    # These show up in filenames like:
+    #   distilled_l0p001_seed43_spatial_abnormal.csv
+    #   vanilla_abnormal_seed42_spatial_evaluation.json
+    (r"distilled.*_l1.*abnormal.*seed(\d+)", "distilled_l1_abnormal_seed{}"),
+    (r"distilled.*_l1.*seed(\d+).*abnormal", "distilled_l1_abnormal_seed{}"),
     (r"distilled_.*seed(\d+).*_l1.*abnormal", "distilled_l1_abnormal_seed{}"),
     (r"distilled.*_l1.*abnormal", "distilled_l1_abnormal"),
+    (r"distilled.*_l0p001.*abnormal.*seed(\d+)", "distilled_l0p001_abnormal_seed{}"),
+    (r"distilled.*_l0p001.*seed(\d+).*abnormal", "distilled_l0p001_abnormal_seed{}"),
     (r"distilled_.*seed(\d+).*_l0p001.*abnormal", "distilled_l0p001_abnormal_seed{}"),
     (r"distilled.*_l0p001.*abnormal", "distilled_l0p001_abnormal"),
+    (r"distilled.*_l0p5.*abnormal.*seed(\d+)", "distilled_l0p5_abnormal_seed{}"),
+    (r"distilled.*_l0p5.*seed(\d+).*abnormal", "distilled_l0p5_abnormal_seed{}"),
     (r"distilled_.*seed(\d+).*_l0p5.*abnormal", "distilled_l0p5_abnormal_seed{}"),
     (r"distilled.*_l0p5.*abnormal", "distilled_l0p5_abnormal"),
     (
@@ -230,8 +243,10 @@ MODEL_CONVENTIONS = [
         "distilled_l0p5_abnormal_seed{}",
     ),
     (r"distilled.*lambda0(?:\.5|p5).*abnormal", "distilled_l0p5_abnormal"),
+    (r"distilled.*abnormal.*seed(\d+)", "distilled_abnormal_seed{}"),
     (r"distilled_.*seed(\d+).*abnormal", "distilled_abnormal_seed{}"),
     (r"distilled.*abnormal", "distilled_abnormal"),
+    (r"vanilla.*abnormal.*seed(\d+)", "vanilla_abnormal_seed{}"),
     (r"vanilla_.*seed(\d+).*abnormal", "vanilla_abnormal_seed{}"),
     (r"vanilla.*abnormal", "vanilla_abnormal"),
 

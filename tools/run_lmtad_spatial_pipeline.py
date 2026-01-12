@@ -66,6 +66,53 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _estimate_num_roads_from_roadmap(
+    dataset: str,
+    data_dir: Path | None,
+    eval_dir: Path,
+) -> int | None:
+    """Estimate number of roads by counting rows in roadmap.geo.
+
+    This is used only for a cheap sanity check to detect stale OD-pair files.
+    """
+    candidates: list[Path] = []
+    if data_dir is not None:
+        candidates.append(Path(data_dir) / "roadmap.geo")
+        candidates.append((eval_dir / Path(data_dir)) / "roadmap.geo")
+    candidates.append(Path(__file__).parent.parent / "data" / dataset / "roadmap.geo")
+    candidates.append(Path("data") / dataset / "roadmap.geo")
+
+    roadmap = next((p for p in candidates if p.exists()), None)
+    if roadmap is None:
+        return None
+
+    try:
+        with open(roadmap, "r", encoding="utf-8") as f:
+            # subtract header
+            return max(0, sum(1 for _ in f) - 1)
+    except OSError:
+        return None
+
+
+def _max_od_id(od_pairs_by_type: dict) -> int | None:
+    """Return max road id appearing in OD pairs, or None if empty."""
+    max_id: int | None = None
+    for pairs in od_pairs_by_type.values():
+        for pair in pairs:
+            if not pair or len(pair) < 2:
+                continue
+            try:
+                a = int(pair[0])
+                b = int(pair[1])
+            except (TypeError, ValueError):
+                continue
+            if max_id is None:
+                max_id = max(a, b)
+            else:
+                max_id = max(max_id, a, b)
+    return max_id
+
+
 def find_lmtad_tsv_file(source_eval_dir: Path) -> Path:
     """Find LM-TAD evaluation TSV file
 
@@ -239,10 +286,30 @@ def run_lmtad_spatial_pipeline(
                     existing_data = json.load(f)
                 total_od_pairs = existing_data.get("total_unique_od_pairs", 0)
                 if total_od_pairs > 0 and not force:
-                    logger.info(
-                        f"  ⏭️  OD pairs file already exists with {total_od_pairs} OD pairs: {output_file.name}, skipping"
+                    # Sanity check: make sure OD ids fit this dataset's roadmap.
+                    # If they don't, the file is likely from an earlier run that
+                    # couldn't build a grid-token->road-id mapping.
+                    estimated_num_roads = _estimate_num_roads_from_roadmap(
+                        dataset=dataset,
+                        data_dir=Path(data_dir) if data_dir is not None else None,
+                        eval_dir=eval_dir,
                     )
-                    should_extract = False
+                    max_id = _max_od_id(existing_data.get("od_pairs_by_type", {}))
+                    if (
+                        estimated_num_roads is not None
+                        and max_id is not None
+                        and max_id >= estimated_num_roads
+                    ):
+                        logger.warning(
+                            "  ⚠️  Existing LM-TAD OD-pairs file appears incompatible with the current dataset "
+                            f"(max_id={max_id} >= num_roads={estimated_num_roads}). Re-extracting..."
+                        )
+                        should_extract = True
+                    else:
+                        logger.info(
+                            f"  ⏭️  OD pairs file already exists with {total_od_pairs} OD pairs: {output_file.name}, skipping"
+                        )
+                        should_extract = False
                 elif force:
                     logger.info(
                         f"  🔄 Force flag set, re-extracting OD pairs (existing file has {total_od_pairs} OD pairs)"
@@ -325,6 +392,7 @@ def run_lmtad_spatial_pipeline(
                     dataset=dataset,
                     models=[],  # Auto-detect all models
                     seed=seed,
+                    data_dir=data_dir,
                     num_traj_per_od=num_traj_per_od,
                     max_od_pairs=max_od_pairs,
                     stratified_sampling=True,  # Use stratified sampling to maintain ratio
@@ -528,12 +596,32 @@ def run_lmtad_spatial_pipeline(
             / "lmtad_spatial_results_aggregated.json"
         )
 
-        # Check if already exists
+        # Check if already exists (but don't skip if it's empty/stale)
         if output_file.exists() and not force:
-            logger.info(
-                f"  ⏭️  Aggregated results already exist: {output_file.name}, skipping"
-            )
-            success_count += 1
+            should_skip = True
+            try:
+                with open(output_file, "r") as f:
+                    existing = json.load(f)
+                # If aggregation is empty or doesn't include this dataset, rerun.
+                if not isinstance(existing, dict) or not existing:
+                    should_skip = False
+                elif dataset not in existing:
+                    should_skip = False
+                elif isinstance(existing.get(dataset), dict) and not existing.get(dataset):
+                    should_skip = False
+            except Exception:
+                should_skip = False
+
+            if should_skip:
+                logger.info(
+                    f"  ⏭️  Aggregated results already exist: {output_file.name}, skipping"
+                )
+                success_count += 1
+            else:
+                logger.info(
+                    f"  🔄 Existing aggregated results look empty/stale; re-aggregating {output_file.name}"
+                )
+                output_file.unlink()
         elif force and output_file.exists():
             logger.info(
                 f"  🔄 Force flag set, re-aggregating results (removing {output_file.name})"
