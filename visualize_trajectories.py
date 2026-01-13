@@ -214,11 +214,21 @@ class VisualizationConfig:
         if self.dataset is None:
             self.dataset = eval_config.get("dataset", "Beijing")
 
-        # Set paths based on dataset
-        if self.dataset.lower() == "porto":
-            data_dir = Path("data") / "porto_hoser"
+        # Resolve dataset data directory.
+        # Prefer the evaluation workspace config's `data_dir` when present.
+        # Fallback to repo-local `data/<dataset>` layout.
+        data_dir_from_config = eval_config.get("data_dir")
+        if data_dir_from_config:
+            data_dir_candidate = Path(str(data_dir_from_config)).expanduser()
+            if data_dir_candidate.is_absolute():
+                data_dir = data_dir_candidate
+            else:
+                data_dir = (self.eval_dir / data_dir_candidate).resolve()
         else:
-            data_dir = Path("data") / self.dataset
+            if self.dataset.lower() == "porto":
+                data_dir = Path("data") / "porto_hoser"
+            else:
+                data_dir = Path("data") / self.dataset
 
         self.roadmap_path = data_dir / "roadmap.geo"
         self.train_csv_path = data_dir / "train.csv"
